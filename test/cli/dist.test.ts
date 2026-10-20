@@ -232,6 +232,18 @@ describe('built dist/via.js', () => {
       }
     });
 
+    // The browse commands name what they need in one module (src/cli/browse-deps.ts) so it is one
+    // import, not six in a row; a command that never lists tools must not load any of it.
+    it('`via daemon status` loads neither the catalog, the configuration nor the backends', () => {
+      const { files } = loads(['daemon', 'status']);
+      const dir = dirname(bin);
+      for (const f of files) {
+        const text = readFileSync(join(dir, f), 'utf8');
+        expect(text, f).not.toMatch(/^\/\/ src\/(catalog\/|config\/(load|layer|merge|normalize|parse|credentials)\.ts)/m);
+        expect(text, f).not.toMatch(/^\/\/ src\/cli\/(backend|view-cache|catalog-cache|directory)\.ts/m);
+      }
+    });
+
     // Making a `require` costs URL parsing and package.json lookups. Only chunks that mention
     // `require` (the esbuild runtime shim, CommonJS dependencies) get one; the rest do not
     // (scripts/lib/strip-require.ts).

@@ -49,6 +49,7 @@ export class App {
   private loaded?: LoadedConfig;
   private resolverInstance?: CredentialResolver;
   private resolverLoading?: Promise<CredentialResolver>;
+  private depsLoading?: Promise<typeof import('./browse-deps')>;
   private backendInstance?: Promise<Backend>;
   private backendReady?: Backend;
   private socketClient?: import('../daemon/client').DaemonClient;
@@ -86,13 +87,19 @@ export class App {
 
   // Lazily created pieces ---------------------------------------------------------------
 
+  /** Config, catalog, directory, caches and backends in one import (see browse-deps.ts). */
+  private deps(): Promise<typeof import('./browse-deps')> {
+    this.depsLoading ??= import('./browse-deps');
+    return this.depsLoading;
+  }
+
   /**
    * The merged configuration. An error-level diagnostic stops the command (fail closed): a deny
    * rule that did not compile would otherwise leave a tool visible (config.md, "校验与诊断").
    * `via doctor` and `via servers` pass `allowErrors` to show the diagnostics instead.
    */
   async config(options: { allowErrors?: boolean } = {}): Promise<LoadedConfig> {
-    const { loadConfig, hasErrors, formatDiagnostic } = await import('../config');
+    const { loadConfig, hasErrors, formatDiagnostic } = await this.deps();
     if (!this.loaded) {
       this.loaded = await loadConfig({ cwd: this.io.cwd, env: this.io.env, home: this.io.home, platform: this.io.platform, parseCacheDir: join(this.cacheDir, 'config') });
     }
@@ -106,7 +113,7 @@ export class App {
   async resolver(): Promise<CredentialResolver> {
     // One resolver per run, even when several servers ask at once (doctor, sync): two instances would
     // each cache and run `cmd:` separately, and redaction only knows the values of the one it holds.
-    this.resolverLoading ??= import('../config').then(({ createCredentialResolver }) => {
+    this.resolverLoading ??= this.deps().then(({ createCredentialResolver }) => {
       this.resolverInstance = createCredentialResolver({ home: this.io.home, env: this.io.env, platform: this.io.platform, cwd: this.io.cwd });
       return this.resolverInstance;
     });
@@ -135,7 +142,7 @@ export class App {
   private async createBackend(): Promise<Backend> {
     const config = await this.config({ allowErrors: true });
     const inProcess = async (): Promise<Backend> => {
-      const { InProcessBackend } = await import('./backend');
+      const { InProcessBackend } = await this.deps();
       return InProcessBackend.create({
         servers: config.servers,
         resolver: await this.resolver(),
@@ -147,11 +154,7 @@ export class App {
       });
     };
     if (daemonDisabled(this.io)) return inProcess();
-    const [{ DaemonBackend }, { FallbackBackend }, { FileCursorStore }] = await Promise.all([
-      import('../daemon/backend'),
-      import('./backend'),
-      import('../render/cursor-file'),
-    ]);
+    const [{ DaemonBackend }, { FallbackBackend }, { FileCursorStore }] = await Promise.all([import('../daemon/backend'), this.deps(), import('../render/cursor-file')]);
     const client = await this.daemonClient(config.daemon.idleTimeout);
     const primary = new DaemonBackend({
       client,
@@ -218,7 +221,7 @@ export class App {
 
   async cache(): Promise<CatalogCache> {
     if (!this.cacheInstance) {
-      const { CatalogCache } = await import('./catalog-cache');
+      const { CatalogCache } = await this.deps();
       this.cacheInstance = new CatalogCache(join(this.cacheDir, 'catalog'), this.io.now);
     }
     return this.cacheInstance;
@@ -227,7 +230,7 @@ export class App {
   /** Where built provider catalogs are kept next to the raw tool lists (view-cache.ts). */
   async viewCache(): Promise<ViewCache> {
     if (!this.viewCacheInstance) {
-      const [{ ViewCache }, { rulesFingerprint }] = await Promise.all([import('./view-cache'), import('../catalog')]);
+      const { ViewCache, rulesFingerprint } = await this.deps();
       this.viewCacheInstance = new ViewCache(join(this.cacheDir, 'catalog'), rulesFingerprint());
     }
     return this.viewCacheInstance;
@@ -235,7 +238,7 @@ export class App {
 
   async table(): Promise<ProviderTable> {
     if (!this.tableInstance) {
-      const { buildProviderTable } = await import('./directory');
+      const { buildProviderTable } = await this.deps();
       this.tableInstance = buildProviderTable((await this.config()).servers);
     }
     return this.tableInstance;
@@ -268,7 +271,7 @@ export class App {
   /** Fetch several providers in parallel; failures become statuses instead of aborting. */
   async loadProviders(entries: readonly ProviderEntry[], options: { refresh?: boolean } = {}): Promise<LoadedProviders> {
     const config = await this.config();
-    const [{ buildCatalog }, { providerInput, statusOf }, views] = await Promise.all([import('../catalog'), import('./directory'), this.viewCache()]);
+    const [{ buildCatalog, providerInput, statusOf }, views] = await Promise.all([this.deps(), this.viewCache()]);
     const statuses: Record<string, ProviderStatus> = {};
     const failures: LoadedProviders['failures'] = [];
     // The build inputs do not depend on the tool list, so they are known before it is fetched; the
@@ -315,7 +318,7 @@ export class App {
    */
   async providerViews(entry: ProviderEntry, listing: Listing): Promise<{ visible: ProviderCatalog; full: ProviderCatalog }> {
     const config = await this.config();
-    const [{ buildProvider, providerInput }, views] = await Promise.all([import('./directory'), this.viewCache()]);
+    const [{ buildProvider, providerInput }, views] = await Promise.all([this.deps(), this.viewCache()]);
     const input = providerInput(entry, listing.tools, config, true);
     let visible = views.read(entry.server, input, listing)?.catalog;
     if (!visible) {
