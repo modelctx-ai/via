@@ -36,6 +36,14 @@ printf '%s\n' \
   '{"tool":"linear/issue:get","args":{"id":"ENG-123"}}' | via batch
 ```
 
+结果按输入顺序输出，单行失败不影响其他行，整体退出码取各行最大值。要在脚本里逐行处理，用 `-o json`，每行一条记录：
+
+```bash
+via batch -o json < calls.jsonl | jq -r 'select(.ok | not) | "line \(.line): \(.error.message)"'
+```
+
+批量不是事务：已执行的写入不会因为后面的行失败而回滚。危险工具需要在命令上加 `--yes`，对整批生效。
+
 ## 长文本、代码、复杂对象
 
 ```bash

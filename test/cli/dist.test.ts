@@ -61,7 +61,9 @@ describe('built dist/via.js', () => {
     expect(r.code).toBe(3);
     expect(r.stderr).toContain('error: no such provider: nothing-here');
     expect(via(['more', 'ffff']).code).toBe(3);
-    expect(via(['batch']).code).toBe(2);
+    const batch = via(['batch']);
+    expect(batch.code).toBe(2);
+    expect(batch.stderr).toContain('error: no calls on stdin');
     expect(via(['-o', 'xml']).code).toBe(2);
   });
 });

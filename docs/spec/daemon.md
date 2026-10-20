@@ -74,6 +74,7 @@ type ErrorInfo = {
 - agent 可能并行启动多个 `via` 进程，daemon 对每个连接独立处理。
 - 同一 server 上的多个请求复用一个 MCP 会话，通过 JSON-RPC id 多路复用。
 - 可按 server 配置并发上限（`concurrency`），超出时排队。
+- `via batch` 在 CLI 侧把每一行当作一个独立的 `call` 请求并发发出：参数校验、危险操作确认、渲染和输出排序都在 CLI 侧完成，daemon 只看到并发的 `call`，由上述 `concurrency` 限流。协议草案里的 `batch` 请求因此不是 0.2 的必需项。
 
 ## 独占资源的 server
 

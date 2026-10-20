@@ -67,6 +67,8 @@ export interface CliResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** Both streams in the order they were written, as a terminal (or `2>&1`) would show them. */
+  combined: string;
 }
 
 export interface RunOptions {
@@ -124,17 +126,18 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
     via: async (argv, options = {}) => {
       let stdout = '';
       let stderr = '';
+      let combined = '';
       const code = await run(argv, {
         env: { PATH: process.env.PATH, ...env, ...options.env },
         cwd: options.cwd ?? project,
         home,
         platform: 'linux',
-        stdout: { write: (s) => void (stdout += s) },
-        stderr: { write: (s) => void (stderr += s) },
+        stdout: { write: (s) => void ((stdout += s), (combined += s)) },
+        stderr: { write: (s) => void ((stderr += s), (combined += s)) },
         readStdin: async () => options.stdin ?? '',
         now: () => options.now ?? 1_800_000_000_000,
       });
-      return { code, stdout, stderr };
+      return { code, stdout, stderr, combined };
     },
   };
 }
