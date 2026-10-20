@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import type { JsonSchema } from '../catalog/types';
 import { compileSchema, type CompileResult } from '../cli/args/validate';
 import { ClientError } from '../client';
+import type { OAuthStore } from '../client/oauth';
 import { createCredentialResolver } from '../config/credentials';
 import { pathContext, userCacheDir } from '../config/paths';
 import type {
@@ -47,6 +48,8 @@ export interface DaemonOptions {
   watchMs?: number;
   /** Where cursors are stored; default: `cursors/` in the user cache directory (same as in-process mode). */
   cursorDir?: string;
+  /** Replaces the default OAuth login store (tests). */
+  oauthStore?: OAuthStore;
 }
 
 type State = 'new' | 'running' | 'draining' | 'stopped';
@@ -130,6 +133,7 @@ export class DaemonServer {
       now: this.now,
       home: this.options.home,
       platform: this.options.platform,
+      ...(this.options.oauthStore ? { oauthStore: this.options.oauthStore } : {}),
     });
     this.updateIdle();
     this.watchTimer = setInterval(() => this.watchSocket(), this.options.watchMs ?? 5000);
@@ -363,7 +367,8 @@ export class DaemonServer {
         return await this.status();
       case 'list': {
         if (this.stale(request)) return STALE;
-        const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true });
+        const onWarning = (message: string): void => this.sendWarning(conn, request.id, message);
+        const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true, onWarning });
         return result;
       }
       case 'call': {
@@ -378,6 +383,7 @@ export class DaemonServer {
           ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
           ...(request.retry ? { retry: true } : {}),
           ...(onProgress ? { onProgress } : {}),
+          onWarning: (message: string): void => this.sendWarning(conn, request.id, message),
         });
       }
       case 'validate':
@@ -400,6 +406,11 @@ export class DaemonServer {
       default:
         throw new ClientError({ exitCode: ExitCode.Internal, message: `unknown message type: ${String((request as { type: unknown }).type).slice(0, 40)}` });
     }
+  }
+
+  /** A `log` event for the request that caused it: the CLI prints it as a `warning:` line. */
+  private sendWarning(conn: Connection, id: string, message: string): void {
+    this.send(conn, { id, type: 'event', event: 'log', data: { level: 'warning', message: this.sessions.redact(message) } } satisfies Event);
   }
 
   private stale(target: ServerTarget): boolean {

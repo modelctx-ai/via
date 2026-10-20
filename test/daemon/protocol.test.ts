@@ -352,6 +352,56 @@ describe('cursors', () => {
   });
 });
 
+describe('OAuth refresh with a login store that cannot be written', () => {
+  it('forwards one warning to the request that triggered the refresh, and keeps serving', async () => {
+    const { startOAuthServer } = await import('../fixtures/mcp/oauth-server.mjs');
+    const { createMemoryOAuthStore, performLogin } = await import('../../src/client/oauth');
+    const srv = await startOAuthServer();
+    cleanups.push(() => srv.close());
+    const inner = createMemoryOAuthStore();
+    await performLogin({
+      target: { provider: 'linear', url: srv.url },
+      store: inner,
+      manual: false,
+      timeoutMs: 10_000,
+      io: {
+        showUrl: () => undefined,
+        note: () => undefined,
+        openUrl: async (url) => {
+          srv.browse(url).catch(() => undefined);
+          return { opened: true };
+        },
+        readLine: async () => undefined,
+      },
+    });
+    const readOnly = { get: inner.get.bind(inner), delete: inner.delete.bind(inner), set: async () => { throw new Error('EROFS: read-only file system'); } };
+    const h = await startDaemon({ oauthStore: readOnly });
+    const conn = await h.connect();
+    const server = httpServer(srv.url, { name: 'linear', provider: 'linear', auth: { type: 'oauth' } });
+    const call = async (message: string) => {
+      const events: unknown[] = [];
+      const response = (await conn.request({ type: 'call', ...target(server), rawName: 'echo_text', args: { message } }, { onEvent: (e) => events.push([e.event, e.data]) })) as { ok: boolean; result: ToolCallResult };
+      return { response, events };
+    };
+    const first = await call('one');
+    expect(first.response.ok).toBe(true);
+    expect(first.events).toEqual([]);
+    srv.expireAccessTokens(); // the server refuses the token: refresh, which cannot be saved
+    const second = await call('two');
+    expect(second.response.ok).toBe(true);
+    expect(second.response.result.content?.[0]).toMatchObject({ text: 'echo: two' });
+    expect(second.events).toHaveLength(1);
+    expect(second.events[0]).toMatchObject(['log', { level: 'warning', message: expect.stringContaining('could not save the refreshed OAuth login for linear') }]);
+    // Once per session: a later refresh stays quiet, and the rotated token is still used (not the stale stored one).
+    srv.expireAccessTokens();
+    const third = await call('three');
+    expect(third.response.ok).toBe(true);
+    expect(third.events).toEqual([]);
+    const secrets = [...srv.issuedAccessTokens(), ...srv.issuedRefreshTokens()];
+    expect(JSON.stringify(second.events)).not.toMatch(new RegExp(secrets.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')));
+  });
+});
+
 describe('cursors across daemon exit', () => {
   const record: CursorRecord = { ref: 'gh issue:list', header: ['h'], lines: ['a', 'b'], offset: 1, shownBytes: 4, totalBytes: 8, budget: 8, hiddenColumns: 0, createdAt: Date.now() };
 

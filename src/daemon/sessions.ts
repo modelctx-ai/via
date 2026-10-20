@@ -84,6 +84,8 @@ export interface SessionManagerOptions {
   /** Home directory and platform, for the OAuth store (logins are made by the CLI and read here). */
   home: string;
   platform: NodeJS.Platform;
+  /** Replaces the default login store (tests). */
+  oauthStore?: OAuthStore;
 }
 
 export class SessionManager {
@@ -95,6 +97,7 @@ export class SessionManager {
 
   constructor(private readonly options: SessionManagerOptions) {
     this.cache = new CatalogCache(options.catalogDir, options.now);
+    this.oauthStore = options.oauthStore;
   }
 
   /** Replaces every credential value resolved so far with `***`. */
@@ -106,7 +109,7 @@ export class SessionManager {
   // Operations --------------------------------------------------------------------------
 
   /** `tools/list`: this daemon's copy while it is fresh, else the disk cache, else the server. */
-  async list(target: ServerTarget, options: { timeoutMs: number; refresh: boolean }): Promise<ListResult> {
+  async list(target: ServerTarget, options: { timeoutMs: number; refresh: boolean; onWarning?: (message: string) => void }): Promise<ListResult> {
     const server = await this.admit(target);
     await this.prime(server, options.timeoutMs);
     const entry = this.entryFor(target, server);
@@ -124,7 +127,7 @@ export class SessionManager {
           return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true };
         }
       }
-      const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs });
+      const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs, ...(options.onWarning ? { onWarning: options.onWarning } : {}) });
       this.store(entry, tools);
       return { tools, fetchedAt: entry.fetchedAt!, fromCache: false };
     } finally {
@@ -137,7 +140,7 @@ export class SessionManager {
     target: ServerTarget,
     rawName: string,
     args: Record<string, unknown>,
-    options: { timeoutMs?: number; retry?: boolean; onProgress?: CallOptions['onProgress'] },
+    options: { timeoutMs?: number; retry?: boolean; onProgress?: CallOptions['onProgress']; onWarning?: (message: string) => void },
   ): Promise<ToolCallResult> {
     const server = await this.admit(target);
     const entry = this.entryFor(target, server);
@@ -147,6 +150,7 @@ export class SessionManager {
         timeoutMs: options.timeoutMs ?? server.timeout * 1000,
         ...(options.retry ? { retry: true } : {}),
         ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+        ...(options.onWarning ? { onWarning: options.onWarning } : {}),
       });
       entry.calls += 1;
       const values = this.options.resolver.resolvedValues();

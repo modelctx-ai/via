@@ -44,6 +44,8 @@ secrets:
 
 告警只写 server 名、键名和文件，**不写值**。`auth` 的文件来自加载诊断，是写下它的那份配置；`env`、`headers` 的文件是 server 定义所在的文件（`origin`），覆盖层补写的明文会算到定义文件上。
 
+**OAuth 登录存储**：存放在文件里的 OAuth 登录，如果其目录或文件不可写（刷新后的 token 存不下来，轮换 refresh token 的 server 会让登录失效），在该 server 之下加一行 `warning:` 与 `next: chmod …`；不改变退出码（[auth.md](../spec/auth.md#刷新)）。
+
 **退出码**：全部可用时为 0；否则取下列各项中最大的一个（含义沿用 [output.md](../spec/output.md#退出码)）：有 server 连接失败 6，有 server 等待 `via trust` 5，有 server 需要鉴权 4，配置有 `error` 级诊断 2。明文凭证、仍在注入的框架、`warning` 级诊断只提示，不改变退出码。
 
 各框架的提示文案放在 `data/frameworks/` 中（每个框架一个条目：配置路径、解析方式、关闭方法），随版本更新，不写死在代码里。框架升级导致提示失效时，只需更新数据文件（格式见 [数据文件](../development/data-files.md#frameworks)）。

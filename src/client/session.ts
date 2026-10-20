@@ -20,10 +20,14 @@ export interface CallOptions {
   retry?: boolean;
   /** Called for upstream `notifications/progress` (arguments.md, "调用过程"). */
   onProgress?: (progress: { progress: number; total?: number; message?: string }) => void;
+  /** Something the person should know about, caused by this call (see `SessionOptions.onWarning`). */
+  onWarning?: (message: string) => void;
 }
 
 export interface ListOptions {
   timeoutMs?: number;
+  /** Something the person should know about, caused by this operation (see `SessionOptions.onWarning`). */
+  onWarning?: (message: string) => void;
 }
 
 export interface SessionOptions {
@@ -36,6 +40,12 @@ export interface SessionOptions {
    * Runs on the connection that received it; must not throw.
    */
   onToolsChanged?: () => void;
+  /**
+   * A warning for the person running the command (`warning: …` on stderr), e.g. a refreshed OAuth
+   * login that could not be saved. Per-operation `onWarning` takes precedence. Each warning is
+   * given once per session.
+   */
+  onWarning?: (message: string) => void;
 }
 
 /** Safety net against a server that keeps returning cursors. */
@@ -79,6 +89,9 @@ export class McpSession {
   private connecting?: Promise<Handle>;
   private readonly limiter: Limiter;
   private oauth?: ViaOAuthProvider;
+  /** Where warnings go: the operation that started last (the one that most likely caused it). */
+  private warnSink?: (message: string) => void;
+  private warnedSave = false;
 
   constructor(
     readonly server: ServerConfig,
@@ -102,6 +115,7 @@ export class McpSession {
   /** `tools/list`, following `nextCursor` until the server stops returning one. */
   listTools(options: ListOptions = {}): Promise<McpTool[]> {
     return this.limiter.run(async () => {
+      if (options.onWarning) this.warnSink = options.onWarning;
       const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
       const handle = await this.ensureConnected();
       return this.request(handle, 'request', timeoutMs, async () => {
@@ -136,6 +150,7 @@ export class McpSession {
   /** `tools/call`; returns the server's result untouched (`isError` included). */
   callTool(rawName: string, args: Record<string, unknown> | undefined, options: CallOptions = {}): Promise<ToolCallResult> {
     return this.limiter.run(async () => {
+      if (options.onWarning) this.warnSink = options.onWarning;
       const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
       const attempt = async (): Promise<ToolCallResult> => {
         const handle = await this.ensureConnected();
@@ -295,10 +310,21 @@ export class McpSession {
       this.oauth = createCallProvider(this.server, this.options.oauthStore ?? createOAuthStore(), {
         track,
         ...(this.options.now ? { now: this.options.now } : {}),
+        onSaveFailed: (reason) => {
+          if (this.warnedSave) return;
+          this.warnedSave = true;
+          this.warn(
+            `could not save the refreshed OAuth login for ${this.server.provider} (${reason}); the new token is used for now, but a server that rotates refresh tokens will ask for a new login. Make the login store writable (via doctor)`,
+          );
+        },
       });
     }
     await this.oauth.requireLogin();
     return this.oauth.createFetch();
+  }
+
+  private warn(message: string): void {
+    (this.warnSink ?? this.options.onWarning)?.(message);
   }
 
   /** Tear down the current connection (if any). */

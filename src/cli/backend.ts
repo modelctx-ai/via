@@ -62,6 +62,8 @@ export interface InProcessBackendOptions {
   now: () => number;
   /** Where OAuth logins live; only given when some server uses OAuth. */
   oauthStore?: OAuthStore;
+  /** `warning: …` lines for the person running the command (e.g. a refreshed login that could not be saved). */
+  onWarning?: (message: string) => void;
 }
 
 /**
@@ -78,7 +80,11 @@ export class InProcessBackend implements Backend {
 
   static async create(options: InProcessBackendOptions): Promise<InProcessBackend> {
     const { InProcessClient } = await import('../client');
-    return new InProcessBackend(options, new InProcessClient(options.servers, options.resolver, { now: options.now, ...(options.oauthStore ? { oauthStore: options.oauthStore } : {}) }));
+    return new InProcessBackend(options, new InProcessClient(options.servers, options.resolver, {
+        now: options.now,
+        ...(options.oauthStore ? { oauthStore: options.oauthStore } : {}),
+        ...(options.onWarning ? { onWarning: options.onWarning } : {}),
+      }));
   }
 
   async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {

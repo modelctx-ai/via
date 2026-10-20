@@ -67,6 +67,7 @@ type Request =
 
 ```ts
 type Event = { id; type: "event"; event: "progress" | "log"; data: unknown };   // 零到多次
+// log 事件的 data 是 { level: "warning", message: string }：发给触发它的那个请求（list 或 call），CLI 把 message 打印为 stderr 的 `warning: …`；message 已脱敏。目前只有「刷新后的 OAuth 登录存不下来」这一种（auth.md）
 type Response =
   | { id; type: "result"; ok: true; result: unknown; meta: { elapsedMs: number } }
   | { id; type: "result"; ok: false; error: ErrorInfo };

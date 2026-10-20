@@ -21,6 +21,8 @@ export interface DaemonBackendOptions {
   env: Readonly<Record<string, string | undefined>>;
   /** `daemon.serverIdleTimeout`, seconds. */
   serverIdleTimeoutSec: number;
+  /** `log` events of level `warning` from the daemon, as text for stderr. */
+  onWarning?: (message: string) => void;
 }
 
 /** Slack on top of a request's own timeout before the CLI gives up on a daemon that stopped answering. */
@@ -32,7 +34,10 @@ export class DaemonBackend implements Backend {
   constructor(private readonly options: DaemonBackendOptions) {}
 
   async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {
-    const response = await this.send({ type: 'list', ...this.target(server), timeoutMs, ...(refresh ? { refresh: true } : {}) }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS });
+    const response = await this.send(
+      { type: 'list', ...this.target(server), timeoutMs, ...(refresh ? { refresh: true } : {}) },
+      { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, onEvent: (event) => this.onLog(event) },
+    );
     return unwrap<ListResult>(response);
   }
 
@@ -58,11 +63,19 @@ export class DaemonBackend implements Backend {
       {
         deadlineMs: timeoutMs * (options.retry ? 2 : 1) + DEADLINE_SLACK_MS,
         onEvent: (event) => {
+          this.onLog(event);
           if (event.event === 'progress' && options.onProgress) options.onProgress(event.data as Parameters<NonNullable<CallOptions['onProgress']>>[0]);
         },
       },
     );
     return unwrap<ToolCallResult>(response);
+  }
+
+  /** A `log` event is `{ level: 'warning', message }`; other levels are not shown. */
+  private onLog(event: Event): void {
+    if (event.event !== 'log') return;
+    const data = event.data as { level?: unknown; message?: unknown } | null;
+    if (data?.level === 'warning' && typeof data.message === 'string') this.options.onWarning?.(data.message);
   }
 
   /**

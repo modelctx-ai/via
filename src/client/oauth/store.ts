@@ -3,7 +3,7 @@
 // preferred home (service `via`, account `oauth:<hash>`); where it does not work, a 0600 file in
 // the user data directory takes over. Nothing here prints or logs a record.
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, constants, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthClientInformationMixed, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
@@ -233,6 +233,30 @@ export function createOAuthStore(options: OAuthStoreOptions = {}): OAuthStore {
       return removed;
     },
   };
+}
+
+/**
+ * Whether a refreshed login can be saved where `location` says it lives (`via doctor`). Writing a
+ * record means replacing its file, which needs write access to the directory as well. Undefined
+ * when it can be written; for the keychain it is not probed (the only test would be a write).
+ */
+export async function checkStoreWritable(
+  location: OAuthLocation,
+  check: (path: string) => Promise<void> = (path) => access(path, constants.W_OK),
+): Promise<{ path: string; what: 'file' | 'directory' } | undefined> {
+  if (location.kind !== 'file' || !location.path) return undefined;
+  const directory = dirname(location.path);
+  try {
+    await check(directory);
+  } catch {
+    return { path: directory, what: 'directory' };
+  }
+  try {
+    await check(location.path);
+  } catch {
+    return { path: location.path, what: 'file' };
+  }
+  return undefined;
 }
 
 /** In-memory store, for tests and for callers that must not touch disk. */
