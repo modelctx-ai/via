@@ -32,3 +32,11 @@ mcp2cli:
   - run: mcp2cli @github --search file
   - run: mcp2cli @github get-file-contents --help
   - run: mcp2cli @github get-file-contents --owner acme --repo api --path src/middleware/rate_limiter.ts
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+success:
+  require:
+    - { server: github, tool: search_code, args: { query: { $contains: RateLimiter } } }
+    - { server: github, tool: get_file_contents, args: { owner: acme, repo: api, path: src/middleware/rate_limiter.ts } }
+  answer:
+    - src/middleware/rate_limiter.ts

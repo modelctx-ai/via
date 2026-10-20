@@ -124,5 +124,13 @@ export function checkTask(loaded: LoadedSuite, task: Task): string[] {
   };
   checkSteps('via', 'via');
   checkSteps('mcp2cli', 'mcp2cli');
+
+  // Success criteria (agent evaluation) name real tools of servers the task uses.
+  for (const kind of ['require', 'forbid'] as const) {
+    (task.success?.[kind] ?? []).forEach((criterion, i) => {
+      if (kind === 'forbid' && criterion.max !== undefined) at(`success.forbid[${i}]`, '`max` only applies to require entries');
+      checkTool(`success.${kind}[${i}]`, criterion.server, criterion.tool);
+    });
+  }
   return out;
 }

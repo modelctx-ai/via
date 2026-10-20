@@ -38,3 +38,17 @@ mcp2cli:
   - run: mcp2cli @linear create-issue --help
   - run: >-
       mcp2cli @linear create-issue --title "Rate limiter fails closed when Redis is down" --team Platform --description "Every request returns 500 while Redis is unreachable. The limiter should fail open and log a warning." --priority 2 --assignee me --labels '["Bug"]'
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+# Linear priorities: 1 urgent, 2 high; the fixture's tool schema does not say, so both count.
+success:
+  require:
+    - server: linear
+      tool: create_issue
+      args:
+        title: { $regex: rate.?limiter }
+        team: { $oneOf: [Platform, PLT, a1b2c3d4-0000-4000-8000-000000000000] }
+        description: { $contains: redis }
+        priority: { $oneOf: [2, 1, High] }
+        assignee: { $oneOf: [me, jdoe] }
+      max: 1

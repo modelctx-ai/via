@@ -23,6 +23,7 @@
     "typecheck": "tsc --noEmit",
     "lexicon": "tsup scripts/build-lexicon.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/build-lexicon.js test/fixtures/tools --out data/domain-lexicon.json",
     "bench:tokens": "tsup scripts/bench-tokens.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-tokens.js",
+    "bench:eval": "tsup scripts/bench-eval.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --external @anthropic-ai/sdk --silent && node .build/scripts/bench-eval.js",
     "split-diff": "tsup scripts/split-diff.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-diff.js test/fixtures/tools test/fixtures/other"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
     "tsup": "^9.0.0",
