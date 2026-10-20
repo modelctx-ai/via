@@ -149,7 +149,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   // 2. Dry run: what would be sent, nothing else.
   const needsConfirm = tool.destructive && server.confirm !== 'never' && !options.yes;
   if (options.dryRun) {
-    return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, parsed.args, needsConfirm)), stderr: '', warnings };
+    return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, await app.redactValue(parsed.args), needsConfirm)), stderr: '', warnings };
   }
 
   // 3. Dangerous tools need --yes (the deny check already happened during resolution).
@@ -166,7 +166,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
     result = await client.callTool(server.name, tool.rawName, parsed.args, {
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       retry: tool.readOnly,
-      onProgress: (p) => sink.progress(app.redact(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${sanitizeText(p.message)}` : ''}\n`)),
+      onProgress: (p) => sink.progress(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${app.redact(sanitizeText(p.message))}` : ''}\n`),
     });
   } catch (error) {
     // The server rejected the arguments at the protocol level: same report as an `isError` result.
@@ -182,7 +182,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   // 5. Render.
   const outputWarnings: string[] = [];
   if (tool.def.outputSchema && result.structuredContent !== undefined && !result.isError) {
-    outputWarnings.push(...(await validateOutput(tool.def, result.structuredContent, app.compile)).map((w) => app.redact(w)));
+    outputWarnings.push(...(await validateOutput(tool.def, result.structuredContent, app.compile)).map((w) => app.redact.scan(w)));
   }
   warnings.push(...outputWarnings);
   const rendered = await renderToolResult(

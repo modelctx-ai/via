@@ -23,9 +23,9 @@ export async function doctorCommand(app: App): Promise<number> {
         const warning = await loginStoreWarning(app, server);
         return { ...base, status: 'ok', toolCount: tools.length, schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), ...(warning ? { warning } : {}) };
       } catch (error) {
-        const probe: ServerProbe = { ...base, status: statusOf(error), message: app.redact(error instanceof Error ? error.message : String(error)) };
+        const probe: ServerProbe = { ...base, status: statusOf(error), message: app.redact.scan(error instanceof Error ? error.message : String(error)) };
         const next = error instanceof ClientError || error instanceof CredentialError ? error.next : undefined;
-        if (next) probe.next = app.redact(next);
+        if (next) probe.next = app.redact.scan(next);
         return probe;
       }
     }),

@@ -166,6 +166,19 @@ export class DaemonBackend implements Backend {
   }
 
   /** Only asks a daemon that is already there: without one nothing could have been redacted. */
+  async redactValue<T>(value: T): Promise<T> {
+    if (value === undefined || value === null) return value;
+    try {
+      const conn = await this.options.client.connection({ spawn: false });
+      if (!conn) return value;
+      const response = await conn.request({ type: 'redact', value }, { deadlineMs: 5000 });
+      return response.ok ? (response.result as T) : value;
+    } catch {
+      return value;
+    }
+  }
+
+  /** Only asks a daemon that is already there: without one nothing could have been redacted. */
   async redact(text: string): Promise<string> {
     if (text === '') return text;
     try {

@@ -255,10 +255,13 @@ describe('credentials', () => {
     const traffic: string[] = [];
     traffic.push(JSON.stringify(await conn.request({ type: 'status' })));
     traffic.push(JSON.stringify(await conn.request({ type: 'redact', text: `token ${KEY}` })));
+    const echoed = await conn.request({ type: 'redact', value: { token: `a ${KEY}`, n: 1, list: [KEY] } });
+    traffic.push(JSON.stringify(echoed));
     const unknown = await conn.request({ type: 'nope' } as never);
     traffic.push(JSON.stringify(unknown));
     client.close();
     expect(traffic[1]).toContain('token ***');
+    expect(echoed).toMatchObject({ ok: true, result: { token: 'a ***', n: 1, list: ['***'] } });
     for (const line of traffic) expect(line).not.toContain(KEY);
     expect(unknown).toMatchObject({ ok: false, error: { exitCode: 7 } });
   });

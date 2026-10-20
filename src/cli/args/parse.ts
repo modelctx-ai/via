@@ -143,7 +143,8 @@ class Parser {
     if (this.problems.length > 0) {
       throw buildToolArgsError(this.problems, formatUsage(this.tool, this.ctx, { maxOptional: 8 }), this.ctx.ref, this.redact);
     }
-    return { args: this.args, warnings: warnings.map((w) => this.redact(w)), validated };
+    // Echoed values (`got`) were redacted where they were written; the rest of a warning is ours.
+    return { args: this.args, warnings, validated };
   }
 
   // Problems --------------------------------------------------------------------------------

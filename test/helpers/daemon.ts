@@ -67,7 +67,7 @@ export interface DaemonSandbox {
   runtime: string;
   socket: string;
   /** Run `via` with the daemon enabled and the bundled CLI as the program to start it. */
-  via(argv: string[], options?: { env?: Record<string, string | undefined>; cwd?: string; daemonCommand?: { command: string; args: string[] }; openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }> }): Promise<CliResult>;
+  via(argv: string[], options?: { env?: Record<string, string | undefined>; cwd?: string; stdin?: string; daemonCommand?: { command: string; args: string[] }; openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }> }): Promise<CliResult>;
   /** `via daemon status -o json`, or undefined when no daemon runs. */
   status(): Promise<DaemonStatus | undefined>;
   /** Stop the daemon and wait until its process is gone. */
@@ -101,7 +101,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
       platform: 'linux',
       stdout: { write: (s) => void ((stdout += s), (combined += s)) },
       stderr: { write: (s) => void ((stderr += s), (combined += s)) },
-      readStdin: async () => '',
+      readStdin: async () => options.stdin ?? '',
       daemonCommand: options.daemonCommand ?? { command: process.execPath, args: [entry] },
       ...(options.openUrl ? { openUrl: options.openUrl } : {}),
     });
