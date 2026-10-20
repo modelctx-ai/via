@@ -1,0 +1,4 @@
+--- stdout (exit 1) ---
+--- stderr ---
+error: Validation Failed: title is too long
+next: via github issue:write -h

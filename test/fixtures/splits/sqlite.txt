@@ -1,0 +1,6 @@
+read_query      →  query:read
+write_query     →  query:write
+create_table    →  table:create
+list_tables     →  table:list
+describe_table  →  table:describe
+append_insight  →  append-insight  (leaf)

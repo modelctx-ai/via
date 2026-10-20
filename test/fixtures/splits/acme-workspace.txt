@@ -1,0 +1,10 @@
+mail_search_messages  →  mail-message:search
+mail_get_message      →  mail-message:get
+mail_send_message     →  mail-message:send
+mail_create_draft     →  mail-draft:create
+mail_list_labels      →  mail-label:list
+drive_list_files      →  drive-file:list
+drive_get_file        →  drive-file:get
+drive_search_files    →  drive-file:search
+drive_create_folder   →  drive-folder:create
+drive_share_file      →  drive-share-file  (leaf)

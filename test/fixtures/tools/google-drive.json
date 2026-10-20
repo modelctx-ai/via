@@ -1,0 +1,135 @@
+{
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search for files in Google Drive.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "pageToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "read_file",
+      "description": "Read the contents of a Google Drive file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "List files in a Google Drive folder.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folderId": {
+            "type": "string"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "pageToken": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a folder in Google Drive.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "move_file",
+      "description": "Move a file to another folder.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "destinationFolderId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fileId",
+          "destinationFolderId"
+        ]
+      }
+    },
+    {
+      "name": "share_file",
+      "description": "Share a file with a user or group.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "reader",
+              "commenter",
+              "writer"
+            ]
+          }
+        },
+        "required": [
+          "fileId",
+          "email",
+          "role"
+        ]
+      }
+    }
+  ]
+}

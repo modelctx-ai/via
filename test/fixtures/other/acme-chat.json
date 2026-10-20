@@ -1,0 +1,169 @@
+{
+  "tools": [
+    {
+      "name": "list_channels",
+      "description": "List channels in a team.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "team_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "create_channel",
+      "description": "Create a channel.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          }
+        },
+        "required": [
+          "team_id",
+          "display_name"
+        ]
+      }
+    },
+    {
+      "name": "post_message",
+      "description": "Post a message to a channel.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "get_channel_messages",
+      "description": "Get recent messages from a channel.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "channel_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "reply_to_thread",
+      "description": "Reply to a message thread.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "root_id",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "add_reaction",
+      "description": "Add an emoji reaction to a message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "post_id": {
+            "type": "string"
+          },
+          "emoji_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "post_id",
+          "emoji_name"
+        ]
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List users in a team.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a user profile.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+comment        list · create
+cycle          list
+document       get · list
+documentation  search
+issue          get · list · create · update
+issue-label    list
+issue-status   list · get
+my-issue       list
+project        list · get · create · update
+team           list · get
+user           list · get
+→ via linear <resource> for signatures

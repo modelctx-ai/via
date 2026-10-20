@@ -1,0 +1,23 @@
+action                     get · list
+action-run                 trigger!
+branch                     create · list
+check-run                  get
+code                       search
+comment-to-pending-review  add
+commit                     get · list · search
+file                       create-or-update · delete! · push
+file-content               get
+issue                      read · write · list · search
+issue-comment              add · update
+issue-field                list
+issue-type                 list
+job-log                    get
+label                      get
+latest-release             get
+me                         get
+pr-auto-merge              disable · enable
+pull-request               create · list · merge · read · search · update
+pull-request-branch        update
+… 13 more · via github --all
+tools: request-copilot-review
+→ via github <resource> for signatures

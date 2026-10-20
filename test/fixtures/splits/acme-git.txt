@@ -1,0 +1,11 @@
+list_repositories            →  repository:list
+get_repository               →  repository:get
+list_branches                →  branch:list
+create_pull_request          →  pull-request:create
+list_pull_requests           →  pull-request:list
+get_pull_request             →  pull-request:get
+merge_pull_request           →  pull-request:merge
+create_pull_request_comment  →  pull-request-comment:create
+get_commit                   →  commit:get
+list_commits                 →  commit:list
+get_diff                     →  diff:get

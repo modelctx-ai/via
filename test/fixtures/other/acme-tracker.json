@@ -1,0 +1,248 @@
+{
+  "tools": [
+    {
+      "name": "search_issues",
+      "description": "Search issues with a JQL query.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jql": {
+            "type": "string"
+          },
+          "max_results": {
+            "type": "integer"
+          },
+          "start_at": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "jql"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_issue",
+      "description": "Get an issue by key.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "issue_key": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "issue_key"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "create_issue",
+      "description": "Create an issue in a project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project_key": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "issue_type": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "project_key",
+          "summary",
+          "issue_type"
+        ]
+      }
+    },
+    {
+      "name": "update_issue",
+      "description": "Update fields of an issue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "issue_key": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "issue_key"
+        ]
+      }
+    },
+    {
+      "name": "transition_issue",
+      "description": "Move an issue to another status in its workflow.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "issue_key": {
+            "type": "string"
+          },
+          "transition": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "issue_key",
+          "transition"
+        ]
+      }
+    },
+    {
+      "name": "assign_issue",
+      "description": "Assign an issue to a user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "issue_key": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "issue_key",
+          "assignee"
+        ]
+      }
+    },
+    {
+      "name": "add_comment",
+      "description": "Add a comment to an issue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "issue_key": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "issue_key",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_sprints",
+      "description": "List sprints of a board.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "future",
+              "closed"
+            ]
+          }
+        },
+        "required": [
+          "board_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_sprint",
+      "description": "Get a sprint with its issues.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sprint_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sprint_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_boards",
+      "description": "List boards the user can see.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project_key": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List projects.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

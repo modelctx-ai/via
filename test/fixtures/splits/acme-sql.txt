@@ -1,0 +1,5 @@
+run_query       →  query:run
+explain_query   →  explain:query
+list_tables     →  table:list
+describe_table  →  table:describe
+list_databases  →  database:list

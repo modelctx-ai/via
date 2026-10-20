@@ -1,0 +1,100 @@
+{
+  "tools": [
+    {
+      "name": "read_query",
+      "description": "Execute a SELECT query on the SQLite database.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "write_query",
+      "description": "Execute an INSERT, UPDATE, or DELETE query on the SQLite database.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "create_table",
+      "description": "Create a new table in the SQLite database.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "list_tables",
+      "description": "List all tables in the SQLite database.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "describe_table",
+      "description": "Get the schema information for a specific table.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "append_insight",
+      "description": "Add a business insight to the memo resource.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "insight": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "insight"
+        ]
+      }
+    }
+  ]
+}

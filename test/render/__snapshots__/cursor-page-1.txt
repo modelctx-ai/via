@@ -1,0 +1,19 @@
+--- stdout (exit 0) ---
+id    name         status    region
+1000  service-000  degraded  us-east
+1001  service-001  healthy   eu-west
+1002  service-002  healthy   ap-south
+1003  service-003  healthy   us-east
+1004  service-004  healthy   eu-west
+1005  service-005  healthy   ap-south
+1006  service-006  healthy   us-east
+1007  service-007  degraded  eu-west
+1008  service-008  healthy   ap-south
+1009  service-009  healthy   us-east
+1010  service-010  healthy   eu-west
+1011  service-011  healthy   ap-south
+1012  service-012  healthy   us-east
+1013  service-013  healthy   eu-west
+1014  service-014  degraded  ap-south
+--- stderr ---
+· cloud service:list · 318ms · 596/2.2k bytes · next: via more c7f2

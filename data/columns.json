@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "maxColumns": 6,
+  "priority": [
+    "name", "title", "id", "number", "state", "url",
+    "identifier", "key", "status", "type", "login", "label"
+  ],
+  "labelKeys": ["name", "title", "login", "label", "identifier", "key", "id"]
+}

@@ -1,0 +1,5 @@
+browser       navigate · click
+browser-back  navigate
+browser-code  run
+tools: browser-close · browser-resize · browser-console-messages · browser-handle-dialog · browser-evaluate · browser-file-upload · browser-fill-form · browser-install · browser-press-key · browser-type · browser-network-requests · browser-take-screenshot · … 6 more · via playwright --all
+→ via playwright <resource> for signatures

@@ -1,0 +1,44 @@
+{
+  "tools": [
+    {
+      "name": "get_forecast",
+      "description": "Get the weather forecast for a location.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_alerts",
+      "description": "Get active weather alerts for a US state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

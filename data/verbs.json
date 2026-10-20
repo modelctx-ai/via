@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "verbs": [
+    "get", "list", "create", "update", "delete", "search", "send", "run",
+    "fetch", "read", "write", "add", "remove", "merge", "trigger", "query",
+    "move", "duplicate", "restore", "cancel", "navigate", "click",
+    "push", "call", "describe", "batch", "enable", "disable", "fork",
+    "resolve", "unresolve"
+  ],
+  "conjunctions": ["or", "and"],
+  "singularExceptions": [
+    "data", "news", "series", "status", "analytics",
+    "alias", "aws", "atlas", "bias", "canvas", "gas", "ios", "lens", "species"
+  ],
+  "singularIrregular": {
+    "statuses": "status",
+    "aliases": "alias",
+    "caches": "cache",
+    "people": "person",
+    "children": "child",
+    "indices": "index",
+    "analyses": "analysis"
+  }
+}

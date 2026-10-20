@@ -1,0 +1,522 @@
+{
+  "tools": [
+    {
+      "name": "list_comments",
+      "description": "List comments for a specific Linear issue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "issueId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "create_comment",
+      "description": "Create a comment on a specific Linear issue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "issueId",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_cycles",
+      "description": "List cycles in a specific Linear team.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "teamId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "current",
+              "previous",
+              "next"
+            ]
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "teamId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_document",
+      "description": "Retrieve a Linear document by ID or slug.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_documents",
+      "description": "List documents in the user's Linear workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_issue",
+      "description": "Retrieve detailed information about an issue by ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_issues",
+      "description": "List issues in the user's Linear workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_my_issues",
+      "description": "List issues assigned to the current user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "create_issue",
+      "description": "Create a new Linear issue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "assignee": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "team"
+        ]
+      }
+    },
+    {
+      "name": "update_issue",
+      "description": "Update an existing Linear issue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "assignee": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_issue_statuses",
+      "description": "List available issue statuses in a Linear team.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_issue_status",
+      "description": "Retrieve detailed information about an issue status in Linear.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_issue_labels",
+      "description": "List available issue labels in a Linear workspace or team.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List projects in the user's Linear workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Retrieve details of a specific project in Linear.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a new project in Linear.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "targetDate": {
+            "type": "string"
+          },
+          "lead": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "team"
+        ]
+      }
+    },
+    {
+      "name": "update_project",
+      "description": "Update an existing Linear project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "lead": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List teams in the user's Linear workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_team",
+      "description": "Retrieve details of a specific Linear team.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "Retrieve users in the Linear workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Retrieve details of a specific Linear user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "search_documentation",
+      "description": "Search Linear's documentation to learn about features and usage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,220 @@
+{
+  "tools": [
+    {
+      "name": "mail_search_messages",
+      "description": "Search mail messages.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "mail_get_message",
+      "description": "Get a mail message with headers and body.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "mail_send_message",
+      "description": "Send a mail message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "to",
+          "subject",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "mail_create_draft",
+      "description": "Create a mail draft.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "subject",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "mail_list_labels",
+      "description": "List mail labels.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "drive_list_files",
+      "description": "List files in a drive folder.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "drive_get_file",
+      "description": "Get the metadata and content of a drive file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "drive_search_files",
+      "description": "Search drive files by name or content.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "drive_create_folder",
+      "description": "Create a drive folder.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "drive_share_file",
+      "description": "Share a drive file with a user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "reader",
+              "writer"
+            ]
+          }
+        },
+        "required": [
+          "file_id",
+          "email",
+          "role"
+        ]
+      }
+    }
+  ]
+}

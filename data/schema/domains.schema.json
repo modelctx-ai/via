@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "data/domains.json",
+  "type": "object",
+  "required": ["version", "domains", "match", "heuristic"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "domains": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["servers"],
+        "additionalProperties": false,
+        "properties": {
+          "servers": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }, "uniqueItems": true }
+        }
+      }
+    },
+    "match": {
+      "type": "array",
+      "items": { "enum": ["alias", "package", "host"] },
+      "uniqueItems": true
+    },
+    "heuristic": {
+      "type": "object",
+      "required": ["threshold", "leadRatio", "signalWeights", "minScore", "stopwords", "flatBelowProviders"],
+      "additionalProperties": false,
+      "properties": {
+        "threshold": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "leadRatio": { "type": "number", "minimum": 1 },
+        "signalWeights": {
+          "type": "object",
+          "required": ["param", "resource", "identity", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "param": { "type": "number", "minimum": 0 },
+            "resource": { "type": "number", "minimum": 0 },
+            "identity": { "type": "number", "minimum": 0 },
+            "description": { "type": "number", "minimum": 0 }
+          }
+        },
+        "minScore": { "type": "number", "minimum": 0 },
+        "stopwords": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "flatBelowProviders": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

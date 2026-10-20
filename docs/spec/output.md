@@ -4,15 +4,17 @@
 
 ## 渲染流程
 
-1. **选数据源**：`isError` 为真时走[错误路径](#错误)；否则优先取 `structuredContent`，其次尝试把 text 内容解析为 JSON，都不行就按原文处理。多个 content 块依次渲染。工具声明了 `outputSchema` 时先校验 `structuredContent`，不匹配只在 stderr 警告（[arguments.md](arguments.md#输出校验)）。
+1. **选数据源**：`isError` 为真时走[错误路径](#错误)；否则优先取 `structuredContent`，其次尝试把 text 内容解析为 JSON，都不行就按原文处理。多个 content 块依次渲染：单行文本和媒体路径紧挨着输出，结构化内容（表格、对象）前后各空一行。`structuredContent` 与 text 里只是重复它的 JSON 文本不再重复渲染。工具声明了 `outputSchema` 时先校验 `structuredContent`，不匹配只在 stderr 警告（[arguments.md](arguments.md#输出校验)）。
 2. **清理**：去掉 null、空字符串、空数组、空对象；按噪声字段表去掉 `node_id`、`_links`、`*_api_url` 之类字段。噪声表见 `data/noise.json`，可按 server 用 `noise` 配置追加。
 3. **按形状渲染**：
    - 字段一致的对象数组 → 对齐的表格，最多 6 列，优先选 name、title、id、number、state、url 等字段，其余列在元信息行注明「+N cols (-o json)」；
-   - 单个对象 → `key: value` 逐行输出，嵌套对象缩进两格；
+   - 单个对象（含只有一个元素的数组）→ `key: value` 逐行输出，嵌套对象缩进两格；多行字符串缩进成块；嵌套的一致对象数组在缩进后同样渲染为表格，只有单个字段的对象数组（`[{name: bug}]`）合并为 `bug, p1`；
    - 纯文本 → 原样输出。
-4. **限长**：单元格超过 80 字符截断并加 `…`；总输出超过预算（默认 8 KB，可按 server 用 `budget` 配置）时截断，完整结果存入游标。
+
+   表格里缺失的单元格显示 `-`；单元格里的数组用 `, ` 连接，对象取 `data/columns.json` 中 `labelKeys` 指定的字段代表它，换行折成空格。至少两行且至少一半的字段在半数以上的行里出现，才算「字段一致」。选列规则放在 `data/columns.json`（[数据文件](../development/data-files.md#columnsjson)）。
+4. **限长**：单元格超过 80 字符截断并加 `…`；总输出超过预算（默认 8 KB，可按 server 用 `budget` 配置）时按整行截断，完整结果存入游标。单行本身就超过预算时，这一行会被拆成多段分页输出。
 5. **媒体**：图片、音频、二进制资源写入缓存目录，只打印文件路径；resource link 只打印 URI。
-6. **脱敏**：已解析的凭证值精确匹配替换为 `***`。
+6. **脱敏**：已解析的凭证值精确匹配替换为 `***`（JSON 转义后的写法同样替换）。实现上在清理和截断**之前**先对数据脱敏，避免单元格截断留下半个凭证，输出前再对成品整体扫一遍；写入游标的内容已经脱敏。
 
 宽度计算必须按显示宽度（中日韩字符双宽）对齐。
 
@@ -22,7 +24,7 @@
 | --- | --- | --- |
 | `-o text`（默认） | 上述紧凑渲染 | agent 阅读 |
 | `-o json` | 清理后的 JSON，仍受预算约束 | 管道给 `jq` |
-| `-o raw` | 上游原始 content，不做任何处理（仍脱敏） | 排查问题 |
+| `-o raw` | 上游原始 content，不做任何处理（仍脱敏）；不受预算约束，不产生游标 | 排查问题 |
 | `--full` | 关闭截断，可与任意格式组合 | 需要完整结果时 |
 
 ## 元信息行
@@ -30,8 +32,13 @@
 成功调用后在 stderr 输出一行，以 `·` 开头，字段以 ` · ` 分隔：
 
 ```text
-· <规范写法> · <耗时> · <行数或字节数> [· +N cols (-o json)] [· next: <命令>]
+· <规范写法> · <耗时> · <行数或字节数> [· +N cols (-o json)] [· <标记>…] [· next: <命令>]
 ```
+
+- 耗时不足 1 秒写 `318ms`，否则写 `1.8s`。
+- 结果是列表（表格、数组）且未截断时写 `N rows`；其他情况写字节数，`k` 以 1024 为单位（`8.0k`，小于 1024 时写原始数字）；被截断时写 `已显示/总计 bytes`。
+- 标记目前只有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)），排在 `+N cols` 之后、`next:` 之前。
+- 警告（如 `outputSchema` 不匹配）写在元信息行之前，每条一行 `warning: …`。
 
 示例：
 
@@ -55,8 +62,9 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 ## 游标
 
 - 被截断的完整结果由 daemon 保存 30 分钟；进程内模式下存在用户缓存目录（权限 0700），按 TTL 清理。
-- `via more <游标>` 从截断处继续，格式与首段一致；仍有剩余时元信息行给出新的游标。
-- 游标是不透明字符串，不得编码凭证或参数原文。
+- `via more <游标>` 从截断处继续，格式与首段一致（表格的表头在每一段重复）；仍有剩余时元信息行给出新的游标。元信息行里的 `shown/total bytes` 中 `shown` 是到本段为止累计已显示的字节数。
+- 游标是不透明字符串（4 位十六进制起，冲突时变长的随机串），不得编码凭证或参数原文。
+- 游标不存在或已过期：退出码 3，提示 `next: rerun the original command`。
 
 ## 错误
 
@@ -67,7 +75,7 @@ error: linear requires auth
 next: via auth login linear
 ```
 
-- `isError` 结果：上游错误文本经清理、脱敏后输出，退出码 1。
+- `isError` 结果：上游错误文本经清理、脱敏后输出，退出码 1，`next:` 指向该工具的 `-h`。「清理」指去掉终端转义序列和控制字符（保留换行与制表符），并受预算约束，`--full` 时不截断。
 - 参数错误附 usage（[arguments.md](arguments.md#校验与报错)）；找不到附 did you mean（[discovery.md](discovery.md#找不到时)）。
 - `-o json` 时错误同样写 stderr，格式为 `{"error": {"code": <退出码>, "message": "…", "next": "…", "details": [...]}}`。参数校验失败时 `details` 中每条错误一个对象：
 

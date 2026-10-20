@@ -1,0 +1,23 @@
+agent                    search
+async-task               get
+attachment               create
+calendar                 list
+calendar-contact         list
+calendar-coworker-event  list
+calendar-event           list · create · update · cancel!
+calendar-resource        list
+comment                  create · get · update · delete!
+data-source              update · query
+database                 create · delete!
+enabled-skill            get · update
+favorite-page            list
+file-download-url        get
+file-upload              create
+folder                   create · update
+group                    get
+meeting-note             query
+memory                   search
+message-to-session       send
+… 14 more · via notion --all
+tools: search · fetch · set-comment-reaction · set-discussion-resolved · download-attachment · check-mcp-next-steps · convert-page-to-skill · download-skill · upload-skill · spawn-session · stop-session · wait-session · … 1 more · via notion --all
+→ via notion <resource> for signatures

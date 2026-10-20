@@ -1,0 +1,69 @@
+{
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search the Cloudflare OpenAPI specification to find API endpoints. Write JavaScript that filters the spec.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "execute",
+      "description": "Execute JavaScript that calls the Cloudflare API. The code runs in a sandbox with an authenticated client.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "docs",
+      "description": "Search the Cloudflare developer documentation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "whoami",
+      "description": "Show the authenticated Cloudflare user and the accounts they can access.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

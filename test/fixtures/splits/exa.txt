@@ -1,0 +1,8 @@
+web_search_exa           →  web:search
+web_search_advanced_exa  →  web-advanced:search
+get_code_context_exa     →  code-context:get
+crawling_exa             →  crawling  (leaf)
+company_research_exa     →  company-research  (leaf)
+linkedin_search_exa      →  linkedin:search
+deep_researcher_start    →  deep-researcher-start  (leaf)
+deep_researcher_check    →  deep-researcher-check  (leaf)

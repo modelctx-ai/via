@@ -1,0 +1,7 @@
+--- stdout (exit 0) ---
+number  title                                                                 state   url                                              html_url                               user
+12      Support OAuth DCR                                                     open    https://api.github.com/repos/acme/api/issues/12  https://github.com/acme/api/issues/12  octocat
+11      Group inference too eager when a provider has fewer than six servers  open    https://api.github.com/repos/acme/api/issues/11  https://github.com/acme/api/issues/11  hubot
+9       Windows named pipes                                                   closed  https://api.github.com/repos/acme/api/issues/9   https://github.com/acme/api/issues/9   octocat
+--- stderr ---
+· github issue:list · 318ms · 3 rows · +8 cols (-o json)

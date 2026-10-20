@@ -1,0 +1,8 @@
+list_channels         →  channel:list
+create_channel        →  channel:create
+post_message          →  post-message  (leaf)
+get_channel_messages  →  channel-message:get
+reply_to_thread       →  reply-to-thread  (leaf)
+add_reaction          →  reaction:add
+list_users            →  user:list
+get_user              →  user:get

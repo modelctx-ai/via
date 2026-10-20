@@ -1,0 +1,2 @@
+resolve-library-id  →  library-id:resolve
+get-library-docs    →  library-doc:get

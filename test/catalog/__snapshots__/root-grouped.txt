@@ -1,0 +1,11 @@
+15 providers · 231 tools · 1 needs auth (linear) · 1 failed (slack)
+code     github
+search   context7 · exa · tavily
+browser  playwright · puppeteer
+data     postgres · sqlite
+docs     google-drive · notion
+project  linear (needs auth)
+comm     gmail · slack (failed)
+fs       filesystem
+cloud    cloudflare
+→ via <provider> to browse · via find <query> to search

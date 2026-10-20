@@ -1,0 +1,5 @@
+issue:read    method, owner, repo, issue-number, [page], [per-page]       Get information about a specific issue in a GitHub reposito… [read-only]
+issue:write   method, owner, repo, [issue-number], [title], [body], …     Create a new or update an existing issue in a GitHub reposi…
+issue:list    owner, repo, [state], [labels], [order-by], [direction], …  List issues in a GitHub repository. [read-only]
+issue:search  query, [owner], [repo], [sort], [order], [page], …          Search for issues in GitHub repositories using issues searc… [read-only]
+→ via github issue:<verb> -h for usage

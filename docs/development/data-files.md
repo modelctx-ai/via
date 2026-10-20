@@ -1,6 +1,6 @@
 # 数据文件
 
-规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准。
+规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`domains`、`domain-lexicon`、`noise`、`columns` 的 schema 已经提供，测试会逐个校验。
 
 ## verbs.json
 
@@ -12,14 +12,19 @@
   "verbs": [
     "get", "list", "create", "update", "delete", "search", "send", "run",
     "fetch", "read", "write", "add", "remove", "merge", "trigger", "query",
-    "move", "duplicate", "restore", "cancel", "navigate", "click"
+    "move", "duplicate", "restore", "cancel", "navigate", "click",
+    "push", "call", "describe", "batch", "enable", "disable", "fork",
+    "resolve", "unresolve"
   ],
   "conjunctions": ["or", "and"],
-  "singularExceptions": ["data", "news", "series", "status", "analytics"]
+  "singularExceptions": ["data", "news", "series", "status", "analytics"],
+  "singularIrregular": { "statuses": "status", "caches": "cache" }
 }
 ```
 
 - `version` 每次改动加一；改动必须写进 `CHANGELOG.md`，并列出受影响的规范写法。
+- `singularExceptions`：原样保留的词；`singularIrregular`：通用单数化规则处理不了的「复数 → 单数」。
+- 动词表的改动用 `npm run split-diff` 离线检查：用当前规则重新拆分 `test/fixtures/` 里的真实 `tools/list` 快照，与 `test/fixtures/splits/` 中入库的基线对比，列出规范写法的变化；确认后加 `--update` 更新基线。
 
 ## domains.json
 
@@ -44,26 +49,32 @@
     "threshold": 0.5,
     "leadRatio": 1.5,
     "signalWeights": { "param": 4, "resource": 3, "identity": 2, "description": 1 },
+    "minScore": 10,
+    "stopwords": ["the", "and", "with"],
     "flatBelowProviders": 6
   }
 }
 ```
 
-- `servers` 中的条目按 `match` 列出的依据匹配：server 别名、包名（npm、PyPI、容器镜像名）、URL 主机名。
+- `servers` 中的条目按 `match` 列出的依据匹配：server 别名（整体相等）、包名（按词切分后连续包含）、URL 主机名（按词切分后连续包含）。
 - `heuristic` 中的数值是初始值，在真实 server 上调参后更新。
+- `minScore`：所有域的原始得分之和低于它时不下结论，归入 `other`，避免一两个弱信号就给出判定。
+- `stopwords`：打分时忽略的泛用英文词，只作用于工具描述；动词表里的词在描述中同样被忽略。
 
 ## domain-lexicon.json
 
 分域词典，**由脚本生成，不手工编辑**：
 
 ```bash
-node scripts/build-lexicon.js test/fixtures/tools/ > data/domain-lexicon.json
+npm run lexicon    # 等价于对 test/fixtures/tools/ 运行 scripts/build-lexicon.ts，写入 data/domain-lexicon.json
 ```
+
+脚本只统计文件名（即 provider 别名）能在分类表中查到域的快照；`test/fixtures/other/` 下是分类表之外的样本，不参与生成。
 
 ```json
 {
   "version": 1,
-  "generatedFrom": "test/fixtures/tools/@<commit>",
+  "generatedFrom": "test/fixtures/tools/@sha256:<快照内容哈希前 12 位>",
   "terms": {
     "repo":     { "code": 0.92 },
     "sql":      { "data": 0.95 },
@@ -73,6 +84,10 @@ node scripts/build-lexicon.js test/fixtures/tools/ > data/domain-lexicon.json
   }
 }
 ```
+
+- 词来自三处：参数名、拆分出的资源名、工具描述（去掉停用词和动词）。描述里的词至少要在同一个域的两个工具里出现才算数。
+- 权重 = 该词在某个域的出现频率（含该词的工具占该域工具的比例）占它在所有域出现频率之和的份额，所以只出现在一个域的词权重接近 1，到处都有的词权重很低；最高权重低于 0.4 的词不收录。
+- 每个词只保留权重不低于 0.4 的域。
 
 ## noise.json
 
@@ -86,7 +101,24 @@ node scripts/build-lexicon.js test/fixtures/tools/ > data/domain-lexicon.json
 }
 ```
 
-- 支持 `*` 通配；`keep` 优先于 `fields`。
+- 支持 `*` 通配；`keep` 优先于 `fields`，也优先于按 server 配置的 `noise` 追加项。
+
+## columns.json
+
+表格渲染时怎样选列，供[输出](../spec/output.md#渲染流程)使用。
+
+```json
+{
+  "version": 1,
+  "maxColumns": 6,
+  "priority": ["name", "title", "id", "number", "state", "url"],
+  "labelKeys": ["name", "title", "login", "label", "identifier", "key", "id"]
+}
+```
+
+- `maxColumns`：一张表最多显示的列数。
+- `priority`：列数超过上限时优先保留的字段名，靠前的优先；用完后按字段在对象中出现的顺序补满。
+- `labelKeys`：对象出现在表格单元格里时，用其中第一个有标量值的字段代表它（如 `user` 显示为 `octocat`）；都没有则显示紧凑 JSON。
 
 ## frameworks
 

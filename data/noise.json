@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "fields": ["node_id", "_links", "*_api_url", "*_url_template", "gravatar_id"],
+  "keep": ["url", "html_url"]
+}

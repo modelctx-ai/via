@@ -1,0 +1,8 @@
+--- stdout (exit 0) ---
+Screenshot taken
+/cache/media/abbd4841ba31.png
+file:///tmp/report.pdf
+/cache/media/abbd4841ba31.pdf
+embedded text
+--- stderr ---
+· playwright browser-take-screenshot · 318ms · 114 bytes

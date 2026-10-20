@@ -37,7 +37,7 @@ via/
 ├─ src/
 │  ├─ cli/          # 入口、子命令、工具参数解析
 │  ├─ config/       # 框架配置探测与解析、合并、凭证引用
-│  ├─ catalog/      # 名称拆分、分域、索引、搜索、缓存
+│  ├─ catalog/      # 名称拆分、分域、索引、搜索、浏览视图、缓存
 │  ├─ client/       # MCP 会话、鉴权、OAuth
 │  ├─ render/       # 输出流水线：清理、形状判断、表格、截断、游标
 │  ├─ daemon/       # socket 服务、生命周期、并发控制
@@ -47,9 +47,11 @@ via/
 │  ├─ verbs.json    # 动词表与单数化例外
 │  ├─ domains.json  # 内置 server 分类表与分域参数
 │  ├─ domain-lexicon.json  # 由脚本生成的分域词典
-│  └─ noise.json    # 默认噪声字段表
-├─ scripts/         # 词典生成、拆分结果差异检查、token 基准
-├─ test/fixtures/   # 模拟 MCP server、框架配置样例、真实 tools/list 快照
+│  ├─ noise.json    # 默认噪声字段表
+│  ├─ columns.json  # 表格选列规则
+│  └─ schema/       # 上述数据文件的 JSON Schema
+├─ scripts/         # 词典生成（npm run lexicon）、拆分结果差异检查（npm run split-diff）、token 基准
+├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；模拟 MCP server、框架配置样例（待补）
 └─ docs/
 ```
 

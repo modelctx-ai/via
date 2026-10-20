@@ -1,0 +1,5 @@
+--- stdout (exit 0) ---
+line one
+line two
+--- stderr ---
+· github pull-request:read · 318ms · 18 bytes

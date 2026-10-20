@@ -1,0 +1,139 @@
+{
+  "tools": [
+    {
+      "name": "tavily-search",
+      "description": "Search the web with Tavily and return ranked results.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "search_depth": {
+            "type": "string",
+            "enum": [
+              "basic",
+              "advanced"
+            ]
+          },
+          "topic": {
+            "type": "string",
+            "enum": [
+              "general",
+              "news"
+            ]
+          },
+          "days": {
+            "type": "integer"
+          },
+          "max_results": {
+            "type": "integer"
+          },
+          "include_domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exclude_domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "tavily-extract",
+      "description": "Extract the content of one or more web pages.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extract_depth": {
+            "type": "string",
+            "enum": [
+              "basic",
+              "advanced"
+            ]
+          },
+          "include_images": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "urls"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "tavily-crawl",
+      "description": "Crawl a website starting from a root URL.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "max_depth": {
+            "type": "integer"
+          },
+          "max_breadth": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "instructions": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "tavily-map",
+      "description": "Map the structure of a website.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "max_depth": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

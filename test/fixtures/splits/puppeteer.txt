@@ -1,0 +1,7 @@
+puppeteer_navigate    →  navigate  (leaf)
+puppeteer_screenshot  →  screenshot  (leaf)
+puppeteer_click       →  click  (leaf)
+puppeteer_fill        →  fill  (leaf)
+puppeteer_select      →  select  (leaf)
+puppeteer_hover       →  hover  (leaf)
+puppeteer_evaluate    →  evaluate  (leaf)

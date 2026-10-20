@@ -13,7 +13,7 @@
    - 否则末词在动词表中则取末词，兼容 `issue_create` 这类写法；
    - 首尾都不是动词时，取第一个出现的动词（`calendar_list_events` → `calendar-event:list`）；
    - 用 `or`、`and` 连接的多个动词合并为复合动作（`create_or_update_file` → `file:create-or-update`）。
-4. **组资源**：剩余的词用 `-` 连接作为资源，末词单数化，相邻重复词去重（单数化之后比较）。
+4. **组资源**：剩余的词逐词单数化后用 `-` 连接作为资源，相邻重复词去重（单数化之后比较）。修饰词同样用单数，所以 `actions_run_trigger` 的资源是 `action-run`，而不是 `actions-run`。
 5. **叶子工具**：拆不出资源或动作的，作为叶子工具，名字转为 kebab-case，在 `via <provider>` 的最后一行列出。
 6. **冲突**：两个工具拆出相同的 `资源:动作` 时，两者都退回为叶子工具，避免歧义。
 
@@ -28,7 +28,9 @@
 | `-ies` → `-y` | `entries` → `entry` |
 | `-sses`、`-shes`、`-ches`、`-xes` → 去 `es` | `branches` → `branch` |
 | 其余以 `s` 结尾且不以 `ss`、`us`、`is` 结尾的去 `s` | `issues` → `issue`、`logs` → `log` |
+| 长度不超过 2 的词不变 | `os`、`ps` |
 | 例外表 | `data`、`news`、`series`、`status` 等不变，例外表放在 `data/verbs.json` 的 `singularExceptions` |
+| 不规则复数 | 通用规则处理不了的复数形式，如 `statuses` → `status`、`caches` → `cache`，放在 `data/verbs.json` 的 `singularIrregular` |
 
 ## 示例
 

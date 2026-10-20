@@ -1,0 +1,108 @@
+{
+  "tools": [
+    {
+      "name": "asl_search",
+      "description": "Search the gateway catalog for upstream tools.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "asl_describe",
+      "description": "Describe an upstream tool and its input schema.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "asl_call",
+      "description": "Call an upstream tool through the gateway.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "asl_batch",
+      "description": "Call several upstream tools in one request.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "calls"
+        ]
+      }
+    },
+    {
+      "name": "asl_fetch",
+      "description": "Fetch a gateway-managed resource.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "asl-status",
+      "description": "Report gateway health and upstream connection status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

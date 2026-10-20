@@ -1,0 +1,22 @@
+{
+  "tools": [
+    {
+      "name": "query",
+      "description": "Run a read-only SQL query against the connected database.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sql": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sql"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}
