@@ -71,6 +71,7 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 | `--all` | 浏览视图不截断条目 |
 | `--yes` | 确认执行危险工具 |
 | `--dry-run` | 只解析并打印将要发出的调用，不执行 |
+| `--no-validate` | 跳过本地 schema 校验（[arguments.md](arguments.md#schema-不可靠时)）；`--yes` 与 `deny` 照常生效 |
 | `--timeout <秒>` | 覆盖本次调用的超时 |
 | `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法 |
 

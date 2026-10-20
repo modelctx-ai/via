@@ -77,6 +77,25 @@ alias: issue_read · read-only
 
 ## 校验与报错
 
+所有调用在发往上游之前，都必须用该工具的 `inputSchema` 做本地校验。命令行参数、`--args`、`@文件`、`via call`、`via batch` 走同一条路径，没有绕过校验的入口（`--no-validate` 除外，见下文）。
+
+### 校验流程
+
+1. **解析**：把命令行参数、`--args`、文件内容按[合并顺序](#json-输入)合成一个参数对象。
+2. **类型转换**：按 schema 把命令行上的字符串转成目标类型，如 `--count 3` 转为数字 `3`、`--draft` 转为 `true`。转换只按 schema 声明进行，不猜测。
+3. **补齐**：执行 [anyOf / oneOf 自动补齐](#anyof--oneof-自动补齐)。schema 中的 `default` 不由 via 填入，交给上游处理，避免与上游的默认值不一致。
+4. **校验**：用 JSON Schema 校验合并后的完整对象，一次收集所有错误，不在第一个错误处停下。
+5. **发送**：校验通过后才发往上游。
+
+### 校验范围
+
+- **覆盖**：必填字段、类型、enum 与 const、数值范围、字符串长度与正则、数组长度、嵌套对象与数组元素、anyOf / oneOf / allOf、`additionalProperties`。
+- **草案版本**：按 schema 中 `$schema` 声明的版本校验，未声明时按 MCP 规范规定的默认版本。
+- **`format`**（如 `date-time`、`uri`、`email`）：校验不通过时只在 stderr 给出警告，不阻止调用。各 server 对 format 的理解并不一致，以上游为准。
+- **`$ref`**：只解析 schema 内部的引用；指向外部 URL 的引用不下载，相关部分跳过校验并给出警告。
+
+### 报错
+
 校验失败时退出码为 2，一次列出所有问题，并附上 usage：
 
 ```console
@@ -84,7 +103,26 @@ error: missing required --repo; --state must be one of open, closed, all
 usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all]
 ```
 
-未知参数报错并给出最接近的参数名；根对象允许任意字段时例外（见 [JSON 输入](#json-输入)）。
+- 报错中的参数名一律用 kebab-case 和命令行写法（`--filter.state`），而不是 JSON Pointer。
+- 未知参数报错并给出最接近的参数名；根对象允许任意字段时例外（见 [JSON 输入](#json-输入)）。
+- anyOf / oneOf 无法匹配时，列出各分支需要的字段，而不是逐条罗列每个分支的失败原因。
+
+### schema 不可靠时
+
+本地校验是为了尽早发现错误，上游才是最终裁判。schema 本身有问题时，via 不应当挡住本来能成功的调用：
+
+| 情况 | 处理 |
+| --- | --- |
+| 本地缓存的 schema 已过期（server 刚升级） | 校验失败且缓存超过 5 分钟时，先刷新该 server 的 `tools/list` 再校验一次；仍失败才报错 |
+| schema 无法编译（语法错误、不支持的关键字） | 跳过本地校验直接发送，stderr 给出一次警告，并记录在 `via servers` 中 |
+| schema 写错，导致合法调用被拒 | 用户可以加 `--no-validate` 跳过本地校验；元信息行标注 `unvalidated` |
+| 上游返回参数错误，而本地校验通过 | 原样输出上游错误（退出码 1），并在 stderr 提示 schema 与 server 行为不一致 |
+
+`--no-validate` 只跳过 schema 校验，危险操作的 `--yes` 确认和 `deny` 规则照常生效。
+
+### 输出校验
+
+工具声明了 `outputSchema` 时，用它校验返回的 `structuredContent`。不匹配时照常渲染，只在 stderr 给出警告，不改变退出码。
 
 ## 危险操作
 
