@@ -34,6 +34,6 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   prompt: 'usage: via prompt [--out <file>]',
   batch: 'usage: via batch [--concurrency <n>]  (JSON Lines on stdin: {"tool":"<provider>/<resource>:<verb>","args":{…}})',
   auth: 'usage: via auth login <provider> [--manual] | via auth status [<provider>] | via auth logout <provider>',
-  trust: 'usage: via trust [<path>] [--dry-run] [--yes] | via trust --list | via trust --revoke <path>',
+  trust: 'usage: via trust [<path>] [--dry-run] | via trust <path> --yes (scripts only: needs VIA_ALLOW_NONINTERACTIVE_TRUST=1) | via trust --list | via trust --revoke <path>',
   daemon: 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>]',
 };

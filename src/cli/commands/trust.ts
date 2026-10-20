@@ -26,7 +26,12 @@ import type { App } from '../app';
 import { fail, usageFailure } from '../failure';
 import { parseLocal } from '../options';
 
-const USAGE = 'usage: via trust [<path>] [--dry-run] [--yes] | via trust --list | via trust --revoke <path>';
+const TRUST_USAGE =
+  'usage: via trust [<path>] [--dry-run] | via trust <path> --yes (scripts only: needs VIA_ALLOW_NONINTERACTIVE_TRUST=1) | via trust --list | via trust --revoke <path>';
+const USAGE = TRUST_USAGE;
+
+/** `--yes` is only honored with an explicit path and this opt-in (security.md, "via trust"). */
+const NONINTERACTIVE_OPT_IN = 'VIA_ALLOW_NONINTERACTIVE_TRUST';
 
 const SHORT_HASH = 12;
 
@@ -129,6 +134,14 @@ export async function trustCommand(app: App, argv: readonly string[]): Promise<n
     return ExitCode.Ok;
   }
   if (positionals.length > 1) throw usageFailure(USAGE, 'via trust -h');
+  if (app.options.yes && !app.options.dryRun) {
+    // Whoever runs `via trust --yes` decides for the user, so it is not a one-flag shortcut: an
+    // explicit path, and the opt-in the user sets for their own scripts, are both required.
+    if (positionals.length === 0) throw usageFailure('via trust: --yes needs an explicit <path>', 'via trust -h', [USAGE]);
+    if (app.io.env[NONINTERACTIVE_OPT_IN] !== '1') {
+      throw fail(ExitCode.Denied, 'trust was not recorded: --yes is disabled unless the user opts in to non-interactive trust (see via trust -h)', `ask the user to run this in a terminal: via trust ${shellWord(positionals[0]!)}`);
+    }
+  }
 
   // Loading executes nothing; an error-level diagnostic must not stop the person from trusting.
   const config = await app.config({ allowErrors: true });
@@ -169,7 +182,7 @@ export async function trustCommand(app: App, argv: readonly string[]): Promise<n
   }
   if (!app.options.yes) {
     if (!app.io.interactive) {
-      throw fail(ExitCode.Denied, 'trust was not recorded: confirmation needs a terminal', `review the list above, then rerun with --yes: via trust ${pending.length === 1 ? `${shellWord(pending[0]!.file.path)} ` : ''}--yes`);
+      throw fail(ExitCode.Denied, 'trust was not recorded: confirmation needs a terminal', `ask the user to run this in a terminal: via trust${pending.length === 1 ? ` ${shellWord(pending[0]!.file.path)}` : ''}`);
     }
     const answer = (await app.io.ask(`trust ${pending.length === 1 ? 'this file' : `these ${pending.length} files`}? [y/N] `)).trim().toLowerCase();
     if (answer !== 'y' && answer !== 'yes') throw fail(ExitCode.Denied, 'trust was not recorded', 'via trust');

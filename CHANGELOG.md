@@ -23,6 +23,7 @@
 - 未信任时的 `next:`：同一个 server 有多个文件待确认时提示不带路径的 `via trust`，路径含空格时加引号。
 - 规范补充（随 `via batch` 实现）：cli.md 的 `via batch` 一节补全输入字段（`tool`、`args`，其余字段报错）、行号、空输入（退出码 2）、全局选项对整批生效、危险工具缺少 `--yes` 时只让该行失败、`--dry-run`、全局并发上限 `--concurrency`（默认 16）、text 与 `-o json` 的逐行框架（`line N` 标记、`· batch · …` 汇总行、JSONL 记录字段、超出预算时的 `truncated` / `next`）以及整体退出码取数值最大者；output.md 的元信息行增加 `line N` 标记；arguments.md、config.md、daemon.md 各补一句与批量的关系。
 - 内部：`commands/tool.ts` 抽出 `executeCall`，`via <provider> …`、`via call`、`via batch` 共用同一条「校验 → dry-run / 确认 → 调用 → 渲染」路径；它返回结果（stdout、stderr、退出码、结构化的元信息与错误）而不直接写输出，也只通过 `app.client()` 触达上游，后端（进程内或 daemon）对它透明。渲染流水线的返回值附带元信息与结构化错误。
+- `via trust --yes` 不再是单个开关（security.md、cli.md）：agent 若能执行 `via trust --yes` 就能放行不可信的仓库。现在默认在终端里确认；`--yes` 必须带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1`，否则不记录（不带路径退出码 2，缺少变量退出码 5）。没有终端时的 `next:` 改为请用户在终端运行 `via trust <路径>`，不再建议 `--yes`。`via prompt` 生成的说明增加一句「不要自己运行 `via trust`，请用户来做」。
 
 ### Added
 
