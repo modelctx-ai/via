@@ -2,10 +2,8 @@
 // the user config and the project config, merges them and returns what the rest of via needs.
 // Nothing here throws for a bad file: problems are collected in `diagnostics`.
 
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { cwd as processCwd } from 'node:process';
 import type { ConfigDiagnostic } from './diagnostics';
 import { BUNDLED_FRAMEWORKS, DEFAULT_POINTERS, findFramework, type ConfigFormat, type FrameworkDef } from './frameworks';
 import { validateLayer, type ConfigLayerData, type SourcesSetting } from './layer';
@@ -15,6 +13,7 @@ import { normalizeFrameworkEntry } from './normalize';
 import { parseConfigText, resolvePointer, ParseFailure } from './parse';
 import { expandPath, pathContext, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
 import { parseCredentialRef } from './credentials';
+import { sha256Hex } from '../sha256';
 import { readTrustStore, trustStatus, type TrustStore } from './trust';
 import type { ConfigOrigin, ConfigScope, ServerConfig, Transport } from './types';
 
@@ -83,7 +82,17 @@ interface Layer {
   data: ConfigLayerData;
 }
 
-const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+/**
+ * A `LoadedFile` whose `sha256` is computed on first read: only files that launch a process need
+ * their hash (trust, `via doctor`), and hashing is not free on a cold start.
+ */
+function loadedFile(file: Omit<LoadedFile, 'sha256'>, bytes: Uint8Array): LoadedFile {
+  let hash: string | undefined;
+  return Object.defineProperty(file, 'sha256', {
+    enumerable: true,
+    get: () => (hash ??= sha256Hex(bytes)),
+  }) as LoadedFile;
+}
 
 function isFile(path: string): boolean {
   try {
@@ -162,7 +171,7 @@ function allowedHere(name: string, def: ServerDef, origin: ConfigOrigin, diagnos
 
 export async function loadConfig(options: LoadConfigOptions = {}): Promise<LoadedConfig> {
   const ctx: PathContext = pathContext(options);
-  const cwd = resolve(options.cwd ?? processCwd());
+  const cwd = resolve(options.cwd ?? process.cwd());
   const frameworks = options.frameworks ?? BUNDLED_FRAMEWORKS;
   const diagnostics: ConfigDiagnostic[] = [];
   const files: LoadedFile[] = [];
@@ -176,7 +185,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     if (path === undefined) continue;
     const read = await readAndParse(path, 'yaml', 'error', false, diagnostics);
     if (!read) continue;
-    files.push({ path, scope, format: 'yaml', sha256: sha256(read.bytes) });
+    files.push(loadedFile({ path, scope, format: 'yaml' }, read.bytes));
     const { data, diagnostics: found } = validateLayer(read.value, path);
     diagnostics.push(...found);
     layers.push({ origin: { scope, path }, data });
@@ -231,10 +240,11 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     trustStore = store;
     if (error) diagnostics.push({ level: 'warning', code: 'trust-store-corrupt', message: error });
   }
-  const hashes = new Map(files.map((f) => [f.path, f.sha256]));
+  // Looked up only for files that launch a process (the hash is computed on demand).
+  const hashOf = (path: string): string | undefined => files.find((f) => f.path === path)?.sha256;
   const servers: ServerConfig[] = [];
   for (const [name, acc] of accumulators) {
-    const server = finalize(name, acc, conflicts.get(name), trustStore, hashes, diagnostics);
+    const server = finalize(name, acc, conflicts.get(name), trustStore, hashOf, diagnostics);
     if (server) servers.push(server);
   }
 
@@ -275,7 +285,7 @@ function finalize(
   acc: Accumulator,
   conflicts: ConfigOrigin[] | undefined,
   store: TrustStore,
-  hashes: ReadonlyMap<string, string>,
+  hashOf: (path: string) => string | undefined,
   diagnostics: ConfigDiagnostic[],
 ): ServerConfig | undefined {
   const d = acc.def;
@@ -298,7 +308,7 @@ function finalize(
   }
   const pending: string[] = [];
   for (const path of acc.launch.keys()) {
-    const hash = hashes.get(path);
+    const hash = hashOf(path);
     if (hash === undefined || trustStatus(store, path, hash) !== 'trusted') pending.push(path);
   }
   if (pending.length > 0) {
@@ -431,9 +441,9 @@ async function readFrameworks(
         continue;
       }
       anyRead = true;
-      const loaded: LoadedFile = { path: source.path, scope: source.origin.scope, format: source.format, sha256: sha256(read.bytes) };
-      if (source.origin.framework) loaded.framework = source.origin.framework;
-      files.push(loaded);
+      const meta: Omit<LoadedFile, 'sha256'> = { path: source.path, scope: source.origin.scope, format: source.format };
+      if (source.origin.framework) meta.framework = source.origin.framework;
+      files.push(loadedFile(meta, read.bytes));
       const map = findServerMap(read.value, source, diagnostics);
       if (!map) continue;
       for (const [name, entry] of ownEntries(map)) {

@@ -5,11 +5,11 @@
 // The key is a hash of the server's transport definition: command, args, cwd, URL, the *names* of
 // env variables and headers, and the credential *references* (never resolved values). A literal
 // credential only ever enters the hash, which is one-way.
-import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import { parseCredentialRef } from '../config/credentials';
+import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
 
 /** Default time to live of a cached `tools/list` (discovery.md). */
@@ -53,10 +53,7 @@ export function cacheKey(server: ServerConfig): string {
         : auth.type === 'oauth'
           ? { type: 'oauth', scopes: auth.scopes ?? [], clientId: auth.clientId ?? null }
           : { type: 'none' };
-  return createHash('sha256')
-    .update(JSON.stringify({ v: CACHE_VERSION, transport: transportPart, auth: authPart }))
-    .digest('hex')
-    .slice(0, 32);
+  return sha256Hex(JSON.stringify({ v: CACHE_VERSION, transport: transportPart, auth: authPart })).slice(0, 32);
 }
 
 export class CatalogCache {

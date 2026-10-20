@@ -1,9 +1,9 @@
 // What the CLI and the daemon agree on when a server definition crosses the socket: which session a
 // definition maps to, how the caller's working directory is applied, and how the two sides tell that
 // their environments differ for a credential variable without ever exchanging the value.
-import { createHash } from 'node:crypto';
 import { isAbsolute, join, resolve } from 'node:path';
 import { parseCredentialRef } from '../config/credentials';
+import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
 
 /** Every credential reference of a server, in a stable order. */
@@ -29,9 +29,9 @@ export function envStamp(server: ServerConfig, env: Readonly<Record<string, stri
     if (parsed.kind === 'env') names.add(parsed.arg);
   }
   if (names.size === 0) return '';
-  const hash = createHash('sha256');
-  for (const name of [...names].sort()) hash.update(`${name}\0${env[name] ?? ''}\0`);
-  return hash.digest('hex').slice(0, 32);
+  let material = '';
+  for (const name of [...names].sort()) material += `${name}\0${env[name] ?? ''}\0`;
+  return sha256Hex(material).slice(0, 32);
 }
 
 /** `file:` references and a stdio `cwd` are relative to the caller; the daemon has its own working directory. */
@@ -67,5 +67,5 @@ export function sessionKey(server: ServerConfig): string {
     exclusive: server.exclusive,
     concurrency: server.concurrency,
   };
-  return createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0, 24);
+  return sha256Hex(JSON.stringify(identity)).slice(0, 24);
 }

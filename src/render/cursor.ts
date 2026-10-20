@@ -1,6 +1,6 @@
 // Cursors: handles for the part of a truncated result that was not shown (output.md, "游标").
 
-import { randomBytes } from 'node:crypto';
+import { builtin } from '../builtin';
 
 /** What a cursor remembers: the full rendered (already redacted) output and how far we got. */
 export interface CursorRecord {
@@ -46,7 +46,7 @@ export interface StoreOptions {
 }
 
 export function randomCursorId(length: number): string {
-  return randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
+  return builtin<typeof import('node:crypto')>('node:crypto').randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
 }
 
 /** Pick an unused id: 4 hex digits (`c7f2`), growing when the namespace is crowded. */
