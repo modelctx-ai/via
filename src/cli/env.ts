@@ -2,6 +2,7 @@
 // process, home directory or terminal.
 import { homedir } from 'node:os';
 import { isatty } from 'node:tty';
+import { selfCommand } from '../runtime';
 
 export interface Writer {
   write(chunk: string): unknown;
@@ -57,7 +58,7 @@ export function makeEnv(overrides: Partial<CliEnv> = {}): CliEnv {
     interactive: isatty(0) && isatty(2),
     ask: askOnTerminal,
     now: Date.now,
-    daemonCommand: { command: process.execPath, args: [process.argv[1] ?? ''] },
+    daemonCommand: selfCommand(),
     ...overrides,
   };
 }

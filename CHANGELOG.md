@@ -8,6 +8,7 @@
 
 ### Changed
 
+- 规范补充（随单文件可执行，不改变既有设计决策）：daemon.md 写明拉起的是当前程序自身（脚本为 `<运行时> <入口脚本> daemon run`，可执行文件为 `<该文件> daemon run`）；config.md 补充钥匙串模块加载失败时 `keychain:` 的表现与 `NAPI_RS_NATIVE_LIBRARY_PATH`；security.md 新增「单文件可执行」一节（不读取当前目录的 `.env` 与 `bunfig.toml`、钥匙串模块的来源、校验和）。无规范写法（动词表、分类表）受影响。
 - `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0011](docs/adr/0011-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询、`--domain` 不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
 - AGENTS.md 的「发现逻辑是确定性的」改为「默认确定性；唯一的例外是用户显式开启的 `search.semantic`」（ADR 0011）。
 - 测试：`test/bench/synth-catalog.test.ts` 的「发送邮件」查询接受 `acme-workspace`（其 `mail-message:send` 现在是 `email` 的同义词命中，与 gmail 的描述命中同分）。
@@ -30,6 +31,9 @@
 
 ### Added
 
+- 单文件可执行（路线图 c1，`npm run build:bin`）：`scripts/build-bin.ts` 用 Bun 从 `src/` 编译出 `dist/bin/via-<系统>-<架构>[-musl][.exe]`（默认本机平台；`--all` 或 `--target a,b` 交叉编译 linux-x64/arm64、linux-x64/arm64-musl、darwin-x64/arm64、windows-x64），每个文件带 `.sha256`。构建参数是实测选出来的：`--bytecode` 去掉每次启动对整包 JS 的解析（`--version` 约 66 → 20 ms，对比 `node dist/via.js`；0.1 里不带标志的 `bun build --compile` 比 Node 还慢，原因在此，而不是 85 MiB 的体积），`--splitting` 保持 `--version`/`-h` 不加载命令运行器与库，关闭 `.env` 与 `bunfig.toml` 的自动加载（默认会读当前目录的，见 security.md）。`@napi-rs/keyring` 经 Bun 插件替换为目标平台的 `.node` 文件并内嵌（非本机平台的包从 npm 下载并校验 `package-lock.json` 的完整性），每个产物只带自己平台的模块；加载失败时 `keychain:` 报「native keychain module is not available」并提示改用 `env:`/`file:`，`NAPI_RS_NATIVE_LIBRARY_PATH` 可指定 `.node`。`via daemon run` 拉起的是可执行文件自身（`src/runtime.ts` 的 `selfCommand()`）；Bun 下不调用 `module.enableCompileCache()`。`dist/bin` 不进 npm 包。
+- 测试：`test/cli/bin.test.ts`（装有 `bun` 时构建本机产物并跑冒烟集，否则跳过；`VIA_REQUIRE_BUN=1` 时缺少 Bun 即失败）、`test/runtime.test.ts`、`test/bin-targets.test.ts`。CI 增加 `binary` 任务（Ubuntu、macOS，固定 Bun 1.4.2）；新增 `release.yml`（仅 `v*` 标签与手动触发）构建全部目标、生成 `SHA256SUMS` 并上传到 Release。
+- 性能基准：`npm run bench:perf` 的 Bun 一节比较 `bun dist/via.js`、不带标志的编译、逐个加标志的编译与 `build:bin` 产物，第 5 节增加产物经热 daemon 的整进程调用；`--only-bun` 只跑 Bun 一节。结果记录在 `bench/results/perf-0.3.md`。
 - MCP resources、prompts 与 roots（ADR 0010，roadmap c3；open-questions 里的对应条目已移除）：
   - 新内置子命令 `via resources <provider>`（资源与资源模板）、`via read <provider> <uri>`、`via prompts <provider> [<名称> [参数]]`。`resources`、`read`、`prompts` 成为保留字，与之重名的 provider 需要 `alias`；`prompt` 与 `prompts` 是两个命令，`via prompt <provider>` 会提示后者。URI 是普通位置参数，不进工具语法（冒号）；不适用 `deny`、`--yes`、`--dry-run`（协议上只读）。订阅、补全、sampling 不在范围内。
   - 输出走现有渲染流水线（预算、游标、媒体落盘、脱敏、`-o text|json|raw`），元信息行名称为 `resources <p>`、`read <p>`、`prompts <p> <名称>`；一次读取返回多个内容时每个前加 `# <uri>`。prompt 的参数转成字符串 schema，复用工具的参数解析、`-h`、校验与报错。server 没有声明相应能力退出码 3（不发请求），URI 不存在退出码 3，server 拒绝 prompt 参数退出码 1。

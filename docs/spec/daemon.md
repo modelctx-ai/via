@@ -5,7 +5,7 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 ## 生命周期
 
 1. CLI 检查 socket：Linux 为 `$XDG_RUNTIME_DIR/via.sock`（未设置时退回用户缓存目录），macOS 为用户缓存目录下的 `via.sock`，Windows 为 named pipe `\\.\pipe\via-<用户名>`（路径可以算出，Windows 本身 0.3 才支持，0.2 在 Windows 上始终用进程内模式）。同目录下还有 `via.sock.lock`（启动锁）、`via.sock.token`（握手令牌）、`via.sock.log`（分离启动的 daemon 的 stderr，只在启动失败时读来拼错误信息，超过 64 KB 在下次启动时清空）。
-2. 不存在则以 `via daemon run` 分离启动（`--socket`、`--idle-timeout` 由 CLI 传入），最多等待 2 秒就绪，然后转发请求。启动出错（可执行文件不存在、进程立即退出）时不必等满 2 秒，直接回退。
+2. 不存在则以 `via daemon run` 分离启动（`--socket`、`--idle-timeout` 由 CLI 传入），最多等待 2 秒就绪，然后转发请求。启动出错（可执行文件不存在、进程立即退出）时不必等满 2 秒，直接回退。拉起的是当前程序自身，而不是 PATH 上的 `via` 或 `node`：以脚本运行时为 `<node 或 bun> <入口脚本> daemon run …`，以单文件可执行运行时为 `<该可执行文件> daemon run …`（它的入口脚本只存在于可执行文件内部，无法再传给别的进程）。
 3. 握手时交换版本；CLI 与 daemon 版本不一致时，daemon 回复 `ok: false, reason: "version"`，**先停止监听并删除 socket**，处理完在途请求后退出，由本次 CLI 重新拉起一个版本一致的 daemon（旧 daemon 与新 daemon 因此可以短暂并存）。
 4. daemon 空闲 10 分钟退出（没有连接、没有在途请求）；单个 stdio server 空闲 5 分钟停止子进程（均可配置，见 [config.md](config.md)）。HTTP 会话不因空闲关闭（它们不占本机进程，保留下来才能继续订阅 `list_changed`），随 daemon 退出而结束。socket 文件被删除或被别的 daemon 替换后，旧 daemon 在几秒内自行退出，避免出现无法连上的常驻进程。
 5. daemon 异常（拉起失败、握手被拒、连接中断）时，CLI 回退为进程内模式完成本次调用，并在 stderr 提示一次（`warning: <原因>; continuing without the daemon (VIA_NO_DAEMON=1 silences this)`）。回退只对**没有副作用**的请求自动发生：列目录、校验、MCP 资源与 prompt 的列出和读取（协议上都是只读的），以及只读工具（`readOnlyHint`）的调用。其他调用若在请求已经写出之后连接中断，它可能已经执行，via 不重放，而是以退出码 6 报告 `lost the connection to the via daemon while calling …; it may or may not have run`，`next: via daemon status`。请求写出之前的失败（拉起失败、连不上）则对所有请求都回退。

@@ -6,11 +6,12 @@
 //
 //   --runs <n>     measured runs per row (default 30)     --warmup <n>  discarded runs (default 5)
 //   --quick        10 runs, 2 warmups                      --skip-bun    do not measure Bun
+//   --only-bun     only section 6 (Bun executables)
 //   --dist <dir>   measure this build instead of dist/ (relative to the repository root)
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { arch, cpus, release, tmpdir, totalmem, type as osType } from 'node:os';
 import { basename, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -556,7 +557,7 @@ async function stopDaemon(sb: Sandbox): Promise<void> {
 
 const MiB = 1024 * 1024;
 
-async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakMiB: number } | undefined> {
+async function benchDaemon(binaries?: Binaries | string): Promise<{ overhead: number; idleMiB: number; peakMiB: number } | undefined> {
   section('5. hot daemon (0.2): call overhead and resident memory');
   if (process.platform === 'win32') {
     console.log('skipped: the daemon is not available on Windows before 0.3.\n');
@@ -633,6 +634,10 @@ async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakM
     const bare = await measure(process.execPath, ['-e', '0'], { env: sb.env, cwd: sb.project });
     const procDirect = await measure(process.execPath, [DIST, ...call], { env: sb.env, cwd: sb.project });
     const procHot = await measure(process.execPath, [DIST, ...call], { env: daemonEnv, cwd: sb.project });
+    // The same calls from the single-file executable (the daemon is the one started above).
+    const exe = typeof binaries === 'object' ? binaries.shipped : undefined;
+    const exeDirect = exe ? await measure(exe, call, { env: sb.env, cwd: sb.project }) : undefined;
+    const exeHot = exe ? await measure(exe, call, { env: daemonEnv, cwd: sb.project }) : undefined;
     const afterAll = (await daemonInfo(sb))!;
 
     const row = (label: string, s: Stats, extra = ''): string[] => [label, ms(s.median), ms(s.p95), ms(s.min), extra];
@@ -650,6 +655,9 @@ async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakM
         row('process: node dist/via.js gh echo_text, no daemon', procDirect, 'loads the MCP SDK and ajv'),
         row('process: node dist/via.js gh echo_text, hot daemon', procHot, 'loads neither'),
         row('  hot daemon over bare node', delta(procHot, bare), 'the whole CLI cost of a call'),
+        ...(exeDirect && exeHot
+          ? [row('process: build:bin executable gh echo_text, no daemon', exeDirect, 'loads the MCP SDK and ajv'), row('process: build:bin executable gh echo_text, hot daemon', exeHot, 'loads neither')]
+          : []),
       ],
     );
     printTable(
@@ -674,38 +682,75 @@ async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakM
 // ---------------------------------------------------------------------------------------------
 // 6. Bun
 
-async function benchBun(sb: Sandbox): Promise<void> {
-  section('6. Bun single-file binary (open question: runtime and distribution)');
+interface Binaries {
+  bunVersion: string;
+  /** `bun build --compile src/cli/main.ts`, the 0.1 measurement. */
+  plain: string;
+  /** Plus `--bytecode`. */
+  bytecode: string;
+  /** Plus `--bytecode --splitting`. */
+  split: string;
+  /** What `npm run build:bin` ships (scripts/build-bin.ts: bytecode, splitting, keyring plugin). */
+  shipped: string;
+}
+
+/** Compile the executables of section 6 (and of the rows in section 5); undefined without Bun. */
+function buildBinaries(): Binaries | undefined | string {
   const probe = spawnSync('bun', ['--version'], { encoding: 'utf8' });
   if (probe.status !== 0 || argv.includes('--skip-bun')) {
-    console.log(argv.includes('--skip-bun') ? 'skipped (--skip-bun).\n' : 'skipped: `bun` is not installed (install it from https://bun.sh to fill this section in).\n');
-    return;
+    return argv.includes('--skip-bun') ? 'skipped (--skip-bun).' : 'skipped: `bun` is not installed (install it from https://bun.sh to fill this section in).';
   }
   const outDir = join(ROOT, '.build', 'bench-perf');
   mkdirSync(outDir, { recursive: true });
-  const binary = join(outDir, 'via-bun');
-  const compile = spawnSync('bun', ['build', 'src/cli/main.ts', '--compile', '--outfile', binary], { cwd: ROOT, encoding: 'utf8' });
-  if (compile.status !== 0 || !existsSync(binary)) {
-    console.log(`skipped: \`bun build --compile\` failed:\n${(compile.stderr || compile.stdout).slice(0, 600)}\n`);
+  const compile = (name: string, flags: string[]): string => {
+    const binary = join(outDir, name);
+    const r = spawnSync('bun', ['build', 'src/cli/main.ts', '--compile', ...flags, '--outfile', binary], { cwd: ROOT, encoding: 'utf8' });
+    if (r.status !== 0 || !existsSync(binary)) throw new Error(`bun build --compile ${flags.join(' ')} failed:\n${(r.stderr || r.stdout).slice(0, 600)}`);
+    return binary;
+  };
+  try {
+    const plain = compile('via-plain', []);
+    const bytecode = compile('via-bytecode', ['--bytecode', '--format=esm']);
+    const split = compile('via-split', ['--bytecode', '--format=esm', '--splitting']);
+    const shippedDir = join(outDir, 'shipped');
+    const r = spawnSync('bun', ['scripts/build-bin.ts', '--out-dir', shippedDir], { cwd: ROOT, encoding: 'utf8' });
+    const shipped = existsSync(shippedDir) ? readdirSync(shippedDir).find((f) => !f.endsWith('.sha256')) : undefined;
+    if (r.status !== 0 || !shipped) throw new Error(`scripts/build-bin.ts failed:\n${(r.stderr || r.stdout).slice(0, 600)}`);
+    return { bunVersion: probe.stdout.trim(), plain, bytecode, split, shipped: join(shippedDir, shipped) };
+  } catch (error) {
+    return `skipped: ${(error as Error).message}`;
+  }
+}
+
+async function benchBun(sb: Sandbox, binaries: Binaries | undefined | string): Promise<void> {
+  section('6. Bun single-file binary (open question: runtime and distribution)');
+  if (typeof binaries === 'string' || binaries === undefined) {
+    console.log(`${binaries ?? 'skipped.'}\n`);
     return;
   }
-  const size = statSync(binary).size / (1024 * 1024);
-  // Same warm-catalog scenario as section 1: the binary reads the cache written by the Node run.
+  const mib = (path: string): string => `${(statSync(path).size / MiB).toFixed(0)} MiB`;
+  // Same warm-catalog scenario as section 1: the binaries read the cache written by the Node run.
   const rows: string[][] = [];
   const bareNode = await measure(process.execPath, ['-e', '0'], { env: sb.env, cwd: sb.project });
   const bareBun = await measure('bun', ['-e', '0'], { env: sb.env, cwd: sb.project });
   rows.push(['(baseline) node -e 0', ms(bareNode.median), ms(bareNode.p95), ms(bareNode.min)]);
   rows.push(['(baseline) bun -e 0', ms(bareBun.median), ms(bareBun.p95), ms(bareBun.min)]);
+  const variants: Array<[label: string, command: string, prefix: string[]]> = [
+    ['node dist/via.js (cache warm)', process.execPath, [DIST]],
+    ['bun dist/via.js', 'bun', [DIST]],
+    [`bun build --compile (${mib(binaries.plain)})`, binaries.plain, []],
+    ['  + --bytecode', binaries.bytecode, []],
+    ['  + --splitting', binaries.split, []],
+    [`build:bin (${mib(binaries.shipped)})`, binaries.shipped, []],
+  ];
   for (const cmd of [COLD_COMMANDS[0]!, COLD_COMMANDS[1]!, COLD_COMMANDS[2]!, COLD_COMMANDS[4]!]) {
-    const node = await measure(process.execPath, [DIST, ...cmd.args], { env: sb.env, cwd: sb.project }, cmd.ok);
-    const bunRun = await measure('bun', [DIST, ...cmd.args], { env: sb.env, cwd: sb.project }, cmd.ok);
-    const compiled = await measure(binary, cmd.args, { env: sb.env, cwd: sb.project }, cmd.ok);
-    rows.push([`${cmd.id}: node dist/via.js (cache warm)`, ms(node.median), ms(node.p95), ms(node.min)]);
-    rows.push([`${cmd.id}: bun dist/via.js`, ms(bunRun.median), ms(bunRun.p95), ms(bunRun.min)]);
-    rows.push([`${cmd.id}: bun --compile binary`, ms(compiled.median), ms(compiled.p95), ms(compiled.min)]);
+    for (const [label, command, prefix] of variants) {
+      const s = await measure(command, [...prefix, ...cmd.args], { env: sb.env, cwd: sb.project }, cmd.ok);
+      rows.push([`${cmd.id}: ${label}`, ms(s.median), ms(s.p95), ms(s.min)]);
+    }
   }
   printTable(['scenario', 'median ms', 'p95 ms', 'min ms'], rows);
-  console.log(`bun ${probe.stdout.trim()}; compiled binary ${size.toFixed(0)} MiB. The Node rows use the sandbox compile cache; Bun has no equivalent switch.\n`);
+  console.log(`bun ${binaries.bunVersion}. The Node rows use the sandbox compile cache; Bun has no equivalent switch. "bun build --compile" is the 0.1 measurement (no flags, minified by default); the next two rows add one flag each; build:bin is scripts/build-bin.ts.\n`);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -754,12 +799,17 @@ async function main(): Promise<void> {
     const root = await spawnTimed(process.execPath, [DIST], { env: sb.env, cwd: sb.project });
     console.log(`scenario: ${SCENARIO_PROVIDERS.length} providers from test/fixtures/tools, tools/list cached on disk (${root.stdout.split('\n').find((l) => /providers/.test(l)) ?? 'root view'}), servers stopped; HOME and TMPDIR are in ${sb.root}.\n`);
 
+    if (argv.includes('--only-bun')) {
+      await benchBun(sb, buildBinaries());
+      return;
+    }
     const cold = await benchColdStart(sb);
     await benchFind(sb);
     await benchCall();
     healthy = (await benchLoads(sb)) && healthy;
-    const daemonResult = await benchDaemon();
-    await benchBun(sb);
+    const binaries = buildBinaries();
+    const daemonResult = await benchDaemon(binaries);
+    await benchBun(sb, binaries);
 
     section('Summary against the targets');
     printTable(

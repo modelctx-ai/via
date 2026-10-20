@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import type { OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthClientInformationMixed, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { pathContext, userDataDir, type Env, type PathContext } from '../../config/paths';
+import { importKeyring } from '../../keyring';
 
 export const KEYCHAIN_SERVICE = 'via';
 
@@ -146,7 +147,7 @@ export function createOAuthStore(options: OAuthStoreOptions = {}): OAuthStore {
   const ctx: PathContext = pathContext(options);
   const mode = options.mode ?? storeModeFromEnv(ctx.env);
   const dir = options.dir ?? join(userDataDir(ctx), 'oauth');
-  const loadKeyring = options.loadKeyring ?? (async () => (await import('@napi-rs/keyring')) as unknown as OAuthKeyring);
+  const loadKeyring = options.loadKeyring ?? (() => importKeyring<OAuthKeyring>());
 
   const filePath = (key: string): string => join(dir, `${key.replace(/[^A-Za-z0-9._-]/g, '-')}.json`);
 

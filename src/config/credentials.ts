@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { CredentialError, type ConfigOrigin, type CredentialRef, type CredentialResolver } from './types';
 import { expandPath, pathContext, type Env, type PathContext } from './paths';
+import { importKeyring } from '../keyring';
 
 export type CredentialKind = 'env' | 'file' | 'keychain' | 'cmd' | 'literal';
 
@@ -104,7 +105,7 @@ function where(origin: ConfigOrigin): string {
 export function createCredentialResolver(options: CredentialResolverOptions = {}): CredentialResolver {
   const ctx: PathContext = pathContext(options);
   const cwd = options.cwd ?? process.cwd();
-  const loadKeyring = options.loadKeyring ?? (async () => (await import('@napi-rs/keyring')) as unknown as KeyringModule);
+  const loadKeyring = options.loadKeyring ?? (() => importKeyring<KeyringModule>());
   const values = new Set<string>();
   const cache = new Map<string, string>();
   const cmdTimeoutMs = options.cmdTimeoutMs ?? CMD_TIMEOUT_MS;
