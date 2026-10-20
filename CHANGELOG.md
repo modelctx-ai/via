@@ -12,6 +12,7 @@
 - 规范补充（随首个实现，不改变既有设计决策）：naming.md 明确逐词单数化并加入不规则复数；discovery.md 补全启发式打分的细节（递减计分、`minScore`、双域判定）、浏览视图的排序与截断、签名上限、安全标记和搜索排序的并列规则；output.md 补全表格选列、一行数组、元信息行格式、游标续读、脱敏顺序和错误文本清理；data-files.md 增加 `columns.json`、`singularIrregular`、`minScore`、`stopwords` 以及词典与差异检查的命令。
 - 规范补充（随 config / client 实现）：config.md 的 `sources` 列表语义、框架写法规范化（`type`/`transport`、`serverUrl`、Codex 的 `*_env_var` 等）、合并细节、校验与诊断、stdio 子进程的基础环境；data-files.md 的框架条目新增 `platforms`、`notes`，`verifiedAt` 可为 `null`；auth.md 明确 403 退出码 4、0.1 暂不支持 OAuth、stdio 的 stderr 不转发；output.md 补全传输与上游错误的格式。
 - 规范补充（随 CLI 实现）：cli.md 补充各内置子命令的细节、配置错误时的行为与 `--dry-run` 输出格式；arguments.md 明确默认方言 2020-12、usage 折行规则、新增几类报错说法与错误顺序、危险操作拒绝与 progress 行的格式；discovery.md 补充进程内模式的目录缓存；agent-integration.md 补充 `via doctor` 的各节、token 估算、明文判定规则与退出码。
+- 规范补充（随框架数据文件核对）：框架条目新增 `sources`、`configs[].dollarVariables`，`verifiedAt` 改为 `YYYY-MM-DD`；config.md 的规范化表补充 Codex `env_vars` 的 `{ name, source }` 写法与 `$NAME` 变量；显式指定的框架只要其配置文件之一存在，就不再为其余缺失的备选文件告警。无规范写法（动词表、分类表）受影响。
 - client 把上游 `InvalidParams`（-32602）映射为退出码 1，并提示 schema 与 server 行为不一致。
 - 安全：项目级配置的信任范围从 stdio 命令扩大到 HTTP 端点。项目级文件设置或覆盖 `url`、`headers` 时同样需要 `via trust`，避免仓库把 server 指向别处，从而拿到用户为它配置的凭证（security.md）。
 - 规范补充（随 `via trust`、`cmd:`、deny 审计实现，不改变既有设计决策）：security.md 新增 `via trust` 的范围、显示内容、确认方式（终端提示或 `--yes`、`--dry-run`）、`--list` / `--revoke` 与退出码，以及 `cmd:` 的执行细节（不经 shell、环境、超时、输出上限、错误信息不含命令输出）；config.md 补全 `cmd:` 的分词与缓存语义、deny 的匹配范围（规范写法与原始名、别名、区分大小写）、分层规则（只能追加）与 deny 先于 `--yes`；`via servers` 不执行 `cmd:`；output.md 的退出码 5 补充未信任。
@@ -31,6 +32,11 @@
 - 数据文件的 JSON Schema（`data/schema/`），测试中校验。
 - `src/config/`：`loadConfig`（框架配置只读解析、用户配置 `config.yaml`、项目配置 `.via.yaml`、命令行覆盖，按 server 名逐字段合并；同名异义的框架定义记入 `conflicts`；字段校验带路径；坏文件跳过并返回诊断）。
 - `data/frameworks/`：Claude Code、Claude Desktop、Cursor、Codex、VS Code、Windsurf 的配置路径与关闭提示，附 `data/schema/framework.schema.json`。各条目尚未按实际安装的版本核对（`verifiedAt` 为 `null`）。
+- 框架数据文件按官方文档与源码核对（2026-10-20，路线图 b6），`verifiedAt` 与新增的 `sources` 记录依据：
+  - 已核对：Claude Code（补充 tool search 默认延迟加载 schema 的说明）、Claude Desktop（Linux 路径见 VS Code 官方文档）、Cursor（关闭方式改为 Customize 侧栏开关与 `agent mcp disable`）、Codex（源码确认字段；`env_vars` 元素可为 `{ name, source }`）、VS Code（关闭提示改为 Disable 与 `chat.mcp.access`）、Windsurf。
+  - Windsurf 自 2026-06-02 起更名为 Devin Desktop，MCP 配置迁到 `~/.config/devin/mcp_config.json`（Windows 为 `%APPDATA%/devin/`），项目级为 `.devin/mcp_config.json` 与 `.devin/mcp_config.local.json`；新增 `devin` 条目，`windsurf` 条目保留旧路径 `~/.codeium/windsurf/mcp_config.json`。
+  - 新增框架：`devin`、`gemini-cli`、`antigravity`、`copilot-cli`、`amp`。探测顺序为 claude-code、claude-desktop、cursor、codex、vscode、devin、windsurf、gemini-cli、antigravity、copilot-cli、amp。
+  - 未收录（官方文档不足或配置形态不适合现有规则）：opencode（`mcp` 下新旧两种形态并存）、Zed（`context_servers` 里混有扩展提供的 server）、Goose（`extensions` 里有 `cmd`/`envs`/`uri` 等专有写法与内置类型）、Cline（IDE 内的配置路径官方文档未写明）、Continue、JetBrains AI Assistant。
 - 凭证引用解析（`env:`、`file:`、`keychain:`，钥匙串懒加载）；`cmd:` 0.1 在加载阶段对项目与框架配置拒绝，用户配置中解析时提示 0.2 才支持。
 - 项目级信任存储（真实路径 + SHA-256，目录 0700、文件 0600）；未信任的项目级 server 标记 `trusted: false`。`via trust` 命令留待 0.2。
 - `src/protocol.ts`：CLI、daemon 与进程内模式共用的消息类型（Request / Response / Event / ErrorInfo / ResultMeta / 握手）。

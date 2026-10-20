@@ -6,6 +6,11 @@
     { "path": "~/.codex/config.toml", "format": "toml", "pointer": "/mcp_servers", "scope": "user" }
   ],
   "disableHint": "在 config.toml 的 [mcp_servers.<名称>] 中设置 enabled = false，或用 codex mcp remove <名称>",
-  "verifiedAt": null,
-  "notes": "用户配置目录可被 CODEX_HOME 改写，暂不处理；项目级 .codex/config.toml 需要较新版本的 Codex。"
+  "verifiedAt": "2026-10-20",
+  "sources": [
+    "https://developers.openai.com/codex/mcp",
+    "https://github.com/openai/codex/blob/main/codex-rs/config/src/mcp_types.rs",
+    "https://github.com/openai/codex/blob/main/codex-rs/utils/home-dir/src/lib.rs"
+  ],
+  "notes": "用户配置目录可被 CODEX_HOME 改写，暂不处理；项目级 .codex/config.toml 仅对受信任项目生效。env_vars 的元素可以是名称，也可以是 { name, source }，source = \"remote\" 的项 via 读不到，会告警并忽略。auth、http_headers_helper 既不执行也不继承。"
 }

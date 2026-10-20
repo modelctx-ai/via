@@ -6,7 +6,13 @@
     { "path": "%APPDATA%/Claude/claude_desktop_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["win32"] },
     { "path": "~/.config/Claude/claude_desktop_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["linux"] }
   ],
-  "disableHint": "Settings → Developer → Edit Config，从 mcpServers 中移除对应 server 后重启；或在 Settings → Connectors 中关闭",
-  "verifiedAt": null,
-  "notes": "Linux 没有官方发行版，路径沿用社区打包的约定。远程 server 通过 Connectors 添加，不在这个文件里。"
+  "disableHint": "Settings → Developer → Edit Config，从 mcpServers 中删除对应 server 后完全退出并重启；远程 server 在 Settings → Connectors 中移除，桌面扩展在 Settings → Extensions 中管理",
+  "verifiedAt": "2026-10-20",
+  "sources": [
+    "https://modelcontextprotocol.io/docs/develop/connect-local-servers",
+    "https://modelcontextprotocol.io/docs/develop/connect-remote-servers",
+    "https://code.visualstudio.com/docs/agents/reference/mcp-configuration",
+    "https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop"
+  ],
+  "notes": "macOS 与 Windows 路径见 MCP 官方文档；Linux 路径见 VS Code 的自动发现文档（XDG_CONFIG_HOME 优先，暂不处理）。配置文件里是 command/args/env 形式的本地 server，远程 server 通过 Connectors 添加，不在这个文件里。Windows 的 MSIX 安装版据社区反馈读取 %LOCALAPPDATA%/Packages 下的虚拟化副本，官方文档未记载，暂不探测。"
 }

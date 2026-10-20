@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "gem-proj": { "command": "python3", "args": ["-m", "gem_proj"] }
+  }
+}

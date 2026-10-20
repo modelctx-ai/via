@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "agy-remote": {
+      "serverUrl": "https://agy.example.invalid/mcp",
+      "headers": { "Authorization": "Bearer ${AGY_TOKEN}" }
+    },
+    "agy-local": {
+      "command": "npx",
+      "args": ["-y", "agy-server"],
+      "env": { "AGY_KEY": "${AGY_KEY}" },
+      "disabled": true,
+      "disabledTools": ["dangerous"]
+    }
+  }
+}
