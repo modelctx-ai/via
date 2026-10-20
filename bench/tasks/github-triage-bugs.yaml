@@ -1,0 +1,49 @@
+id: github-triage-bugs
+title: Triage the oldest open bug
+goal: >
+  In acme/api, list the open issues labeled "bug" (oldest first), read the oldest one, and ask
+  the reporter for logs and the Redis version in a comment.
+servers: [github]
+
+# What a native-MCP agent does: three sequential rounds of one call each.
+native:
+  rounds:
+    - - server: github
+        tool: list_issues
+        args: { owner: acme, repo: api, state: OPEN, labels: [bug], orderBy: CREATED_AT, direction: ASC, perPage: 10 }
+    - - server: github
+        tool: issue_read
+        args: { method: get, owner: acme, repo: api, issue_number: 214 }
+    - - server: github
+        tool: add_issue_comment
+        args:
+          owner: acme
+          repo: api
+          issue_number: 214
+          body: Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed.
+
+# Canned results, shared by every column.
+calls:
+  - { server: github, tool: list_issues, resultFile: recordings/github-triage-bugs/list_issues.json }
+  - { server: github, tool: issue_read, resultFile: recordings/github-triage-bugs/issue_read.json }
+  - { server: github, tool: add_issue_comment, resultFile: recordings/github-triage-bugs/add_issue_comment.json }
+
+via:
+  - run: via github
+  - run: via github issue
+  - run: via github issue:list --owner acme --repo api --state OPEN --labels bug --order-by CREATED_AT --direction ASC --per-page 10
+  - run: via github issue:read -h
+  - run: via github issue:read --method get --owner acme --repo api --issue-number 214
+  - run: via github issue-comment
+  - run: >-
+      via github issue-comment:add --owner acme --repo api --issue-number 214 --body "Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed."
+
+mcp2cli:
+  - run: mcp2cli @github --search issue
+  - run: mcp2cli @github list-issues --help
+  - run: mcp2cli @github list-issues --owner acme --repo api --state OPEN --labels '["bug"]' --order-by CREATED_AT --direction ASC --per-page 10
+  - run: mcp2cli @github issue-read --help
+  - run: mcp2cli @github issue-read --method get --owner acme --repo api --issue-number 214
+  - run: mcp2cli @github add-issue-comment --help
+  - run: >-
+      mcp2cli @github add-issue-comment --owner acme --repo api --issue-number 214 --body "Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed."

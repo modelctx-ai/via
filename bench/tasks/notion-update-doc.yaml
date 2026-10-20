@@ -1,0 +1,47 @@
+id: notion-update-doc
+title: Find a page and record a decision
+goal: >
+  Find the "Q3 Roadmap" page in Notion, read it, and add a decision under "Open questions": per-tenant
+  limits will be exposed in the public API docs.
+servers: [notion]
+
+native:
+  rounds:
+    - - server: notion
+        tool: notion-search
+        args: { query: Q3 roadmap, page_size: 5 }
+    - - server: notion
+        tool: notion-fetch
+        args: { id: 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 }
+    - - server: notion
+        tool: notion-update-page
+        args:
+          page_id: 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701
+          command: insert_content_after
+          old_str: "- Who owns the on-call runbook for the new queue?"
+          new_str: "- Decision: per-tenant limits will be exposed in the public API docs."
+
+calls:
+  - { server: notion, tool: notion-search, resultFile: recordings/notion-update-doc/notion-search.json }
+  - { server: notion, tool: notion-fetch, resultFile: recordings/notion-update-doc/notion-fetch.json }
+  - { server: notion, tool: notion-update-page, resultFile: recordings/notion-update-doc/notion-update-page.json }
+
+via:
+  - run: via notion
+  - run: via notion search -h
+  - run: via notion search --query "Q3 roadmap" --page-size 5
+  - run: via notion fetch --id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701
+  - run: via notion page
+  - run: via notion page:update -h
+  - run: >-
+      via notion page:update --page-id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 --command insert_content_after --old-str "- Who owns the on-call runbook for the new queue?" --new-str "- Decision: per-tenant limits will be exposed in the public API docs."
+
+mcp2cli:
+  - run: mcp2cli @notion --search search
+  - run: mcp2cli @notion notion-search --help
+  - run: mcp2cli @notion notion-search --query "Q3 roadmap" --page-size 5
+  - run: mcp2cli @notion notion-fetch --help
+  - run: mcp2cli @notion notion-fetch --id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701
+  - run: mcp2cli @notion notion-update-page --help
+  - run: >-
+      mcp2cli @notion notion-update-page --page-id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 --command insert_content_after --old-str "- Who owns the on-call runbook for the new queue?" --new-str "- Decision: per-tenant limits will be exposed in the public API docs."

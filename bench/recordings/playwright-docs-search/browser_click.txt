@@ -1,0 +1,69 @@
+### Ran Playwright code
+```js
+await page.getByRole('link', { name: 'Rate limits' }).click();
+```
+
+### Page state
+- Page URL: https://docs.acme.test/guides/rate-limits
+- Page Title: Rate limits · Acme Docs
+- Page Snapshot:
+```yaml
+- generic [ref=e1]:
+- banner [ref=e2]:
+  - link "Acme Docs" [ref=e3] [cursor=pointer]:
+    - /url: /
+  - navigation [ref=e4]:
+    - link "Guides" [ref=e5] [cursor=pointer]:
+      - /url: /guides
+    - link "API reference" [ref=e6] [cursor=pointer]:
+      - /url: /reference
+    - link "Changelog" [ref=e7] [cursor=pointer]:
+      - /url: /changelog
+  - searchbox "Search docs" [ref=e8]
+  - complementary [ref=e20]:
+    - heading "Getting started" [level=3] [ref=e21]
+    - list [ref=e22]:
+      - listitem [ref=e23]:
+        - link "Installation" [ref=e24] [cursor=pointer]:
+          - /url: /guides/install
+      - listitem [ref=e25]:
+        - link "Authentication" [ref=e26] [cursor=pointer]:
+          - /url: /guides/auth
+      - listitem [ref=e27]:
+        - link "Pagination" [ref=e28] [cursor=pointer]:
+          - /url: /guides/pagination
+      - listitem [ref=e29]:
+        - link "Rate limits" [ref=e30] [cursor=pointer]:
+          - /url: /guides/rate-limits
+      - listitem [ref=e31]:
+        - link "Webhooks" [ref=e32] [cursor=pointer]:
+          - /url: /guides/webhooks
+      - listitem [ref=e33]:
+        - link "Errors" [ref=e34] [cursor=pointer]:
+          - /url: /guides/errors
+  - main [ref=e40]:
+    - heading "Rate limits" [level=1] [ref=e100]
+    - paragraph [ref=e101]: Every API key is limited to 600 requests per minute. Responses include the headers below so clients can back off before hitting the limit.
+    - table [ref=e102]:
+      - rowgroup [ref=e103]:
+        - row "Header Meaning" [ref=e104]:
+          - columnheader "Header" [ref=e105]
+          - columnheader "Meaning" [ref=e106]
+      - rowgroup [ref=e107]:
+        - row "X-RateLimit-Limit The window size in requests" [ref=e108]:
+          - cell "X-RateLimit-Limit" [ref=e109]
+          - cell "The window size in requests" [ref=e110]
+        - row "X-RateLimit-Remaining Requests left in the current window" [ref=e111]:
+          - cell "X-RateLimit-Remaining" [ref=e112]
+          - cell "Requests left in the current window" [ref=e113]
+        - row "Retry-After Seconds to wait after a 429" [ref=e114]:
+          - cell "Retry-After" [ref=e115]
+          - cell "Seconds to wait after a 429" [ref=e116]
+    - heading "Per-tenant limits" [level=2] [ref=e117]
+    - paragraph [ref=e118]: Enterprise plans can set limits per tenant. Unauthenticated requests fall back to the client IP.
+    - heading "Failing open" [level=2] [ref=e119]
+    - paragraph [ref=e120]: If the limiter backend is unreachable the API keeps serving requests and logs a warning.
+  - contentinfo [ref=e130]:
+    - link "Status" [ref=e131] [cursor=pointer]:
+      - /url: https://status.acme.test
+```

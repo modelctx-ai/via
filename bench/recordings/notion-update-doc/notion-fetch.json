@@ -1,0 +1,8 @@
+{
+  "metadata": {
+    "type": "page"
+  },
+  "title": "Q3 Roadmap",
+  "url": "https://www.notion.so/acme/Q3-Roadmap-2f1c9e4a7b6d4e3fa1b2c3d4e5f6a701",
+  "text": "<page url=\"https://www.notion.so/acme/Q3-Roadmap-2f1c9e4a7b6d4e3fa1b2c3d4e5f6a701\">\n<properties>\n{\"title\":\"Q3 Roadmap\",\"Owner\":\"Priya Nair\",\"Status\":\"In progress\",\"Quarter\":\"Q3 2026\"}\n</properties>\n<content>\n# Q3 Roadmap\nOwner: Priya Nair · Status: In progress\n\n## Goals\n- Ship per-tenant rate limiting (acme/api#482)\n- Move billing webhooks to the new queue\n- Reduce p99 latency on /v2/search below 250 ms\n\n## Milestones\n| Milestone | Owner | Due | Status |\n| --- | --- | --- | --- |\n| Tenant limits GA | Priya | Sep 30 | On track |\n| Webhook queue migration | Tomasz | Oct 14 | At risk |\n| Search latency budget | Mira | Oct 21 | On track |\n| Node 22 upgrade | Sam | Oct 28 | Not started |\n\n## Risks\n- The queue migration depends on infra capacity in eu-west-1.\n- The latency work needs a stable benchmark environment.\n\n## Decisions\n- Rate limits fail open when Redis is unreachable.\n- Deprecated /v1 endpoints are removed after the Q4 freeze.\n\n## Open questions\n- Do we expose per-tenant limits in the public API docs?\n- Who owns the on-call runbook for the new queue?\n</content>\n</page>"
+}

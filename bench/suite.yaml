@@ -1,0 +1,26 @@
+# Benchmark suite (bench/README.md): which servers every framework has mounted and which tasks run.
+version: 1
+
+# `tools/list` fixtures; the file name is the provider name. Relative to the repository root.
+fixtures: test/fixtures/tools
+
+# Servers mounted in every column: native injects all of them on every turn, via and mcp2cli are
+# configured with all of them. A task touches only some.
+mounted: [github, linear, notion, playwright, cloudflare]
+
+# Task files are bench/tasks/<id>.yaml, reported in this order.
+tasks:
+  - github-triage-bugs
+  - github-find-code
+  - github-pr-summary
+  - linear-create-issue
+  - linear-my-work
+  - notion-update-doc
+  - playwright-docs-search
+  - cloudflare-dns-records
+  - cross-issue-to-pr
+
+# The control column. `skill` is the vendored instruction text of the version named here.
+mcp2cli:
+  skill: bench/vendor/mcp2cli/SKILL.md
+  version: 3.8.0
