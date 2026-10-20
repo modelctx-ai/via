@@ -13,7 +13,7 @@
 | 钥匙串 | `@napi-rs/keyring` |
 | 用户目录 | `env-paths` |
 | 进程间通信 | Node 内置 `net`（unix socket，Windows 上为 named pipe） |
-| 表格对齐 | `string-width`（中日韩字符按双宽计算） |
+| 表格对齐 | `get-east-asian-width`（中日韩字符按双宽计算）；宽度算法是 `string-width` 的移植，只是把 `Intl.Segmenter` 与 emoji 正则推迟到第一次遇到非窄字符时才创建，一致性由测试把 `string-width`（仅开发依赖）当参照来保证 |
 | 打包 | `tsup`（esbuild）打成单个 ESM 文件；`bun build --compile` 产出单文件可执行 |
 | 测试 | `vitest`（含快照） |
 

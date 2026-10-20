@@ -15,6 +15,7 @@
 - client 把上游 `InvalidParams`（-32602）映射为退出码 1，并提示 schema 与 server 行为不一致。
 - 安全：项目级配置的信任范围从 stdio 命令扩大到 HTTP 端点。项目级文件设置或覆盖 `url`、`headers` 时同样需要 `via trust`，避免仓库把 server 指向别处，从而拿到用户为它配置的凭证（security.md）。
 - 构建：纯 JS 依赖（MCP SDK、ajv、yaml、smol-toml、jsonc-parser、string-width 等）打进分块，不再作为外部包在运行时逐文件解析，只有原生的 `@napi-rs/keyring` 保持外部。浏览类命令（`via`、`via find`）的冷启动各快约 50 ms（8 个 provider 的缓存目录，见 bench/results/perf-0.1.md）。CommonJS 依赖经动态 `import()` 只有 `default`，配置解析因此兼容两种形态。
+- 表格宽度：`src/render/terminal-width.ts` 移植 `string-width` 的算法，`Intl.Segmenter` 与 `\p{RGI_Emoji}` 正则推迟到第一次遇到非窄字符时才创建（直接加载 `string-width` 在冷启动里约占 30 ms，而浏览视图里几乎全是 ASCII、`·`、`…`、`→` 这类窄字符）。`string-width` 降为开发依赖，仅在测试里作为一致性参照；`get-east-asian-width` 成为直接依赖。输出不变。
 - 规范补充（随 `via trust`、`cmd:`、deny 审计实现，不改变既有设计决策）：security.md 新增 `via trust` 的范围、显示内容、确认方式（终端提示或 `--yes`、`--dry-run`）、`--list` / `--revoke` 与退出码，以及 `cmd:` 的执行细节（不经 shell、环境、超时、输出上限、错误信息不含命令输出）；config.md 补全 `cmd:` 的分词与缓存语义、deny 的匹配范围（规范写法与原始名、别名、区分大小写）、分层规则（只能追加）与 deny 先于 `--yes`；`via servers` 不执行 `cmd:`；output.md 的退出码 5 补充未信任。
 - 未信任时的 `next:`：同一个 server 有多个文件待确认时提示不带路径的 `via trust`，路径含空格时加引号。
 - 规范补充（随 `via batch` 实现）：cli.md 的 `via batch` 一节补全输入字段（`tool`、`args`，其余字段报错）、行号、空输入（退出码 2）、全局选项对整批生效、危险工具缺少 `--yes` 时只让该行失败、`--dry-run`、全局并发上限 `--concurrency`（默认 16）、text 与 `-o json` 的逐行框架（`line N` 标记、`· batch · …` 汇总行、JSONL 记录字段、超出预算时的 `truncated` / `next`）以及整体退出码取数值最大者；output.md 的元信息行增加 `line N` 标记；arguments.md、config.md、daemon.md 各补一句与批量的关系。

@@ -163,6 +163,14 @@ describe('built dist/via.js', () => {
     expect([...external].filter((spec) => !builtin.has(spec)).sort()).toEqual(['@napi-rs/keyring']);
   });
 
+  // Evaluating string-width at load time (an Intl.Segmenter and a \p{RGI_Emoji} regex) cost ~30 ms
+  // on every command that prints a table; the width code builds both on first non-ASCII text.
+  it('does no Unicode setup at module level', () => {
+    for (const file of readdirSync(dirname(bin)).filter((f) => f.endsWith('.js'))) {
+      expect(readFileSync(join(dirname(bin), file), 'utf8')).not.toMatch(/^(?:var|let|const)\s+\w+\s*=\s*(?:new Intl\.Segmenter|\/[^\n]*RGI_Emoji)/m);
+    }
+  });
+
   // Cold start is a core metric (implementation.md, "启动速度"): what a command does not need, it
   // must not load. These check the module graph, not the clock; `npm run bench:perf` times it.
   describe('lazy loading', () => {
