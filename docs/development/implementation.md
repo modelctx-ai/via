@@ -29,6 +29,22 @@
 - Node 22 及以上调用 `module.enableCompileCache()`；
 - 热路径交给常驻 daemon，CLI 尽量薄。
 
+### 0.3 的冷启动工作（数据见 [bench/results/perf-0.3-cold-start.md](../../bench/results/perf-0.3-cold-start.md)）
+
+目标是浏览类命令（`via`、`via <provider>`、`via find`）不再比 `--version` 慢一倍。每一项都是测过才留下的（`npm run bench:perf`，用 `--compare <目录>` 与改动前的构建交替运行）；输出逐字节不变、仍然确定。
+
+- **不经 ESM 门面加载 Node 内置模块。** `import { readFileSync } from 'node:fs'` 会让 Node 为整个 `fs` 生成 ES 模块门面，读遍它的属性，包括惰性的 `fs.promises`，于是加载 `internal/fs/promises`、streams、`readline`，约 12 ms。`scripts/lib/lazy-builtins.ts`（tsup 的 esbuild 插件）把打包产物里对 `fs`、`fs/promises` 的导入改成 `process.getBuiltinModule` 取到的同一模块，名字按当前 Node 在构建时枚举；源码、类型和测试仍照常写 `node:fs`。`node:process`、`node:tty`、`node:crypto`、`node:net` 同样各要 6 到 12 ms，所以：stdout/stderr 用 `fs.writeSync` 写（`src/cli/stdio.ts`，处理 `EAGAIN`，Windows 保留真正的流），终端检测按需（`src/builtin.ts`），代码里用全局 `process`。构建后 `scripts/lib/strip-require.ts` 去掉不需要 `require` 的分块里 tsup 加的 `require` 垫片。`test/cli/dist.test.ts` 断言浏览命令不初始化这些模块。
+- **哈希不走 `node:crypto`。** `src/sha256.ts`：64 KiB 以内用纯 JS 的 SHA-256（`test/sha256.test.ts` 与 `node:crypto` 逐例对照），更大的输入才加载 `node:crypto`。配置文件的信任哈希、缓存键、媒体文件名都用它；信任语义不变，仍是文件字节的 SHA-256，且只在真有 stdio 命令要启动时才计算。
+- **预构建目录**（[discovery.md](../spec/discovery.md#预构建缓存)）：把拆分、分域与检索词存成 `catalog/<哈希>.view.json`，浏览命令只读头或体，不解析 schema。规则指纹由构建时的 `define`（`__VIA_RULES_ID__`）注入。
+- **配置解析缓存**（[config.md](../spec/config.md#解析缓存)）：YAML 只存结构与偏移，不复制字符串，凭证不会进缓存；合法 JSON 用原生 `JSON.parse`，不加载 `jsonc-parser`。
+- **一次 `import()` 取齐浏览命令要用的模块**（`src/cli/browse-deps.ts`），而不是按命令逐个串行 `import()`；渲染流水线与 MCP 客户端不进浏览命令的加载路径。
+- **分词、签名、索引**：ASCII 快路径（不用正则）、字符串只 kebab 一次、倒排表用扁平数组并能直接使用预算好的词频。分词在一千个工具上约 4–6 ms 降到约 2.3 ms；一千个工具、新进程里的目录构建加索引加首次查询约 80 ms，命中预构建缓存时约 21 ms。
+- **daemon**：不在内存里保存解析后的工具列表（磁盘缓存就是副本），`list` 带 `have` 时不重传（[daemon.md](../spec/daemon.md)）；Node 运行时下拉起时加 `--max-semi-space-size=2` 与（Linux）`MALLOC_ARENA_MAX=2`（`daemonRuntime`），建立会话后的常驻内存少 5 到 10 MiB；SDK 与 ajv 仍是按需加载。
+
+评估后**没有**保留的做法：把目录和索引常驻在 daemon 里再让 CLI 查询（协议要新增 `ls`/`find`，渲染要在两处实现，而预构建缓存已经把 CLI 一侧压到几毫秒，收益不抵复杂度）；在命令之间预取（并行 `import()`，收益在噪声内）；用非密码学哈希给缓存键（字面量凭证会进入键的原文）；关闭 socket 后立即释放（会破坏进程内测试的「空闲退出」语义）。
+
+仍然偏高的部分（真实的下限）：ESM 入口本身比 `node -e 0` 多约 3–5 ms；`--version` 比裸 `node` 多约 8–14 ms（加载 V8 编译缓存与入口分块）；daemon 里 MCP SDK 与 zod 常驻约 16 MiB，不可避免；有框架配置（带 70 KiB 的 `.claude.json`）时要读并解析它们。
+
 ## 单文件可执行
 
 `npm run build:bin` 在 `dist/bin/` 下产出免装 Node 的可执行文件：`via-<系统>-<架构>[-musl][.exe]`，每个文件旁有一个 `.sha256`。`bun` 只是构建机器的工具，运行时不需要。

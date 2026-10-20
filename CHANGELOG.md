@@ -8,6 +8,10 @@
 
 ### Changed
 
+- 性能（0.1/0.2 没有达到的冷启动、`find` 与 daemon 内存目标；数据与重新标定的建议见 [bench/results/perf-0.3-cold-start.md](bench/results/perf-0.3-cold-start.md)）。输出、退出码、`next:` 提示与命名规范都不变，没有动词表、单数化规则或分类表的改动，所以没有规范名受影响：
+  - 浏览类命令（`via`、`via <provider>`、`via find`，缓存热、无 daemon）比同机 `node -e 0` 多 44–51 ms（改动前 72–102 ms），墙钟约 74–80 ms；一千个工具上 `find` 的库路径（新进程）81 ms 降到 21 ms；daemon 建立 HTTP 与 stdio 会话后 89–92 MiB 降到 76–79 MiB。
+  - 规范补充（随冷启动工作，不改变既有设计决策）：discovery.md 新增「预构建缓存」（`catalog/<哈希>.view.json`：拆分、分域与检索词的计算结果，规则指纹、原始列表与构建输入任一变化即失效，不含凭证值）；config.md 新增「解析缓存」（YAML 文件按字节哈希缓存其结构，字符串只存偏移，不复制任何值）；daemon.md 的 `list` 请求新增可选的 `have`、应答新增 `unchanged`（`list` 的其余字段与语义不变，旧 CLI 不带 `have` 时行为不变），daemon 在内存里不再保存解析后的工具列表（磁盘缓存就是副本），Node 运行时下拉起 daemon 时加 `--max-semi-space-size=2` 与（Linux）`MALLOC_ARENA_MAX=2`；security.md 的缓存一行补充新增缓存不含凭证值。原始缓存文件的 `features` 写在 `tools` 之前（读取仍兼容旧文件）。
+  - 实现（[implementation.md](docs/development/implementation.md#启动速度)）：打包产物里的 `fs`、`fs/promises` 不经 ESM 门面加载；stdout/stderr 用 `fs.writeSync`，tty 检测按需；64 KiB 以内的 SHA-256 用纯 JS 实现（与 `node:crypto` 逐例对照，信任哈希语义不变）；合法 JSON 配置用原生 `JSON.parse`；浏览命令一次 `import()` 取齐依赖，不加载渲染流水线与 MCP 客户端；分词、签名、倒排表走 ASCII 快路径与扁平数组。
 - 规范补充（随单文件可执行，不改变既有设计决策）：daemon.md 写明拉起的是当前程序自身（脚本为 `<运行时> <入口脚本> daemon run`，可执行文件为 `<该文件> daemon run`）；config.md 补充钥匙串模块加载失败时 `keychain:` 的表现与 `NAPI_RS_NATIVE_LIBRARY_PATH`；security.md 新增「单文件可执行」一节（不读取当前目录的 `.env` 与 `bunfig.toml`、钥匙串模块的来源、校验和）。无规范写法（动词表、分类表）受影响。
 - `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0011](docs/adr/0011-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询、`--domain` 不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
 - AGENTS.md 的「发现逻辑是确定性的」改为「默认确定性；唯一的例外是用户显式开启的 `search.semantic`」（ADR 0011）。
@@ -32,6 +36,8 @@
 
 ### Added
 
+- 性能缓存的测试：`test/cli/view-cache.test.ts`（预构建目录的还原、失效与凭证）、`test/config/parse-cache.test.ts`、`test/sha256.test.ts`、`test/daemon/backend.test.ts`，`test/cli/dist.test.ts` 增加浏览命令不得初始化的内置模块与 `require` 垫片的检查。
+- `npm run bench:perf` 增加 `--only`、`--compare <目录>`（与另一份构建交替运行）、`--plain-daemon`，新增更接近真实使用的场景一节（热 daemon、框架配置、一千个工具的整进程命令）、预构建缓存路径的 `find`、Node 内部模块加载检查，以及 daemon 内存的匿名/文件拆分。
 - 单文件可执行（路线图 c1，`npm run build:bin`）：`scripts/build-bin.ts` 用 Bun 从 `src/` 编译出 `dist/bin/via-<系统>-<架构>[-musl][.exe]`（默认本机平台；`--all` 或 `--target a,b` 交叉编译 linux-x64/arm64、linux-x64/arm64-musl、darwin-x64/arm64、windows-x64），每个文件带 `.sha256`。构建参数是实测选出来的：`--bytecode` 去掉每次启动对整包 JS 的解析（`--version` 约 66 → 20 ms，对比 `node dist/via.js`；0.1 里不带标志的 `bun build --compile` 比 Node 还慢，原因在此，而不是 85 MiB 的体积），`--splitting` 保持 `--version`/`-h` 不加载命令运行器与库，关闭 `.env` 与 `bunfig.toml` 的自动加载（默认会读当前目录的，见 security.md）。`@napi-rs/keyring` 经 Bun 插件替换为目标平台的 `.node` 文件并内嵌（非本机平台的包从 npm 下载并校验 `package-lock.json` 的完整性），每个产物只带自己平台的模块；加载失败时 `keychain:` 报「native keychain module is not available」并提示改用 `env:`/`file:`，`NAPI_RS_NATIVE_LIBRARY_PATH` 可指定 `.node`。`via daemon run` 拉起的是可执行文件自身（`src/runtime.ts` 的 `selfCommand()`）；Bun 下不调用 `module.enableCompileCache()`。`dist/bin` 不进 npm 包。
 - 测试：`test/cli/bin.test.ts`（装有 `bun` 时构建本机产物并跑冒烟集，否则跳过；`VIA_REQUIRE_BUN=1` 时缺少 Bun 即失败）、`test/runtime.test.ts`、`test/bin-targets.test.ts`。CI 增加 `binary` 任务（Ubuntu、macOS，固定 Bun 1.4.2）；新增 `release.yml`（仅 `v*` 标签与手动触发）构建全部目标、生成 `SHA256SUMS` 并上传到 Release。
 - 性能基准：`npm run bench:perf` 的 Bun 一节比较 `bun dist/via.js`、不带标志的编译、逐个加标志的编译与 `build:bin` 产物，第 5 节增加产物经热 daemon 的整进程调用；`--only-bun` 只跑 Bun 一节。结果记录在 `bench/results/perf-0.3.md`。
