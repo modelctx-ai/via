@@ -1,0 +1,11 @@
+{
+  "id": "claude-code",
+  "name": "Claude Code",
+  "configs": [
+    { "path": ".mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
+    { "path": "~/.claude.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
+  ],
+  "disableHint": "启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用",
+  "verifiedAt": null,
+  "notes": "~/.claude.json 的 /projects/<路径>/mcpServers（local 作用域）按项目路径分键，暂不读取。"
+}

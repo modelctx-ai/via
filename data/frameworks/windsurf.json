@@ -1,0 +1,9 @@
+{
+  "id": "windsurf",
+  "name": "Windsurf",
+  "configs": [
+    { "path": "~/.codeium/windsurf/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
+  ],
+  "disableHint": "Cascade 面板 → MCP 图标（Manage MCPs），关闭对应 server 的开关",
+  "verifiedAt": null
+}
