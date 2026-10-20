@@ -90,7 +90,7 @@ export class App {
   async config(options: { allowErrors?: boolean } = {}): Promise<LoadedConfig> {
     const { loadConfig, hasErrors, formatDiagnostic } = await import('../config');
     if (!this.loaded) {
-      this.loaded = await loadConfig({ cwd: this.io.cwd, env: this.io.env, home: this.io.home, platform: this.io.platform });
+      this.loaded = await loadConfig({ cwd: this.io.cwd, env: this.io.env, home: this.io.home, platform: this.io.platform, parseCacheDir: join(this.cacheDir, 'config') });
     }
     if (!options.allowErrors && hasErrors(this.loaded.diagnostics)) {
       const errors = this.loaded.diagnostics.filter((d) => d.level === 'error').map(formatDiagnostic);

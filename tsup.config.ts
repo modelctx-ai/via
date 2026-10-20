@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'tsup';
 import { lazyBuiltins } from './scripts/lib/lazy-builtins';
 
@@ -12,6 +13,12 @@ import { lazyBuiltins } from './scripts/lib/lazy-builtins';
 // (`npm run bench:perf`). Only the native keychain binding has to stay a real package.
 const NATIVE = ['@napi-rs/keyring'];
 
+/** Identifies the YAML parser of this build: via's version and the bundled `yaml` package's. */
+function parseId(): string {
+  const read = (path: string): string => (JSON.parse(readFileSync(path, 'utf8')) as { version: string }).version;
+  return `${read('package.json')}+yaml-${read('node_modules/yaml/package.json')}`;
+}
+
 export default defineConfig({
   entry: { via: 'src/cli/main.ts' },
   format: ['esm'],
@@ -23,6 +30,7 @@ export default defineConfig({
   sourcemap: false,
   noExternal: [/^(?!@napi-rs\/keyring(\/|$))/],
   external: NATIVE,
+  define: { __VIA_PARSE_ID__: JSON.stringify(parseId()) },
   // `fs` without the ES module facade that costs ~12 ms on a cold start (see the plugin).
   esbuildPlugins: [lazyBuiltins()],
   // Keep `node:` prefixes so the plugin above sees the import before tsup turns it into an external.

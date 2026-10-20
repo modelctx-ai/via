@@ -11,6 +11,7 @@ import { applyDef, canonical, newAccumulator, type Accumulator } from './merge';
 import { isPlainObject, ownEntries, type OriginedDef, type ServerDef } from './model';
 import { normalizeFrameworkEntry } from './normalize';
 import { parseConfigText, resolvePointer, ParseFailure } from './parse';
+import { ParseCache } from './parse-cache';
 import { expandPath, pathContext, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
 import { parseCredentialRef } from './credentials';
 import { sha256Hex } from '../sha256';
@@ -43,7 +44,14 @@ export interface LoadConfigOptions {
   dataDir?: string;
   /** Framework descriptions. Default: the bundled `data/frameworks/`. */
   frameworks?: readonly FrameworkDef[];
+  /**
+   * Directory that keeps the parsed form of YAML config files (parse-cache.ts). Default: none, so
+   * a caller that does not ask never writes anything.
+   */
+  parseCacheDir?: string;
 }
+
+declare const __VIA_PARSE_ID__: string | undefined;
 
 /** A config file that was read, with the hash of the exact bytes that were parsed. */
 export interface LoadedFile {
@@ -86,12 +94,8 @@ interface Layer {
  * A `LoadedFile` whose `sha256` is computed on first read: only files that launch a process need
  * their hash (trust, `via doctor`), and hashing is not free on a cold start.
  */
-function loadedFile(file: Omit<LoadedFile, 'sha256'>, bytes: Uint8Array): LoadedFile {
-  let hash: string | undefined;
-  return Object.defineProperty(file, 'sha256', {
-    enumerable: true,
-    get: () => (hash ??= sha256Hex(bytes)),
-  }) as LoadedFile;
+function loadedFile(file: Omit<LoadedFile, 'sha256'>, read: ReadResult): LoadedFile {
+  return Object.defineProperty(file, 'sha256', { enumerable: true, get: read.hash }) as LoadedFile;
 }
 
 function isFile(path: string): boolean {
@@ -117,9 +121,18 @@ function findUp(relative: string, from: string, ceiling?: string): string | unde
 interface ReadResult {
   bytes: Buffer;
   value: unknown;
+  /** SHA-256 of `bytes`, computed on first use. */
+  hash: () => string;
 }
 
-async function readAndParse(path: string, format: ConfigFormat, severity: 'error' | 'warning', mandatory: boolean, diagnostics: ConfigDiagnostic[]): Promise<ReadResult | undefined> {
+async function readAndParse(
+  path: string,
+  format: ConfigFormat,
+  severity: 'error' | 'warning',
+  mandatory: boolean,
+  diagnostics: ConfigDiagnostic[],
+  cache?: ParseCache,
+): Promise<ReadResult | undefined> {
   let bytes: Buffer;
   try {
     bytes = readFileSync(path);
@@ -132,8 +145,10 @@ async function readAndParse(path: string, format: ConfigFormat, severity: 'error
     }
     return undefined;
   }
+  let digest: string | undefined;
+  const hash = (): string => (digest ??= sha256Hex(bytes));
   try {
-    return { bytes, value: await parseConfigText(bytes.toString('utf8'), format) };
+    return { bytes, hash, value: await parseConfigText(bytes.toString('utf8'), format, { ...(cache ? { cache } : {}), key: hash }) };
   } catch (error) {
     const message = error instanceof ParseFailure ? error.message : 'could not be parsed';
     diagnostics.push({ level: severity, code: 'file-malformed', message, file: path });
@@ -175,6 +190,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   const frameworks = options.frameworks ?? BUNDLED_FRAMEWORKS;
   const diagnostics: ConfigDiagnostic[] = [];
   const files: LoadedFile[] = [];
+  const parseCache = options.parseCacheDir === undefined ? undefined : new ParseCache(options.parseCacheDir, typeof __VIA_PARSE_ID__ === 'string' ? __VIA_PARSE_ID__ : 'source');
 
   // 1. via's own configs, lowest priority first: user, project, CLI.
   const layers: Layer[] = [];
@@ -183,9 +199,9 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   const projectPath = findUp(PROJECT_CONFIG_NAME, cwd, ceiling);
   for (const [scope, path] of [['user', userPath], ['project', projectPath]] as const) {
     if (path === undefined) continue;
-    const read = await readAndParse(path, 'yaml', 'error', false, diagnostics);
+    const read = await readAndParse(path, 'yaml', 'error', false, diagnostics, parseCache);
     if (!read) continue;
-    files.push(loadedFile({ path, scope, format: 'yaml' }, read.bytes));
+    files.push(loadedFile({ path, scope, format: 'yaml' }, read));
     const { data, diagnostics: found } = validateLayer(read.value, path);
     diagnostics.push(...found);
     layers.push({ origin: { scope, path }, data });
@@ -443,7 +459,7 @@ async function readFrameworks(
       anyRead = true;
       const meta: Omit<LoadedFile, 'sha256'> = { path: source.path, scope: source.origin.scope, format: source.format };
       if (source.origin.framework) meta.framework = source.origin.framework;
-      files.push(loadedFile(meta, read.bytes));
+      files.push(loadedFile(meta, read));
       const map = findServerMap(read.value, source, diagnostics);
       if (!map) continue;
       for (const [name, entry] of ownEntries(map)) {
