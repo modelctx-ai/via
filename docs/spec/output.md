@@ -61,7 +61,7 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 
 ## 游标
 
-- 被截断的完整结果由 daemon 保存 30 分钟；进程内模式下存在用户缓存目录（权限 0700），按 TTL 清理。
+- 被截断的完整结果由 daemon 在内存中保存 30 分钟（daemon 空闲退出后随之失效）；进程内模式下存在用户缓存目录（权限 0700），按 TTL 清理。
 - `via more <游标>` 从截断处继续，格式与首段一致（表格的表头在每一段重复）；仍有剩余时元信息行给出新的游标。元信息行里的 `shown/total bytes` 中 `shown` 是到本段为止累计已显示的字节数。
 - 游标是不透明字符串（4 位十六进制起，冲突时变长的随机串），不得编码凭证或参数原文。
 - 游标不存在或已过期：退出码 3，提示 `next: rerun the original command`。

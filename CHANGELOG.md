@@ -14,6 +14,7 @@
 - 规范补充（随 config / client 实现）：config.md 的 `sources` 列表语义、框架写法规范化（`type`/`transport`、`serverUrl`、Codex 的 `*_env_var` 等）、合并细节、校验与诊断、stdio 子进程的基础环境；data-files.md 的框架条目新增 `platforms`、`notes`，`verifiedAt` 可为 `null`；auth.md 明确 403 退出码 4、0.1 暂不支持 OAuth、stdio 的 stderr 不转发；output.md 补全传输与上游错误的格式。
 - 规范补充（随 CLI 实现）：cli.md 补充各内置子命令的细节、配置错误时的行为与 `--dry-run` 输出格式；arguments.md 明确默认方言 2020-12、usage 折行规则、新增几类报错说法与错误顺序、危险操作拒绝与 progress 行的格式；discovery.md 补充进程内模式的目录缓存；agent-integration.md 补充 `via doctor` 的各节、token 估算、明文判定规则与退出码。
 - 规范补充（随框架数据文件核对）：框架条目新增 `sources`、`configs[].dollarVariables`，`verifiedAt` 改为 `YYYY-MM-DD`；config.md 的规范化表补充 Codex `env_vars` 的 `{ name, source }` 写法与 `$NAME` 变量；显式指定的框架只要其配置文件之一存在，就不再为其余缺失的备选文件告警。无规范写法（动词表、分类表）受影响。
+- 规范补充（随 daemon 实现，docs/spec/daemon.md 为准）：协议改为围绕「server 定义 + 请求」组织，CLI 在每个请求里带上配置里的 server 定义（只含凭证引用）、工作目录和 `envStamp`，daemon 不读配置；去掉 `ls`、`find`、`describe`、`more`、`sync` 请求（目录由 CLI 从原始工具列表计算，续读与刷新用 `cursor-*`、`list`），新增 `list`、`validate`、`redact`、`cursor-put`、`cursor-get`、`shutdown`、`stale` 应答，`hello` 带令牌。补充启动锁与陈旧 socket 清理、版本不一致时先释放 socket、回退的边界（可能已执行的非只读调用不重放，退出码 6）、`env:` 在 daemon 自己的环境里解析并以摘要探测差异、凭证 10 分钟过期、独占 server 请求结束即停、空闲退出的含义、`list_changed` 的合并与失败处理、游标随 daemon 退出失效。socket 安全因 Node 无法取得 `SO_PEERCRED`，改为目录与 socket 权限、CLI 侧属主检查和握手令牌（peer uid 校验留作后续）。cli.md 补充 `via daemon status|stop|run` 的输出与退出码。
 - client 把上游 `InvalidParams`（-32602）映射为退出码 1，并提示 schema 与 server 行为不一致。
 - 安全：项目级配置的信任范围从 stdio 命令扩大到 HTTP 端点。项目级文件设置或覆盖 `url`、`headers` 时同样需要 `via trust`，避免仓库把 server 指向别处，从而拿到用户为它配置的凭证（security.md）。
 - 规范补充（随 `via trust`、`cmd:`、deny 审计实现，不改变既有设计决策）：security.md 新增 `via trust` 的范围、显示内容、确认方式（终端提示或 `--yes`、`--dry-run`）、`--list` / `--revoke` 与退出码，以及 `cmd:` 的执行细节（不经 shell、环境、超时、输出上限、错误信息不含命令输出）；config.md 补全 `cmd:` 的分词与缓存语义、deny 的匹配范围（规范写法与原始名、别名、区分大小写）、分层规则（只能追加）与 deny 先于 `--yes`；`via servers` 不执行 `cmd:`；output.md 的退出码 5 补充未信任。
@@ -55,6 +56,11 @@
 - 打包启用代码分块：`--version` 与 `-h` 只加载入口，MCP SDK、ajv、配置解析器都在首次需要时加载。
 - GitHub Actions CI：Node 22 / 24 上类型检查、打包、测试，并在 Node 20 上运行打包产物。
 - 测试夹具：GitHub / Linear / Notion / Cloudflare 等 `tools/list` 快照与拆分结果基线（`test/fixtures/`），`npm run split-diff` 离线检查拆分变化；渲染与浏览视图的文件快照；快照与夹具的凭证扫描。
+- daemon（`src/daemon/`，`via daemon status|stop|run`）：首次使用时由 CLI 分离拉起，之后的调用复用同一批 MCP 会话（同一个 stdio server 进程跨多次 `via` 调用）；空闲 10 分钟退出，stdio server 空闲 5 分钟停止，`exclusive` 的 server 用完即停；多个 CLI 同时启动只留下一个 daemon，陈旧 socket 自动清理，版本不一致时重启；daemon 或连接不可用时回退为进程内模式并在 stderr 提示一次；`VIA_NO_DAEMON=1` 关闭。socket 与令牌文件权限 0600，CLI 连接前检查属主与权限位。同一 server 的并发上限跨 CLI 进程生效。解析后的凭证不经过 socket，结果、进度和错误在 daemon 内先脱敏。
+- `list_changed` 实时刷新：daemon 订阅 `notifications/tools/list_changed`，合并连发的通知后重新拉取该 server 的工具列表，更新内存副本和磁盘缓存。
+- `src/cli/backend.ts`：命令访问 MCP server 的唯一入口（`App.backend()` / `App.client()`）：`InProcessBackend`、`DaemonBackend`、`FallbackBackend`；`batch`、`auth` 等不用改动就走 daemon。daemon 模式下参数校验在 daemon 里完成，CLI 进程不加载 MCP SDK 和 ajv。
+- 游标在 daemon 模式下保存在 daemon 内存（30 分钟），`via more` 先问已运行的 daemon 再看缓存目录。
+- 测试：端到端（真实分离的 daemon 进程：复用、空闲退出、陈旧 socket、版本不一致、启动竞争、跨进程并发上限、`list_changed`、回退、权限、凭证不出现在 socket 上、OAuth、冷启动不加载 SDK/ajv）与协议层测试；`mock-server` 增加 `add_tool`（触发 `list_changed`）。vitest 默认设置 `VIA_NO_DAEMON=1`，daemon 测试显式打开。
 - 初始设计文档：愿景、架构、术语表。
 - 规范：命令语法、工具名拆分、发现与分域、参数映射、输出与退出码、配置与鉴权、daemon 协议、安全模型。
 - 指南：快速上手、与 agent 框架集成、GitHub / Linear / Notion / Cloudflare / 网关类 server 示例、组合用法。

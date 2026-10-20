@@ -5,6 +5,7 @@ import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { startOAuthServer } from '../fixtures/mcp/oauth-server.mjs';
 import { VERSION } from '../../src/cli/help';
 import { pathContext } from '../../src/config/paths';
 import { DaemonServer } from '../../src/daemon/server';
@@ -355,5 +356,52 @@ describe('cold start', () => {
     expect(r.code).toBe(0);
     expect(r.loaded.some((s) => s.startsWith('@modelcontextprotocol/sdk'))).toBe(true);
     expect(r.loaded.some((s) => s.startsWith('ajv'))).toBe(true);
+  });
+});
+
+describe('OAuth', () => {
+  it('uses the login the CLI made, refreshes in the daemon, and never prints a token', async () => {
+    const srv = await startOAuthServer();
+    useCleanup(() => srv.close());
+    const d = await daemonSandbox(`sources: false\nservers:\n  linear:\n    url: ${srv.url}\n    auth: oauth\n`);
+    const browser = async (url: string) => {
+      srv.browse(url).catch(() => undefined);
+      return { opened: true };
+    };
+
+    // Not logged in yet: needs auth (exit 4), decided by the daemon.
+    const before = await d.via(['linear', 'echo-text', '--message', 'hi']);
+    expect(before.code).toBe(4);
+    expect(before.stderr).toContain('next: via auth login linear');
+
+    const login = await d.via(['auth', 'login', 'linear'], { openUrl: browser });
+    expect(login.code).toBe(0);
+
+    const call = await d.via(['linear', 'echo-text', '--message', 'hi']);
+    expect(call.code).toBe(0);
+    expect(call.stdout).toBe('echo: hi\n');
+    expect((await d.status())!.sessions).toHaveLength(1);
+
+    // The access token expires: the daemon's session refreshes it before the next request.
+    srv.expireAccessTokens();
+    const refreshed = await d.via(['linear', 'echo-text', '--message', 'again']);
+    expect(refreshed.code).toBe(0);
+    expect(srv.state.tokenRequests.some((t) => t.grant_type === 'refresh_token')).toBe(true);
+
+    const whoami = await d.via(['linear', 'whoami']);
+    const secrets = [...srv.issuedAccessTokens(), ...srv.issuedRefreshTokens()];
+    expect(secrets.length).toBeGreaterThan(0);
+    for (const r of [before, login, call, refreshed, whoami, await d.via(['daemon', 'status', '-o', 'json'])]) {
+      for (const secret of secrets) {
+        expect(r.stdout).not.toContain(secret);
+        expect(r.stderr).not.toContain(secret);
+      }
+    }
+    expect(whoami.stdout).toContain('***');
+
+    // A logout made by the CLI is seen by the daemon on its next request.
+    expect((await d.via(['auth', 'logout', 'linear'])).code).toBe(0);
+    const after = await d.via(['linear', 'echo-text', '--message', 'hi']);
+    expect(after.code).toBe(4);
   });
 });

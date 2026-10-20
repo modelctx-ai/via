@@ -67,7 +67,7 @@ export interface DaemonSandbox {
   runtime: string;
   socket: string;
   /** Run `via` with the daemon enabled and the bundled CLI as the program to start it. */
-  via(argv: string[], options?: { env?: Record<string, string | undefined>; daemonCommand?: { command: string; args: string[] } }): Promise<CliResult>;
+  via(argv: string[], options?: { env?: Record<string, string | undefined>; daemonCommand?: { command: string; args: string[] }; openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }> }): Promise<CliResult>;
   /** `via daemon status -o json`, or undefined when no daemon runs. */
   status(): Promise<DaemonStatus | undefined>;
   /** Stop the daemon and wait until its process is gone. */
@@ -87,7 +87,8 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
   sb.userConfig(config);
   const runtime = mkdtempSync(join(tmpdir(), 'via-rt-'));
   const socket = join(runtime, 'via.sock');
-  const sandboxEnv = { PATH: process.env.PATH, XDG_RUNTIME_DIR: runtime, VIA_NO_DAEMON: '0', ...env };
+  // OAuth logins go to files in the sandbox, never to the real keychain.
+  const sandboxEnv = { PATH: process.env.PATH, XDG_RUNTIME_DIR: runtime, VIA_NO_DAEMON: '0', VIA_OAUTH_STORE: 'file', ...env };
 
   const via: DaemonSandbox['via'] = async (argv, options = {}) => {
     let stdout = '';
@@ -102,6 +103,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
       stderr: { write: (s) => void ((stderr += s), (combined += s)) },
       readStdin: async () => '',
       daemonCommand: options.daemonCommand ?? { command: process.execPath, args: [entry] },
+      ...(options.openUrl ? { openUrl: options.openUrl } : {}),
     });
     return { code, stdout, stderr, asked: [], combined };
   };
