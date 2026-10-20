@@ -1,0 +1,22 @@
+--- stdout (exit 0) ---
+title                             url                                                  score  publishedDate
+Rust MCP SDK                      https://example.org/articles/rust-mcp-sdk            0.91   2026-01-10
+Model Context Protocol servers    https://example.org/articles/mcp-servers             0.88   2026-02-11
+Building an MCP client            https://example.org/articles/building-an-mcp-client  0.84   2026-03-12
+MCP transports explained          https://example.org/articles/mcp-transports          0.8    2026-04-13
+Streamable HTTP in practice       https://example.org/articles/streamable-http         0.77   2026-05-14
+stdio vs HTTP for local servers   https://example.org/articles/stdio-vs-http           0.75   2026-06-15
+Writing tools that agents like    https://example.org/articles/agent-friendly-tools    0.7    2026-07-16
+Schema design for tool arguments  https://example.org/articles/schema-design           0.66   2026-08-17
+Rust MCP SDK                      https://example.org/articles/rust-mcp-sdk            0.91   2026-01-10
+Model Context Protocol servers    https://example.org/articles/mcp-servers             0.88   2026-02-11
+Building an MCP client            https://example.org/articles/building-an-mcp-client  0.84   2026-03-12
+MCP transports explained          https://example.org/articles/mcp-transports          0.8    2026-04-13
+Streamable HTTP in practice       https://example.org/articles/streamable-http         0.77   2026-05-14
+stdio vs HTTP for local servers   https://example.org/articles/stdio-vs-http           0.75   2026-06-15
+Writing tools that agents like    https://example.org/articles/agent-friendly-tools    0.7    2026-07-16
+Schema design for tool arguments  https://example.org/articles/schema-design           0.66   2026-08-17
+Rust MCP SDK                      https://example.org/articles/rust-mcp-sdk            0.91   2026-01-10
+Model Context Protocol servers    https://example.org/articles/mcp-servers             0.88   2026-02-11
+--- stderr ---
+· exa web:search · 612ms · 2.0k/5.0k bytes · next: via more c7f2

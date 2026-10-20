@@ -1,0 +1,6 @@
+--- stdout (exit 0) ---
+id: ENG-123
+url: https://linear.app/acme/issue/ENG-123
+state: Backlog
+--- stderr ---
+· linear issue:create · 318ms · 70 bytes

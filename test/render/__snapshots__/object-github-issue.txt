@@ -1,0 +1,27 @@
+--- stdout (exit 0) ---
+number: 42
+title: Login returns 500
+state: open
+html_url: https://github.com/acme/api/issues/42
+user:
+  login: octocat
+  id: 1
+labels: bug, p1
+body:
+  Steps to reproduce:
+  1. Open /login
+  2. Submit the form
+  
+  Expected: 200
+  Actual: 500
+reactions:
+  total_count: 2
+  +1: 2
+  -1: 0
+  laugh: 0
+comments_list:
+  author   body                 created_at
+  hubot    Reproduced on main.  2026-10-11T10:00:00Z
+  octocat  Fix is in #43.       2026-10-12T10:00:00Z
+--- stderr ---
+· github issue:read · 318ms · 461 bytes

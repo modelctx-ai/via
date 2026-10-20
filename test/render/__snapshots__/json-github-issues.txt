@@ -1,0 +1,58 @@
+--- stdout (exit 0) ---
+[
+  {
+    "number": 12,
+    "title": "Support OAuth DCR",
+    "state": "open",
+    "url": "https://api.github.com/repos/acme/api/issues/12",
+    "html_url": "https://github.com/acme/api/issues/12",
+    "repository_url": "https://api.github.com/repos/acme/api",
+    "labels_url": "https://api.github.com/repos/acme/api/issues/12/labels{/name}",
+    "comments_url": "https://api.github.com/repos/acme/api/issues/12/comments",
+    "user": {
+      "login": "octocat",
+      "id": 1,
+      "avatar_url": "https://avatars.example/u/1",
+      "url": "https://api.github.com/users/octocat"
+    },
+    "labels": [
+      {
+        "name": "auth",
+        "color": "ededed"
+      }
+    ],
+    "comments": 3,
+    "created_at": "2026-10-10T08:00:00Z",
+    "updated_at": "2026-10-18T09:30:00Z"
+  },
+  {
+    "number": 11,
+    "title": "Group inference too eager when a provider has fewer than six servers",
+    "state": "open",
+    "url": "https://api.github.com/repos/acme/api/issues/11",
+    "html_url": "https://github.com/acme/api/issues/11",
+    "user": {
+      "login": "hubot",
+      "id": 2
+    },
+    "labels": [
+      {
+        "name": "catalog",
+        "color": "ededed"
+      },
+      {
+        "name": "bug",
+        "color": "d73a4a"
+      }
+    ],
+    "assignee": {
+      "login": "octocat",
+      "id": 1
+    },
+    "comments": 0,
+    "created_at": "2026-10-09T08:00:00Z",
+    "updated_at": "2026-10-17T11:00:00Z"
+  }
+]
+--- stderr ---
+· github issue:list · 318ms · 2 rows

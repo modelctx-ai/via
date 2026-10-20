@@ -1,0 +1,7 @@
+--- stdout (exit 0) ---
+number  title                      state   labels
+1       支持 OAuth 动态客户端注册  open    认证
+2       拆分规则：动词表需要补充   open    catalog
+10      Windows 命名管道           closed  daemon
+--- stderr ---
+· github issue:list · 318ms · 3 rows

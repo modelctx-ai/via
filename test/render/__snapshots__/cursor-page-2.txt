@@ -1,0 +1,19 @@
+--- stdout (exit 0) ---
+id    name         status    region
+1015  service-015  healthy   us-east
+1016  service-016  healthy   eu-west
+1017  service-017  healthy   ap-south
+1018  service-018  healthy   us-east
+1019  service-019  healthy   eu-west
+1020  service-020  healthy   ap-south
+1021  service-021  degraded  us-east
+1022  service-022  healthy   eu-west
+1023  service-023  healthy   ap-south
+1024  service-024  healthy   us-east
+1025  service-025  healthy   eu-west
+1026  service-026  healthy   ap-south
+1027  service-027  healthy   us-east
+1028  service-028  degraded  eu-west
+1029  service-029  healthy   ap-south
+--- stderr ---
+· cloud service:list · 318ms · 1.1k/2.2k bytes · next: via more c7f3
