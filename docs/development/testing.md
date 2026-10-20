@@ -148,7 +148,7 @@ mcp2cli 不在 PATH 上时这一条件跳过并在输出里说明，不伪造数
 
 ## 性能目标
 
-以下是初始目标，在 0.1 的基准测试中校准：
+以下是初始目标，在 0.1 的基准测试中校准（实测、环境和校准建议见 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)，目标本身尚未改动）：
 
 | 指标 | 目标 |
 | --- | --- |
@@ -158,3 +158,21 @@ mcp2cli 不在 PATH 上时这一条件跳过并在输出里说明，不伪造数
 | daemon 常驻内存 | < 80 MB（不含 stdio 子进程） |
 
 0.2 的实测（Linux，Node 22，一个 stdio server）：热 daemon 上一次请求的往返约 0.3 ms（`status`、`validate`）到 1 ms（`list`、`call`），连接加握手约 2–6 ms，一次调用（`list`、两次校验、`call`）合计远低于 15 ms 的目标；daemon 空闲时约 58 MB，建立一个会话并加载 MCP SDK 与 ajv 后约 79–86 MB，在 80 MB 目标附近，尚未优化。CLI 自身的冷启动（约 130 ms 加载命令、配置与目录）与是否使用 daemon 无关。
+
+### 性能基准
+
+```bash
+npm run build        # 基准测量的是 dist/，先打包
+npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调整次数，--skip-bun 跳过 Bun，--dist <目录> 测另一份构建（用来对比改动前后）
+```
+
+`scripts/bench-perf.ts` 在隔离的 HOME 与 TMPDIR 里运行（不读取任何真实的框架配置）；除热 daemon 一节外都设 `VIA_NO_DAEMON=1`，保证各项可比。每项预热后取多次的中位数、p95 与最小值，并对照上表：
+
+- **冷启动**：`node dist/via.js` 的 `--version`、`-h`、`via`、`via <provider>`、`via find`、`via doctor`，从进程创建到退出；各自在无编译缓存、缓存冷（每次新目录）、缓存热三种状态下测量，并减去 `node -e 0` 的基线，得到 via 自己的耗时。浏览类命令使用 8 个真实 `tools/list` 快照写入磁盘缓存后的目录；`doctor` 会实时探测 server，所以对着运行中的本地 server 测。
+- **1,000 个工具上的 `find`**：用 `scripts/lib/synth-catalog.ts` 从夹具确定性地合成 1,000 个工具（固定种子，同一输入在任何机器上得到同一份目录），分别计时目录构建、索引构建、查询和渲染。新进程里的首次调用对应一次性的 CLI，稳态对应将来常驻的 daemon。
+- **调用开销（无 daemon）**：对本地 Streamable HTTP 模拟 server，比较 `via <provider> <tool>` 端到端与官方 SDK client 直接调用（进程内与整进程两个口径）。
+- **热 daemon**：同一个 server 加一个 stdio server，另起 `via daemon run`，测 `via` 经热 daemon 调用的耗时，对照无 daemon 的 `via` 与复用连接的 SDK 调用（目标里的「额外开销」取前者减后者），并读 `via daemon status` 的 RSS：刚启动、建立一个 HTTP 会话后、再建立一个 stdio 会话后、多次调用后。脚本结束时执行 `via daemon stop`，不留下 daemon。
+- **模块加载**：用 `scripts/lib/load-trace.mjs`（`node --import` 的加载钩子）记录每条命令加载了哪些打包分块和 `node_modules` 包；`--version` 与 `-h` 不得加载任何包，命中缓存的浏览命令不得加载 MCP SDK 和 ajv，违反时脚本以非零退出码结束。`test/cli/dist.test.ts` 对同样的约束做了不依赖时间的断言。
+- **Bun**：已安装 `bun` 时，另测 `bun build --compile` 的单文件可执行与 `bun dist/via.js` 的冷启动，用来回答[运行时与分发](../open-questions.md)这个开放问题；未安装则跳过并说明。
+
+性能数字不进 vitest 断言（CI 机器噪声太大）；测试只覆盖确定性的部分：合成目录的生成、`find` 在其上的结果、加载约束。0.1 的实测结果、环境和校准建议记录在 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)。

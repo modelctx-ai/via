@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lexicon": "tsup scripts/build-lexicon.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/build-lexicon.js test/fixtures/tools --out data/domain-lexicon.json",
+    "bench:perf": "tsup scripts/bench-perf.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-perf.js",
     "bench:tokens": "tsup scripts/bench-tokens.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-tokens.js",
     "bench:eval": "tsup scripts/bench-eval.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --external @anthropic-ai/sdk --silent && node .build/scripts/bench-eval.js",
     "split-diff": "tsup scripts/split-diff.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-diff.js test/fixtures/tools test/fixtures/other"
@@ -32,15 +33,16 @@
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "env-paths": "^4.0.0",
+    "get-east-asian-width": "^1.5.0",
     "jsonc-parser": "^3.3.1",
     "smol-toml": "^1.9.1",
-    "string-width": "^8.3.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
+    "string-width": "^8.3.0",
     "tsup": "^9.0.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"

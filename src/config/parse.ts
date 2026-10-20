@@ -19,12 +19,20 @@ function lineCol(text: string, offset: number): string {
   return `line ${line}, column ${col}`;
 }
 
+/**
+ * A CommonJS package imported from the bundle (tsup splits it into its own chunk) has no named
+ * exports there, only `default`; imported from Node's own loader both exist and agree.
+ */
+function interop<T extends object>(mod: T): T {
+  return (mod as { default?: T }).default ?? mod;
+}
+
 export async function parseConfigText(text: string, format: ConfigFormat): Promise<unknown> {
   const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   switch (format) {
     case 'json':
     case 'jsonc': {
-      const jsonc = await import('jsonc-parser');
+      const jsonc = interop(await import('jsonc-parser'));
       const errors: import('jsonc-parser').ParseError[] = [];
       const options = format === 'json' ? { allowTrailingComma: false, disallowComments: true } : { allowTrailingComma: true, disallowComments: false };
       const value: unknown = jsonc.parse(source, errors, options);
@@ -33,7 +41,7 @@ export async function parseConfigText(text: string, format: ConfigFormat): Promi
       return value;
     }
     case 'toml': {
-      const toml = await import('smol-toml');
+      const toml = interop(await import('smol-toml'));
       try {
         return toml.parse(source);
       } catch (error) {
@@ -43,7 +51,7 @@ export async function parseConfigText(text: string, format: ConfigFormat): Promi
       }
     }
     case 'yaml': {
-      const yaml = await import('yaml');
+      const yaml = interop(await import('yaml'));
       const doc = yaml.parseDocument(source, { prettyErrors: false });
       const first = doc.errors[0];
       if (first) throw new ParseFailure(`invalid YAML: ${first.code} at ${lineCol(source, first.pos[0])}`);
