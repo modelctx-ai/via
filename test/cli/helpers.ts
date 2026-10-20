@@ -24,7 +24,7 @@ export interface FixtureServer {
 }
 
 /** Streamable HTTP fixture; requests need `Authorization: Bearer <token>` when `token` is set. */
-export async function startFixtureServer(options: { token?: string } = {}): Promise<FixtureServer> {
+export async function startFixtureServer(options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots'> } = {}): Promise<FixtureServer> {
   const state = createCliState();
   const result: FixtureServer = { url: '', state, requests: [], close: async () => undefined };
   const http: HttpServer = createServer((req, res) => {
@@ -42,7 +42,7 @@ export async function startFixtureServer(options: { token?: string } = {}): Prom
         }
         result.requests.push(req.headers);
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-        const server = createCliServer({ state, ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}) });
+        const server = createCliServer({ state, ...(options.features ? { features: options.features } : {}), ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}) });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => {
           void transport.close();

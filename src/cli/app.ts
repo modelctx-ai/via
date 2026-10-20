@@ -139,6 +139,7 @@ export class App {
         env: this.io.env,
         cacheDir: this.cacheDir,
         now: this.io.now,
+        roots: { cwd: this.io.cwd, home: this.io.home },
         ...(config.servers.some((s) => s.auth.type === 'oauth') ? { oauthStore: await this.oauthStore() } : {}),
       });
     };

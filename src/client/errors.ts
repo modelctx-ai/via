@@ -84,6 +84,31 @@ export function oauthNeedsHttp(server: ServerConfig): ClientError {
   });
 }
 
+/** The server did not declare the capability behind `via resources` / `via prompts` (exit code 3, nothing was sent). */
+export function noFeature(server: ServerConfig, feature: 'resources' | 'prompts'): ClientError {
+  return new ClientError({
+    exitCode: ExitCode.NotFound,
+    message: `${server.provider} does not offer MCP ${feature}`,
+    next: `via ${server.provider}`,
+  });
+}
+
+/**
+ * `resources/read` failed because the server does not know the URI (-32002, or -32602 from servers
+ * that report it as invalid params). Other failures return undefined and map as usual.
+ */
+export function resourceNotFound(err: unknown, uri: string, provider: string, redact: (text: string) => string): ClientError | undefined {
+  const code = mcpCode(err);
+  if (code !== RESOURCE_NOT_FOUND && code !== INVALID_PARAMS) return undefined;
+  const flat = (text: string): string => sanitizeText(redact(text)).replace(/\s+/g, ' ').trim().slice(0, MAX_UPSTREAM_TEXT);
+  const detail = flat(errorMessage(err).replace(/^(?:MCP error -?\d+:\s*)+/, ''));
+  return new ClientError({
+    exitCode: ExitCode.NotFound,
+    message: `no such resource: ${flat(uri)}${detail ? ` (${detail})` : ''}`,
+    next: `via resources ${provider}`,
+  });
+}
+
 export function internal(message: string): ClientError {
   return new ClientError({ exitCode: ExitCode.Internal, message, next: 'via doctor' });
 }
@@ -230,6 +255,7 @@ function httpStatus(err: unknown): number | undefined {
 const REQUEST_TIMEOUT = -32001;
 const CONNECTION_CLOSED = -32000;
 const INVALID_PARAMS = -32602;
+const RESOURCE_NOT_FOUND = -32002;
 
 function mcpCode(err: unknown): number | undefined {
   if (err instanceof Error && err.name === 'McpError') {

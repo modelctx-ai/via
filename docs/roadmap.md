@@ -29,7 +29,7 @@ flowchart LR
     direction TB
     c1["Bun 单文件可执行"]
     c2["可选语义检索"]
-    c3["resources 与 prompts"]
+    c3["resources、prompts 与 roots"]
     c4["Windows 支持"]
     c5["via serve（待定）"]
   end

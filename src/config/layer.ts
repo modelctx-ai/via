@@ -21,7 +21,7 @@ export interface ConfigLayerData {
 }
 
 const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'domains', 'output', 'daemon']);
-const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'domain', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise']);
+const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'domain', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise', 'roots']);
 
 const typeName = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'list' : typeof v);
 
@@ -88,6 +88,19 @@ function strList(r: Reporter, path: string, v: unknown, server?: string, scalars
     const s = scalars ? scalarString(item) : typeof item === 'string' ? item : undefined;
     if (s === undefined) r.invalid(`${path}[${i}]`, 'string', server);
     else out.push(s);
+  }
+  return out;
+}
+
+/** `roots`: paths or `file://` URIs. Any other URI scheme is refused: MCP roots are file URIs. */
+function roots(r: Reporter, path: string, v: unknown, server: string): string[] | undefined {
+  const list = strList(r, path, v, server);
+  if (list === undefined) return undefined;
+  const out: string[] = [];
+  for (const [i, item] of list.entries()) {
+    if (item === '') r.invalid(`${path}[${i}]`, 'non-empty path or file:// URI', server);
+    else if (/^[a-z][a-z0-9+.-]+:\/\//i.test(item) && !/^file:\/\//i.test(item)) r.invalid(`${path}[${i}]`, 'a path or file:// URI', server);
+    else out.push(item);
   }
   return out;
 }
@@ -172,6 +185,7 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
       case 'domain': def.domain = str(r, path, value, name); break;
       case 'args': def.args = strList(r, path, value, name, true); break;
       case 'noise': def.noise = strList(r, path, value, name); break;
+      case 'roots': def.roots = roots(r, path, value, name); break;
       case 'env': def.env = strMap(r, path, value, name); break;
       case 'headers': def.headers = strMap(r, path, value, name); break;
       case 'rename': def.rename = strMap(r, path, value, name); break;

@@ -17,6 +17,7 @@ export type DiagnosticCode =
   | 'unexpanded-variable'
   | 'legacy-transport'
   | 'plaintext-credential'
+  | 'roots-remote'
   | 'trust-store-corrupt';
 
 export interface ConfigDiagnostic {
