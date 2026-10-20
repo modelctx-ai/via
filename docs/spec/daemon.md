@@ -19,7 +19,11 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用**）、自己的工作目录、`daemon.serverIdleTimeout`，daemon 自己不读配置文件，所以项目级 `.via.yaml` 随调用目录变化，不会被某个 daemon 的启动目录固化。
 
 - stdio server 没有写 `cwd` 时，以调用方的工作目录启动；`file:` 引用的相对路径同样相对调用方的目录（daemon 内换算成绝对路径）。会话按「server 名 + 传输 + 鉴权 + `exclusive` + `concurrency`」的哈希区分，所以不同目录下的同名 stdio server 是不同的会话。
-- `env:` 引用在 **daemon 自己的环境**里解析（它由第一个启动它的 CLI 继承环境），解析值不经过 socket。为了不让 daemon 用着过期的环境变量，每个请求带 `envStamp`：对该 server 所有 `env:` 引用的变量名与调用方当前取值取单向摘要。daemon 用自己的环境算同一个摘要，不一致就回复 `stale`（不执行请求），CLI 随即让 daemon 退出（处理完在途请求）、拉起新的并重试一次；重试后仍不一致则回退为进程内模式。摘要不可逆，协议里仍然没有凭证值。
+- `env:` 引用按**调用方的环境**解析。每个请求带 `envStamp`：对该 server 所有 `env:` 引用的变量名与调用方当前取值取单向摘要（没有 `env:` 引用时为空串）。会话按「定义哈希 + `envStamp`」区分，所以两个 shell 里 `GH_TOKEN` 不同时，同一个 server 在 daemon 里各有一个会话（各有自己的 stdio 子进程或 HTTP 会话），交替调用互不影响，daemon 也不会因此重启。旧令牌不会服务另一个值的调用方：请求只会落到摘要相同的会话上，摘要不同的调用方得不到它的会话。
+  - daemon 认得三种摘要：与自己（由第一个启动它的 CLI 继承的）环境算出的摘要相同；之前登记过的；调用方当场证明的。都不是则回复 `stale`（不执行请求）。
+  - 收到 `stale` 后，CLI 把这个 server 的 `env:` 引用所涉变量的**取值**放进 `envValues` 重发一次。daemon 用 `envValues` 重新计算摘要，与 `envStamp` 一致才登记（变量没设置的不出现在 `envValues` 里，也不会退回 daemon 自己环境里的同名变量）；不一致仍回复 `stale`，CLI 此时回退为进程内模式完成本次调用。登记之后，同一摘要的请求不再带取值。
+  - 这是协议里唯一会出现凭证取值的地方：只含该 server `env:` 引用涉及的变量，只在 daemon 不认得摘要时发送，只经过 0600、带令牌握手的本地 socket（与同一用户可读的进程环境同等暴露，见下「socket 安全」）。daemon 把这些值计入脱敏列表，从不写入日志、状态或错误信息。
+  - 登记的环境最多保留 8 个（不含 daemon 自己的），超出时淘汰最久未使用的：它的会话随之关闭（stdio 子进程退出），再来的同一摘要需要重新带取值；被淘汰的取值仍留在脱敏列表里。登记的环境随 daemon 退出而消失。
 - daemon 里解析过的凭证（`file:`、`keychain:`、`env:` 的结果）缓存 10 分钟后丢弃，之后重新解析，所以轮换过的密钥无需重启 daemon；丢弃的值仍保留在脱敏名单里。
 
 ## daemon 持有的状态
@@ -49,6 +53,7 @@ type ServerTarget = {
   cwd: string;            // CLI 的工作目录
   idleTimeout: number;    // stdio 会话空闲秒数
   envStamp: string;       // 见「环境与工作目录」
+  envValues?: Record<string, string>;   // 仅在收到 stale 后重发时带上，见「环境与工作目录」
 };
 
 type Request =
@@ -71,7 +76,7 @@ type Event = { id; type: "event"; event: "progress" | "log"; data: unknown };   
 type Response =
   | { id; type: "result"; ok: true; result: unknown; meta: { elapsedMs: number } }
   | { id; type: "result"; ok: false; error: ErrorInfo };
-type Stale = { id; type: "stale"; reason: "environment" };                      // 未执行，见上
+type Stale = { id; type: "stale"; reason: "environment" };                      // 未执行，见「环境与工作目录」
 type ErrorInfo = {
   exitCode: 1 | 2 | 3 | 4 | 5 | 6 | 7;   // 与 output.md 的退出码一致
   message: string;
@@ -95,7 +100,7 @@ type ErrorInfo = {
 约定：
 
 - `call` 的 `result` 是清理前的结构化数据（MCP content 与 structuredContent），截断与渲染在 CLI 侧做，渲染所需的游标写入 daemon。
-- 协议中不得出现解析后的凭证值：server 定义里只有引用；`env:` 的差异只以摘要交换；`call` 的结果、进度和错误在 daemon 内先脱敏。CLI 在 daemon 模式下本地不解析凭证，脱敏靠 daemon 的结果和 `redact`。
+- 协议中不得出现解析后的凭证值：server 定义里只有引用；`env:` 的差异以摘要交换，只有 daemon 不认得摘要、回复 `stale` 之后才在重发的请求里带上该 server `env:` 引用涉及的变量取值（`envValues`，见「环境与工作目录」）；`call` 的结果、进度和错误在 daemon 内先脱敏。CLI 在 daemon 模式下本地不解析凭证，脱敏靠 daemon 的结果和 `redact`。
 - `auth` 请求的 `login` 不经过 daemon：登录需要浏览器或终端交互，由 CLI 在自己的进程里完成并写入共用存储（[auth.md](auth.md#oauth)）；daemon 里的会话在下一次请求前读取存储，所以新的登录、登出和刷新结果无需通知。
 - 未知消息类型返回 `exitCode: 7` 的错误，不断开连接。
 

@@ -262,19 +262,28 @@ describe('credentials', () => {
     expect(unknown).toMatchObject({ ok: false, error: { exitCode: 7 } });
   });
 
-  it('restarts the daemon when the caller\'s environment differs, so a rotated token is used', async () => {
-    const srv = await startFixtureServer({ token: 'token-B-for-daemon-tests' });
+  it('serves shells with different tokens side by side: no restart, and never one shell\'s token for the other', async () => {
+    const TOKEN_A = 'token-A-for-daemon-tests';
+    const TOKEN_B = 'token-B-for-daemon-tests';
+    const srv = await startFixtureServer({ token: TOKEN_B });
     useCleanup(() => srv.close());
-    const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: 'token-A-for-daemon-tests' });
-    const wrong = await d.via(['gh', 'echo-text', '--message', 'hi']);
+    const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: TOKEN_A });
+    const asB = { env: { GH_TOKEN: TOKEN_B } };
+    const call = ['gh', 'echo-text', '--message', 'hi'];
+
+    const wrong = await d.via(call); // the daemon is started by the shell holding the token the server refuses
     expect(wrong.code).toBe(4);
     const first = (await d.status())!;
-    const right = await d.via(['gh', 'echo-text', '--message', 'hi'], { env: { GH_TOKEN: 'token-B-for-daemon-tests' } });
-    expect(right.code).toBe(0);
-    expect(right.stdout).toBe('echo: hi\n');
-    expect(right.stderr).not.toContain('warning');
-    const second = (await d.via(['daemon', 'status', '-o', 'json'], { env: { GH_TOKEN: 'token-B-for-daemon-tests' } })).stdout;
-    expect((JSON.parse(second) as { pid: number }).pid).not.toBe(first.pid);
+    for (let i = 0; i < 3; i += 1) {
+      const right = await d.via(call, asB);
+      expect(right.code).toBe(0);
+      expect(right.stdout).toBe('echo: hi\n');
+      expect(right.stderr).not.toContain('warning');
+      // Shell A still gets its own token (refused by the server), not B's.
+      expect((await d.via(call)).code).toBe(4);
+    }
+    const status = (await d.via(['daemon', 'status', '-o', 'json'], asB)).stdout;
+    expect((JSON.parse(status) as { pid: number }).pid).toBe(first.pid);
   });
 });
 

@@ -49,6 +49,11 @@ export type ServerTarget = {
   idleTimeout: number;
   /** One-way digest of the caller's values for the `env:` references of this server; see `envStamp`. */
   envStamp: string;
+  /**
+   * The caller's values for those variables, only sent after the daemon answered `stale` for this
+   * digest (it has no session for the environment yet); it must hash to `envStamp`.
+   */
+  envValues?: Record<string, string>;
 };
 
 export type Request =

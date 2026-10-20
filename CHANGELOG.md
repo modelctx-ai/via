@@ -86,6 +86,7 @@
 - deny 规则的 ReDoS：项目配置可以追加会灾难性回溯的正则（如 `^(a+)+$`）卡死 via。现在加载时静态检查（嵌套量词、被重复分组里重叠的候选分支、反向引用、开放量词超过 3 个、长度超过 200 字符），不通过的规则按无效规则处理：忽略并给出 error 级诊断 `unsafe-deny`，CLI 停止执行；匹配只在不超过 256 字符的写法上进行，更长的工具名按 deny 处理（config.md「deny」）。
 - deny 规则与 `rename`：按工具默认规范写法写的规则（如 `^github/file:delete$`）在用户用 `rename` 改名后不再命中，该工具重新可见。现在一条规则同时匹配当前规范写法、原始名写法和默认规范写法（命名规则对原始名的拆分结果，不含 `rename`）（config.md「deny」）。
 - OAuth 刷新遇到不可写的登录存储时，新 token 只在内存里使用且没有任何提示，别的进程（以及之后的调用）读到的仍是旧记录，轮换 refresh token 的 server 会因此让登录失效。现在：当前会话继续用内存里的新记录（后续刷新不再读回存储里作废的旧 refresh token），并在 stderr 提示一次 `warning: could not save the refreshed OAuth login for <provider> …`（daemon 里作为 `log` 事件转发给触发刷新的请求）；`via doctor` 对不可写的文件存储给出提示和 `chmod` 建议（auth.md、daemon.md、agent-integration.md）。
+- daemon 在不同 shell 的 `env:` 值不同时反复重启：两个 shell 里同名变量（如 `GH_TOKEN`）取值不同，每次交替调用都会让 daemon 因摘要不一致而重启，会话和 stdio 子进程随之丢失。现在会话按「定义哈希 + 环境摘要」区分，不同取值的调用方在同一个 daemon 里各有一个会话，互不影响也不重启；请求只会落到摘要相同的会话上，旧令牌不会服务取值不同的调用方。daemon 不认得某个摘要时回复 `stale`，CLI 把该 server `env:` 引用涉及的变量取值放进 `envValues` 重发一次，daemon 校验其与摘要一致后登记（最多 8 个环境，LRU 淘汰，淘汰时关闭对应会话）。注意这使协议在这一种情形下会携带凭证取值（只经过 0600、带令牌握手的本地 socket，计入脱敏列表；daemon.md「环境与工作目录」）。
 - ADR 0008 的背景误称 mcp2cli 采用代码生成；mcp2cli 实际是运行时分发。
 - 多个 server 同时解析凭证（`via doctor`、`via sync`）时，CLI 可能创建两个凭证解析器和两个 MCP client：脱敏只认其中一个解析器的值，另一个解析出的凭证可能漏出脱敏，退出时也只关闭一个 client。现在一次运行共用一个。
 
