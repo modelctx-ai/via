@@ -5,7 +5,7 @@
 import type { ConfigDiagnostic, DiagnosticCode, DiagnosticLevel } from './diagnostics';
 import { isPlainObject, ownEntries, type ServerDef } from './model';
 import { parseCredentialRef } from './credentials';
-import type { AuthConfig } from './types';
+import type { AuthConfig, SemanticSearchConfig } from './types';
 
 /** `sources` as written: `auto`, `false`, or a list of framework ids and file paths. */
 export type SourcesSetting = 'auto' | false | string[];
@@ -18,9 +18,15 @@ export interface ConfigLayerData {
   domains: Record<string, string[]>;
   output: { budget?: number; cellWidth?: number };
   daemon: { idleTimeout?: number; serverIdleTimeout?: number };
+  /** `search.semantic`: the validated fields, `false` to switch it off, absent when not set. */
+  search: { semantic?: SemanticLayer | false };
 }
 
-const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'domains', 'output', 'daemon']);
+/** The `search.semantic` fields as written (defaults are applied when the layers are merged). */
+export type SemanticLayer = Pick<SemanticSearchConfig, 'url' | 'model' | 'auth'> &
+  Partial<Pick<SemanticSearchConfig, 'timeout' | 'indexTimeout' | 'dimensions'>>;
+
+const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'domains', 'output', 'daemon', 'search']);
 const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'domain', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise']);
 
 const typeName = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'list' : typeof v);
@@ -92,7 +98,7 @@ function strList(r: Reporter, path: string, v: unknown, server?: string, scalars
   return out;
 }
 
-function auth(r: Reporter, path: string, v: unknown, server: string): AuthConfig | undefined {
+function auth(r: Reporter, path: string, v: unknown, server?: string): AuthConfig | undefined {
   const shapes = 'none, oauth, or a map with one of bearer, headers, oauth';
   if (v === 'none') return { type: 'none' };
   if (v === 'oauth') return { type: 'oauth' };
@@ -150,6 +156,90 @@ function auth(r: Reporter, path: string, v: unknown, server: string): AuthConfig
   }
 }
 
+function isLoopbackHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  return h === 'localhost' || h === '::1' || /^127\.\d+\.\d+\.\d+$/.test(h);
+}
+
+/** `search.semantic` (config.md): url, model and the optional auth, timeouts and dimensions. */
+function semanticLayer(r: Reporter, path: string, v: unknown): SemanticLayer | false | undefined {
+  if (v === false) return false;
+  if (!isPlainObject(v)) {
+    r.invalid(path, 'map (or false)');
+    return undefined;
+  }
+  const out: Partial<SemanticLayer> = {};
+  let ok = true;
+  for (const [key, value] of ownEntries(v)) {
+    const field = `${path}.${key}`;
+    switch (key) {
+      case 'provider':
+        if (value !== 'openai-compatible') {
+          r.invalid(field, '"openai-compatible"');
+          ok = false;
+        }
+        break;
+      case 'url': {
+        const url = str(r, field, value);
+        if (url === undefined) {
+          ok = false;
+          break;
+        }
+        let parsed: URL | undefined;
+        try {
+          parsed = new URL(url);
+        } catch {
+          // reported below
+        }
+        const secure = parsed && (parsed.protocol === 'https:' || (parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname)));
+        if (!parsed || !secure) {
+          r.invalid(field, 'https URL (http is accepted for localhost only)');
+          ok = false;
+        } else if (parsed.username !== '' || parsed.password !== '') {
+          r.invalid(field, 'URL without credentials (put them in auth)');
+          ok = false;
+        } else out.url = url;
+        break;
+      }
+      case 'model': {
+        const model = str(r, field, value);
+        if (model === undefined) ok = false;
+        else out.model = model;
+        break;
+      }
+      case 'auth': {
+        const a = auth(r, field, value);
+        if (a === undefined) ok = false;
+        else if (a.type === 'oauth') {
+          r.invalid(field, 'none, or a map with bearer or headers');
+          ok = false;
+        } else out.auth = a;
+        break;
+      }
+      case 'timeout':
+        out.timeout = num(r, field, value, 'number');
+        break;
+      case 'indexTimeout':
+        out.indexTimeout = num(r, field, value, 'number');
+        break;
+      case 'dimensions':
+        out.dimensions = num(r, field, value, 'integer');
+        break;
+      default:
+        r.add('warning', 'unknown-field', field, 'unknown field');
+    }
+  }
+  for (const required of ['url', 'model'] as const) {
+    if (out[required] === undefined && ok) {
+      r.invalid(`${path}.${required}`, 'non-empty string');
+      ok = false;
+    }
+  }
+  if (!ok) return undefined;
+  for (const key of Object.keys(out) as Array<keyof SemanticLayer>) if (out[key] === undefined) delete out[key];
+  return { auth: { type: 'none' }, ...out } as SemanticLayer;
+}
+
 function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined {
   const base = `servers.${name}`;
   if (v === null) return {};
@@ -202,7 +292,7 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
  */
 export function validateLayer(raw: unknown, file: string | undefined): { data: ConfigLayerData; diagnostics: ConfigDiagnostic[] } {
   const r = new Reporter(file);
-  const data: ConfigLayerData = { servers: new Map(), deny: [], domains: {}, output: {}, daemon: {} };
+  const data: ConfigLayerData = { servers: new Map(), deny: [], domains: {}, output: {}, daemon: {}, search: {} };
   if (raw === null || raw === undefined) return { data, diagnostics: r.diagnostics };
   if (!isPlainObject(raw)) {
     r.add('error', 'invalid-field', '(root)', `expected a map at the top level, got ${typeName(raw)}`);
@@ -260,6 +350,19 @@ export function validateLayer(raw: unknown, file: string | undefined): { data: C
           if (k === 'idleTimeout') data.daemon.idleTimeout = num(r, 'daemon.idleTimeout', v, 'number');
           else if (k === 'serverIdleTimeout') data.daemon.serverIdleTimeout = num(r, 'daemon.serverIdleTimeout', v, 'number');
           else r.add('warning', 'unknown-field', `daemon.${k}`, 'unknown field');
+        }
+        break;
+      case 'search':
+        if (value === null) break;
+        if (!isPlainObject(value)) {
+          r.invalid('search', 'map');
+          break;
+        }
+        for (const [k, v] of ownEntries(value)) {
+          if (k === 'semantic') {
+            const semantic = semanticLayer(r, 'search.semantic', v);
+            if (semantic !== undefined) data.search.semantic = semantic;
+          } else r.add('warning', 'unknown-field', `search.${k}`, 'unknown field');
         }
         break;
       default:

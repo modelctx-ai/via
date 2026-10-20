@@ -18,14 +18,23 @@ export async function findCommand(app: App, argv: readonly string[]): Promise<nu
   const query = positionals.join(' ');
   const { entries } = await app.table();
   const { catalog, failures } = await app.loadProviders(entries);
+
+  // Optional embedding retrieval (ADR 0010): off unless the user config enables it, and then loaded
+  // on demand. Any failure leaves the lexical ranking and a meta line.
+  const semanticConfig = (await app.config()).search?.semantic;
+  const semantic = semanticConfig && query.trim() !== '' ? await (await import('../semantic')).semanticFind(app, semanticConfig, catalog, query) : undefined;
+
   const hits = new SearchIndex(catalog).search(query, {
     limit,
     ...(typeof flags.domain === 'string' ? { domain: normalizeInput(flags.domain) } : {}),
+    ...(semantic?.scores ? { semantic: semantic.scores } : {}),
   });
   app.out(`${renderFind(hits, query)}\n`);
   if (failures.length > 0) {
     const names = failures.map((f) => f.entry.name).sort().join(', ');
     app.err(`warning: ${failures.length} provider${failures.length === 1 ? '' : 's'} could not be searched: ${names} (see via, via doctor)\n`);
   }
+  if (semantic?.note) app.err(await app.redactText(`· semantic unavailable: ${semantic.note} · lexical results\n`));
+  else if (semantic && semantic.embedded > 0) app.err(`· semantic · embedded ${semantic.embedded} tool${semantic.embedded === 1 ? '' : 's'} (cached)\n`);
   return ExitCode.Ok;
 }

@@ -16,7 +16,7 @@ import { parseConfigText, resolvePointer, ParseFailure } from './parse';
 import { expandPath, pathContext, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
 import { parseCredentialRef } from './credentials';
 import { readTrustStore, trustStatus, type TrustStore } from './trust';
-import type { ConfigOrigin, ConfigScope, ServerConfig, Transport } from './types';
+import type { ConfigOrigin, ConfigScope, SemanticSearchConfig, ServerConfig, Transport } from './types';
 
 export const DEFAULTS = {
   timeout: 60,
@@ -24,6 +24,7 @@ export const DEFAULTS = {
   confirm: 'destructive',
   output: { budget: 8192, cellWidth: 80 },
   daemon: { idleTimeout: 600, serverIdleTimeout: 300 },
+  semantic: { timeout: 3, indexTimeout: 30 },
 } as const;
 
 /** The project config file name; the first one found walking up from the working directory is used. */
@@ -62,6 +63,8 @@ export interface LoadedConfig {
   domains: Record<string, string[]>;
   output: { budget: number; cellWidth: number };
   daemon: { idleTimeout: number; serverIdleTimeout: number };
+  /** Optional features of `via find`; `semantic` is set only by the user config (security.md). */
+  search?: { semantic?: SemanticSearchConfig };
   diagnostics: ConfigDiagnostic[];
   /** Every file that contributed, for `via doctor` and `via trust`. */
   files: LoadedFile[];
@@ -244,6 +247,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   const domains: Record<string, string[]> = {};
   const output = { budget: DEFAULTS.output.budget, cellWidth: DEFAULTS.output.cellWidth };
   const daemon = { idleTimeout: DEFAULTS.daemon.idleTimeout, serverIdleTimeout: DEFAULTS.daemon.serverIdleTimeout };
+  const search: LoadedConfig['search'] = {};
   for (const layer of layers) {
     for (const [i, pattern] of layer.data.deny.entries()) {
       if (seenDeny.has(pattern)) continue;
@@ -265,9 +269,23 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     }
     Object.assign(output, layer.data.output);
     Object.assign(daemon, layer.data.daemon);
+    const wanted = layer.data.search.semantic;
+    if (wanted !== undefined) {
+      if (layer.origin.scope !== 'user' && layer.origin.scope !== 'cli') {
+        // It would send tool descriptions and queries to a host chosen by the repository.
+        const d: ConfigDiagnostic = {
+          level: 'warning',
+          code: 'search-forbidden',
+          message: 'search.semantic is only read from the user config; it was ignored',
+        };
+        if (layer.origin.path) d.file = layer.origin.path;
+        diagnostics.push(d);
+      } else if (wanted === false) delete search.semantic;
+      else search.semantic = { provider: 'openai-compatible', ...DEFAULTS.semantic, ...wanted, origin: layer.origin };
+    }
   }
 
-  return { servers, deny, domains, output, daemon, diagnostics, files };
+  return { servers, deny, domains, output, daemon, search, diagnostics, files };
 }
 
 function finalize(

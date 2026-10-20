@@ -199,5 +199,15 @@ describe('built dist/via.js', () => {
         expect(libraries.filter((l) => ['mcp-sdk', 'zod', 'ajv'].includes(l))).toEqual([]);
       }
     });
+
+    // Optional embedding retrieval (ADR 0010) is one chunk that only `find` with `search.semantic` imports.
+    it('find without search.semantic never loads the embedding code', () => {
+      const dir = dirname(bin);
+      const semantic = readdirSync(dir).filter((f) => f.endsWith('.js') && readFileSync(join(dir, f), 'utf8').includes('VIAEMB1'));
+      expect(semantic).toHaveLength(1);
+      for (const args of [[], ['find', 'issue'], ['find', 'create a ticket']]) {
+        expect(loads(args).files.filter((f) => semantic.includes(f))).toEqual([]);
+      }
+    });
   });
 });
