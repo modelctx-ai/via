@@ -31,7 +31,7 @@ export function argsContext(tool: CatalogTool): ToolArgsContext {
   return { provider: tool.provider, ref: tool.ref, rawName: tool.rawName, readOnly: tool.readOnly, destructive: tool.destructive };
 }
 
-function argsIo(app: App): ToolArgsIO {
+export function argsIo(app: App): ToolArgsIO {
   return {
     readFile: (path) => {
       const expanded = path === '~' || path.startsWith('~/') ? join(app.io.home, path.slice(1)) : path;

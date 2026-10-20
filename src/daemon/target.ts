@@ -2,7 +2,9 @@
 // definition maps to, how the caller's working directory is applied, and how the two sides tell that
 // their environments differ for a credential variable without ever exchanging the value.
 import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
+import { rootUri } from '../client/roots';
 import { parseCredentialRef } from '../config/credentials';
 import type { ServerConfig } from '../config/types';
 
@@ -34,8 +36,12 @@ export function envStamp(server: ServerConfig, env: Readonly<Record<string, stri
   return hash.digest('hex').slice(0, 32);
 }
 
-/** `file:` references and a stdio `cwd` are relative to the caller; the daemon has its own working directory. */
-export function effectiveServer(server: ServerConfig, cwd: string): ServerConfig {
+/**
+ * `file:` references, a stdio `cwd` and `roots` are relative to the caller; the daemon has its own
+ * working directory. Roots become absolute `file://` URIs here, which is what puts them into the
+ * session key: callers in other directories get sessions of their own (ADR 0010).
+ */
+export function effectiveServer(server: ServerConfig, cwd: string, home: string = homedir()): ServerConfig {
   const absolute = (ref: string): string => {
     const parsed = parseCredentialRef(ref);
     if (parsed.kind !== 'file' || parsed.arg === '' || parsed.arg.startsWith('~') || parsed.arg.includes('%') || isAbsolute(parsed.arg)) return ref;
@@ -51,6 +57,7 @@ export function effectiveServer(server: ServerConfig, cwd: string): ServerConfig
         : { ...transport, headers: map(transport.headers) },
     auth: auth.type === 'bearer' ? { ...auth, bearer: absolute(auth.bearer) } : auth.type === 'headers' ? { ...auth, headers: map(auth.headers) } : auth,
   };
+  if (server.roots !== undefined && server.roots.length > 0) next.roots = server.roots.map((entry) => rootUri(entry, { cwd, home }));
   return next;
 }
 
@@ -66,6 +73,7 @@ export function sessionKey(server: ServerConfig): string {
     auth: server.auth,
     exclusive: server.exclusive,
     concurrency: server.concurrency,
+    roots: server.roots ?? [],
   };
   return createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0, 24);
 }
