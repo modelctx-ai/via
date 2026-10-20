@@ -17,7 +17,8 @@
 ## OAuth
 
 - 流程：PKCE 授权码流程，按 MCP 授权规范发现授权服务器，支持动态客户端注册；不支持动态注册的 server 需在配置中提供 `clientId`。
-- 触发：`via auth login <provider>` 打开浏览器完成授权；无浏览器环境打印授权 URL，并在本地回调端口等待。
+- 触发：`via auth login <provider>` 打开浏览器完成授权，本地回调端口接收授权码。
+- 无头环境：通过 SSH 登录的 VPS、容器里，浏览器和 via 不在同一台机器，本地回调端口收不到重定向。`via auth login <provider> --manual` 只打印授权 URL，不打开浏览器、不监听回调端口；用户在任意机器上完成授权后，把落地页的完整 URL（落地页本身打不开是预期行为）粘贴回终端，via 从中取出 `code` 和 `state`。PKCE 与 state 校验不变。检测不到可用浏览器时（无 `DISPLAY`、处于 SSH 会话），默认打印授权 URL 并提示可改用 `--manual`。
 - 存储：access token、refresh token 存入系统钥匙串，服务名 `via`，账户名为 server 定义的哈希。
 - 刷新：daemon 负责在过期前刷新；进程内模式在调用前检查并刷新。
 - 不读取其他客户端（Claude、Cursor 等）私有存储的 OAuth token；需要 OAuth 的 server 由 via 自己授权一次。
