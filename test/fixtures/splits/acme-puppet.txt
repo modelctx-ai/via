@@ -1,0 +1,8 @@
+open_page          →  open-page  (leaf)
+click_element      →  element:click
+type_text          →  type-text  (leaf)
+screenshot         →  screenshot  (leaf)
+evaluate_script    →  evaluate-script  (leaf)
+wait_for_selector  →  wait-for-selector  (leaf)
+go_back            →  go-back  (leaf)
+list_tabs          →  tab:list

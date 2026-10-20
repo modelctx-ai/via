@@ -1,0 +1,2 @@
+get_forecast  →  forecast:get
+get_alerts    →  alert:get

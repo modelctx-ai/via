@@ -1,0 +1,214 @@
+{
+  "tools": [
+    {
+      "name": "search_messages",
+      "description": "Search the mailbox for messages matching a query.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "maxResults": {
+            "type": "integer"
+          },
+          "labelIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pageToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "read_message",
+      "description": "Read a message with its headers, body and attachments list.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata",
+              "minimal"
+            ]
+          }
+        },
+        "required": [
+          "messageId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "read_thread",
+      "description": "Read all messages in a thread.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send an email message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "subject",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "create_draft",
+      "description": "Create a draft email.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "to",
+          "subject",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_labels",
+      "description": "List the labels in the mailbox.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "modify_message",
+      "description": "Add or remove labels on a message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "addLabelIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "removeLabelIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "messageId"
+        ]
+      }
+    },
+    {
+      "name": "delete_message",
+      "description": "Move a message to the trash.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    }
+  ]
+}

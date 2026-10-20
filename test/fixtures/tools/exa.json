@@ -1,0 +1,190 @@
+{
+  "tools": [
+    {
+      "name": "web_search_exa",
+      "description": "Search the web using Exa AI - performs real-time web searches and can scrape content from specific URLs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "numResults": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "fast",
+              "deep"
+            ]
+          },
+          "livecrawl": {
+            "type": "string",
+            "enum": [
+              "fallback",
+              "preferred"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "web_search_advanced_exa",
+      "description": "Advanced web search with full control over filters, domains, dates and content options.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "numResults": {
+            "type": "integer"
+          },
+          "includeDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excludeDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "startPublishedDate": {
+            "type": "string"
+          },
+          "endPublishedDate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_code_context_exa",
+      "description": "Search and get relevant context for any programming task: libraries, SDKs and APIs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "tokensNum": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "crawling_exa",
+      "description": "Get the full content of a specific webpage from a known URL.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "maxCharacters": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "company_research_exa",
+      "description": "Research a company and return its profile, news and signals.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "companyName": {
+            "type": "string"
+          },
+          "numResults": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "companyName"
+        ]
+      }
+    },
+    {
+      "name": "linkedin_search_exa",
+      "description": "Search LinkedIn for people and companies.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "searchType": {
+            "type": "string",
+            "enum": [
+              "profiles",
+              "companies",
+              "all"
+            ]
+          },
+          "numResults": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "deep_researcher_start",
+      "description": "Start an in-depth research task on a question.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "instructions": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "exa-research",
+              "exa-research-pro"
+            ]
+          }
+        },
+        "required": [
+          "instructions"
+        ]
+      }
+    },
+    {
+      "name": "deep_researcher_check",
+      "description": "Check the status of a research task and retrieve the report.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      }
+    }
+  ]
+}

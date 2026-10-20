@@ -1,0 +1,11 @@
+search_issues     →  issue:search
+get_issue         →  issue:get
+create_issue      →  issue:create
+update_issue      →  issue:update
+transition_issue  →  transition-issue  (leaf)
+assign_issue      →  assign-issue  (leaf)
+add_comment       →  comment:add
+list_sprints      →  sprint:list
+get_sprint        →  sprint:get
+list_boards       →  board:list
+list_projects     →  project:list

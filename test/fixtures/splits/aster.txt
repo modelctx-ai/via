@@ -1,0 +1,6 @@
+asl_search    →  asl:search
+asl_describe  →  asl:describe
+asl_call      →  asl:call
+asl_batch     →  asl:batch
+asl_fetch     →  asl:fetch
+asl-status    →  asl-status  (leaf)

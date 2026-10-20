@@ -1,0 +1,8 @@
+slack_list_channels        →  channel:list
+slack_post_message         →  post-message  (leaf)
+slack_reply_to_thread      →  reply-to-thread  (leaf)
+slack_add_reaction         →  reaction:add
+slack_get_channel_history  →  channel-history:get
+slack_get_thread_replies   →  thread-reply:get
+slack_get_users            →  user:get
+slack_get_user_profile     →  user-profile:get

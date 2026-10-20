@@ -1,0 +1,14 @@
+read_file                  →  file:read
+read_text_file             →  text-file:read
+read_media_file            →  media-file:read
+read_multiple_files        →  multiple-file:read
+write_file                 →  file:write
+edit_file                  →  edit-file  (leaf)
+create_directory           →  directory:create
+list_directory             →  directory:list
+list_directory_with_sizes  →  directory-with-size:list
+directory_tree             →  directory-tree  (leaf)
+move_file                  →  file:move
+search_files               →  file:search
+get_file_info              →  file-info:get
+list_allowed_directories   →  allowed-directory:list

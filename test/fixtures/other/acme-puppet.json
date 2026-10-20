@@ -1,0 +1,120 @@
+{
+  "tools": [
+    {
+      "name": "open_page",
+      "description": "Open a URL in a new page.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "click_element",
+      "description": "Click the element matching a selector.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "selector"
+        ]
+      }
+    },
+    {
+      "name": "type_text",
+      "description": "Type text into the element matching a selector.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "selector",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "Take a screenshot of the page or of an element.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "fullPage": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "evaluate_script",
+      "description": "Evaluate a JavaScript expression in the page.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      }
+    },
+    {
+      "name": "wait_for_selector",
+      "description": "Wait until an element matching the selector appears.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "selector"
+        ]
+      }
+    },
+    {
+      "name": "go_back",
+      "description": "Navigate back in the page history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_tabs",
+      "description": "List open browser tabs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

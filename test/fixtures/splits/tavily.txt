@@ -1,0 +1,4 @@
+tavily-search   →  search  (leaf)
+tavily-extract  →  extract  (leaf)
+tavily-crawl    →  crawl  (leaf)
+tavily-map      →  map  (leaf)

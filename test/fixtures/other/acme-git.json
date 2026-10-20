@@ -1,0 +1,311 @@
+{
+  "tools": [
+    {
+      "name": "list_repositories",
+      "description": "List repositories in a workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pagelen": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_repository",
+      "description": "Get details of a repository.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_branches",
+      "description": "List branches of a repository.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "create_pull_request",
+      "description": "Open a pull request from a source branch into a destination branch.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "source_branch": {
+            "type": "string"
+          },
+          "destination_branch": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "reviewers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug",
+          "title",
+          "source_branch"
+        ]
+      }
+    },
+    {
+      "name": "list_pull_requests",
+      "description": "List pull requests of a repository.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "MERGED",
+              "DECLINED"
+            ]
+          },
+          "page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_pull_request",
+      "description": "Get a pull request with its diffstat.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "pull_request_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug",
+          "pull_request_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "merge_pull_request",
+      "description": "Merge a pull request.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "pull_request_id": {
+            "type": "integer"
+          },
+          "merge_strategy": {
+            "type": "string",
+            "enum": [
+              "merge_commit",
+              "squash",
+              "fast_forward"
+            ]
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug",
+          "pull_request_id"
+        ]
+      }
+    },
+    {
+      "name": "create_pull_request_comment",
+      "description": "Comment on a pull request.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "pull_request_id": {
+            "type": "integer"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug",
+          "pull_request_id",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "get_commit",
+      "description": "Get a commit by hash.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug",
+          "commit"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_commits",
+      "description": "List commits on a branch.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_diff",
+      "description": "Get the diff between two commits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string"
+          },
+          "repo_slug": {
+            "type": "string"
+          },
+          "spec": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace",
+          "repo_slug",
+          "spec"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

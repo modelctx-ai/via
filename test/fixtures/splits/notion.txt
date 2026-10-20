@@ -1,0 +1,65 @@
+notion-search                             →  search  (leaf)
+notion-fetch                              →  fetch  (leaf)
+notion-create-pages                       →  page:create
+notion-update-page                        →  page:update
+notion-move-pages                         →  page:move
+notion-duplicate-page                     →  page:duplicate
+notion-delete-pages                       →  page:delete
+notion-restore-pages                      →  page:restore
+notion-create-database                    →  database:create
+notion-delete-databases                   →  database:delete
+notion-update-data-source                 →  data-source:update
+notion-query-data-sources                 →  data-source:query
+notion-query-multiple-data-sources        →  multiple-data-source:query
+notion-query-meeting-notes                →  meeting-note:query
+notion-create-comment                     →  comment:create
+notion-get-comments                       →  comment:get
+notion-update-comment                     →  comment:update
+notion-delete-comment                     →  comment:delete
+notion-set-comment-reaction               →  set-comment-reaction  (leaf)
+notion-set-discussion-resolved            →  set-discussion-resolved  (leaf)
+notion-create-view                        →  view:create
+notion-update-view                        →  view:update
+notion-create-folder                      →  folder:create
+notion-update-folder                      →  folder:update
+notion-create-attachment                  →  attachment:create
+notion-create-file-upload                 →  file-upload:create
+notion-download-attachment                →  download-attachment  (leaf)
+notion-get-file-download-urls             →  file-download-url:get
+notion-get-users                          →  user:get
+notion-get-self                           →  self:get
+notion-get-teams                          →  team:get
+notion-get-groups                         →  group:get
+notion-list-favorite-pages                →  favorite-page:list
+notion-list-private-pages                 →  private-page:list
+notion-list-recent-pages                  →  recent-page:list
+notion-list-shared-pages                  →  shared-page:list
+notion-list-page-backlinks                →  page-backlink:list
+notion-memory-search                      →  memory:search
+notion-get-tool-access                    →  tool-access:get
+notion-check-mcp-next-steps               →  check-mcp-next-steps  (leaf)
+notion-convert-page-to-skill              →  convert-page-to-skill  (leaf)
+notion-download-skill                     →  download-skill  (leaf)
+notion-get-enabled-skills                 →  enabled-skill:get
+notion-update-enabled-skills              →  enabled-skill:update
+notion-upload-skill                       →  upload-skill  (leaf)
+notion-calendar-list-calendars            →  calendar:list
+notion-calendar-list-calendar-resources   →  calendar-resource:list
+notion-calendar-list-contacts             →  calendar-contact:list
+notion-calendar-list-events               →  calendar-event:list
+notion-calendar-list-coworkers-events     →  calendar-coworker-event:list
+notion-calendar-create-events             →  calendar-event:create
+notion-calendar-update-events             →  calendar-event:update
+notion-calendar-cancel-events             →  calendar-event:cancel
+notion-get-async-task                     →  async-task:get
+notion-get-session-status                 →  session-status:get
+notion-list-session-events                →  session-event:list
+notion-read-session-event                 →  session-event:read
+notion-query-sessions                     →  session:query
+notion-search-sessions                    →  session:search
+notion-search-agents                      →  agent:search
+notion-send-message-to-session            →  message-to-session:send
+notion-spawn-session                      →  spawn-session  (leaf)
+notion-stop-session                       →  stop-session  (leaf)
+notion-wait-session                       →  wait-session  (leaf)
+notion-show-advanced-analysis-next-steps  →  show-advanced-analysis-next-steps  (leaf)

@@ -1,0 +1,5 @@
+2 providers · 21 tools
+code  acme-git
+docs  acme-workspace (drive-folder)
+comm  acme-workspace (mail-draft, mail-message)
+→ via <provider> to browse · via find <query> to search

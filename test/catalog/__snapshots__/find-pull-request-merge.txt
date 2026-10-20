@@ -1,0 +1,10 @@
+github pull-request:merge          owner, repo, pull-number, [commit-title], [commit-message], [merge-method]  Merge a pull request in a GitHub repository.
+github pr-auto-merge:disable       owner, repo, pull-number                                                    Disable auto merge for a pull request.
+github pr-auto-merge:enable        owner, repo, pull-number, [merge-method]                                    Enable auto merge for a pull request.
+github pull-request:read           method, owner, repo, pull-number, [page], [per-page]                        Get information on a specific pull request in a GitHub repo… [read-only]
+github pull-request:search         query, [owner], [repo], [sort], [order], [page], …                          Search for pull requests in GitHub repositories. [read-only]
+github pull-request-branch:update  owner, repo, pull-number, [expected-head-sha]                               Update the branch of a pull request with the latest changes…
+github pull-request-review:write   method, owner, repo, pull-number, [body], [event], …                        Create and/or submit, delete review of a pull request.
+github pull-request:update         owner, repo, pull-number, [title], [body], [state], …                       Update an existing pull request in a GitHub repository.
+github pull-request:create         owner, repo, title, head, base, [body], …                                   Create a new pull request in a GitHub repository.
+github pull-request:list           owner, repo, [state], [head], [base], [sort], …                             List pull requests in a GitHub repository. [read-only]
