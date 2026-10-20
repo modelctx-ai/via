@@ -6,9 +6,9 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 
 后者覆盖前者：
 
-1. **框架配置（只读）**：每次加载时读取，不做快照，框架那边改了这边自动生效。默认探测的框架与路径由 `data/frameworks/` 描述（[数据文件](../development/data-files.md#frameworks)），包括 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Windsurf。具体路径实现时按各框架当前版本核对。
+1. **框架配置（只读）**：每次加载时读取，不做快照，框架那边改了这边自动生效。默认探测的框架与路径由 `data/frameworks/` 描述（[数据文件](../development/data-files.md#frameworks)），按探测顺序为 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Devin Desktop、Windsurf、Gemini CLI、Antigravity、GitHub Copilot CLI、Amp。路径与字段按各框架官方文档核对，条目的 `verifiedAt` 和 `sources` 记录核对日期与依据。
 2. **用户配置**：`~/.config/via/config.yaml`（遵循 `XDG_CONFIG_HOME`，macOS 上同样如此；Windows 为 `%APPDATA%\via\config.yaml`）。补充凭证、覆盖定义、新增 server。
-3. **项目配置**：当前目录向上查找的第一个 `.via.yaml`。其中的 stdio 命令首次使用需 `via trust`（[security.md](security.md#项目级配置的信任)）。
+3. **项目配置**：当前目录向上查找的第一个 `.via.yaml`。其中的 stdio 命令和 HTTP 端点首次使用需 `via trust`（[security.md](security.md#项目级配置的信任)）。
 4. **命令行参数**。
 
 合并规则：
@@ -75,7 +75,7 @@ domains:
 | --- | --- | --- |
 | `command`、`args`、`env`、`cwd` | stdio | 进程启动参数；`env` 的值可以是凭证引用 |
 | `url`、`headers` | HTTP | Streamable HTTP 端点；`headers` 的值可以是凭证引用 |
-| `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md) |
+| `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md)；`oauth` 只适用于 HTTP，可写成 `{ oauth: { scopes: [...], clientId: … } }` |
 | `alias` | 全部 | provider 名；默认取 server 名 |
 | `domain` | 全部 | 指定域，跳过推断 |
 | `rename` | 全部 | 单个工具的规范写法覆盖，如 `{ list_my_issues: "issue:list-mine" }` |
@@ -83,7 +83,7 @@ domains:
 | `exclusive` | stdio | 独占资源；启动失败时提示可能与框架实例冲突 |
 | `confirm` | 全部 | `destructive`（默认）或 `never` |
 | `timeout` | 全部 | 调用超时，秒，默认 60 |
-| `concurrency` | 全部 | 同一 server 的并发上限，默认 4 |
+| `concurrency` | 全部 | 同一 server 的并发上限，默认 4；`via batch` 同样遵守，超出的排队 |
 | `budget` | 全部 | 覆盖输出预算 |
 | `noise` | 全部 | 追加的噪声字段名或通配 |
 
@@ -104,10 +104,10 @@ domains:
 | URL | `url`、`serverUrl`、`httpUrl` |
 | 请求头 | `headers`，或 Codex 的 `http_headers`；Codex 的 `env_http_headers`（头名 → 环境变量名）转成 `env:` 引用 |
 | 鉴权 | Codex 的 `bearer_token_env_var` 转成 `auth: { bearer: "env:NAME" }` |
-| 环境变量 | `env`；Codex 的 `env_vars`（要透传的变量名列表）转成 `env:` 引用 |
-| 变量引用 | `env`、`headers` 的值整体为 `${NAME}` 或 `${env:NAME}` 时转成 `env:NAME`；其他位置或夹在文本中的 `${…}`（如 `${workspaceFolder}`）via 不展开，原样保留并给出告警 |
+| 环境变量 | `env`；Codex 的 `env_vars`（要透传的变量名列表，元素可以是名称或 `{ name, source }`，`source = "remote"` 的项告警并忽略）转成 `env:` 引用 |
+| 变量引用 | `env`、`headers` 的值整体为 `${NAME}` 或 `${env:NAME}` 时转成 `env:NAME`；框架的数据文件声明 `dollarVariables`（Gemini CLI）时，整体为 `$NAME` 也转成 `env:NAME`；其他位置或夹在文本中的 `${…}`（如 `${workspaceFolder}`）via 不展开，原样保留并给出告警 |
 
-框架自己的开关（`disabled`、`enabled`）不继承：在框架里关掉一个 server 正是迁移到 via 的步骤（[集成](../guides/agent-integration.md)），via 里的 `disabled` 只由 via 自己的配置决定。框架配置里的辅助命令（如 `headersHelper`）既不执行也不继承。
+框架自己的开关（`disabled`、`enabled`）不继承：在框架里关掉一个 server 正是迁移到 via 的步骤（[集成](../guides/agent-integration.md)），via 里的 `disabled` 只由 via 自己的配置决定。框架配置里的辅助命令（如 `headersHelper`、Codex 的 `http_headers_helper`）既不执行也不继承。
 
 ## 校验与诊断
 
@@ -126,17 +126,27 @@ domains:
 | `env:NAME` | 读取环境变量 |
 | `file:~/.secrets/x` | 读取文件内容并去掉首尾空白 |
 | `keychain:service/account` | 读取系统钥匙串（macOS Keychain、Linux Secret Service、Windows Credential Manager） |
-| `cmd:op read op://dev/exa/key` | 执行命令取 stdout，结果在 daemon 内存中按 TTL（默认 10 分钟）缓存；只允许出现在用户配置中。**0.2 才实现**：0.1 中写在用户配置里会在解析时报错（退出码 4，提示改用 `env:`、`file:` 或 `keychain:`） |
+| `cmd:op read op://dev/exa/key` | 执行命令，取去掉首尾空白的 stdout；只允许出现在用户配置中，详见下文 |
 
 - 凭证引用可以出现在 `env`、`headers` 的值以及 `auth.bearer` 中。
 - 不以上述前缀开头的值视为字面量；出现在用户或项目配置中的字面量凭证，`via doctor` 告警。`auth.bearer`、`auth.headers` 中的字面量在加载时就告警。
 - `env:` 的变量未设置或为空、`file:` 的文件不存在或为空、`keychain:` 无此条目，都是凭证缺失（退出码 4），错误信息只说明缺哪一项，不含任何解析出的值。`file:` 的相对路径相对于当前目录。
-- `cmd:` 出现在项目配置或项目级、框架级配置里时，加载阶段就拒绝：该 server 的定义整条被忽略并报错（[security.md](security.md#项目级配置的信任)）。
+- `cmd:` 出现在项目配置或项目级、框架级配置里时，加载阶段就拒绝：该 server 的定义整条被忽略并报错（`cmd-forbidden`，[security.md](security.md#项目级配置的信任)）。`via trust` 不能放行 `cmd:`。
+- `cmd:` 的执行方式（[security.md](security.md#cmd-凭证)）：
+  - 命令行按空白分词，不经 shell。`'…'` 内按字面处理；`"…"` 内只有 `\"` 与 `\\` 是转义；引号外 `\` 转义下一个字符；不展开 `$VAR`、`~`、通配符，管道与重定向无效。命令为空或引号未闭合是无效引用（退出码 4）。
+  - 命令继承 via 的环境变量，在当前目录运行；超时 30 秒，stdout 上限 64 KiB。
+  - 命令未找到、非零退出、被信号终止、超时、stdout 为空，都是凭证缺失（退出码 4）。错误信息只说明程序名与原因，**不含命令的 stdout 与 stderr**，`next:` 提示手工运行该命令排查。
+  - 结果按引用原文缓存在解析器的内存里，默认 10 分钟（失败不缓存），同一引用并发解析只运行一次。进程内模式下解析器只活到命令结束，因此每条 `cmd:` 引用每次 `via` 调用最多运行一次；daemon 持有同一个解析器，缓存随之跨调用生效，到期后下次调用重新运行。来源检查先于缓存：来源不是用户配置时每次都拒绝，缓存里的值不会交给它。
+  - `via servers` 不执行 `cmd:`（它不连接任何 server，且助手可能很慢或要求指纹确认），不把 `cmd:` 引用算作缺失；`via doctor` 和真正使用 server 时才执行。
 - 字面量值长度不足 8 个字符时不进入脱敏列表，避免把 `1`、`on` 之类的短值在输出里全部替换成 `***`。
 - 解析结果只存在于 daemon（或进程内模式下的当前进程）内存中，不写盘。
 
 ## deny
 
-- 正则在单字符串形式上匹配，例如 `^github/.*:delete$`、`^notion/page:(delete|move)$`。
-- 命中的工具在浏览、`find` 中不可见，直接调用退出码 5。
+- 正则在单字符串形式上匹配，例如 `^github/.*:delete$`、`^notion/page:(delete|move)$`；同时也匹配原始名形式 `provider/原始名`（如 `^github/delete_file$`），用 `rename` 改了规范写法也绕不过按原始名写的规则。写法都是 JavaScript 正则、区分大小写、不隐含锚定，没有标志位。
+- `provider` 是 CLI 上用的名字（有 `alias` 时是别名），不是 `servers` 下的键。
+- 命中的工具在浏览、`find`、未命中时的候选提示中都不可见，直接调用退出码 5（用任何写法：规范写法、原始名、`via call`、唯一前缀，带不带 `--yes` 都一样；`--dry-run` 同样拒绝）。deny 先于 `--yes` 检查：被 deny 的危险工具报的是 deny，而不是缺少 `--yes`。
+- 各层取并集，顺序为用户配置、项目配置、命令行；相同的规则只算一条。项目配置和命令行只能追加规则，不能撤销用户配置的规则（没有「取消 deny」的写法，`deny: []` 什么也不改变），项目配置也不能通过重定义 server、改别名或 `rename` 绕过。
+- `deny` 不是字符串列表（包括只写 `deny:` 而没有值）视为类型错误，与无效正则一样是 error 级诊断，CLI 停止执行（见「校验与诊断」）。用户配置和项目配置文件本身无法解析同样是 error 级诊断。
+- 项目配置的 `deny` 在未信任时同样生效：它只会让更多工具不可见。
 - deny 只在 via 一侧生效；需要不可绕过的限制时使用上游的只读端点或网关（见 [security.md](security.md)）。

@@ -4,6 +4,7 @@
 import { CredentialError, type ServerConfig } from '../config/types';
 import type { ErrorInfo } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
+import { shellWord } from '../render/shell';
 import { sanitizeText } from '../render/pipeline';
 
 export class ClientError extends Error implements ErrorInfo {
@@ -64,20 +65,22 @@ export function notFoundServer(name: string, known: readonly string[]): ClientEr
 }
 
 export function untrustedServer(server: ServerConfig): ClientError {
-  const path = server.untrustedPaths?.[0] ?? server.origin.path;
+  const paths = server.untrustedPaths ?? (server.origin.path ? [server.origin.path] : []);
+  const path = paths[0];
   const what = server.transport.type === 'stdio' ? 'its command was not started' : 'no request was sent';
   return new ClientError({
     exitCode: ExitCode.Denied,
-    message: `${server.provider} is defined in an untrusted project config${path ? ` (${path})` : ''}; ${what}`,
-    next: path ? `via trust ${path}` : 'via trust',
+    message: `${server.provider} is defined in an untrusted project config${paths.length > 0 ? ` (${paths.join(', ')})` : ''}; ${what}`,
+    next: path && paths.length === 1 ? `via trust ${shellWord(path)}` : 'via trust',
   });
 }
 
-export function oauthNotSupported(server: ServerConfig): ClientError {
+/** `auth: oauth` on a stdio server: OAuth is an HTTP mechanism (auth.md). */
+export function oauthNeedsHttp(server: ServerConfig): ClientError {
   return new ClientError({
-    exitCode: ExitCode.Auth,
-    message: `${server.provider} uses OAuth, which is not supported yet; use a bearer token or API key instead`,
-    next: `set servers.${server.name}.auth to { bearer: "<credential reference>" } in ~/.config/via/config.yaml`,
+    exitCode: ExitCode.Usage,
+    message: `${server.provider} is a stdio server; auth: oauth applies to HTTP servers only`,
+    next: `set servers.${server.name}.auth to none and pass credentials through env`,
   });
 }
 
@@ -93,6 +96,19 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
   const { server } = ctx;
   const provider = server.provider;
   const loginNext = `via auth login ${provider}`;
+
+  // OAuth layer (matched by name: it lives next to the lazily loaded SDK).
+  if (err instanceof Error && err.name === 'LoginRequiredError') {
+    const expired = (err as { reason?: unknown }).reason === 'expired';
+    return new ClientError({
+      exitCode: ExitCode.Auth,
+      message: expired ? `${provider} requires auth (the saved login expired)` : `${provider} requires auth`,
+      next: loginNext,
+    });
+  }
+  if (err instanceof Error && err.name === 'TokenRefreshError') {
+    return new ClientError({ exitCode: ExitCode.Upstream, message: `${provider}: ${clean(err.message, ctx)}`, next: 'via doctor' }, true);
+  }
 
   if (isCredentialError(err)) {
     return new ClientError({

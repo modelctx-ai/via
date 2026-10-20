@@ -1,0 +1,62 @@
+[
+  {
+    "id": 7700000001,
+    "node_id": "PRR_kwDOx1",
+    "user": {
+      "login": "dlindqvist",
+      "id": 1147,
+      "node_id": "U_kgDO1147x",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1147?v=4",
+      "html_url": "https://github.com/dlindqvist",
+      "type": "User",
+      "site_admin": false
+    },
+    "body": "Looks good overall. One question about the fallback key when the tenant header is missing.",
+    "state": "CHANGES_REQUESTED",
+    "html_url": "https://github.com/acme/api/pull/482#pullrequestreview-7700000001",
+    "pull_request_url": "https://api.github.com/repos/acme/api/pulls/482",
+    "author_association": "MEMBER",
+    "submitted_at": "2026-09-25T10:11:00Z",
+    "commit_id": "9f2c4a7e1b03d3c5a8e6f0b2d41c7a9e5f3b8d3"
+  },
+  {
+    "id": 7700000002,
+    "node_id": "PRR_kwDOx2",
+    "user": {
+      "login": "tomasz-w",
+      "id": 1282,
+      "node_id": "U_kgDO1282x",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1282?v=4",
+      "html_url": "https://github.com/tomasz-w",
+      "type": "User",
+      "site_admin": false
+    },
+    "body": "Tests cover the new path. Approving once the changelog entry is reworded.",
+    "state": "COMMENTED",
+    "html_url": "https://github.com/acme/api/pull/482#pullrequestreview-7700000002",
+    "pull_request_url": "https://api.github.com/repos/acme/api/pulls/482",
+    "author_association": "MEMBER",
+    "submitted_at": "2026-09-26T15:30:00Z",
+    "commit_id": "9f2c4a7e1b03d3c5a8e6f0b2d41c7a9e5f3b8d3"
+  },
+  {
+    "id": 7700000003,
+    "node_id": "PRR_kwDOx3",
+    "user": {
+      "login": "dlindqvist",
+      "id": 1147,
+      "node_id": "U_kgDO1147x",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1147?v=4",
+      "html_url": "https://github.com/dlindqvist",
+      "type": "User",
+      "site_admin": false
+    },
+    "body": "Thanks, the fallback is clear now.",
+    "state": "APPROVED",
+    "html_url": "https://github.com/acme/api/pull/482#pullrequestreview-7700000003",
+    "pull_request_url": "https://api.github.com/repos/acme/api/pulls/482",
+    "author_association": "MEMBER",
+    "submitted_at": "2026-09-28T08:38:00Z",
+    "commit_id": "9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1"
+  }
+]

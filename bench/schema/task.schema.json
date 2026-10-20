@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "bench/tasks/<id>.yaml",
+  "type": "object",
+  "required": ["id", "title", "goal", "servers", "native", "calls", "via"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "goal": { "type": "string", "minLength": 1 },
+    "servers": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/definitions/name" } },
+    "native": {
+      "type": "object",
+      "required": ["rounds"],
+      "additionalProperties": false,
+      "properties": {
+        "rounds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/nativeCall" } }
+        }
+      }
+    },
+    "calls": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/cannedCall" } },
+    "via": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/step" } },
+    "mcp2cli": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/step" } },
+    "success": { "$ref": "#/definitions/success" }
+  },
+  "definitions": {
+    "criterion": {
+      "type": "object",
+      "required": ["server", "tool"],
+      "additionalProperties": false,
+      "properties": {
+        "server": { "$ref": "#/definitions/name" },
+        "tool": { "type": "string", "minLength": 1 },
+        "args": { "$ref": "#/definitions/args" },
+        "max": { "type": "integer", "minimum": 1 },
+        "note": { "type": "string" }
+      }
+    },
+    "success": {
+      "type": "object",
+      "required": ["require"],
+      "additionalProperties": false,
+      "properties": {
+        "require": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/criterion" } },
+        "forbid": { "type": "array", "items": { "$ref": "#/definitions/criterion" } },
+        "answer": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+            ]
+          }
+        }
+      }
+    },
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "args": { "type": "object" },
+    "nativeCall": {
+      "type": "object",
+      "required": ["server", "tool", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "server": { "$ref": "#/definitions/name" },
+        "tool": { "type": "string", "minLength": 1 },
+        "args": { "$ref": "#/definitions/args" }
+      }
+    },
+    "cannedCall": {
+      "type": "object",
+      "required": ["server", "tool"],
+      "additionalProperties": false,
+      "properties": {
+        "server": { "$ref": "#/definitions/name" },
+        "tool": { "type": "string", "minLength": 1 },
+        "args": { "$ref": "#/definitions/args" },
+        "result": {},
+        "resultFile": { "type": "string", "minLength": 1 },
+        "text": { "type": "string" },
+        "textFile": { "type": "string", "minLength": 1 },
+        "content": { "type": "array", "items": { "type": "object", "required": ["type"], "properties": { "type": { "type": "string" } } } },
+        "isError": { "type": "boolean" }
+      },
+      "oneOf": [
+        { "required": ["result"], "properties": { "result": {} } },
+        { "required": ["resultFile"], "properties": { "resultFile": {} } },
+        { "required": ["text"], "properties": { "text": {} } },
+        { "required": ["textFile"], "properties": { "textFile": {} } },
+        { "required": ["content"], "properties": { "content": {} } }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "required": ["run"],
+      "additionalProperties": false,
+      "properties": {
+        "run": { "type": "string", "minLength": 1 },
+        "exit": { "type": "integer", "minimum": 0, "maximum": 255 }
+      }
+    }
+  }
+}

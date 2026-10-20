@@ -1,18 +1,19 @@
 // Calling a tool (arguments.md, "校验与报错", "危险操作", "调用过程"; output.md): local checks,
-// the call itself, and the render pipeline for the result.
+// the call itself, and the render pipeline for the result. `executeCall` is the one call path:
+// `via <provider> …`, `via call` and `via batch` all end up here.
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { CatalogTool, ProviderCatalog } from '../../catalog';
 import { ClientError } from '../../client';
-import { FileCursorStore } from '../../render/cursor-file';
-import { formatError } from '../../render/errors';
+import { formatError, type ErrorInfo } from '../../render/errors';
 import { ExitCode } from '../../render/exit-codes';
 import { FileMediaSink } from '../../render/media';
+import type { MetaInfo } from '../../render/meta';
 import { renderOptions, renderToolResult, sanitizeText } from '../../render/pipeline';
 import { defaultNoise } from '../../render/rules';
 import type { ToolResult } from '../../render/types';
 import { formatToolHelp, parseToolArgs, validateOutput, type ParsedToolArgs, type ToolArgsContext, type ToolArgsIO } from '../args';
-import type { App, Listing } from '../app';
+import { toErrorInfo, type App, type Listing } from '../app';
 import { matchingDeny, type ProviderEntry } from '../directory';
 import { fail } from '../failure';
 
@@ -48,41 +49,112 @@ export function showToolHelp(app: App, target: ToolTarget): number {
   return ExitCode.Ok;
 }
 
+/** `via <provider> <resource>:<verb> [args]`: parse the command-line arguments, run the call, print the outcome. */
 export async function callTool(app: App, initial: ToolTarget, argv: readonly string[]): Promise<number> {
+  const outcome = await executeCall(
+    app,
+    {
+      target: initial,
+      parseArgs: (tool) =>
+        parseToolArgs(argv, tool.def, argsContext(tool), { io: argsIo(app), validate: !app.options.noValidate, redact: app.redact, compile: app.compile }),
+    },
+    { progress: (text) => app.err(text), warning: (text) => app.err(text) },
+  );
+  app.out(outcome.stdout);
+  app.err(outcome.stderr);
+  return outcome.exitCode;
+}
+
+// The shared call path ----------------------------------------------------------------------
+
+/** What to run: a resolved tool and how to get its validated arguments. */
+export interface CallRequest {
+  target: ToolTarget;
+  /**
+   * Produces the validated arguments for `tool`. Called again with the refreshed definition when
+   * validation failed against an old schema, so it must be repeatable.
+   */
+  parseArgs(tool: CatalogTool): Promise<ParsedToolArgs>;
+  /** Extra markers for the meta line (`via batch` adds `line N`). */
+  flags?: readonly string[];
+  /** Replaces the `next:` of the missing-`--yes` refusal, for callers where "rerun" needs other advice. */
+  confirmNext?: string;
+  /** Re-fetches a provider's tool list after a failed validation; undefined when that is not possible. */
+  refreshListing?: (entry: ProviderEntry) => Promise<Listing | undefined>;
+}
+
+/** Where output that happens during the call goes, as it happens (whole stderr lines, newline included). */
+export interface CallSink {
+  progress(text: string): void;
+  warning(text: string): void;
+}
+
+export interface CallOutcome {
+  exitCode: ExitCode;
+  stdout: string;
+  /** The meta line (with output warnings) or the error report; progress and parse warnings went to the sink. */
+  stderr: string;
+  /** Every warning of the call, redacted, without the `warning: ` prefix. */
+  warnings: string[];
+  /** The numbers behind the meta line, on a rendered success. */
+  meta?: MetaInfo;
+  /** The failure, structured; `stderr` is its text form. */
+  error?: ErrorInfo;
+}
+
+/**
+ * Run one resolved call: validate, dry-run or confirm, call, render (arguments.md, "调用过程").
+ * A failed call does not throw: it comes back as an outcome with its exit code, and the caller
+ * decides how to print it. The tool is reached only through `app.client()`, the one place that
+ * knows whether the connection is in-process or a daemon.
+ */
+export async function executeCall(app: App, request: CallRequest, sink: CallSink): Promise<CallOutcome> {
+  const warnings: string[] = [];
+  try {
+    return await attemptCall(app, request, sink, warnings);
+  } catch (error) {
+    const info = await toErrorInfo(error);
+    return { exitCode: info.code, stdout: '', stderr: await app.redactText(formatError(info, app.options.format, app.redact)), warnings, error: info };
+  }
+}
+
+async function attemptCall(app: App, request: CallRequest, sink: CallSink, warnings: string[]): Promise<CallOutcome> {
   const { options } = app;
   const config = await app.config();
-  const { entry } = initial;
+  const { entry } = request.target;
   const { server } = entry;
-  let target = initial;
+  let target = request.target;
 
   // 1. Parse and validate. A failure against a schema cached for more than five minutes may only
   // mean the server was upgraded: refresh the list once and try again (arguments.md).
-  const parse = (t: CatalogTool): Promise<ParsedToolArgs> =>
-    parseToolArgs(argv, t.def, argsContext(t), { io: argsIo(app), validate: !options.noValidate, redact: app.redact });
   let parsed: ParsedToolArgs;
   try {
-    parsed = await parse(target.tool);
+    parsed = await request.parseArgs(target.tool);
   } catch (error) {
     if (!(error instanceof Error && error.name === 'ToolArgsError') || app.io.now() - target.listing.fetchedAt <= SCHEMA_STALE_MS) throw error;
-    const refreshed = await app.listing(entry, { refresh: true }).catch(() => undefined);
+    const refresh = request.refreshListing ?? ((e: ProviderEntry) => app.listing(e, { refresh: true }).catch(() => undefined));
+    const refreshed = await refresh(entry);
     const fresh = refreshed && (await refreshedTarget(app, target, refreshed));
     if (!fresh || JSON.stringify(fresh.tool.def) === JSON.stringify(target.tool.def)) throw error;
     target = fresh;
-    parsed = await parse(target.tool);
+    parsed = await request.parseArgs(target.tool);
   }
   const { tool } = target;
-  for (const warning of parsed.warnings) app.err(app.redact(`warning: ${warning}\n`));
+  for (const warning of parsed.warnings) {
+    const redacted = await app.redactText(warning);
+    warnings.push(redacted);
+    sink.warning(`warning: ${redacted}\n`);
+  }
 
   // 2. Dry run: what would be sent, nothing else.
   const needsConfirm = tool.destructive && server.confirm !== 'never' && !options.yes;
   if (options.dryRun) {
-    app.out(app.redact(renderDryRun(app, target, parsed.args, needsConfirm)));
-    return ExitCode.Ok;
+    return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, parsed.args, needsConfirm)), stderr: '', warnings };
   }
 
   // 3. Dangerous tools need --yes (the deny check already happened during resolution).
   if (needsConfirm) {
-    throw fail(ExitCode.Denied, `${tool.ref} is destructive and was not run`, 'rerun with --yes to confirm');
+    throw fail(ExitCode.Denied, `${tool.ref} is destructive and was not run`, request.confirmNext ?? 'rerun with --yes to confirm');
   }
   if (matchingDeny(tool, config.deny)) throw fail(ExitCode.Denied, `${tool.ref} is denied by a deny rule`, `via ${tool.provider}`);
 
@@ -94,24 +166,25 @@ export async function callTool(app: App, initial: ToolTarget, argv: readonly str
     result = await client.callTool(server.name, tool.rawName, parsed.args, {
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       retry: tool.readOnly,
-      onProgress: (p) => app.err(app.redact(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${sanitizeText(p.message)}` : ''}\n`)),
+      onProgress: (p) => sink.progress(app.redact(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${sanitizeText(p.message)}` : ''}\n`)),
     });
   } catch (error) {
     // The server rejected the arguments at the protocol level: same report as an `isError` result.
     if (error instanceof ClientError && error.exitCode === ExitCode.ToolError) {
-      const text = formatError({ code: ExitCode.ToolError, message: error.message, next: `via ${tool.ref} -h` }, options.format, app.redact);
-      app.err(addDisagreeHint(text, options.format, error.message));
-      return ExitCode.ToolError;
+      const info: ErrorInfo = { code: ExitCode.ToolError, message: error.message, next: `via ${tool.ref} -h` };
+      const text = await app.redactText(formatError(info, options.format, app.redact));
+      return { exitCode: ExitCode.ToolError, stdout: '', stderr: addDisagreeHint(text, options.format, error.message), warnings, error: info };
     }
     throw error;
   }
   const elapsedMs = app.io.now() - started;
 
   // 5. Render.
-  const warnings: string[] = [];
+  const outputWarnings: string[] = [];
   if (tool.def.outputSchema && result.structuredContent !== undefined && !result.isError) {
-    warnings.push(...(await validateOutput(tool.def, result.structuredContent)));
+    outputWarnings.push(...(await validateOutput(tool.def, result.structuredContent, app.compile)).map((w) => app.redact(w)));
   }
+  warnings.push(...outputWarnings);
   const rendered = await renderToolResult(
     result,
     renderOptions({
@@ -126,15 +199,21 @@ export async function callTool(app: App, initial: ToolTarget, argv: readonly str
       ref: tool.ref,
       elapsedMs,
       media: new FileMediaSink(join(app.cacheDir, 'media')),
-      cursors: new FileCursorStore(join(app.cacheDir, 'cursors'), { now: app.io.now }),
+      cursors: (await app.backend()).cursors(),
       now: app.io.now,
-      flags: parsed.validated ? [] : ['unvalidated'],
-      warnings: warnings.map((w) => app.redact(w)),
+      flags: [...(parsed.validated ? [] : ['unvalidated']), ...(request.flags ?? [])],
+      warnings: outputWarnings,
     },
   );
-  app.out(rendered.stdout);
-  app.err(rendered.exitCode === ExitCode.ToolError ? addDisagreeHint(rendered.stderr, options.format, resultText(result)) : rendered.stderr);
-  return rendered.exitCode;
+  const outcome: CallOutcome = {
+    exitCode: rendered.exitCode,
+    stdout: rendered.stdout,
+    stderr: rendered.exitCode === ExitCode.ToolError ? addDisagreeHint(rendered.stderr, options.format, resultText(result)) : rendered.stderr,
+    warnings,
+  };
+  if (rendered.meta) outcome.meta = rendered.meta;
+  if (rendered.error) outcome.error = rendered.error;
+  return outcome;
 }
 
 /** The same tool in a refreshed list, or undefined when the server no longer has it. */

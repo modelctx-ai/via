@@ -1,8 +1,10 @@
 // Normalizing the server entries of framework configs into `ServerDef` (config.md, "合并规则").
 //
 // Frameworks spell the same ideas differently (`type`/`transport`, `url`/`serverUrl`/`httpUrl`,
-// `headers`/`http_headers`, Codex's `*_env_var` fields). The accepted spellings are handled in one
-// place for every framework; nothing here is specific to a server or a gateway (ADR 0007).
+// `headers`/`http_headers`, Codex's `*_env_var` fields). The accepted spellings are handled in one place for
+// every framework; nothing here is specific to a server or a gateway (ADR 0007). The one syntax
+// that cannot be applied to every framework, a bare `$NAME` meaning an environment variable, is
+// switched on per config file by the framework's data file (`dollarVariables`).
 // Framework-side switches that only mean "this framework does not load the server" (`disabled`,
 // `enabled`) are ignored on purpose: switching a server off there is how people migrate to via.
 
@@ -12,6 +14,11 @@ import { isPlainObject, ownEntries, type ServerDef } from './model';
 const STDIO_TYPES = new Set(['stdio', 'local']);
 const HTTP_TYPES = new Set(['http', 'streamable-http', 'streamablehttp', 'streamable_http', 'remote']);
 const LEGACY_SSE_TYPES = new Set(['sse']);
+
+export interface NormalizeOptions {
+  /** Treat a whole value of the form `$NAME` as the reference `env:NAME` (data/frameworks `dollarVariables`). */
+  dollarVariables?: boolean;
+}
 
 export interface NormalizeResult {
   def?: ServerDef;
@@ -24,13 +31,19 @@ function scalarToString(value: unknown): string | undefined {
   return undefined;
 }
 
-/** `${NAME}` and `${env:NAME}` as a whole value become the reference `env:NAME`. */
-function convertVariable(value: string): string {
-  const match = /^\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value);
+/** `${NAME}` and `${env:NAME}` (and `$NAME` when enabled) as a whole value become the reference `env:NAME`. */
+function convertVariable(value: string, options: NormalizeOptions): string {
+  const match = /^\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value) ?? (options.dollarVariables ? /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(value) : null);
   return match ? `env:${match[1]}` : value;
 }
 
-function stringMap(value: unknown, field: string, problems: string[], convert: boolean): Record<string, string> | undefined {
+/** A variable reference that survives conversion: via cannot expand it. */
+function hasVariable(value: string | undefined, options: NormalizeOptions): boolean {
+  if (value === undefined) return false;
+  return /\$\{[^}]*\}/.test(value) || (options.dollarVariables === true && /\$[A-Za-z_]/.test(value));
+}
+
+function stringMap(value: unknown, field: string, problems: string[], convert: NormalizeOptions | false): Record<string, string> | undefined {
   if (value === undefined || value === null) return undefined;
   if (!isPlainObject(value)) {
     problems.push(`${field}: expected a table of strings`);
@@ -43,7 +56,7 @@ function stringMap(value: unknown, field: string, problems: string[], convert: b
       problems.push(`${field}.${key}: expected a string`);
       continue;
     }
-    Object.defineProperty(out, key, { value: convert ? convertVariable(s) : s, enumerable: true, writable: true, configurable: true });
+    Object.defineProperty(out, key, { value: convert ? convertVariable(s, convert) : s, enumerable: true, writable: true, configurable: true });
   }
   return out;
 }
@@ -63,6 +76,28 @@ function stringList(value: unknown, field: string, problems: string[]): string[]
   return out;
 }
 
+/**
+ * Codex: `env_vars` lists names of variables of the parent environment to pass through. An item is
+ * a name, or `{ name, source }`; `source = "remote"` reads the remote executor's environment, which
+ * via cannot see.
+ */
+function envVarNames(value: unknown, problems: string[]): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    problems.push('env_vars: expected a list');
+    return [];
+  }
+  const names: string[] = [];
+  for (const [i, item] of value.entries()) {
+    if (typeof item === 'string' && item !== '') names.push(item);
+    else if (isPlainObject(item) && typeof item.name === 'string' && item.name !== '') {
+      if (item.source === undefined || item.source === 'local') names.push(item.name);
+      else problems.push(`env_vars[${i}]: source "${typeof item.source === 'string' ? item.source : '?'}" is not available to via`);
+    } else problems.push(`env_vars[${i}]: expected a name or { name, source }`);
+  }
+  return names;
+}
+
 function firstString(entry: Record<string, unknown>, keys: readonly string[]): string | undefined {
   for (const key of keys) {
     const value = entry[key];
@@ -72,10 +107,10 @@ function firstString(entry: Record<string, unknown>, keys: readonly string[]): s
 }
 
 /** Variable references that survive conversion cannot be expanded by via; say so. */
-function unexpanded(def: ServerDef): string[] {
+function unexpanded(def: ServerDef, options: NormalizeOptions): string[] {
   const hits: string[] = [];
   const check = (field: string, value: string | undefined): void => {
-    if (value !== undefined && /\$\{[^}]*\}/.test(value)) hits.push(field);
+    if (hasVariable(value, options)) hits.push(field);
   };
   check('command', def.command);
   check('cwd', def.cwd);
@@ -86,7 +121,7 @@ function unexpanded(def: ServerDef): string[] {
   return hits;
 }
 
-export function normalizeFrameworkEntry(name: string, entry: unknown, file: string): NormalizeResult {
+export function normalizeFrameworkEntry(name: string, entry: unknown, file: string, options: NormalizeOptions = {}): NormalizeResult {
   const diagnostics: ConfigDiagnostic[] = [];
   const diag = (level: ConfigDiagnostic['level'], code: ConfigDiagnostic['code'], message: string): void => {
     diagnostics.push({ level, code, message: `servers.${name}: ${message}`, file, server: name });
@@ -96,6 +131,7 @@ export function normalizeFrameworkEntry(name: string, entry: unknown, file: stri
     return { diagnostics };
   }
 
+  const problems: string[] = [];
   const declared = firstString(entry, ['type', 'transport']);
   const type = declared?.toLowerCase();
   const command = typeof entry.command === 'string' && entry.command !== '' ? entry.command : undefined;
@@ -119,7 +155,6 @@ export function normalizeFrameworkEntry(name: string, entry: unknown, file: stri
     return { diagnostics };
   }
 
-  const problems: string[] = [];
   const def: ServerDef = {};
   if (kind === 'stdio') {
     if (command === undefined) {
@@ -128,9 +163,9 @@ export function normalizeFrameworkEntry(name: string, entry: unknown, file: stri
     }
     def.command = command;
     def.args = stringList(entry.args, 'args', problems) ?? [];
-    const env = stringMap(entry.env, 'env', problems, true) ?? {};
+    const env = stringMap(entry.env, 'env', problems, options) ?? {};
     // Codex: `env_vars = ["NAME"]` passes the named variables of the parent environment through.
-    for (const name_ of stringList(entry.env_vars, 'env_vars', problems) ?? []) {
+    for (const name_ of envVarNames(entry.env_vars, problems)) {
       if (!Object.hasOwn(env, name_)) Object.defineProperty(env, name_, { value: `env:${name_}`, enumerable: true, writable: true, configurable: true });
     }
     def.env = env;
@@ -141,7 +176,7 @@ export function normalizeFrameworkEntry(name: string, entry: unknown, file: stri
       return { diagnostics };
     }
     def.url = url;
-    const headers = stringMap(entry.headers, 'headers', problems, true) ?? stringMap(entry.http_headers, 'http_headers', problems, true) ?? {};
+    const headers = stringMap(entry.headers, 'headers', problems, options) ?? stringMap(entry.http_headers, 'http_headers', problems, options) ?? {};
     // Codex: `env_http_headers = { "X-Key" = "NAME" }` takes header values from the environment.
     const fromEnv = stringMap(entry.env_http_headers, 'env_http_headers', problems, false) ?? {};
     for (const [header, variable] of Object.entries(fromEnv)) Object.defineProperty(headers, header, { value: `env:${variable}`, enumerable: true, writable: true, configurable: true });
@@ -152,7 +187,7 @@ export function normalizeFrameworkEntry(name: string, entry: unknown, file: stri
     }
   }
   for (const problem of problems) diag('warning', 'invalid-field', problem);
-  const hits = unexpanded(def);
+  const hits = unexpanded(def, options);
   if (hits.length > 0) {
     diag('warning', 'unexpanded-variable', `unexpanded \${...} variables in ${hits.join(', ')} (via only converts whole env and header values like \${NAME} to env:NAME)`);
   }

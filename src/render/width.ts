@@ -1,8 +1,8 @@
-import stringWidth from 'string-width';
+import { terminalWidth } from './terminal-width';
 
 /** Display width in terminal columns; CJK characters count as two. */
 export function displayWidth(s: string): number {
-  return stringWidth(s);
+  return terminalWidth(s);
 }
 
 export function padEndWidth(s: string, width: number): string {

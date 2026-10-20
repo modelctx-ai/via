@@ -4,6 +4,13 @@
   "configs": [
     { "path": "~/.codeium/windsurf/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
   ],
-  "disableHint": "Cascade 面板 → MCP 图标（Manage MCPs），关闭对应 server 的开关",
-  "verifiedAt": null
+  "disableHint": "Cascade 面板的 MCPs 区域，关闭对应 server 的开关",
+  "verifiedAt": "2026-10-20",
+  "sources": [
+    "https://code.visualstudio.com/docs/agents/reference/mcp-configuration",
+    "https://docs.devin.ai/cli/reference/configuration/read-config-from",
+    "https://docs.devin.ai/desktop/cascade/mcp",
+    "https://docs.devin.ai/desktop/changelog"
+  ],
+  "notes": "Windsurf 自 2026-06-02 起更名为 Devin Desktop，当前路径见 devin 条目；Devin 默认仍会导入此文件，未升级的 Windsurf 继续使用它。官方文档只描述用户级文件，没有项目级配置。远程地址可写 serverUrl 或 url，变量写法为 ${env:NAME}、${file:路径}。"
 }

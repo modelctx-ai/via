@@ -37,7 +37,7 @@
 
 - 耗时不足 1 秒写 `318ms`，否则写 `1.8s`。
 - 结果是列表（表格、数组）且未截断时写 `N rows`；其他情况写字节数，`k` 以 1024 为单位（`8.0k`，小于 1024 时写原始数字）；被截断时写 `已显示/总计 bytes`。
-- 标记目前只有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)），排在 `+N cols` 之后、`next:` 之前。
+- 标记有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)）和 `via batch` 的 `line N`（[cli.md](cli.md#via-batch)），排在 `+N cols` 之后、`next:` 之前，`unvalidated` 在前。`via batch` 另在最后输出一行 `· batch · …` 汇总。
 - 警告（如 `outputSchema` 不匹配）写在元信息行之前，每条一行 `warning: …`。
 
 示例：
@@ -61,7 +61,7 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 
 ## 游标
 
-- 被截断的完整结果由 daemon 保存 30 分钟；进程内模式下存在用户缓存目录（权限 0700），按 TTL 清理。
+- 被截断的完整结果由 daemon 在内存中保存 30 分钟（daemon 空闲退出后随之失效）；进程内模式下存在用户缓存目录（权限 0700），按 TTL 清理。
 - `via more <游标>` 从截断处继续，格式与首段一致（表格的表头在每一段重复）；仍有剩余时元信息行给出新的游标。元信息行里的 `shown/total bytes` 中 `shown` 是到本段为止累计已显示的字节数。
 - 游标是不透明字符串（4 位十六进制起，冲突时变长的随机串），不得编码凭证或参数原文。
 - 游标不存在或已过期：退出码 3，提示 `next: rerun the original command`。
@@ -104,6 +104,6 @@ next: via auth login linear
 | 2 | 参数或用法错误 |
 | 3 | 工具或 server 不存在 |
 | 4 | 需要鉴权或鉴权失败 |
-| 5 | 被拒绝：deny 规则命中，或危险操作缺少 `--yes` |
+| 5 | 被拒绝：deny 规则命中，危险操作缺少 `--yes`，或项目级配置未经 `via trust` 确认（`via trust` 本身没有得到确认时同样是 5） |
 | 6 | 上游、传输错误或超时 |
 | 7 | via 内部错误 |

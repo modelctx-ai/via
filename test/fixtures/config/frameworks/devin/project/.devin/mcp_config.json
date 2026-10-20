@@ -1,0 +1,1 @@
+{ "mcpServers": { "dev-layered": { "command": "dev-project" }, "dev-proj": { "command": "dev-proj", "args": ["--serve"] } } }

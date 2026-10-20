@@ -1,7 +1,12 @@
+import amp from '../../data/frameworks/amp.json';
+import antigravity from '../../data/frameworks/antigravity.json';
 import claudeCode from '../../data/frameworks/claude-code.json';
 import claudeDesktop from '../../data/frameworks/claude-desktop.json';
 import codex from '../../data/frameworks/codex.json';
+import copilotCli from '../../data/frameworks/copilot-cli.json';
 import cursor from '../../data/frameworks/cursor.json';
+import devin from '../../data/frameworks/devin.json';
+import geminiCli from '../../data/frameworks/gemini-cli.json';
 import vscode from '../../data/frameworks/vscode.json';
 import windsurf from '../../data/frameworks/windsurf.json';
 
@@ -16,6 +21,8 @@ export interface FrameworkConfigFile {
   scope: 'user' | 'project';
   /** Absent means every platform. */
   platforms?: NodeJS.Platform[];
+  /** The framework expands a bare `$NAME` in values; read a whole-value `$NAME` as the reference `env:NAME`. */
+  dollarVariables?: boolean;
 }
 
 /** Shape of `data/frameworks/<id>.json`. */
@@ -24,8 +31,10 @@ export interface FrameworkDef {
   name: string;
   configs: FrameworkConfigFile[];
   disableHint: string;
-  /** `YYYY-MM` of the last check against an installed version; null when never checked. */
+  /** `YYYY-MM-DD` of the last check against the official documentation or source; null when never checked. */
   verifiedAt: string | null;
+  /** Official documentation and source URLs the entry was checked against. */
+  sources?: string[];
   notes?: string;
 }
 
@@ -36,7 +45,12 @@ export const BUNDLED_FRAMEWORKS: readonly FrameworkDef[] = [
   cursor,
   codex,
   vscode,
+  devin,
   windsurf,
+  geminiCli,
+  antigravity,
+  copilotCli,
+  amp,
 ] as FrameworkDef[];
 
 /** Server-map locations tried, in order, for a file given by path in `sources` (no pointer known). */

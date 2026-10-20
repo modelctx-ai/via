@@ -1,0 +1,9 @@
+{
+  // Amp settings
+  "amp.tools.disable": ["builtin:Bash"],
+  "amp.mcpServers": {
+    "amp-local": { "command": "npx", "args": ["-y", "amp-server"], "env": { "AMP_KEY": "${AMP_KEY}" } },
+    "amp-shared": { "command": "user-shared" },
+    "amp-remote": { "url": "https://amp.example.invalid/mcp", "headers": { "Authorization": "Bearer ${AMP_TOKEN}" } }
+  }
+}

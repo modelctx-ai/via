@@ -1,15 +1,17 @@
 // One MCP session per server over stdio or Streamable HTTP. The SDK is imported lazily, on the first
 // connection, so nothing here costs CLI cold start (implementation.md, "启动速度").
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { FetchLike, Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import pkg from '../../package.json';
 import type { CredentialResolver, ServerConfig } from '../config/types';
 import type { ToolCallResult } from '../protocol';
 import type { McpTool } from '../catalog/types';
 import { createRedactor } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
-import { ClientError, internal, mapError, notFoundServer, oauthNotSupported, untrustedServer, type Phase } from './errors';
+import { ClientError, internal, mapError, notFoundServer, untrustedServer, type Phase } from './errors';
 import { Limiter } from './limiter';
+import type { ViaOAuthProvider } from './oauth/provider';
+import type { OAuthStore } from './oauth/store';
 
 export interface CallOptions {
   /** Overrides `ServerConfig.timeout` for this call. */
@@ -24,6 +26,18 @@ export interface ListOptions {
   timeoutMs?: number;
 }
 
+export interface SessionOptions {
+  /** Where OAuth logins live (auth.md). Default: the user's keychain / data directory. */
+  oauthStore?: OAuthStore;
+  /** Clock for token expiry; tests inject one. */
+  now?: () => number;
+  /**
+   * The server sent `notifications/tools/list_changed` (the daemon refreshes its catalog on it).
+   * Runs on the connection that received it; must not throw.
+   */
+  onToolsChanged?: () => void;
+}
+
 /** Safety net against a server that keeps returning cursors. */
 const MAX_LIST_PAGES = 1000;
 /** How much of a stdio child's stderr we keep for error messages. */
@@ -35,12 +49,15 @@ interface Handle {
   client: Client;
   closed: boolean;
   stderr: () => string;
+  /** Process id of the stdio child. */
+  pid?: () => number | null;
   terminate?: () => Promise<void>;
 }
 
 type Sdk = {
   Client: typeof import('@modelcontextprotocol/sdk/client/index.js').Client;
   ResultSchema: typeof import('@modelcontextprotocol/sdk/types.js').ResultSchema;
+  ToolListChangedNotificationSchema: typeof import('@modelcontextprotocol/sdk/types.js').ToolListChangedNotificationSchema;
 };
 
 let sdkPromise: Promise<Sdk> | undefined;
@@ -49,7 +66,7 @@ function loadSdk(): Promise<Sdk> {
   sdkPromise ??= Promise.all([
     import('@modelcontextprotocol/sdk/client/index.js'),
     import('@modelcontextprotocol/sdk/types.js'),
-  ]).then(([c, t]) => ({ Client: c.Client, ResultSchema: t.ResultSchema }));
+  ]).then(([c, t]) => ({ Client: c.Client, ResultSchema: t.ResultSchema, ToolListChangedNotificationSchema: t.ToolListChangedNotificationSchema }));
   return sdkPromise;
 }
 
@@ -61,10 +78,12 @@ export class McpSession {
   private handle?: Handle;
   private connecting?: Promise<Handle>;
   private readonly limiter: Limiter;
+  private oauth?: ViaOAuthProvider;
 
   constructor(
     readonly server: ServerConfig,
     private readonly resolver: CredentialResolver,
+    private readonly options: SessionOptions = {},
   ) {
     this.limiter = new Limiter(server.concurrency);
   }
@@ -72,6 +91,12 @@ export class McpSession {
   /** Whether a live connection exists right now. */
   get connected(): boolean {
     return this.handle !== undefined && !this.handle.closed;
+  }
+
+  /** Process id of the running stdio child, if any. */
+  get pid(): number | undefined {
+    if (!this.handle || this.handle.closed) return undefined;
+    return this.handle.pid?.() ?? undefined;
   }
 
   /** `tools/list`, following `nextCursor` until the server stops returning one. */
@@ -192,12 +217,14 @@ export class McpSession {
     // Checks that must pass before anything is spawned or sent.
     if (server.disabled) throw notFoundServer(server.name, []);
     if (!server.trusted) throw untrustedServer(server);
-    if (server.auth.type === 'oauth') throw oauthNotSupported(server);
 
     const timeoutMs = this.defaultTimeoutMs();
     let resolved: ResolvedConnection;
+    let authFetch: FetchLike | undefined;
     try {
       resolved = await resolveConnection(server, this.resolver);
+      // Without a saved login this fails right here, before any request (auth.md, "调用时的行为").
+      if (server.auth.type === 'oauth') authFetch = await this.oauthFetch();
     } catch (err) {
       throw mapError(err, { server, phase: 'connect', timeoutMs, redact: this.redactor() });
     }
@@ -206,10 +233,13 @@ export class McpSession {
     let client: Client | undefined;
     let handle: Handle | undefined;
     try {
-      const { Client: ClientCtor } = await loadSdk();
+      const { Client: ClientCtor, ToolListChangedNotificationSchema } = await loadSdk();
       client = new ClientCtor({ name: 'via', version: pkg.version }, { capabilities: {} });
+      const onToolsChanged = this.options.onToolsChanged;
+      if (onToolsChanged) client.setNotificationHandler(ToolListChangedNotificationSchema, () => onToolsChanged());
       let transport: Transport;
       let terminate: (() => Promise<void>) | undefined;
+      let pid: (() => number | null) | undefined;
 
       if (resolved.type === 'stdio') {
         const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
@@ -224,6 +254,7 @@ export class McpSession {
         stdio.stderr?.on('data', (chunk: Buffer | string) => {
           stderrBuf = (stderrBuf + chunk.toString()).slice(-STDERR_KEEP);
         });
+        pid = () => stdio.pid;
         transport = stdio;
       } else {
         let url: URL;
@@ -233,12 +264,12 @@ export class McpSession {
           throw internal(`invalid url for ${server.provider}: not a URL`);
         }
         const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-        const http = new StreamableHTTPClientTransport(url, { requestInit: { headers: resolved.headers } });
+        const http = new StreamableHTTPClientTransport(url, { requestInit: { headers: resolved.headers }, ...(authFetch ? { fetch: authFetch } : {}) });
         terminate = () => http.terminateSession();
         transport = http;
       }
 
-      const created: Handle = { client, closed: false, stderr: () => stderrBuf, ...(terminate ? { terminate } : {}) };
+      const created: Handle = { client, closed: false, stderr: () => stderrBuf, ...(pid ? { pid } : {}), ...(terminate ? { terminate } : {}) };
       handle = created;
       client.onclose = () => {
         created.closed = true;
@@ -251,6 +282,23 @@ export class McpSession {
       if (handle) handle.closed = true;
       throw mapped;
     }
+  }
+
+  /**
+   * A fetch that attaches the OAuth access token and refreshes it when due. The provider outlives
+   * reconnects: a long-lived session (a daemon's) keeps refreshing through it.
+   */
+  private async oauthFetch(): Promise<FetchLike> {
+    if (!this.oauth) {
+      const { createCallProvider, createOAuthStore } = await import('./oauth');
+      const track = (value: string): void => this.resolver.track?.(value);
+      this.oauth = createCallProvider(this.server, this.options.oauthStore ?? createOAuthStore(), {
+        track,
+        ...(this.options.now ? { now: this.options.now } : {}),
+      });
+    }
+    await this.oauth.requireLogin();
+    return this.oauth.createFetch();
   }
 
   /** Tear down the current connection (if any). */

@@ -42,3 +42,21 @@ describe('snapshots and fixtures', () => {
     for (const [label, pattern] of CREDENTIAL_PATTERNS) expect(pattern.test(text), label).toBe(false);
   });
 });
+
+// bench/ holds canned tool results, task scripts and the recorded results. They are checked in and
+// quoted in docs, so they get the same scan as the snapshots.
+const benchDir = fileURLToPath(new URL('../bench/', import.meta.url));
+const benchFiles = walk(benchDir);
+
+describe('bench files', () => {
+  it('finds the recordings, tasks and results this scan is meant to cover', () => {
+    expect(benchFiles.filter((p) => p.includes(join('bench', 'recordings'))).length).toBeGreaterThan(10);
+    expect(benchFiles.filter((p) => p.includes(join('bench', 'tasks'))).length).toBeGreaterThan(5);
+  });
+
+  it.each(benchFiles.map((p) => [p.slice(benchDir.length), p]))('%s holds no credential', (_name, path) => {
+    const text = readFileSync(path!, 'utf8');
+    expect(text).not.toContain(FAKE_SECRET);
+    for (const [label, pattern] of CREDENTIAL_PATTERNS) expect(pattern.test(text), label).toBe(false);
+  });
+});

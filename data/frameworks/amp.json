@@ -1,0 +1,17 @@
+{
+  "id": "amp",
+  "name": "Amp",
+  "configs": [
+    { "path": ".amp/settings.jsonc", "format": "jsonc", "pointer": "/amp.mcpServers", "scope": "project" },
+    { "path": ".amp/settings.json", "format": "jsonc", "pointer": "/amp.mcpServers", "scope": "project" },
+    { "path": "~/.config/amp/settings.jsonc", "format": "jsonc", "pointer": "/amp.mcpServers", "scope": "user" },
+    { "path": "~/.config/amp/settings.json", "format": "jsonc", "pointer": "/amp.mcpServers", "scope": "user" }
+  ],
+  "disableHint": "从 settings.json 的 amp.mcpServers 中删除对应条目，或用 amp.mcpPermissions 写 reject 规则屏蔽；远程 server 可用 amp mcp remote --personal update <名称> --disabled",
+  "verifiedAt": "2026-10-20",
+  "sources": [
+    "https://ampcode.com/docs/customize/mcp",
+    "https://ampcode.com/docs/cli/settings"
+  ],
+  "notes": "工作区配置从工作目录向上查找最近的 .amp/settings.json（或 .jsonc）。工作区里的 server 需要用 amp mcp approve 批准后才会启动，用户级的不需要。设置键本身带点号，所以指针是 /amp.mcpServers。"
+}

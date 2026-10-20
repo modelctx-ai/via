@@ -1,0 +1,42 @@
+id: github-find-code
+title: Find a class and read its file
+goal: >
+  Find where RateLimiter is defined in acme/api and read that file.
+servers: [github]
+
+native:
+  rounds:
+    - - server: github
+        tool: search_code
+        args: { query: "RateLimiter repo:acme/api", perPage: 5 }
+    - - server: github
+        tool: get_file_contents
+        args: { owner: acme, repo: api, path: src/middleware/rate_limiter.ts }
+
+calls:
+  - { server: github, tool: search_code, resultFile: recordings/github-find-code/search_code.json }
+  # A file comes back as plain text, the same bytes in every column.
+  - { server: github, tool: get_file_contents, textFile: recordings/github-find-code/rate_limiter.ts.txt }
+
+via:
+  - run: via github
+  - run: via github code
+  - run: via github code:search --query "RateLimiter repo:acme/api" --per-page 5
+  - run: via github file-content
+  - run: via github file-content:get --owner acme --repo api --path src/middleware/rate_limiter.ts
+
+mcp2cli:
+  - run: mcp2cli @github --search code
+  - run: mcp2cli @github search-code --help
+  - run: mcp2cli @github search-code --query "RateLimiter repo:acme/api" --per-page 5
+  - run: mcp2cli @github --search file
+  - run: mcp2cli @github get-file-contents --help
+  - run: mcp2cli @github get-file-contents --owner acme --repo api --path src/middleware/rate_limiter.ts
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+success:
+  require:
+    - { server: github, tool: search_code, args: { query: { $contains: RateLimiter } } }
+    - { server: github, tool: get_file_contents, args: { owner: acme, repo: api, path: src/middleware/rate_limiter.ts } }
+  answer:
+    - src/middleware/rate_limiter.ts

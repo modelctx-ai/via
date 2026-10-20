@@ -133,8 +133,9 @@ npm run lexicon    # 等价于对 test/fixtures/tools/ 运行 scripts/build-lexi
     { "path": "~/.config/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["linux"] },
     { "path": "%APPDATA%/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["win32"] }
   ],
-  "disableHint": "运行命令 MCP: List Servers，选中 server 后停止或禁用",
-  "verifiedAt": null,
+  "disableHint": "运行命令 MCP: List Servers，选中 server 后选择 Disable",
+  "verifiedAt": "2026-10-20",
+  "sources": ["https://code.visualstudio.com/docs/agents/reference/mcp-configuration"],
   "notes": "只读取 mcp.json；旧版 settings.json 中的 mcp.servers 不读取。"
 }
 ```
@@ -146,10 +147,12 @@ npm run lexicon    # 等价于对 test/fixtures/tools/ 运行 scripts/build-lexi
 | `configs[].pointer` | server 映射在文件中的位置（JSON Pointer），如 Codex 为 `/mcp_servers`，VS Code 为 `/servers`；目标不存在时视为没有 server，不算错误 |
 | `configs[].scope` | `user` 或 `project`；`project` 级的 stdio 命令受[信任规则](../spec/security.md#项目级配置的信任)约束 |
 | `configs[].platforms` | 可选，`linux`、`darwin`、`win32` 的子集；缺省表示所有平台。同一框架在不同系统上路径不同时，写成多条 |
+| `configs[].dollarVariables` | 可选，`true` 表示该框架会展开值里的裸 `$NAME`（Gemini CLI），整值为 `$NAME` 时转成 `env:NAME`；其他框架里 `$NAME` 保持字面值。只在官方文档写明时才设置 |
 | `disableHint` | `via doctor` 显示的关闭方法 |
-| `verifiedAt` | 最近一次按该框架实际安装版本核对的时间（`YYYY-MM`）；从未核对过时为 `null`，表示条目依据文档编写 |
+| `verifiedAt` | 最近一次对照官方文档或源码核对的日期（`YYYY-MM-DD`）；从未核对过时为 `null`，表示条目依据文档编写，此时不得有 `sources` |
+| `sources` | 可选，核对时依据的官方文档和源码链接（`https://`）；`verifiedAt` 不为 `null` 时必须填写 |
 | `notes` | 可选，已知的缺口，如暂不读取的位置 |
 
-同一框架的多个配置文件中，`project` 级覆盖 `user` 级（整条 server 定义替换，不做字段合并），这不算冲突。各框架 server 条目的写法差异（`type`/`transport`、`url`/`serverUrl`、Codex 的 `bearer_token_env_var` 等）由统一的规范化代码处理，不放在数据文件里；见 [config.md](../spec/config.md#框架配置的规范化)。
+同一框架的多个配置文件中，`project` 级覆盖 `user` 级（整条 server 定义替换，不做字段合并），这不算冲突。同一作用域内有多个文件时（如 Devin 的 `.devin/mcp_config.local.json` 与 `.devin/mcp_config.json`），列表里靠前的优先，所以优先级高的写在前面；同一文件的不同写法（Amp 的 `settings.json` 与 `settings.jsonc`）都列出，显式指定该框架时只要其中一个存在就不告警。各框架 server 条目的写法差异（`type`/`transport`、`url`/`serverUrl`、Codex 的 `bearer_token_env_var` 等）由统一的规范化代码处理，不放在数据文件里；见 [config.md](../spec/config.md#框架配置的规范化)。
 
-各框架的路径和字段名会随版本变化，新增或更新条目时必须按实际版本核对并更新 `verifiedAt`。
+各框架的路径和字段名会随版本变化（例如 Windsurf 在 2026-06 更名为 Devin Desktop 并迁移了配置路径），新增或更新条目时必须对照官方文档或源码核对，更新 `verifiedAt` 并在 `sources` 记录依据；官方文档没有写明的路径、字段不要凭社区经验写入，需要提及时放进 `notes` 并注明未核实。

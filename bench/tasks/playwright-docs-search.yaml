@@ -1,0 +1,48 @@
+id: playwright-docs-search
+title: Search a docs site in the browser
+goal: >
+  Open docs.acme.test, search for "rate limit" and open the "Rate limits" result.
+servers: [playwright]
+
+# Every action answers with the page snapshot, as the Playwright MCP server does.
+native:
+  rounds:
+    - - server: playwright
+        tool: browser_navigate
+        args: { url: "https://docs.acme.test/" }
+    - - server: playwright
+        tool: browser_type
+        args: { element: Search docs, ref: e8, text: rate limit, submit: true }
+    - - server: playwright
+        tool: browser_click
+        args: { element: Rate limits result, ref: e73 }
+
+calls:
+  - { server: playwright, tool: browser_navigate, textFile: recordings/playwright-docs-search/browser_navigate.txt }
+  # Element refs come from the page snapshot (e8 is the search box, e73 the "Rate limits" result);
+  # acting on any other element fails.
+  - { server: playwright, tool: browser_type, args: { ref: e8 }, textFile: recordings/playwright-docs-search/browser_type.txt }
+  - { server: playwright, tool: browser_click, args: { ref: e73 }, textFile: recordings/playwright-docs-search/browser_click.txt }
+
+via:
+  - run: via playwright
+  - run: via playwright browser:navigate --url https://docs.acme.test/
+  - run: via playwright browser-type -h
+  - run: via playwright browser-type --element "Search docs" --ref e8 --text "rate limit" --submit
+  - run: via playwright browser:click --element "Rate limits result" --ref e73
+
+mcp2cli:
+  - run: mcp2cli @playwright --list
+  - run: mcp2cli @playwright browser-navigate --help
+  - run: mcp2cli @playwright browser-navigate --url https://docs.acme.test/
+  - run: mcp2cli @playwright browser-type --help
+  - run: mcp2cli @playwright browser-type --element "Search docs" --ref e8 --text "rate limit" --submit
+  - run: mcp2cli @playwright browser-click --help
+  - run: mcp2cli @playwright browser-click --element "Rate limits result" --ref e73
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+success:
+  require:
+    - { server: playwright, tool: browser_navigate, args: { url: { $contains: docs.acme.test } } }
+    - { server: playwright, tool: browser_type, args: { ref: e8, text: { $contains: rate limit } } }
+    - { server: playwright, tool: browser_click, args: { ref: e73 } }

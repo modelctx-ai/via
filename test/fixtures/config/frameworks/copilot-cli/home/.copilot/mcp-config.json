@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "cop-http": {
+      "type": "http",
+      "url": "https://cop-http.example.invalid/mcp",
+      "headers": { "X-Team": "platform" },
+      "tools": ["*"]
+    },
+    "cop-local": {
+      "type": "local",
+      "command": "npx",
+      "args": ["-y", "cop-server"],
+      "env": { "COP_KEY": "${COP_KEY}" },
+      "tools": ["read"]
+    },
+    "cop-sse": { "type": "sse", "url": "https://cop-sse.example.invalid/sse", "tools": ["*"] }
+  }
+}

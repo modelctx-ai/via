@@ -2,7 +2,7 @@ import type { McpTool } from '../catalog/types';
 import type { CredentialResolver, ServerConfig } from '../config/types';
 import type { ToolCallResult } from '../protocol';
 import { notFoundServer } from './errors';
-import { McpSession, type CallOptions, type ListOptions } from './session';
+import { McpSession, type CallOptions, type ListOptions, type SessionOptions } from './session';
 
 /**
  * What the CLI needs from "something that talks to MCP servers". The in-process client implements it
@@ -26,6 +26,7 @@ export class InProcessClient implements McpClient {
   constructor(
     private readonly servers: readonly ServerConfig[],
     private readonly resolver: CredentialResolver,
+    private readonly options: SessionOptions = {},
   ) {}
 
   /** `server` is the config key (`ServerConfig.name`) or the provider name. */
@@ -48,7 +49,7 @@ export class InProcessClient implements McpClient {
     const config = this.find(key);
     let session = this.sessions.get(config.name);
     if (!session) {
-      session = new McpSession(config, this.resolver);
+      session = new McpSession(config, this.resolver, this.options);
       this.sessions.set(config.name, session);
     }
     return session;

@@ -13,7 +13,7 @@
 | 钥匙串 | `@napi-rs/keyring` |
 | 用户目录 | `env-paths` |
 | 进程间通信 | Node 内置 `net`（unix socket，Windows 上为 named pipe） |
-| 表格对齐 | `string-width`（中日韩字符按双宽计算） |
+| 表格对齐 | `get-east-asian-width`（中日韩字符按双宽计算）；宽度算法是 `string-width` 的移植，只是把 `Intl.Segmenter` 与 emoji 正则推迟到第一次遇到非窄字符时才创建，一致性由测试把 `string-width`（仅开发依赖）当参照来保证 |
 | 打包 | `tsup`（esbuild）打成单个 ESM 文件；`bun build --compile` 产出单文件可执行 |
 | 测试 | `vitest`（含快照） |
 
@@ -25,6 +25,7 @@
 
 - tsup 打包并开启代码分块：`dist/via.js` 只是极薄的入口，`--version` 与 `-h` 只加载它和一个很小的文本分块；其余命令经动态 `import()` 按需加载，各子命令只加载自己用到的分块；
 - 按子命令懒加载：走 daemon 的请求不加载 MCP SDK 和 ajv，只做参数解析、socket 通信和渲染；进程内模式下 MCP SDK 在首次建立连接时才加载，命中目录缓存的浏览命令不会加载它；`via more` 不加载配置和目录；
+- 纯 JS 依赖（MCP SDK、ajv、yaml 等）一并打进各自的分块，仍然按需加载：作为外部包时，它们是成百上千个要逐个解析、读取的文件，实测仅 `yaml` 就要 30 ms 左右，打包后约 6 ms（`npm run bench:perf`）；只有原生的钥匙串绑定 `@napi-rs/keyring` 保持外部；
 - Node 22 及以上调用 `module.enableCompileCache()`；
 - 热路径交给常驻 daemon，CLI 尽量薄。
 
@@ -40,7 +41,7 @@ via/
 │  ├─ catalog/      # 名称拆分、分域、索引、搜索、浏览视图、缓存
 │  ├─ client/       # MCP 会话、鉴权、OAuth
 │  ├─ render/       # 输出流水线：清理、形状判断、表格、截断、游标
-│  ├─ daemon/       # socket 服务、生命周期、并发控制
+│  ├─ daemon/       # socket 服务（server）、会话与目录（sessions）、CLI 侧连接与拉起（client、backend）、路径与安全检查（paths）、协议帧（wire）
 │  └─ protocol.ts   # CLI 与 daemon 之间的消息类型
 ├─ data/
 │  ├─ frameworks/   # 各框架的配置路径、解析方式、关闭提示
@@ -50,14 +51,22 @@ via/
 │  ├─ noise.json    # 默认噪声字段表
 │  ├─ columns.json  # 表格选列规则
 │  └─ schema/       # 上述数据文件的 JSON Schema
-├─ scripts/         # 词典生成（npm run lexicon）、拆分结果差异检查（npm run split-diff）、token 基准
+├─ scripts/         # 词典生成（npm run lexicon）、拆分结果差异检查（npm run split-diff）、token 基准（npm run bench:tokens）、agent 评测（npm run bench:eval）
+├─ bench/           # token 基准：tasks/（任务）、recordings/（合成的返回值）、replay-server.mjs（回放 MCP server）、harness/、results/；eval/ 是 agent 评测的实现，复用任务与回放 server（见 bench/README.md）
 ├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；`mcp/`：模拟 MCP server（stdio 与 Streamable HTTP）；`config/`：每个框架的配置样例与 via 用户/项目配置
 └─ docs/
 ```
 
-`protocol.ts` 定义的消息类型（草案见 [daemon.md](../spec/daemon.md#cli-与-daemon-的协议)）由 CLI、daemon 和进程内模式共用，这是用 TypeScript 的一个好处：两端不会出现序列化格式不一致。
+`protocol.ts` 定义的消息类型（见 [daemon.md](../spec/daemon.md#cli-与-daemon-的协议)）由 CLI、daemon 和进程内模式共用，这是用 TypeScript 的一个好处：两端不会出现序列化格式不一致。
 
 规则类内容放在 `data/` 下，打包时内联，用户配置可覆盖；大部分迭代只需改数据，不必改代码（格式见 [数据文件](data-files.md)）。
+
+### CLI 到 MCP server 的一个入口：Backend
+
+所有会碰 MCP server 的命令（`call`、`batch`、`auth`、`doctor`、`sync`、浏览与 `find`）都经 `App.backend()`（`src/cli/backend.ts` 的 `Backend` 接口，`App.client()` 返回同一个对象）：
+
+- `listing(server, { timeoutMs, refresh })`：工具列表（缓存、凭证检查在后端内完成）；`callTool(...)`、`compiler()`（参数校验用的 schema 编译器，daemon 模式下由 daemon 校验）、`cursors()`（游标存放处）、`redact(text)`、`secrets()`。
+- `InProcessBackend`（进程内模式）、`DaemonBackend`（`src/daemon/backend.ts`，每个操作一个协议请求）和包住前者的 `FallbackBackend`（daemon 不可用时按 [daemon.md](../spec/daemon.md#生命周期) 回退）。新命令只用 `App` 的 `backend()`、`listing()`、`client()`、`compile`、`redactText()`，不要自己创建 `InProcessClient`，否则会绕过 daemon。
 
 ## 模块与规范的对应
 

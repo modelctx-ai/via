@@ -118,13 +118,13 @@ class Parser {
     const warnings: string[] = [];
     let validated = false;
     if (this.options.validate && this.tool.inputSchema) {
-      const result = await compileSchema(this.tool.inputSchema, this.ctx.ref);
+      const result = await (this.options.compile ?? compileSchema)(this.tool.inputSchema, this.ctx.ref);
       if (!result.ok) {
         warnings.push(...result.warnings, `schema of ${this.ctx.ref} cannot be compiled (${result.reason}); local validation skipped`);
       } else {
         validated = true;
         warnings.push(...result.compiled.warnings);
-        const errors = result.compiled.check(this.args);
+        const errors = await result.compiled.check(this.args);
         if (errors.length > 0) {
           for (const p of problemsFromAjv(this.model, errors, this.args, this.redact)) {
             const pointer = String(p.detail.path ?? '');

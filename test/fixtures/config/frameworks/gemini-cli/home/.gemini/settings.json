@@ -1,0 +1,20 @@
+{
+  // other settings live in the same file
+  "theme": "Default",
+  "mcp": { "excluded": ["off-server"] },
+  "mcpServers": {
+    "gem-local": {
+      "command": "node",
+      "args": ["./server.js"],
+      "cwd": "./tools",
+      "env": { "API_KEY": "$GEM_TOKEN", "REGION": "eu", "OTHER": "${GEM_OTHER}" },
+      "trust": false,
+      "includeTools": ["search"]
+    },
+    "gem-http": {
+      "httpUrl": "https://gem-http.example.invalid/mcp",
+      "headers": { "Authorization": "Bearer $GEM_TOKEN", "X-Key": "$GEM_KEY" }
+    },
+    "gem-sse": { "url": "https://gem-sse.example.invalid/sse", "type": "sse" }
+  }
+}

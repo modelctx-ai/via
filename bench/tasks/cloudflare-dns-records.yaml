@@ -1,0 +1,63 @@
+id: cloudflare-dns-records
+title: List DNS records of a zone
+goal: >
+  List the DNS records of the acme.test zone in the Acme Production Cloudflare account.
+servers: [cloudflare]
+
+# Cloudflare's server exposes four code-mode tools, so native injection is tiny here: this task
+# is where via has the least to save.
+native:
+  rounds:
+    - - server: cloudflare
+        tool: whoami
+        args: {}
+    - - server: cloudflare
+        tool: search
+        args:
+          code: "return Object.entries(spec.paths).filter(([p]) => p.includes('dns_records')).map(([p, v]) => ({ path: p, methods: Object.keys(v) }))"
+    - - server: cloudflare
+        tool: execute
+        args:
+          accountId: 023e105f4ecef8ad9ca31a8372d0c353
+          code: "const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });"
+
+calls:
+  - { server: cloudflare, tool: whoami, resultFile: recordings/cloudflare-dns-records/whoami.json }
+  - { server: cloudflare, tool: search, resultFile: recordings/cloudflare-dns-records/search.json }
+  - { server: cloudflare, tool: execute, resultFile: recordings/cloudflare-dns-records/execute.json }
+
+via:
+  - run: via cloudflare
+  - run: via cloudflare whoami
+  - run: via cloudflare search -h
+  - run: >-
+      via cloudflare search --code "return Object.entries(spec.paths).filter(([p]) => p.includes('dns_records')).map(([p, v]) => ({ path: p, methods: Object.keys(v) }))"
+  - run: via cloudflare execute -h
+  - run: >-
+      via cloudflare execute --account-id 023e105f4ecef8ad9ca31a8372d0c353 --code "const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });"
+
+mcp2cli:
+  - run: mcp2cli @cloudflare --list
+  - run: mcp2cli @cloudflare whoami
+  - run: mcp2cli @cloudflare search --help
+  - run: >-
+      mcp2cli @cloudflare search --code "return Object.entries(spec.paths).filter(([p]) => p.includes('dns_records')).map(([p, v]) => ({ path: p, methods: Object.keys(v) }))"
+  - run: mcp2cli @cloudflare execute --help
+  - run: >-
+      mcp2cli @cloudflare execute --account-id 023e105f4ecef8ad9ca31a8372d0c353 --code "const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });"
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+# The production account is the one the zone lives in; the staging account must not be used.
+success:
+  require:
+    - server: cloudflare
+      tool: execute
+      args:
+        accountId: 023e105f4ecef8ad9ca31a8372d0c353
+        code: { $regex: dns }
+  forbid:
+    - { server: cloudflare, tool: execute, args: { accountId: 5d3a8c1f0b9e4a7d8c6b5a4f3e2d1c0b } }
+  answer:
+    - 203.0.113.10
+    - docs.acme.test
+    - status.acme.test

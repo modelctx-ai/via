@@ -1,0 +1,156 @@
+{
+  "total_count": 5,
+  "incomplete_results": false,
+  "items": [
+    {
+      "name": "rate_limiter.ts",
+      "path": "src/middleware/rate_limiter.ts",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5310",
+      "url": "https://api.github.com/repositories/604221907/contents/src/middleware/rate_limiter.ts?ref=4b8e2a1c",
+      "git_url": "https://api.github.com/repositories/604221907/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5310",
+      "html_url": "https://github.com/acme/api/blob/4b8e2a1c/src/middleware/rate_limiter.ts",
+      "repository": {
+        "id": 604221907,
+        "node_id": "R_kgDOJ9Gy0w",
+        "name": "api",
+        "full_name": "acme/api",
+        "private": true,
+        "owner": {
+          "login": "acme",
+          "id": 88001,
+          "node_id": "O_kgDOA",
+          "avatar_url": "https://avatars.githubusercontent.com/u/88001?v=4",
+          "html_url": "https://github.com/acme",
+          "type": "Organization",
+          "site_admin": false
+        },
+        "html_url": "https://github.com/acme/api",
+        "description": "Public REST API for the Acme platform",
+        "fork": false,
+        "url": "https://api.github.com/repos/acme/api",
+        "default_branch": "main"
+      },
+      "score": 1
+    },
+    {
+      "name": "index.ts",
+      "path": "src/middleware/index.ts",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5311",
+      "url": "https://api.github.com/repositories/604221907/contents/src/middleware/index.ts?ref=4b8e2a1c",
+      "git_url": "https://api.github.com/repositories/604221907/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5311",
+      "html_url": "https://github.com/acme/api/blob/4b8e2a1c/src/middleware/index.ts",
+      "repository": {
+        "id": 604221907,
+        "node_id": "R_kgDOJ9Gy0w",
+        "name": "api",
+        "full_name": "acme/api",
+        "private": true,
+        "owner": {
+          "login": "acme",
+          "id": 88001,
+          "node_id": "O_kgDOA",
+          "avatar_url": "https://avatars.githubusercontent.com/u/88001?v=4",
+          "html_url": "https://github.com/acme",
+          "type": "Organization",
+          "site_admin": false
+        },
+        "html_url": "https://github.com/acme/api",
+        "description": "Public REST API for the Acme platform",
+        "fork": false,
+        "url": "https://api.github.com/repos/acme/api",
+        "default_branch": "main"
+      },
+      "score": 1
+    },
+    {
+      "name": "rate_limiter.test.ts",
+      "path": "test/middleware/rate_limiter.test.ts",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5312",
+      "url": "https://api.github.com/repositories/604221907/contents/test/middleware/rate_limiter.test.ts?ref=4b8e2a1c",
+      "git_url": "https://api.github.com/repositories/604221907/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5312",
+      "html_url": "https://github.com/acme/api/blob/4b8e2a1c/test/middleware/rate_limiter.test.ts",
+      "repository": {
+        "id": 604221907,
+        "node_id": "R_kgDOJ9Gy0w",
+        "name": "api",
+        "full_name": "acme/api",
+        "private": true,
+        "owner": {
+          "login": "acme",
+          "id": 88001,
+          "node_id": "O_kgDOA",
+          "avatar_url": "https://avatars.githubusercontent.com/u/88001?v=4",
+          "html_url": "https://github.com/acme",
+          "type": "Organization",
+          "site_admin": false
+        },
+        "html_url": "https://github.com/acme/api",
+        "description": "Public REST API for the Acme platform",
+        "fork": false,
+        "url": "https://api.github.com/repos/acme/api",
+        "default_branch": "main"
+      },
+      "score": 1
+    },
+    {
+      "name": "rate-limiting.md",
+      "path": "docs/rate-limiting.md",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5313",
+      "url": "https://api.github.com/repositories/604221907/contents/docs/rate-limiting.md?ref=4b8e2a1c",
+      "git_url": "https://api.github.com/repositories/604221907/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5313",
+      "html_url": "https://github.com/acme/api/blob/4b8e2a1c/docs/rate-limiting.md",
+      "repository": {
+        "id": 604221907,
+        "node_id": "R_kgDOJ9Gy0w",
+        "name": "api",
+        "full_name": "acme/api",
+        "private": true,
+        "owner": {
+          "login": "acme",
+          "id": 88001,
+          "node_id": "O_kgDOA",
+          "avatar_url": "https://avatars.githubusercontent.com/u/88001?v=4",
+          "html_url": "https://github.com/acme",
+          "type": "Organization",
+          "site_admin": false
+        },
+        "html_url": "https://github.com/acme/api",
+        "description": "Public REST API for the Acme platform",
+        "fork": false,
+        "url": "https://api.github.com/repos/acme/api",
+        "default_branch": "main"
+      },
+      "score": 1
+    },
+    {
+      "name": "limits.ts",
+      "path": "src/config/limits.ts",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5314",
+      "url": "https://api.github.com/repositories/604221907/contents/src/config/limits.ts?ref=4b8e2a1c",
+      "git_url": "https://api.github.com/repositories/604221907/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5314",
+      "html_url": "https://github.com/acme/api/blob/4b8e2a1c/src/config/limits.ts",
+      "repository": {
+        "id": 604221907,
+        "node_id": "R_kgDOJ9Gy0w",
+        "name": "api",
+        "full_name": "acme/api",
+        "private": true,
+        "owner": {
+          "login": "acme",
+          "id": 88001,
+          "node_id": "O_kgDOA",
+          "avatar_url": "https://avatars.githubusercontent.com/u/88001?v=4",
+          "html_url": "https://github.com/acme",
+          "type": "Organization",
+          "site_admin": false
+        },
+        "html_url": "https://github.com/acme/api",
+        "description": "Public REST API for the Acme platform",
+        "fork": false,
+        "url": "https://api.github.com/repos/acme/api",
+        "default_branch": "main"
+      },
+      "score": 1
+    }
+  ]
+}
