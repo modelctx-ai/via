@@ -47,6 +47,8 @@ servers:
     auth: { bearer: "env:ASTERLANE_KEY" }
   playwright:
     exclusive: true        # 独占资源，与框架实例冲突时给出提示
+  filesystem:
+    roots: ["."]           # 告诉 server 可以在当前目录里工作（默认不声明）
   find:                    # 与内置子命令重名，必须改名
     alias: finder
 deny: ["^github/.*:delete$"]  # 正则，匹配 provider/资源:动作，deny 优先
@@ -86,6 +88,17 @@ domains:
 | `concurrency` | 全部 | 同一 server 的并发上限，默认 4；`via batch` 同样遵守，超出的排队 |
 | `budget` | 全部 | 覆盖输出预算 |
 | `noise` | 全部 | 追加的噪声字段名或通配 |
+| `roots` | 全部 | 声明给 server 的 roots，见下 |
+
+#### `roots`
+
+路径或 `file://` URI 的列表，告诉 server 它可以在哪些目录里工作（MCP 的 `roots` 能力；filesystem 一类 server 靠它确定可访问的目录。决策见 [ADR 0010](../adr/0010-mcp-resources-prompts-and-roots.md)）。
+
+- **默认没有**：不写或写 `[]` 时 via 不声明 `roots` 能力，server 无从得知任何本机目录。要让 server 看到当前目录写 `roots: ["."]`，这是明确的授权，via 不替用户做这个决定。
+- 路径中的 `~` 展开为家目录，相对路径相对于**运行 `via` 的当前目录**（与 stdio 的 `cwd` 一致），都转成绝对 `file://` URI；`file://` URI 原样使用。其他 scheme 的 URI 是 error 级诊断（`servers.<name>.roots[0]: expected a path or file:// URI`）。每个 root 的名字取路径的末段。
+- 声明时 `listChanged` 为 `false`：一个会话的 roots 在它的一生里不变。daemon 里 roots 参与会话键，相对路径依赖调用目录时不同目录使用不同的会话（[daemon.md](daemon.md#环境与工作目录)）。
+- 合并时整体替换，不按元素合并。项目配置设置**非空**的 `roots` 要求 `via trust`（它改变 server 的访问边界），写 `[]`（收窄）不需要；`via trust` 会显示 roots（[security.md](security.md#项目级配置的信任)）。
+- 给 HTTP server 配 `roots` 时，加载时有一条 `warning`：这些本地路径会发往远端服务。
 
 ### stdio 子进程的环境
 

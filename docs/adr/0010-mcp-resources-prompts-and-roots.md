@@ -41,7 +41,7 @@ via prompts <provider> <name> [--arg 值…]   取一个提示（参数写法同
 - 配置字段 `servers.<name>.roots`：路径或 `file://` URI 的列表。路径中的 `~` 展开为家目录，相对路径相对于 CLI 的当前目录（与 stdio 的 `cwd` 一致），统一转成 `file://` URI，名字取目录的末段。
 - **默认没有**：不写 `roots`（或写 `[]`）时，via 不声明 `roots` 能力，server 不会向 via 要目录。想让 filesystem 一类 server 看到当前目录的人写 `roots: ["."]`。
 - 声明时 `listChanged` 为 `false`：一个会话的 roots 在它的一生里不变。需要不同 roots 就是不同的会话。
-- daemon 里 roots 参与会话键：CLI 把相对路径按自己的当前目录解成绝对 URI 后再发给 daemon（和 stdio 的 `cwd` 同一处理），所以 `roots: ["."]` 的 server 在两个目录里是两个会话，不会把 A 目录的 roots 交给在 B 目录里工作的 CLI，也就不需要 `notifications/roots/list_changed`。代价与 stdio 的 `cwd` 相同：两个目录交替使用时会话互相替换。
+- daemon 里 roots 参与会话键：CLI 把相对路径按自己的当前目录解成绝对 URI 后再发给 daemon（和 stdio 的 `cwd` 同一处理），所以 `roots: ["."]` 的 server 在两个目录里是两个会话（stdio server 本来就因 `cwd` 如此，HTTP server 则由 roots 带来这一区分），不会把 A 目录的 roots 交给在 B 目录里工作的 CLI，也就不需要 `notifications/roots/list_changed`。代价与 stdio 的 `cwd` 相同：两个目录交替使用时会话互相替换。
 - 项目级配置设置非空的 `roots` 视同改变 server 的访问边界，需要 `via trust`，`via trust` 显示 roots；设为 `[]`（收窄）不需要。
 - 给 HTTP server 配 `roots` 时，配置加载给出告警：本地路径会发往远端服务。
 
@@ -57,6 +57,7 @@ via prompts <provider> <name> [--arg 值…]   取一个提示（参数写法同
 
 ## 后果
 
+- 术语：「资源（resource）」在 via 里已指工具名拆出的名词部分，MCP 的 resources 在文档中统一写作「MCP 资源」（[术语表](../overview/glossary.md)）。
 - 三个新保留字；`RESERVED_COMMANDS` 与 `ACTIVE_COMMANDS` 同步。`prompt` 与 `prompts` 相近：`via prompt` 带位置参数时报错并提示 `via prompts <provider>`。
 - prompt 的参数是 `{name, description, required}` 的列表，转成只有字符串属性的 schema 后复用工具的参数解析器、`-h` 与本地校验，所以 `--name 值`、`@文件`、`-`、唯一必填参数的位置写法都能用。
 - 协议新增四个请求，`list` 的结果多一个 `features`（见 [daemon.md](../spec/daemon.md)）。结果在 daemon 里脱敏，凭证仍不经过 socket。
