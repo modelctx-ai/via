@@ -61,12 +61,16 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
         return (await import('./commands/provider')).callCommand(app, argv);
       case 'more':
         return (await import('./commands/more')).moreCommand(app, argv);
+      case 'batch':
+        return (await import('./commands/batch')).batchCommand(app, argv);
       case 'servers':
         return (await import('./commands/servers')).serversCommand(app, argv);
       case 'sync':
         return (await import('./commands/sync')).syncCommand(app, argv);
       case 'doctor':
         return (await import('./commands/doctor')).doctorCommand(app);
+      case 'trust':
+        return (await import('./commands/trust')).trustCommand(app, argv);
       case 'prompt':
         return (await import('./commands/prompt')).promptCommand(app, argv);
       default:

@@ -37,7 +37,7 @@
 
 - 耗时不足 1 秒写 `318ms`，否则写 `1.8s`。
 - 结果是列表（表格、数组）且未截断时写 `N rows`；其他情况写字节数，`k` 以 1024 为单位（`8.0k`，小于 1024 时写原始数字）；被截断时写 `已显示/总计 bytes`。
-- 标记目前只有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)），排在 `+N cols` 之后、`next:` 之前。
+- 标记有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)）和 `via batch` 的 `line N`（[cli.md](cli.md#via-batch)），排在 `+N cols` 之后、`next:` 之前，`unvalidated` 在前。`via batch` 另在最后输出一行 `· batch · …` 汇总。
 - 警告（如 `outputSchema` 不匹配）写在元信息行之前，每条一行 `warning: …`。
 
 示例：
@@ -104,6 +104,6 @@ next: via auth login linear
 | 2 | 参数或用法错误 |
 | 3 | 工具或 server 不存在 |
 | 4 | 需要鉴权或鉴权失败 |
-| 5 | 被拒绝：deny 规则命中，或危险操作缺少 `--yes` |
+| 5 | 被拒绝：deny 规则命中，危险操作缺少 `--yes`，或项目级配置未经 `via trust` 确认（`via trust` 本身没有得到确认时同样是 5） |
 | 6 | 上游、传输错误或超时 |
 | 7 | via 内部错误 |

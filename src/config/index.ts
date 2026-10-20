@@ -2,10 +2,14 @@ export * from './types';
 export { DEFAULTS, PROJECT_CONFIG_NAME, loadConfig, type LoadConfigOptions, type LoadedConfig, type LoadedFile } from './load';
 export { formatDiagnostic, hasErrors, type ConfigDiagnostic, type DiagnosticCode, type DiagnosticLevel } from './diagnostics';
 export {
+  CMD_MAX_OUTPUT_BYTES,
+  CMD_TIMEOUT_MS,
+  CMD_TTL_MS,
   MIN_REDACTED_LITERAL_LENGTH,
   createCredentialResolver,
   isCredentialRef,
   parseCredentialRef,
+  splitCommandLine,
   type CredentialKind,
   type CredentialResolverOptions,
   type KeyringModule,
@@ -17,6 +21,7 @@ export {
   isTrusted,
   readTrustStore,
   recordTrust,
+  recordTrustHash,
   trustKey,
   trustStatus,
   trustStorePath,

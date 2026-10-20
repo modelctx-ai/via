@@ -59,6 +59,10 @@ export interface RenderOutput {
   /** Warnings and the meta line on success; the error report on failure. For stderr. */
   stderr: string;
   exitCode: ExitCode;
+  /** The numbers behind the meta line, on success. */
+  meta?: MetaInfo;
+  /** The structured form of the error report, when the result was an error. */
+  error?: ErrorInfo;
 }
 
 // Source selection ------------------------------------------------------------
@@ -232,11 +236,8 @@ export async function renderToolResult(
   if (options.format === 'raw') {
     const text = withNewline(rawText(result, ctx.media, redact));
     const bytes = Buffer.byteLength(text, 'utf8');
-    return {
-      stdout: text,
-      stderr: stderrFor({ ref: ctx.ref, elapsedMs: ctx.elapsedMs, bytes: { shown: bytes, total: bytes }, flags: ctx.flags }, ctx),
-      exitCode: ExitCode.Ok,
-    };
+    const meta: MetaInfo = { ref: ctx.ref, elapsedMs: ctx.elapsedMs, bytes: { shown: bytes, total: bytes }, flags: ctx.flags };
+    return { stdout: text, stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok, meta };
   }
 
   const pieces = selectPieces(result, ctx.media);
@@ -256,7 +257,7 @@ export async function renderToolResult(
   const totalBytes = linesBytes(all);
   if (options.full || totalBytes <= options.budget) {
     meta.bytes = { shown: totalBytes, total: totalBytes };
-    return { stdout: all.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok };
+    return { stdout: all.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok, meta };
   }
 
   // Over budget: show what fits, keep the rest behind a cursor.
@@ -276,7 +277,7 @@ export async function renderToolResult(
   };
   meta.bytes = { shown, total: record.totalBytes };
   if (page.next < bodyLines.length) meta.next = `via more ${await ctx.cursors.put(record)}`;
-  return { stdout: page.lines.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok };
+  return { stdout: page.lines.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok, meta };
 }
 
 /** `via more <cursor>`: continue from where the previous page stopped, same format as the first page. */
@@ -353,5 +354,5 @@ function upstreamError(
     lines: options.format === 'json' ? undefined : lines.slice(1),
     next: `via ${ctx.ref} -h`,
   };
-  return { stdout: '', stderr: formatError(info, options.format, redact), exitCode: ExitCode.ToolError };
+  return { stdout: '', stderr: formatError(info, options.format, redact), exitCode: ExitCode.ToolError, error: info };
 }

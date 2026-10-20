@@ -1,7 +1,8 @@
 // `via servers [--why <provider>]`: where each server comes from, how it connects, whether its
 // credentials resolve, and why a provider landed in its domain (cli.md, discovery.md).
 import { renderDomainWhy } from '../../catalog';
-import { formatDiagnostic, isCredentialRef, type ServerConfig } from '../../config';
+import { formatDiagnostic, isCredentialRef, parseCredentialRef, type ServerConfig } from '../../config';
+import { shellWord } from '../../render/shell';
 import { alignRows } from '../../render/width';
 import { ExitCode } from '../../render/exit-codes';
 import type { App } from '../app';
@@ -24,6 +25,9 @@ async function authStatus(app: App, server: ServerConfig): Promise<string> {
   if (kind === 'oauth') return 'oauth (not supported in 0.1)';
   const missing: string[] = [];
   for (const ref of credentialRefs(server)) {
+    // `cmd:` is not run here: `via servers` connects to nothing, and a credential helper may be slow
+    // or ask for a fingerprint. It runs when the server is used and in `via doctor`.
+    if (parseCredentialRef(ref).kind === 'cmd') continue;
     try {
       await (await app.resolver()).resolve(ref, server.origin);
     } catch {
@@ -64,8 +68,8 @@ export async function serversCommand(app: App, argv: readonly string[]): Promise
     const notes: string[] = [];
     if (server.disabled) notes.push('disabled');
     if (!server.trusted) {
-      const path = server.untrustedPaths?.[0];
-      notes.push(path ? `untrusted (via trust ${path})` : 'untrusted');
+      const paths = server.untrustedPaths ?? [];
+      notes.push(paths.length === 1 ? `untrusted (via trust ${shellWord(paths[0]!)})` : 'untrusted (via trust)');
     }
     if (server.conflicts && server.conflicts.length > 0) {
       notes.push(`conflict: ignored ${server.conflicts.map((c) => c.framework ?? c.path ?? c.scope).join(', ')}`);
