@@ -139,7 +139,8 @@ export function useCleanup(fn: () => Promise<void> | void): void {
 
 export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN }): Sandbox {
   const root = mkdtempSync(join(tmpdir(), 'via-cli-'));
-  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  // Retries: on Windows a directory that a process only just left (or antivirus is scanning) is briefly busy.
+  cleanups.push(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const home = join(root, 'home');
   const project = join(root, 'project');
   mkdirSync(home, { recursive: true });

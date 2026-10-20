@@ -117,11 +117,13 @@ describe('semanticScores', () => {
     const s = await server({ token: SECRET });
     const dir = cacheDir();
     await semanticScores('x', toolsOf(WIDGETS), settings(s), { headers: bearer(SECRET), cacheDir: dir });
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    // Windows has no mode bits (security.md, "Windows 上的文件权限"); the privacy there is the ACL of the user cache directory.
+    const isPosix = process.platform !== 'win32';
+    if (isPosix) expect(statSync(dir).mode & 0o777).toBe(0o700);
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
     const file = join(dir, files[0]!);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (isPosix) expect(statSync(file).mode & 0o777).toBe(0o600);
     const bytes = readFileSync(file).toString('latin1');
     expect(bytes).not.toContain(SECRET);
     expect(bytes).not.toContain(s.url);

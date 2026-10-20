@@ -22,6 +22,26 @@ export function rootUri(entry: string, ctx: RootsContext): string {
   return pathToFileURL(isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.cwd, expanded)).href;
 }
 
+/**
+ * The last path segment of a `file://` URI. `fileURLToPath` is platform-bound: on Windows it refuses
+ * a URI without a drive letter (`file:///already/a/uri`) that is perfectly good elsewhere, so the
+ * name is then read from the URI path itself. A URI that names another host has no local name.
+ */
+function rootName(uri: string): string {
+  try {
+    return basename(fileURLToPath(uri));
+  } catch {
+    // fall through: not a path of this platform
+  }
+  try {
+    const url = new URL(uri);
+    if (url.hostname !== '' && url.hostname.toLowerCase() !== 'localhost') return '';
+    return decodeURIComponent(url.pathname).split('/').filter(Boolean).pop() ?? '';
+  } catch {
+    return '';
+  }
+}
+
 /** What the server is told: the URI and the last path segment as display name. */
 export function resolveRoots(entries: readonly string[] | undefined, ctx: RootsContext): Root[] {
   const seen = new Set<string>();
@@ -30,12 +50,7 @@ export function resolveRoots(entries: readonly string[] | undefined, ctx: RootsC
     const uri = rootUri(entry, ctx);
     if (seen.has(uri)) continue;
     seen.add(uri);
-    let name = '';
-    try {
-      name = basename(fileURLToPath(uri));
-    } catch {
-      // not a local file URI (it names a host); the URI is all there is
-    }
+    const name = rootName(uri);
     roots.push(name === '' ? { uri } : { uri, name });
   }
   return roots;

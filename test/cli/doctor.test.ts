@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUNDLED_FRAMEWORKS, type LoadedConfig, type ServerConfig } from '../../src/config';
 import { BYTES_PER_TOKEN, renderDoctor, type ServerProbe } from '../../src/cli/doctor';
 import { makeTree } from '../helpers/config';
+import { portablePaths } from '../helpers/portable';
 import { FAKE_SECRET } from '../helpers/render';
 
 const NOT_A_CREDENTIAL = 'plain-value-for-tests';
@@ -232,7 +233,7 @@ describe('renderDoctor', () => {
       : probe(s.name, { schemaBytes: 24_000 }),
     );
     const out = renderDoctor({ config: loaded, frameworks: BUNDLED_FRAMEWORKS, probes, home: tree.home });
-    const text = out.text.replaceAll(tree.root, '<tmp>');
+    const text = portablePaths(out.text.replaceAll(tree.root, '<tmp>'));
     expect(out.text).not.toContain(FAKE_SECRET);
     expect(out.exitCode).toBe(5);
     await expect(`${text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-loaded.txt');

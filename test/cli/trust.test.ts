@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { trustKey } from '../../src/config/trust';
 import { CLI_STDIO_SERVER, FAKE_TOKEN, makeSandbox, startFixtureServer, useCleanup, type Sandbox } from './helpers';
 
 // Obviously fake; must never show up in any output.
@@ -201,7 +202,8 @@ describe('via trust', () => {
     sb.userConfig('sources: [claude-code]\n');
     const r = await sb.via(['trust', '.mcp.json', '--yes'], ALLOW);
     expect(r.code).toBe(0);
-    expect(r.stderr).toContain(`· trusted ${file}`);
+    // The record is keyed by the real path (security.md): on Windows the 8.3 short name of tmpdir() is expanded.
+    expect(r.stderr).toContain(`· trusted ${trustKey(file)}`);
     expect((await sb.via(['fw'])).code).toBe(0);
   });
 
@@ -271,7 +273,9 @@ describe('via trust', () => {
     sb.write('my project/.via.yaml', 'servers:\n  job:\n    command: node\n');
     const r = await sb.via(['job'], { cwd: dir });
     expect(r.code).toBe(5);
-    expect(r.stderr).toContain(`next: via trust '${join(dir, '.via.yaml')}'`);
+    // Single quotes for a POSIX shell, double quotes for cmd.exe and PowerShell (render/shell.ts).
+    const q = process.platform === 'win32' ? '"' : "'";
+    expect(r.stderr).toContain(`next: via trust ${q}${join(dir, '.via.yaml')}${q}`);
   });
 
   it('works with a project HTTP server end to end', async () => {

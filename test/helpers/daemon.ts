@@ -148,10 +148,17 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
     return { code, stdout, stderr, asked: [], combined };
   };
 
+  // Every daemon and server process this sandbox has seen. A test may kill the daemon on purpose;
+  // its stdio servers then outlive it with the sandbox as their working directory, and on Windows
+  // such a directory cannot be removed (EBUSY), so teardown ends whatever is left.
+  const seen = new Set<number>();
   const status = async (): Promise<DaemonStatus | undefined> => {
     const r = await via(['daemon', 'status', '-o', 'json']);
     const parsed = JSON.parse(r.stdout) as { running: boolean } & DaemonStatus;
-    return parsed.running ? parsed : undefined;
+    if (!parsed.running) return undefined;
+    seen.add(parsed.pid);
+    for (const session of parsed.sessions) if (session.pid) seen.add(session.pid);
+    return parsed;
   };
 
   const stop = async (): Promise<void> => {
@@ -165,10 +172,20 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
       }
       for (const session of current.sessions) if (session.pid && alive(session.pid)) process.kill(session.pid, 'SIGKILL');
     }
+    const left = [...seen].filter(alive);
+    for (const pid of left) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // gone in the meantime
+      }
+    }
+    await Promise.all(left.map((pid) => waitFor(() => !alive(pid), 5000, `process ${pid} to exit`).catch(() => undefined)));
+    seen.clear();
   };
   tracked.push(async () => {
     await stop().catch(() => undefined);
-    rmSync(runtime, { recursive: true, force: true });
+    rmSync(runtime, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   return {
     sb,

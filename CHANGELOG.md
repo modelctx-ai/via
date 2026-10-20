@@ -116,6 +116,8 @@
 - daemon 在不同 shell 的 `env:` 值不同时反复重启：两个 shell 里同名变量（如 `GH_TOKEN`）取值不同，每次交替调用都会让 daemon 因摘要不一致而重启，会话和 stdio 子进程随之丢失。现在 daemon 回复 `stale` 时，CLI 不再重启 daemon，而是只把这个 server 的这一个请求改在进程内完成（也不会把取值发给 daemon，凭证值不过 socket 的约定不变）；与 daemon 环境一致的 shell 继续用 daemon，另一个 shell 各自用自己的取值，没有设置变量的调用方得到退出码 4 而不是 daemon 环境里的值。代价：取值不一致的 shell 里，该 server 的 stdio 子进程每次调用都重新拉起（daemon.md「环境与工作目录」）。
 - ADR 0008 的背景误称 mcp2cli 采用代码生成；mcp2cli 实际是运行时分发。
 - 多个 server 同时解析凭证（`via doctor`、`via sync`）时，CLI 可能创建两个凭证解析器和两个 MCP client：脱敏只认其中一个解析器的值，另一个解析出的凭证可能漏出脱敏，退出时也只关闭一个 client。现在一次运行共用一个。
+- Windows 首次 CI 暴露的问题（不改变规范）：`roots` 里 `file://` URI 的显示名在 Windows 上取不到（`fileURLToPath` 拒绝没有盘符的 `file:///already/a/uri`），现在无法转成本机路径时直接取 URI 路径的末段，各平台一致；`bench:eval --fake-model` 的输出目录检查在目标与 `bench/results/` 位于不同盘符时误判为「在其中」（`path.relative` 此时返回绝对路径），现在只把真正的 `..` 段当作在外面。
+- 测试（Windows）：`cmd:` 的批处理夹具以 `exit /b 0` 结束（`set /p` 读 NUL 会让退出码变成 1）；`splitCommandLine` 的 POSIX 用例显式传 `'linux'`；`via trust` 的 `· trusted` 断言用真实路径（`realpath.native` 会展开 `RUNNER~1` 这类 8.3 短名）、`next:` 的引号按平台（Windows 用双引号）；快照与路径断言按平台归一分隔符（`test/helpers/portable.ts`），`via servers` 快照的列宽不再依赖沙箱路径长度；不存在模式位的断言在 Windows 上略过；沙箱清理先结束测试看到的所有 daemon 与 stdio server 进程再删目录，并对 `EBUSY` 重试。
 
 ### 影响规范写法的改动（动词表、单数化规则）
 

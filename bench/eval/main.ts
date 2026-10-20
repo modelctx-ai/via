@@ -1,7 +1,7 @@
 // The `bench:eval` command (scripts/bench-eval.ts is a thin entry point): argument parsing,
 // preflight checks, running the evaluation and writing the results.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadSuite } from '../harness/load';
 import { makeRunners, probeMcp2cli, viaVersion } from '../harness/runners';
 import { summarize } from './aggregate';
@@ -128,8 +128,11 @@ export async function main(argv: string[], io: { stdout: (s: string) => void; st
   // Where results go. The scripted model never writes under bench/results/: those files are records.
   const out = args.out ?? (args.fake ? undefined : `bench/results/eval-${date}`);
   if (args.fake && out !== undefined) {
+    // `relative` gives an absolute path when the two are on different Windows drives, and `..` only
+    // names a parent when it is a whole segment (a directory called `..x` is inside).
     const rel = relative(resolve(root, 'bench/results'), resolve(root, out));
-    if (!rel.startsWith('..')) throw new Error('--fake-model output must not go under bench/results/ (it is not a result)');
+    const outside = isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`);
+    if (!outside) throw new Error('--fake-model output must not go under bench/results/ (it is not a result)');
   }
 
   const loaded = loadSuite(root, args.tasks);

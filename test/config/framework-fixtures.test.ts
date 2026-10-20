@@ -80,7 +80,7 @@ describe('devin', () => {
   it('layers .devin/mcp_config.local.json over .devin/mcp_config.json over the user file', async () => {
     const config = await load('devin');
     expect(server(config, 'dev-layered')).toMatchObject({ transport: { command: 'dev-local' }, origin: { scope: 'framework-project' } });
-    expect(server(config, 'dev-layered').origin.path?.endsWith('.devin/mcp_config.local.json')).toBe(true);
+    expect(server(config, 'dev-layered').origin.path?.endsWith(join('.devin', 'mcp_config.local.json'))).toBe(true);
     expect(config.servers.map((s) => s.name).sort()).toEqual(['dev-layered', 'dev-off', 'dev-proj', 'dev-remote']);
   });
 
