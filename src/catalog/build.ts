@@ -67,7 +67,7 @@ export function buildCatalog(
     }
     seen.add(provider);
     // Not a spread: an input whose `tools` is a lazy getter must not have it read just to be renamed.
-    const normalized = Object.create(input, { provider: { value: provider, enumerable: true } }) as ProviderInput;
+    const normalized = provider === input.provider ? input : (Object.create(input, { provider: { value: provider, enumerable: true } }) as ProviderInput);
     providers.push(prebuilt?.(normalized) ?? buildProviderCatalog(normalized, (resolved ??= defaultCatalogRules())));
   }
   providers.sort((a, b) => (a.provider < b.provider ? -1 : a.provider > b.provider ? 1 : 0));

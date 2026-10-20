@@ -65,8 +65,19 @@ function canonical(value: unknown): string {
   });
 }
 
-/** Everything `buildProviderCatalog` reads besides the tool list, as a hash. */
+const hashes = new WeakMap<ProviderInput, string>();
+
+/** Everything `buildProviderCatalog` reads besides the tool list, as a hash (once per input object). */
 export function inputsHash(input: ProviderInput): string {
+  let hash = hashes.get(input);
+  if (hash === undefined) {
+    hash = computeInputsHash(input);
+    hashes.set(input, hash);
+  }
+  return hash;
+}
+
+function computeInputsHash(input: ProviderInput): string {
   return stringHash(
     canonical({
       provider: input.provider,
