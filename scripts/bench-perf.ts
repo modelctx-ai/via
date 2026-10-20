@@ -6,6 +6,7 @@
 //
 //   --runs <n>     measured runs per row (default 30)     --warmup <n>  discarded runs (default 5)
 //   --quick        10 runs, 2 warmups                      --skip-bun    do not measure Bun
+//   --dist <dir>   measure this build instead of dist/ (relative to the repository root)
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -24,7 +25,10 @@ import { featuresOf } from './lib/chunk-features';
 import { loadBaseProviders, synthesizeProviders } from './lib/synth-catalog';
 
 const ROOT = process.cwd();
-const DIST = join(ROOT, 'dist', 'via.js');
+// `--dist <dir>` measures another build (say, one from before a change) with the same scenario.
+const distOption = process.argv.indexOf('--dist');
+const DIST_DIR = distOption === -1 ? join(ROOT, 'dist') : join(ROOT, process.argv[distOption + 1] ?? '');
+const DIST = join(DIST_DIR, 'via.js');
 const FIXTURES = join(ROOT, 'test', 'fixtures');
 const TRACE_HOOK = join(ROOT, 'scripts', 'lib', 'load-trace.mjs');
 
@@ -466,7 +470,7 @@ function summarizeTrace(trace: string): Loaded {
     const path = fileURLToPath(url);
     const nm = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(path);
     if (nm) packages.add(nm[1]!);
-    else if (path.startsWith(join(ROOT, 'dist'))) {
+    else if (path.startsWith(DIST_DIR)) {
       chunks.add(path);
       kib += statSync(path).size / 1024;
       for (const name of featuresOf(readFileSync(path, 'utf8'))) libraries.add(name);

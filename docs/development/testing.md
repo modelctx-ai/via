@@ -90,7 +90,7 @@ $ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 ma
 
 ## 性能目标
 
-以下是初始目标，在 0.1 的基准测试中校准：
+以下是初始目标，在 0.1 的基准测试中校准（实测、环境和校准建议见 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)，目标本身尚未改动）：
 
 | 指标 | 目标 |
 | --- | --- |
@@ -105,7 +105,7 @@ $ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 ma
 
 ```bash
 npm run build        # 基准测量的是 dist/，先打包
-npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调整次数，--skip-bun 跳过 Bun
+npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调整次数，--skip-bun 跳过 Bun，--dist <目录> 测另一份构建（用来对比改动前后）
 ```
 
 `scripts/bench-perf.ts` 在隔离的 HOME 与 TMPDIR 里运行（不读取任何真实的框架配置）；除热 daemon 一节外都设 `VIA_NO_DAEMON=1`，保证各项可比。每项预热后取多次的中位数、p95 与最小值，并对照上表：
