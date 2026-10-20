@@ -1,6 +1,6 @@
 // The daemon in this process (no spawned child): protocol behavior, framing, validation, cursors,
 // lifecycle timers and the session rules, driven over a real unix socket.
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +9,7 @@ import { pathContext } from '../../src/config/paths';
 import { DaemonClient, DaemonConnection, DaemonStale } from '../../src/daemon/client';
 import { daemonPaths, type DaemonPaths } from '../../src/daemon/paths';
 import { DaemonServer, type DaemonOptions } from '../../src/daemon/server';
-import { ExpiringResolver, MAX_ENV_VARIANTS } from '../../src/daemon/sessions';
+import { ExpiringResolver } from '../../src/daemon/sessions';
 import { effectiveServer, envStamp, sessionKey } from '../../src/daemon/target';
 import { encode, LineDecoder, MAX_LINE_BYTES } from '../../src/daemon/wire';
 import type { ListResult, ServerTarget, ToolCallResult } from '../../src/protocol';
@@ -202,84 +202,28 @@ describe('requests', () => {
     expect((await conn.request({ type: 'call', ...same, rawName: 'pid', args: {} })).ok).toBe(true);
   });
 
-  describe('callers with different values for the same env: reference', () => {
+  it('refuses a caller with other values without touching its own sessions, and never takes its values', async () => {
     const VALUE_A = 'value-from-shell-a-0001';
     const VALUE_B = 'value-from-shell-b-0002';
-    const server = () => stdioServer({ env: { MOCK_SECRET: 'env:MOCK_KEY' } });
-    /** The pid of the stdio child that serves this caller (what it prints is redacted, the process is not). */
-    const pidOf = async (conn: DaemonConnection, t: ServerTarget): Promise<number> => {
+    const h = await startDaemon({}, { MOCK_KEY: VALUE_A });
+    const conn = await h.connect();
+    const server = stdioServer({ env: { MOCK_SECRET: 'env:MOCK_KEY' } });
+    const pidOf = async (t: ServerTarget): Promise<string> => {
       const response = (await conn.request({ type: 'call', ...t, rawName: 'pid', args: {} })) as { result: ToolCallResult };
-      return Number((response.result.content?.[0] as { text: string }).text);
+      return (response.result.content?.[0] as { text: string }).text;
     };
-    /** `MOCK_SECRET` as the child process sees it; undefined where /proc is not available. */
-    const secretOf = (pid: number): string | undefined => {
-      try {
-        const entry = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').find((e) => e.startsWith('MOCK_SECRET='));
-        return entry?.slice('MOCK_SECRET='.length);
-      } catch {
-        return undefined;
-      }
-    };
-
-    it('serves both side by side, each with its own value, without restarting anything', async () => {
-      const h = await startDaemon({}, { MOCK_KEY: VALUE_A });
-      const conn = await h.connect();
-      const a = target(server(), { MOCK_KEY: VALUE_A });
-      const b = target(server(), { MOCK_KEY: VALUE_B });
-      const pidA = await pidOf(conn, a);
-      // The daemon does not know B's digest yet: it asks, and B proves the values by sending them.
+    const a = target(server, { MOCK_KEY: VALUE_A });
+    const b = target(server, { MOCK_KEY: VALUE_B });
+    const pid = await pidOf(a);
+    for (let i = 0; i < 3; i += 1) {
+      // Every kind of request is refused for B, without a session or a process being made for it.
       await expect(conn.request({ type: 'call', ...b, rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
-      const pidB = await pidOf(conn, { ...b, envValues: { MOCK_KEY: VALUE_B } });
-      expect(pidB).not.toBe(pidA);
-      if (existsSync('/proc/self/environ')) {
-        expect(secretOf(pidA)).toBe(VALUE_A);
-        expect(secretOf(pidB)).toBe(VALUE_B);
-      }
-      // From now on the digest is enough, and the two alternate freely on their own sessions.
-      for (let i = 0; i < 3; i += 1) {
-        expect(await pidOf(conn, b)).toBe(pidB);
-        expect(await pidOf(conn, a)).toBe(pidA);
-      }
-      expect(h.daemon['sessions'].status()).toHaveLength(2);
-    });
-
-    it('never accepts values that do not hash to the digest', async () => {
-      const h = await startDaemon({}, { MOCK_KEY: VALUE_A });
-      const conn = await h.connect();
-      const b = target(server(), { MOCK_KEY: VALUE_B });
-      await expect(conn.request({ type: 'call', ...b, envValues: { MOCK_KEY: 'something-else-entirely' }, rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
-      await expect(conn.request({ type: 'call', ...b, envValues: {}, rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
-      expect(h.daemon['sessions'].status()).toHaveLength(0);
-      // ... and the refused attempts registered nothing: the digest is still unknown.
-      await expect(conn.request({ type: 'call', ...b, rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
-    });
-
-    it('a variable the caller has not set does not fall back to the daemon\'s own value', async () => {
-      const h = await startDaemon({}, { MOCK_KEY: VALUE_A });
-      const conn = await h.connect();
-      const unset = target(server(), {});
-      const response = await conn.request({ type: 'call', ...unset, envValues: {}, rawName: 'pid', args: {} });
-      expect(response).toMatchObject({ ok: false, error: { exitCode: 4 } });
-    });
-
-    it('keeps a bounded number of environments, evicting the least recently used with its session', async () => {
-      const h = await startDaemon({}, { MOCK_KEY: VALUE_A });
-      const conn = await h.connect();
-      const values = Array.from({ length: MAX_ENV_VARIANTS + 2 }, (_, i) => `value-from-shell-${String(i).padStart(2, '0')}-xxxx`);
-      const first = target(server(), { MOCK_KEY: values[0]! });
-      const pids: number[] = [];
-      for (const v of values) pids.push(await pidOf(conn, { ...target(server(), { MOCK_KEY: v }), envValues: { MOCK_KEY: v } }));
-      // The oldest environments were evicted: their digests are unknown again, their sessions are gone.
-      await expect(conn.request({ type: 'call', ...first, rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
-      await waitFor(() => !alive(pids[0]!), 3000, 'the evicted session\'s process to exit');
-      expect(alive(pids[pids.length - 1]!)).toBe(true);
-      const last = target(server(), { MOCK_KEY: values[values.length - 1]! });
-      expect(await pidOf(conn, last)).toBe(pids[pids.length - 1]);
-      expect((h.daemon['sessions'].status() as unknown[]).length).toBeLessThanOrEqual(MAX_ENV_VARIANTS + 1);
-      // An evicted value is still redacted from anything the daemon says.
-      const redacted = (await conn.request({ type: 'redact', text: `leak ${values[0]}` })) as { result: string };
-      expect(redacted.result).toBe('leak ***');
-    });
+      await expect(conn.request({ type: 'list', ...b, timeoutMs: 5000 })).rejects.toBeInstanceOf(DaemonStale);
+      expect(await pidOf(a)).toBe(pid);
+    }
+    expect(h.daemon['sessions'].status()).toHaveLength(1);
+    // A variable the caller has not set has its own digest too: refused, never answered with the daemon's value.
+    await expect(conn.request({ type: 'call', ...target(server, {}), rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
   });
 
   it('maps a missing credential to exit code 4 before any process is started', async () => {

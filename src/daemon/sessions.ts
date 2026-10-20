@@ -11,7 +11,7 @@ import type { GetPromptResult, ListResult, McpPrompt, ReadResourceResult, Resour
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor, redactValue } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
-import { effectiveServer, envNames, envStamp, envValuesOf, sessionKey } from './target';
+import { effectiveServer, sessionKey } from './target';
 
 /** Resolved credentials are forgotten after this long, so a rotated token or key is picked up (config.md, "凭证引用"). */
 export const CREDENTIAL_TTL_MS = 10 * 60 * 1000;
@@ -55,20 +55,8 @@ export class ExpiringResolver implements CredentialResolver {
   }
 }
 
-/** Callers whose `env:` values differ from the daemon's own get a session of their own, up to this many digests. */
-export const MAX_ENV_VARIANTS = 8;
-
-interface EnvVariant {
-  resolver: CredentialResolver;
-}
-
 interface Entry {
   key: string;
-  /** `sessionKey` of the definition; the environment digest (`stamp`) is the other half of `key`. */
-  defKey: string;
-  stamp: string;
-  /** Resolves `env:` references against the environment this session was created for. */
-  resolver: CredentialResolver;
   /** The definition as configured: the disk cache is keyed on it, as in in-process mode. */
   original: ServerConfig;
   server: ServerConfig;
@@ -97,18 +85,13 @@ export interface SessionManagerOptions {
   /** Home directory and platform, for the OAuth store (logins are made by the CLI and read here). */
   home: string;
   platform: NodeJS.Platform;
-  /** A resolver whose `env:` references read this environment; makes sessions for callers with other values. */
-  makeResolver?: (env: NodeJS.ProcessEnv) => CredentialResolver;
   /** Replaces the default login store (tests). */
   oauthStore?: OAuthStore;
 }
 
 export class SessionManager {
   private readonly entries = new Map<string, Entry>();
-  /** Environments of callers whose `env:` values differ from the daemon's, by digest; the last used is last. */
-  private readonly variants = new Map<string, EnvVariant>();
-  /** Credential values of evicted variants: output that still carries one must be redacted. */
-  private readonly retiredValues = new Set<string>();
+  private readonly byName = new Map<string, string>();
   private readonly cache: CatalogCache;
   private oauthStore?: OAuthStore;
   private closing = false;
@@ -120,70 +103,16 @@ export class SessionManager {
 
   /** Replaces every credential value resolved so far with `***`. */
   redact = (text: string): string => {
-    const values = this.knownValues();
+    const values = this.options.resolver.resolvedValues();
     return values.length === 0 ? text : createRedactor(values)(text);
   };
-
-  /** Every credential value any of the daemon's resolvers has produced, evicted environments included. */
-  private knownValues(): string[] {
-    const values = new Set(this.options.resolver.resolvedValues());
-    for (const variant of this.variants.values()) for (const value of variant.resolver.resolvedValues()) values.add(value);
-    for (const value of this.retiredValues) values.add(value);
-    return [...values];
-  }
-
-  // Environments -----------------------------------------------------------------------
-
-  /**
-   * Whether the daemon can serve a request from this caller. `env:` references resolve against an
-   * environment, and a session must only serve callers whose values for them are the ones it was
-   * started with: the digest names that environment. It is the daemon's own, one registered earlier,
-   * or one the caller proves by sending values that hash to the digest. Anything else is `stale`.
-   */
-  acceptEnvironment(target: ServerTarget): boolean {
-    const stamp = target.envStamp;
-    if (stamp === envStamp(target.server, this.options.env)) return true;
-    const known = this.variants.get(stamp);
-    if (known) {
-      this.variants.delete(stamp); // most recently used last
-      this.variants.set(stamp, known);
-      return true;
-    }
-    const { makeResolver } = this.options;
-    const given = target.envValues;
-    if (!makeResolver || typeof given !== 'object' || given === null) return false;
-    const values = envValuesOf(target.server, given);
-    if (envStamp(target.server, values) !== stamp) return false;
-    // The daemon's environment, except that the caller's view of these variables replaces its own
-    // (a variable the caller has not set must not fall back to the daemon's value).
-    const env: NodeJS.ProcessEnv = { ...this.options.env };
-    for (const name of envNames(target.server)) delete env[name];
-    Object.assign(env, values);
-    const resolver = makeResolver(env);
-    for (const value of Object.values(values)) resolver.track?.(value);
-    this.variants.set(stamp, { resolver });
-    while (this.variants.size > MAX_ENV_VARIANTS) this.evictOldestVariant();
-    return true;
-  }
-
-  private evictOldestVariant(): void {
-    const [stamp, variant] = this.variants.entries().next().value as [string, EnvVariant];
-    this.variants.delete(stamp);
-    for (const value of variant.resolver.resolvedValues()) this.retiredValues.add(value);
-    // Sessions started with its values go with it; they would otherwise hold a token nobody can ask for.
-    for (const entry of [...this.entries.values()]) if (entry.stamp === stamp) this.retire(entry.key);
-  }
-
-  private resolverFor(target: ServerTarget): CredentialResolver {
-    return this.variants.get(target.envStamp)?.resolver ?? this.options.resolver;
-  }
 
   // Operations --------------------------------------------------------------------------
 
   /** `tools/list`: this daemon's copy while it is fresh, else the disk cache, else the server. */
   async list(target: ServerTarget, options: { timeoutMs: number; refresh: boolean; onWarning?: (message: string) => void }): Promise<ListResult> {
     const server = await this.admit(target);
-    await this.prime(server, this.resolverFor(target), options.timeoutMs);
+    await this.prime(server, options.timeoutMs);
     const entry = this.entryFor(target, server);
     this.begin(entry);
     try {
@@ -226,7 +155,7 @@ export class SessionManager {
         ...(options.onWarning ? { onWarning: options.onWarning } : {}),
       });
       entry.calls += 1;
-      const values = this.knownValues();
+      const values = this.options.resolver.resolvedValues();
       return values.length === 0 ? result : (redactValue(result, createRedactor(values)) as ToolCallResult);
     } finally {
       this.end(entry);
@@ -277,6 +206,7 @@ export class SessionManager {
     this.closing = true;
     const entries = [...this.entries.values()];
     this.entries.clear();
+    this.byName.clear();
     for (const e of entries) {
       clearTimeout(e.idleTimer);
       clearTimeout(e.refreshTimer);
@@ -293,7 +223,7 @@ export class SessionManager {
     this.begin(entry);
     try {
       const result = await op(entry.session);
-      const values = this.knownValues();
+      const values = this.options.resolver.resolvedValues();
       return values.length === 0 ? result : (redactValue(result, createRedactor(values)) as T);
     } finally {
       this.end(entry);
@@ -314,12 +244,13 @@ export class SessionManager {
   }
 
   /** Resolve the credentials first: a missing one fails before any network call (auth.md). */
-  private async prime(server: ServerConfig, resolver: CredentialResolver, timeoutMs: number): Promise<void> {
+  private async prime(server: ServerConfig, timeoutMs: number): Promise<void> {
     try {
-      await resolveConnection(server, resolver, this.options.env);
+      await resolveConnection(server, this.options.resolver, this.options.env);
       if (server.auth.type === 'oauth' && this.oauthStore) {
         // A saved login must exist (no network); its tokens join the redaction list.
         const { createCallProvider } = await import('../client/oauth');
+        const { resolver } = this.options;
         await createCallProvider(server, this.oauthStore, { track: (value) => resolver.track?.(value), now: this.options.now }).requireLogin();
       }
     } catch (error) {
@@ -328,8 +259,7 @@ export class SessionManager {
   }
 
   private entryFor(target: ServerTarget, server: ServerConfig): Entry {
-    const defKey = sessionKey(server);
-    const key = `${defKey}:${target.envStamp}`;
+    const key = sessionKey(server);
     const idleMs = Math.max(0, target.idleTimeout) * 1000;
     const existing = this.entries.get(key);
     if (existing) {
@@ -337,15 +267,10 @@ export class SessionManager {
       existing.original = target.server;
       return existing;
     }
-    // A new definition of this server replaces the sessions of the old one; sessions of the same
-    // definition for other environments stay.
-    for (const other of [...this.entries.values()]) if (other.server.name === server.name && other.defKey !== defKey) this.retire(other.key);
-    const resolver = this.resolverFor(target);
+    const previous = this.byName.get(server.name);
+    if (previous !== undefined) this.retire(previous);
     const entry: Entry = {
       key,
-      defKey,
-      stamp: target.envStamp,
-      resolver,
       original: target.server,
       server,
       session: undefined as unknown as McpSession,
@@ -358,13 +283,14 @@ export class SessionManager {
       retired: false,
     };
     // `server.roots` is already absolute here (`effectiveServer`), so no base directory is needed.
-    entry.session = new McpSession(server, resolver, {
+    entry.session = new McpSession(server, this.options.resolver, {
       onToolsChanged: () => this.toolsChanged(entry),
       now: this.options.now,
       ...(this.oauthStore ? { oauthStore: this.oauthStore } : {}),
       roots: { cwd: target.cwd, home: this.options.home },
     });
     this.entries.set(key, entry);
+    this.byName.set(server.name, key);
     return entry;
   }
 
@@ -379,6 +305,7 @@ export class SessionManager {
     clearTimeout(entry.idleTimer);
     clearTimeout(entry.refreshTimer);
     if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key);
+    if (this.byName.get(entry.server.name) === entry.key) this.byName.delete(entry.server.name);
     await entry.session.close().catch(() => undefined);
   }
 

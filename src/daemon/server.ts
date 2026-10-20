@@ -30,6 +30,7 @@ import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/pipeline';
 import type { DaemonPaths } from './paths';
 import { CREDENTIAL_TTL_MS, ExpiringResolver, SessionManager } from './sessions';
+import { envStamp } from './target';
 import { encode, LineDecoder, parseMessage } from './wire';
 
 export interface DaemonOptions {
@@ -129,8 +130,6 @@ export class DaemonServer {
       ),
       catalogDir: join(userCacheDir(ctx), 'catalog'),
       env: this.options.env,
-      makeResolver: (env) =>
-        new ExpiringResolver(() => createCredentialResolver({ home: this.options.home, env, platform: this.options.platform, cwd: this.options.home }), CREDENTIAL_TTL_MS, this.now),
       now: this.now,
       home: this.options.home,
       platform: this.options.platform,
@@ -367,13 +366,13 @@ export class DaemonServer {
       case 'status':
         return await this.status();
       case 'list': {
-        if (!this.sessions.acceptEnvironment(request)) return STALE;
+        if (this.stale(request)) return STALE;
         const onWarning = (message: string): void => this.sendWarning(conn, request.id, message);
         const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true, onWarning });
         return result;
       }
       case 'call': {
-        if (!this.sessions.acceptEnvironment(request)) return STALE;
+        if (this.stale(request)) return STALE;
         const onProgress = request.progress
           ? (p: { progress: number; total?: number; message?: string }): void => {
               const data = { progress: p.progress, ...(p.total !== undefined ? { total: p.total } : {}), ...(p.message !== undefined ? { message: this.sessions.redact(p.message) } : {}) };
@@ -388,16 +387,16 @@ export class DaemonServer {
         });
       }
       case 'resources-list':
-        if (!this.sessions.acceptEnvironment(request)) return STALE;
+        if (this.stale(request)) return STALE;
         return this.sessions.resources(request, { timeoutMs: request.timeoutMs });
       case 'resource-read':
-        if (!this.sessions.acceptEnvironment(request)) return STALE;
+        if (this.stale(request)) return STALE;
         return this.sessions.readResource(request, String(request.uri), { timeoutMs: request.timeoutMs });
       case 'prompts-list':
-        if (!this.sessions.acceptEnvironment(request)) return STALE;
+        if (this.stale(request)) return STALE;
         return this.sessions.prompts(request, { timeoutMs: request.timeoutMs });
       case 'prompt-get':
-        if (!this.sessions.acceptEnvironment(request)) return STALE;
+        if (this.stale(request)) return STALE;
         return this.sessions.getPrompt(request, String(request.name), promptArgs(request.args), { timeoutMs: request.timeoutMs });
       case 'validate':
         return this.validate(request.schema, request.label, request.data, request.compileOnly === true);
@@ -424,6 +423,10 @@ export class DaemonServer {
   /** A `log` event for the request that caused it: the CLI prints it as a `warning:` line. */
   private sendWarning(conn: Connection, id: string, message: string): void {
     this.send(conn, { id, type: 'event', event: 'log', data: { level: 'warning', message: this.sessions.redact(message) } } satisfies Event);
+  }
+
+  private stale(target: ServerTarget): boolean {
+    return target.envStamp !== envStamp(target.server, this.options.env);
   }
 
   private errorInfo(error: unknown): ErrorInfo {

@@ -24,8 +24,8 @@ import type {
 } from '../protocol';
 import type { CursorRecord, CursorStore } from '../render/cursor';
 import { ExitCode } from '../render/exit-codes';
-import { DaemonStale, DaemonUnavailable, type DaemonClient } from './client';
-import { envStamp, envValuesOf } from './target';
+import { DaemonUnavailable, type DaemonClient } from './client';
+import { envStamp } from './target';
 
 export interface DaemonBackendOptions {
   client: DaemonClient;
@@ -206,29 +206,15 @@ export class DaemonBackend implements Backend {
   }
 
   /**
-   * Send one request, starting the daemon when needed. A daemon that does not know this shell's
-   * values for the `env:` references of the server answers `stale`; the request is then sent once
-   * more with those values, which the daemon checks against the digest and keeps a session for
-   * (daemon.md, "环境与工作目录"). If it still refuses, the daemon is of no use to this run.
+   * Send one request, starting the daemon when needed. A daemon that answers `stale` (the values of
+   * the server's `env:` variables in this shell are not the ones it resolves) is not restarted and is
+   * not told the values: `DaemonStale` goes to the caller, which runs this request in-process.
    */
   private async send(body: RequestBody, options: { onEvent?: (event: Event) => void; deadlineMs?: number; spawn?: boolean } = {}): Promise<Response> {
     const { client } = this.options;
-    const attempt = async (request: RequestBody): Promise<Response> => {
-      const conn = await client.connection({ spawn: options.spawn ?? true });
-      if (!conn) throw new DaemonUnavailable('the via daemon is not running');
-      return conn.request(request, { ...(options.onEvent ? { onEvent: options.onEvent } : {}), ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {}) });
-    };
-    try {
-      return await attempt(body);
-    } catch (error) {
-      if (!(error instanceof DaemonStale) || !('server' in body)) throw error;
-    }
-    try {
-      return await attempt({ ...body, envValues: envValuesOf(body.server, this.options.env) });
-    } catch (error) {
-      if (error instanceof DaemonStale) throw new DaemonUnavailable("the via daemon does not accept this shell's environment");
-      throw error;
-    }
+    const conn = await client.connection({ spawn: options.spawn ?? true });
+    if (!conn) throw new DaemonUnavailable('the via daemon is not running');
+    return conn.request(body, { ...(options.onEvent ? { onEvent: options.onEvent } : {}), ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {}) });
   }
 }
 

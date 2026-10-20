@@ -20,11 +20,10 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 
 - stdio server 没有写 `cwd` 时，以调用方的工作目录启动；`file:` 引用的相对路径同样相对调用方的目录（daemon 内换算成绝对路径）。会话按「server 名 + 传输 + 鉴权 + `exclusive` + `concurrency` + `roots`」的哈希区分，所以不同目录下的同名 stdio server 是不同的会话。
 - `roots`（[config.md](config.md#roots)）里的相对路径和 `~` 同样由 daemon 按调用方的目录与家目录换成绝对 `file://` URI，换算后的列表参与会话键：写了 `roots: ["."]` 的 server 在两个目录里是两个会话，一个会话的 roots 在它的生命周期里不变，所以 via 声明 `roots` 能力时 `listChanged` 为 `false`，不需要发 `notifications/roots/list_changed`。没有 `cwd` 的 HTTP server 因 roots 而按目录分会话，代价与 stdio 的 `cwd` 相同：两个目录交替使用时，后到的会话替换先到的（同名 server 只保留最新定义的会话）。
-- `env:` 引用按**调用方的环境**解析。每个请求带 `envStamp`：对该 server 所有 `env:` 引用的变量名与调用方当前取值取单向摘要（没有 `env:` 引用时为空串）。会话按「定义哈希 + `envStamp`」区分，所以两个 shell 里 `GH_TOKEN` 不同时，同一个 server 在 daemon 里各有一个会话（各有自己的 stdio 子进程或 HTTP 会话），交替调用互不影响，daemon 也不会因此重启。旧令牌不会服务另一个值的调用方：请求只会落到摘要相同的会话上，摘要不同的调用方得不到它的会话。
-  - daemon 认得三种摘要：与自己（由第一个启动它的 CLI 继承的）环境算出的摘要相同；之前登记过的；调用方当场证明的。都不是则回复 `stale`（不执行请求）。
-  - 收到 `stale` 后，CLI 把这个 server 的 `env:` 引用所涉变量的**取值**放进 `envValues` 重发一次。daemon 用 `envValues` 重新计算摘要，与 `envStamp` 一致才登记（变量没设置的不出现在 `envValues` 里，也不会退回 daemon 自己环境里的同名变量）；不一致仍回复 `stale`，CLI 此时回退为进程内模式完成本次调用。登记之后，同一摘要的请求不再带取值。
-  - 这是协议里唯一会出现凭证取值的地方：只含该 server `env:` 引用涉及的变量，只在 daemon 不认得摘要时发送，只经过 0600、带令牌握手的本地 socket（与同一用户可读的进程环境同等暴露，见下「socket 安全」）。daemon 把这些值计入脱敏列表，从不写入日志、状态或错误信息。
-  - 登记的环境最多保留 8 个（不含 daemon 自己的），超出时淘汰最久未使用的：它的会话随之关闭（stdio 子进程退出），再来的同一摘要需要重新带取值；被淘汰的取值仍留在脱敏列表里。登记的环境随 daemon 退出而消失。
+- `env:` 引用在 **daemon 自己的环境**里解析（它由第一个启动它的 CLI 继承环境），解析值不经过 socket，协议里始终没有凭证值。每个请求带 `envStamp`：对该 server 所有 `env:` 引用的变量名与调用方当前取值取单向摘要（没有 `env:` 引用时为空串）。daemon 用自己的环境算同一个摘要，不一致就回复 `stale`（不执行请求）。
+  - 收到 `stale` 的 CLI **只对这个 server 的这一个请求**改用进程内模式完成：不重启 daemon，也不把取值告诉 daemon；daemon 里按自己环境建立的会话继续服务摘要一致的调用方，对同一次运行里的其他 server 照常使用 daemon。`stale` 的请求没有执行过，所以不论是否只读都可以安全地在进程内重做，也不打印回退提示。
+  - 因此两个 shell 里 `GH_TOKEN` 取值不同、交替调用时：与 daemon 环境一致的那个 shell 用 daemon，另一个 shell 的该 server 每次调用都在进程内完成，两边各用自己的取值，daemon 不会反复重启。调用方没有设置该变量时摘要同样不一致，由进程内的凭证解析报缺失（退出码 4），永远不会拿到 daemon 环境里的同名变量。
+  - 代价：这是用共存换「凭证不过 socket」。取值不一致的 shell 失去 daemon 的好处：HTTP 每次重新握手，stdio server 每次调用都重新拉起子进程（与进程内模式一致）。想让某个 shell 也用上 daemon，可以让它的环境与 daemon 一致（`via daemon stop` 后由该 shell 重新拉起），或者用 `file:` / `keychain:` 引用代替 `env:`——这两种由 daemon 自己解析，与调用方的环境无关。
 - daemon 里解析过的凭证（`file:`、`keychain:`、`env:` 的结果）缓存 10 分钟后丢弃，之后重新解析，所以轮换过的密钥无需重启 daemon；丢弃的值仍保留在脱敏名单里。
 
 ## daemon 持有的状态
@@ -54,7 +53,6 @@ type ServerTarget = {
   cwd: string;            // CLI 的工作目录
   idleTimeout: number;    // stdio 会话空闲秒数
   envStamp: string;       // 见「环境与工作目录」
-  envValues?: Record<string, string>;   // 仅在收到 stale 后重发时带上，见「环境与工作目录」
 };
 
 type Request =
@@ -109,7 +107,7 @@ type ErrorInfo = {
 约定：
 
 - `call` 的 `result` 是清理前的结构化数据（MCP content 与 structuredContent），截断与渲染在 CLI 侧做，渲染所需的游标写入 daemon。四个资源与 prompt 请求同样返回原始结果，凭证值在 daemon 内递归替换为 `***` 后才发出，也受 `envStamp` 与未信任检查约束。
-- 协议中不得出现解析后的凭证值：server 定义里只有引用；`env:` 的差异以摘要交换，只有 daemon 不认得摘要、回复 `stale` 之后才在重发的请求里带上该 server `env:` 引用涉及的变量取值（`envValues`，见「环境与工作目录」）；`call` 的结果、进度和错误在 daemon 内先脱敏。CLI 在 daemon 模式下本地不解析凭证，脱敏靠 daemon 的结果和 `redact`。
+- 协议中不得出现解析后的凭证值：server 定义里只有引用；`env:` 的差异只以摘要交换；`call` 的结果、进度和错误在 daemon 内先脱敏。CLI 在 daemon 模式下本地不解析凭证，脱敏靠 daemon 的结果和 `redact`。
 - `auth` 请求的 `login` 不经过 daemon：登录需要浏览器或终端交互，由 CLI 在自己的进程里完成并写入共用存储（[auth.md](auth.md#oauth)）；daemon 里的会话在下一次请求前读取存储，所以新的登录、登出和刷新结果无需通知。
 - 未知消息类型返回 `exitCode: 7` 的错误，不断开连接。
 

@@ -2,6 +2,7 @@
 // daemon it starts is a detached child process (the same path production takes).
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { Socket } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -262,7 +263,7 @@ describe('credentials', () => {
     expect(unknown).toMatchObject({ ok: false, error: { exitCode: 7 } });
   });
 
-  it('serves shells with different tokens side by side: no restart, and never one shell\'s token for the other', async () => {
+  it('shells with different tokens alternate without restarting the daemon: each gets its own token\'s result, and no token crosses the socket', async () => {
     const TOKEN_A = 'token-A-for-daemon-tests';
     const TOKEN_B = 'token-B-for-daemon-tests';
     const srv = await startFixtureServer({ token: TOKEN_B });
@@ -271,19 +272,37 @@ describe('credentials', () => {
     const asB = { env: { GH_TOKEN: TOKEN_B } };
     const call = ['gh', 'echo-text', '--message', 'hi'];
 
+    // What this process writes to any socket (the CLI side of the daemon protocol).
+    const written: string[] = [];
+    const write = Socket.prototype.write;
+    Socket.prototype.write = function (this: Socket, ...args: Parameters<Socket['write']>) {
+      const chunk = args[0] as unknown;
+      // Only the daemon socket (a unix socket has no remote port), not the HTTP connections to the upstream server.
+      if (this.remotePort === undefined) written.push(typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : '');
+      return write.apply(this, args);
+    } as typeof write;
+    useCleanup(() => {
+      Socket.prototype.write = write;
+    });
+
     const wrong = await d.via(call); // the daemon is started by the shell holding the token the server refuses
     expect(wrong.code).toBe(4);
     const first = (await d.status())!;
     for (let i = 0; i < 3; i += 1) {
-      const right = await d.via(call, asB);
+      const right = await d.via(call, asB); // handled in-process: this shell's token is not the daemon's
       expect(right.code).toBe(0);
       expect(right.stdout).toBe('echo: hi\n');
       expect(right.stderr).not.toContain('warning');
-      // Shell A still gets its own token (refused by the server), not B's.
-      expect((await d.via(call)).code).toBe(4);
+      expect((await d.via(call)).code).toBe(4); // the daemon still serves shell A, with A's token
     }
     const status = (await d.via(['daemon', 'status', '-o', 'json'], asB)).stdout;
     expect((JSON.parse(status) as { pid: number }).pid).toBe(first.pid);
+    Socket.prototype.write = write;
+    expect(written.length).toBeGreaterThan(0);
+    for (const chunk of written) {
+      expect(chunk).not.toContain(TOKEN_A);
+      expect(chunk).not.toContain(TOKEN_B);
+    }
   });
 });
 

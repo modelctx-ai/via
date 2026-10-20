@@ -161,11 +161,17 @@ export class InProcessBackend implements Backend {
  * connection breaks) the rest of this run goes in-process, with one notice on stderr (daemon.md,
  * "生命周期" 5). A request that may already have reached the daemon is not repeated unless it has no
  * side effects: a list, or a call of a read-only tool.
+ *
+ * A request the daemon refuses as `stale` (this shell's values for the server's `env:` variables
+ * differ from what the daemon resolves) was not run, so it is always safe to run it in-process. Only
+ * that request goes in-process: the daemon stays in use for everything else, and neither it nor the
+ * socket ever sees the values (daemon.md, "环境与工作目录").
  */
 export class FallbackBackend implements Backend {
   private current: Backend;
   private fallback?: Promise<Backend>;
   private noted = false;
+  private localBackend?: Backend;
 
   constructor(
     private readonly primary: Backend,
@@ -187,6 +193,7 @@ export class FallbackBackend implements Backend {
     try {
       return await op(this.primary);
     } catch (error) {
+      if (error instanceof Error && error.name === 'DaemonStale') return op(await this.local());
       if (!(error instanceof Error && error.name === 'DaemonUnavailable')) throw error;
       const sent = (error as Error & { sent?: boolean }).sent === true;
       if (sent && !options.idempotent) {
@@ -199,6 +206,16 @@ export class FallbackBackend implements Backend {
       }
       return op(await this.switchToFallback(error.message));
     }
+  }
+
+  /** The in-process backend, without switching the run to it. */
+  private async local(): Promise<Backend> {
+    this.fallback ??= this.makeFallback().then((b) => (this.localBackend = b));
+    return this.fallback;
+  }
+
+  private localSecrets(): readonly string[] {
+    return this.localBackend?.secrets() ?? [];
   }
 
   private async switchToFallback(reason: string): Promise<Backend> {
@@ -247,12 +264,15 @@ export class FallbackBackend implements Backend {
     return this.current !== this.primary ? this.current.cursors() : new CompositeCursorStore(this.primary.cursors(), this.files);
   }
 
-  redact(text: string): Promise<string> {
-    return this.current.redact(text);
+  /** Both sides: a value resolved in-process for a `stale` request is unknown to the daemon, and the other way round. */
+  async redact(text: string): Promise<string> {
+    const redacted = await this.current.redact(text);
+    if (this.current !== this.primary || !this.fallback) return redacted;
+    return (await this.fallback).redact(redacted);
   }
 
   secrets(): readonly string[] {
-    return this.current.secrets();
+    return [...this.current.secrets(), ...(this.current === this.primary ? this.localSecrets() : [])];
   }
 
   async close(): Promise<void> {

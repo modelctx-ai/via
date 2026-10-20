@@ -21,36 +21,20 @@ function credentialRefs(server: ServerConfig): string[] {
  * Digest of the values of the variables behind the server's `env:` references, taken from `env`.
  * The CLI computes it from its environment and the daemon from its own; a difference means the
  * daemon would resolve a credential the CLI would not (it was started in another shell, or the
- * variable changed since). The daemon keeps one session per digest (`SessionManager`), so callers
- * with different values never share a session. Normally only the digest travels, and it is
- * one-way; the values themselves are sent once, when the daemon does not know the digest yet.
+ * variable changed since). The daemon then answers `stale` and the CLI handles that server's
+ * request in-process, so the daemon never serves a caller with a value that is not its own. Only
+ * the digest travels; it is one-way, so the socket never carries a credential.
  */
 export function envStamp(server: ServerConfig, env: Readonly<Record<string, string | undefined>>): string {
-  const names = envNames(server);
-  if (names.length === 0) return '';
-  const hash = createHash('sha256');
-  for (const name of names) hash.update(`${name}\0${env[name] ?? ''}\0`);
-  return hash.digest('hex').slice(0, 32);
-}
-
-/** Names of the variables behind the server's `env:` references, sorted. */
-export function envNames(server: ServerConfig): string[] {
   const names = new Set<string>();
   for (const ref of credentialRefs(server)) {
     const parsed = parseCredentialRef(ref);
     if (parsed.kind === 'env') names.add(parsed.arg);
   }
-  return [...names].sort();
-}
-
-/** The caller's values for those variables (set ones only); sent when the daemon does not know their digest. */
-export function envValuesOf(server: ServerConfig, env: Readonly<Record<string, string | undefined>>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const name of envNames(server)) {
-    const value = env[name];
-    if (typeof value === 'string' && value !== '') out[name] = value;
-  }
-  return out;
+  if (names.size === 0) return '';
+  const hash = createHash('sha256');
+  for (const name of [...names].sort()) hash.update(`${name}\0${env[name] ?? ''}\0`);
+  return hash.digest('hex').slice(0, 32);
 }
 
 /**

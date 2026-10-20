@@ -49,11 +49,6 @@ export type ServerTarget = {
   idleTimeout: number;
   /** One-way digest of the caller's values for the `env:` references of this server; see `envStamp`. */
   envStamp: string;
-  /**
-   * The caller's values for those variables, only sent after the daemon answered `stale` for this
-   * digest (it has no session for the environment yet); it must hash to `envStamp`.
-   */
-  envValues?: Record<string, string>;
 };
 
 export type Request =
@@ -117,7 +112,8 @@ export type Response =
 
 /**
  * The request was not run because the daemon's environment differs from the caller's for a variable
- * a credential reference points at. The caller restarts the daemon and asks again.
+ * a credential reference points at. The caller handles that server's request in-process; the daemon
+ * is neither restarted nor given the caller's values.
  */
 export type Stale = { id: string; type: 'stale'; reason: 'environment' };
 
