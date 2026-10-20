@@ -5,6 +5,11 @@
     { "path": ".cursor/mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
     { "path": "~/.cursor/mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
   ],
-  "disableHint": "Settings → MCP，关闭对应 server 的开关",
-  "verifiedAt": null
+  "disableHint": "侧栏 Customize 中找到对应 server，关闭开关；命令行用 agent mcp disable <名称>",
+  "verifiedAt": "2026-10-20",
+  "sources": [
+    "https://cursor.com/docs/context/mcp",
+    "https://cursor.com/docs/cli/mcp"
+  ],
+  "notes": "stdio 条目写 type: stdio，远程条目只写 url 和 headers；变量写法为 ${env:NAME}。Cursor 命令行还会向上级目录查找 .cursor/mcp.json。"
 }

@@ -124,6 +124,8 @@ export class DaemonServer {
       catalogDir: join(userCacheDir(ctx), 'catalog'),
       env: this.options.env,
       now: this.now,
+      home: this.options.home,
+      platform: this.options.platform,
     });
     this.updateIdle();
     this.watchTimer = setInterval(() => this.watchSocket(), this.options.watchMs ?? 5000);

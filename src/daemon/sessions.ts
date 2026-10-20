@@ -10,6 +10,7 @@ import type { CredentialResolver, ServerConfig } from '../config/types';
 import type { ListResult, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor, redactValue } from '../render/redact';
+import type { OAuthStore } from '../client/oauth/store';
 import { effectiveServer, sessionKey } from './target';
 
 /** Resolved credentials are forgotten after this long, so a rotated token or key is picked up (config.md, "凭证引用"). */
@@ -45,6 +46,10 @@ export class ExpiringResolver implements CredentialResolver {
     return this.current.resolve(ref, origin);
   }
 
+  track(value: string): void {
+    this.current.track?.(value);
+  }
+
   resolvedValues(): readonly string[] {
     return [...new Set([...this.past, ...this.current.resolvedValues()])];
   }
@@ -76,12 +81,16 @@ export interface SessionManagerOptions {
   /** Environment for stdio children's base environment (the daemon's own). */
   env: NodeJS.ProcessEnv;
   now: () => number;
+  /** Home directory and platform, for the OAuth store (logins are made by the CLI and read here). */
+  home: string;
+  platform: NodeJS.Platform;
 }
 
 export class SessionManager {
   private readonly entries = new Map<string, Entry>();
   private readonly byName = new Map<string, string>();
   private readonly cache: CatalogCache;
+  private oauthStore?: OAuthStore;
   private closing = false;
 
   constructor(private readonly options: SessionManagerOptions) {
@@ -98,7 +107,7 @@ export class SessionManager {
 
   /** `tools/list`: this daemon's copy while it is fresh, else the disk cache, else the server. */
   async list(target: ServerTarget, options: { timeoutMs: number; refresh: boolean }): Promise<ListResult> {
-    const server = this.admit(target);
+    const server = await this.admit(target);
     await this.prime(server, options.timeoutMs);
     const entry = this.entryFor(target, server);
     this.begin(entry);
@@ -130,7 +139,7 @@ export class SessionManager {
     args: Record<string, unknown>,
     options: { timeoutMs?: number; retry?: boolean; onProgress?: CallOptions['onProgress'] },
   ): Promise<ToolCallResult> {
-    const server = this.admit(target);
+    const server = await this.admit(target);
     const entry = this.entryFor(target, server);
     this.begin(entry);
     try {
@@ -182,9 +191,15 @@ export class SessionManager {
   // Internals ---------------------------------------------------------------------------
 
   /** Untrusted project servers are refused before anything is resolved, spawned or sent (security.md). */
-  private admit(target: ServerTarget): ServerConfig {
+  private async admit(target: ServerTarget): Promise<ServerConfig> {
     if (this.closing) throw new ClientError({ exitCode: ExitCode.Upstream, message: 'the via daemon is shutting down', next: 'rerun the command' });
     if (!target.server.trusted) throw untrustedServer(target.server);
+    // One store for the daemon's life; it reads the CLI's logins on use, so a login or logout made
+    // after the daemon started is seen by the next request.
+    if (target.server.auth.type === 'oauth' && !this.oauthStore) {
+      const { createOAuthStore } = await import('../client/oauth');
+      this.oauthStore = createOAuthStore({ home: this.options.home, env: this.options.env, platform: this.options.platform });
+    }
     return effectiveServer(target.server, target.cwd);
   }
 
@@ -192,6 +207,12 @@ export class SessionManager {
   private async prime(server: ServerConfig, timeoutMs: number): Promise<void> {
     try {
       await resolveConnection(server, this.options.resolver, this.options.env);
+      if (server.auth.type === 'oauth' && this.oauthStore) {
+        // A saved login must exist (no network); its tokens join the redaction list.
+        const { createCallProvider } = await import('../client/oauth');
+        const { resolver } = this.options;
+        await createCallProvider(server, this.oauthStore, { track: (value) => resolver.track?.(value), now: this.options.now }).requireLogin();
+      }
     } catch (error) {
       throw mapError(error, { server, phase: 'connect', timeoutMs, redact: this.redact });
     }
@@ -221,7 +242,7 @@ export class SessionManager {
       refreshAgain: false,
       retired: false,
     };
-    entry.session = new McpSession(server, this.options.resolver, { onToolsChanged: () => this.toolsChanged(entry) });
+    entry.session = new McpSession(server, this.options.resolver, { onToolsChanged: () => this.toolsChanged(entry), now: this.options.now, ...(this.oauthStore ? { oauthStore: this.oauthStore } : {}) });
     this.entries.set(key, entry);
     this.byName.set(server.name, key);
     return entry;

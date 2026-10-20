@@ -1,0 +1,182 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+    {
+      "id": "372e67954025e0ba6aaa6d586b9e0b10",
+      "zone_id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "zone_name": "acme.test",
+      "name": "acme.test",
+      "type": "A",
+      "content": "203.0.113.10",
+      "proxiable": true,
+      "proxied": true,
+      "ttl": 1,
+      "settings": {},
+      "meta": {
+        "auto_added": false,
+        "managed_by_apps": false,
+        "managed_by_argo_tunnel": false
+      },
+      "comment": "managed by terraform",
+      "tags": [],
+      "created_on": "2025-05-02T10:12:44.123456Z",
+      "modified_on": "2026-07-19T16:03:11.654321Z"
+    },
+    {
+      "id": "372e67954025e0ba6aaa6d586b9e0b11",
+      "zone_id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "zone_name": "acme.test",
+      "name": "api.acme.test",
+      "type": "A",
+      "content": "203.0.113.21",
+      "proxiable": true,
+      "proxied": true,
+      "ttl": 1,
+      "settings": {},
+      "meta": {
+        "auto_added": false,
+        "managed_by_apps": false,
+        "managed_by_argo_tunnel": false
+      },
+      "comment": null,
+      "tags": [],
+      "created_on": "2025-05-02T10:12:44.123456Z",
+      "modified_on": "2026-07-19T16:03:11.654321Z"
+    },
+    {
+      "id": "372e67954025e0ba6aaa6d586b9e0b12",
+      "zone_id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "zone_name": "acme.test",
+      "name": "docs.acme.test",
+      "type": "CNAME",
+      "content": "acme.github.io",
+      "proxiable": true,
+      "proxied": true,
+      "ttl": 1,
+      "settings": {},
+      "meta": {
+        "auto_added": false,
+        "managed_by_apps": false,
+        "managed_by_argo_tunnel": false
+      },
+      "comment": null,
+      "tags": [],
+      "created_on": "2025-05-02T10:12:44.123456Z",
+      "modified_on": "2026-07-19T16:03:11.654321Z"
+    },
+    {
+      "id": "372e67954025e0ba6aaa6d586b9e0b13",
+      "zone_id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "zone_name": "acme.test",
+      "name": "status.acme.test",
+      "type": "CNAME",
+      "content": "stats.uptimerobot.com",
+      "proxiable": true,
+      "proxied": false,
+      "ttl": 300,
+      "settings": {},
+      "meta": {
+        "auto_added": false,
+        "managed_by_apps": false,
+        "managed_by_argo_tunnel": false
+      },
+      "comment": "managed by terraform",
+      "tags": [],
+      "created_on": "2025-05-02T10:12:44.123456Z",
+      "modified_on": "2026-07-19T16:03:11.654321Z"
+    },
+    {
+      "id": "372e67954025e0ba6aaa6d586b9e0b14",
+      "zone_id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "zone_name": "acme.test",
+      "name": "acme.test",
+      "type": "MX",
+      "content": "mx1.acme-mail.test",
+      "proxiable": false,
+      "proxied": false,
+      "ttl": 300,
+      "settings": {},
+      "meta": {
+        "auto_added": false,
+        "managed_by_apps": false,
+        "managed_by_argo_tunnel": false
+      },
+      "comment": null,
+      "tags": [],
+      "created_on": "2025-05-02T10:12:44.123456Z",
+      "modified_on": "2026-07-19T16:03:11.654321Z"
+    },
+    {
+      "id": "372e67954025e0ba6aaa6d586b9e0b15",
+      "zone_id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "zone_name": "acme.test",
+      "name": "acme.test",
+      "type": "TXT",
+      "content": "v=spf1 include:_spf.acme-mail.test ~all",
+      "proxiable": false,
+      "proxied": false,
+      "ttl": 300,
+      "settings": {},
+      "meta": {
+        "auto_added": false,
+        "managed_by_apps": false,
+        "managed_by_argo_tunnel": false
+      },
+      "comment": null,
+      "tags": [],
+      "created_on": "2025-05-02T10:12:44.123456Z",
+      "modified_on": "2026-07-19T16:03:11.654321Z"
+    },
+    {
+      "id": "372e67954025e0ba6aaa6d586b9e0b16",
+      "zone_id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "zone_name": "acme.test",
+      "name": "_dmarc.acme.test",
+      "type": "TXT",
+      "content": "v=DMARC1; p=quarantine; rua=mailto:dmarc@acme.test",
+      "proxiable": false,
+      "proxied": false,
+      "ttl": 300,
+      "settings": {},
+      "meta": {
+        "auto_added": false,
+        "managed_by_apps": false,
+        "managed_by_argo_tunnel": false
+      },
+      "comment": "managed by terraform",
+      "tags": [],
+      "created_on": "2025-05-02T10:12:44.123456Z",
+      "modified_on": "2026-07-19T16:03:11.654321Z"
+    },
+    {
+      "id": "372e67954025e0ba6aaa6d586b9e0b17",
+      "zone_id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "zone_name": "acme.test",
+      "name": "staging.acme.test",
+      "type": "A",
+      "content": "198.51.100.7",
+      "proxiable": true,
+      "proxied": false,
+      "ttl": 300,
+      "settings": {},
+      "meta": {
+        "auto_added": false,
+        "managed_by_apps": false,
+        "managed_by_argo_tunnel": false
+      },
+      "comment": null,
+      "tags": [],
+      "created_on": "2025-05-02T10:12:44.123456Z",
+      "modified_on": "2026-07-19T16:03:11.654321Z"
+    }
+  ],
+  "result_info": {
+    "page": 1,
+    "per_page": 100,
+    "count": 8,
+    "total_count": 8,
+    "total_pages": 1
+  }
+}

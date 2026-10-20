@@ -1,0 +1,36 @@
+{
+  "id": "5f3e0c1a-0300-4a2b-9c1d-0e7b6a5d4c3b",
+  "identifier": "PLT-300",
+  "title": "Rate limiter fails closed when Redis is down",
+  "description": "The limiter throws when Redis is unreachable, so every request returns 500.\n\nAcceptance:\n- fail open and log a warning\n- add a regression test\n- note the behavior in docs/rate-limiting.md\n\nRelated: acme/api#214, acme/api#482.",
+  "priority": {
+    "value": 2,
+    "name": "High"
+  },
+  "url": "https://linear.app/acme/issue/PLT-300/rate-limiter-fails-closed-when-redis-is-down",
+  "status": "In Progress",
+  "assignee": "jdoe",
+  "assigneeId": "u-7c1d2e3f",
+  "labels": [
+    "Bug"
+  ],
+  "team": "Platform",
+  "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+  "createdAt": "2026-09-21T09:30:00.000Z",
+  "updatedAt": "2026-09-28T07:45:00.000Z",
+  "attachments": [
+    {
+      "title": "acme/api#482 Add per-tenant limits to the rate limiter",
+      "url": "https://github.com/acme/api/pull/482",
+      "sourceType": "github"
+    }
+  ],
+  "comments": [
+    {
+      "id": "c-1",
+      "user": "dlindqvist",
+      "body": "Picked this up with the tenant limits PR.",
+      "createdAt": "2026-09-25T10:30:00.000Z"
+    }
+  ]
+}

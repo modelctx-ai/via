@@ -4,6 +4,7 @@
 import { join } from 'node:path';
 import type { Catalog, McpTool, ProviderCatalog, ProviderStatus } from '../catalog';
 import type { McpClient } from '../client';
+import type { OAuthStore } from '../client/oauth/store';
 import type { SchemaCompiler, ToolArgsError } from './args';
 import { pathContext, userCacheDir } from '../config/paths';
 import type { CredentialResolver, LoadedConfig, ServerConfig } from '../config';
@@ -44,11 +45,13 @@ export interface LoadedProviders {
 export class App {
   private loaded?: LoadedConfig;
   private resolverInstance?: CredentialResolver;
+  private resolverLoading?: Promise<CredentialResolver>;
   private backendInstance?: Promise<Backend>;
   private backendReady?: Backend;
   private socketClient?: import('../daemon/client').DaemonClient;
   private tableInstance?: ProviderTable;
   private cacheInstance?: CatalogCache;
+  private oauthStoreInstance?: OAuthStore;
 
   constructor(
     readonly io: CliEnv,
@@ -97,11 +100,13 @@ export class App {
   }
 
   async resolver(): Promise<CredentialResolver> {
-    if (!this.resolverInstance) {
-      const { createCredentialResolver } = await import('../config');
+    // One resolver per run, even when several servers ask at once (doctor, sync): two instances would
+    // each cache and run `cmd:` separately, and redaction only knows the values of the one it holds.
+    this.resolverLoading ??= import('../config').then(({ createCredentialResolver }) => {
       this.resolverInstance = createCredentialResolver({ home: this.io.home, env: this.io.env, platform: this.io.platform, cwd: this.io.cwd });
-    }
-    return this.resolverInstance;
+      return this.resolverInstance;
+    });
+    return this.resolverLoading;
   }
 
   /** Every credential value resolved in this process (none when the daemon holds them). */
@@ -134,6 +139,7 @@ export class App {
         env: this.io.env,
         cacheDir: this.cacheDir,
         now: this.io.now,
+        ...(config.servers.some((s) => s.auth.type === 'oauth') ? { oauthStore: await this.oauthStore() } : {}),
       });
     };
     if (daemonDisabled(this.io)) return inProcess();
@@ -194,6 +200,15 @@ export class App {
   async redactText(text: string): Promise<string> {
     const backend = this.backendReady;
     return backend ? backend.redact(text) : this.redact(text);
+  }
+
+  /** Where OAuth logins are kept: keychain, else a file in the data directory (auth.md). */
+  async oauthStore(): Promise<OAuthStore> {
+    if (!this.oauthStoreInstance) {
+      const { createOAuthStore } = await import('../client/oauth');
+      this.oauthStoreInstance = createOAuthStore({ home: this.io.home, env: this.io.env, platform: this.io.platform });
+    }
+    return this.oauthStoreInstance;
   }
 
   async cache(): Promise<CatalogCache> {

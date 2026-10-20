@@ -103,7 +103,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
       readStdin: async () => '',
       daemonCommand: options.daemonCommand ?? { command: process.execPath, args: [entry] },
     });
-    return { code, stdout, stderr, combined };
+    return { code, stdout, stderr, asked: [], combined };
   };
 
   const status = async (): Promise<DaemonStatus | undefined> => {

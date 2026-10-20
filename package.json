@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lexicon": "tsup scripts/build-lexicon.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/build-lexicon.js test/fixtures/tools --out data/domain-lexicon.json",
+    "bench:tokens": "tsup scripts/bench-tokens.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-tokens.js",
     "split-diff": "tsup scripts/split-diff.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-diff.js test/fixtures/tools test/fixtures/other"
   },
   "dependencies": {

@@ -2,7 +2,7 @@
 // "鉴权方式"). Results live in memory only; nothing here logs or persists them.
 import type { CredentialResolver, ServerConfig } from '../config/types';
 import { baseEnvironment } from './env';
-import { oauthNotSupported } from './errors';
+import { oauthNeedsHttp } from './errors';
 
 export interface ResolvedStdio {
   type: 'stdio';
@@ -24,8 +24,9 @@ export type ResolvedConnection = ResolvedStdio | ResolvedHttp;
 
 /**
  * Resolve every credential reference of `server`. Throws CredentialError (exit 4) when one cannot be
- * resolved, before anything is spawned or sent. `auth: oauth` is not supported in 0.1 and fails with
- * an exit-4 ClientError.
+ * resolved, before anything is spawned or sent. `auth: oauth` adds nothing here: its tokens come from
+ * the OAuth store when the connection is made (oauth/provider.ts); only a stdio server with it is
+ * rejected.
  */
 export async function resolveConnection(
   server: ServerConfig,
@@ -33,7 +34,7 @@ export async function resolveConnection(
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<ResolvedConnection> {
   const { auth, transport, origin } = server;
-  if (auth.type === 'oauth') throw oauthNotSupported(server);
+  if (auth.type === 'oauth' && transport.type === 'stdio') throw oauthNeedsHttp(server);
 
   const resolveAll = async (refs: Record<string, string>): Promise<Record<string, string>> => {
     const out: Record<string, string> = {};

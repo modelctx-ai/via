@@ -12,6 +12,7 @@ import { ExitCode } from '../render/exit-codes';
 import { createRedactor } from '../render/redact';
 import type { CursorRecord, CursorStore } from '../render/cursor';
 import type { SchemaCompiler } from './args/validate';
+import type { OAuthStore } from '../client/oauth/store';
 import type { CatalogCache } from './catalog-cache';
 
 /** A fetched `tools/list` and where it came from. */
@@ -59,6 +60,8 @@ export interface InProcessBackendOptions {
   env: Readonly<Record<string, string | undefined>>;
   cacheDir: string;
   now: () => number;
+  /** Where OAuth logins live; only given when some server uses OAuth. */
+  oauthStore?: OAuthStore;
 }
 
 /**
@@ -75,7 +78,7 @@ export class InProcessBackend implements Backend {
 
   static async create(options: InProcessBackendOptions): Promise<InProcessBackend> {
     const { InProcessClient } = await import('../client');
-    return new InProcessBackend(options, new InProcessClient(options.servers, options.resolver));
+    return new InProcessBackend(options, new InProcessClient(options.servers, options.resolver, { now: options.now, ...(options.oauthStore ? { oauthStore: options.oauthStore } : {}) }));
   }
 
   async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {
@@ -85,6 +88,11 @@ export class InProcessBackend implements Backend {
     // knows the values even when the tool list comes from the cache (discovery.md, "缓存").
     try {
       await resolveConnection(server, resolver, env as NodeJS.ProcessEnv);
+      if (server.auth.type === 'oauth' && this.options.oauthStore) {
+        // A saved login must exist (no network); its tokens join the redaction list.
+        const { createCallProvider } = await import('../client/oauth');
+        await createCallProvider(server, this.options.oauthStore, { track: (value) => resolver.track?.(value), now }).requireLogin();
+      }
     } catch (error) {
       throw mapError(error, { server, phase: 'connect', timeoutMs, redact: (text) => createRedactor(resolver.resolvedValues())(text) });
     }
