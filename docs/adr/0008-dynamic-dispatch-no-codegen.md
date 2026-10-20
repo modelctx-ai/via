@@ -5,7 +5,10 @@
 
 ## 背景
 
-现有的 MCP 转 CLI 工具大多采用代码生成：mcporter 的 `generate-cli`、mcp2cli（mcp-to-cli）为每个 server 生成专属 CLI 与 skill 文件。server 的工具变化后需要重新生成。
+把 MCP server 转成 CLI 有两条路线：
+
+- **代码生成**：如 mcporter 的 `generate-cli`，为每个 server 生成专属 CLI。server 的工具变化后需要重新生成。
+- **运行时分发**：如 [mcp2cli](https://github.com/knowsuchagency/mcp2cli)，运行时读取 `tools/list`（以及 OpenAPI、GraphQL 的 schema）动态生成子命令，带 TTL 缓存，不产生代码。这条路线已有成熟实现。
 
 ## 决策
 
