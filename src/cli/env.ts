@@ -1,11 +1,10 @@
 // Everything the runner needs from the outside world, injectable so tests never touch the real
 // process, home directory or terminal.
 import { homedir } from 'node:os';
-import { isatty } from 'node:tty';
+import { builtin } from '../builtin';
+import { stderrWriter, stdoutWriter, type Writer } from './stdio';
 
-export interface Writer {
-  write(chunk: string): unknown;
-}
+export type { Writer };
 
 export interface CliEnv {
   env: Readonly<Record<string, string | undefined>>;
@@ -27,6 +26,11 @@ export interface CliEnv {
   daemonCommand: { command: string; args: string[] };
 }
 
+/** `isatty` on demand: `node:tty` pulls in `net` and `stream`, which a browse command never needs. */
+function isTerminal(fd: number): boolean {
+  return builtin<typeof import('node:tty')>('node:tty').isatty(fd);
+}
+
 async function readProcessStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Buffer));
@@ -46,18 +50,23 @@ async function askOnTerminal(question: string): Promise<string> {
 }
 
 export function makeEnv(overrides: Partial<CliEnv> = {}): CliEnv {
-  return {
+  const env: CliEnv = {
     env: process.env,
     cwd: process.cwd(),
     home: homedir(),
     platform: process.platform,
-    stdout: process.stdout,
-    stderr: process.stderr,
+    stdout: stdoutWriter(),
+    stderr: stderrWriter(),
     readStdin: readProcessStdin,
-    interactive: isatty(0) && isatty(2),
+    // A getter: only `via trust` asks, and checking costs a module load.
+    get interactive(): boolean {
+      return isTerminal(0) && isTerminal(2);
+    },
     ask: askOnTerminal,
     now: Date.now,
     daemonCommand: { command: process.execPath, args: [process.argv[1] ?? ''] },
-    ...overrides,
   };
+  // Own properties of `overrides` replace the defaults (descriptors are copied so a getter stays lazy).
+  Object.defineProperties(env, Object.getOwnPropertyDescriptors(overrides));
+  return env;
 }
