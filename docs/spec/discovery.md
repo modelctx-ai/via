@@ -19,7 +19,7 @@
 - `via sync [provider]` 强制刷新。
 - 进程内模式（0.1）下，缓存是 `tools/list` 的唯一来源：`via <provider>` 只读取、必要时只拉取该 provider；`via`、`via find`、`via prompt` 并行处理全部 server，单个 server 的拉取超时取 `min(server 的 timeout, 10 秒)`（`--timeout` 覆盖）。拉取失败不中止：该 provider 仍然列出，标记 `needs auth`、`failed` 或 `untrusted`（[浏览视图](#via)）。
 - 命中缓存时仍会在本地解析该 server 的凭证引用，缺失就按「需要鉴权」处理，并让输出脱敏知道这些值；不发起网络请求。未信任的项目级 server 不读缓存，也不拉取。
-- 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt` 与原始 `tools/list` 结果。
+- 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt`、原始 `tools/list` 结果，以及 server 在 `initialize` 里声明的能力 `features`（`{"resources": bool, "prompts": bool}`，用于浏览视图的 `also:` 行；没有这一项的旧文件照常读取，只是不显示该行，刷新一次后出现）。
 - 经 daemon 时目录的读取、凭证检查和写缓存都在 daemon 里完成（与进程内模式写同一份 `catalog/` 文件）；CLI 只收到原始工具列表，拆分、分域和索引仍在 CLI 侧计算。
 - 校验失败且缓存超过 5 分钟时，刷新该 server 的缓存一次再校验（[arguments.md](arguments.md#schema-不可靠时)）。
 - 缓存中保存原始 `tools/list` 结果；拆分、分域、索引在加载时重新计算，因此规则升级无需清缓存。
@@ -122,6 +122,7 @@ commit         get · list
 - 叶子工具在资源行之后：`tools: search · fetch`，按 `tools/list` 顺序，超过 12 个时截断并提示 `--all`。
 - 资源行数超过一屏（默认 20 行）时截断，提示 `… N more · via <provider> --all`，位于叶子工具行之前。
 - 危险动作可以加标记（如 `delete!`），只读资源不加标记。
+- server 声明了 MCP 资源或 prompt 时，叶子工具行之后多一行 `also: via resources <provider> · via prompts <provider>`（只列出声明了的）。这是 agent 发现这两类内容的唯一入口，所以 `via prompt` 的说明文本不需要提它们。
 - 最后一行提示下一步：`→ via <provider> <resource> for signatures`。
 
 ### `via <provider> <resource>`
@@ -152,7 +153,32 @@ issue:search   query, [owner], [repo]                  Search issues
 
 1–3 是三个层级，所有命中它们的工具排在只命中 BM25 的工具之前；同一层级内按 BM25 分数、再按规范写法排序，保证结果确定。查询大小写不敏感，`/` 视同空格、`_` 视同 `-`，所以 `github/issue:read` 与 `github issue:read` 等价；省略 provider 的 `issue:read` 同样算完全匹配。BM25 比较时，查询词与索引词都先单数化，`issues` 能命中 `issue`；描述中的停用词（`data/domains.json` 的 `stopwords`）不进索引。
 
-结果默认 10 条，每条一行，格式同资源视图但带 provider 前缀，大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。`--domain` 只在该域内搜索；provider 按资源分在多个域下时，只搜索属于该域的那些资源。语义检索作为后续可选项，不进 MVP。
+结果默认 10 条，每条一行，格式同资源视图但带 provider 前缀，大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。`--domain` 只在该域内搜索；provider 按资源分在多个域下时，只搜索属于该域的那些资源。
+
+### 同义词扩展（默认开启，确定性）
+
+agent 的查询是自然语言（「删除工单」「合并 PR」），用词常与工具名不同。第 4 级的 BM25 因此在查询侧做数据驱动的扩展（[ADR 0011](../adr/0011-find-synonym-expansion-and-optional-embeddings.md)），不调用模型、不联网，规则在 `data/synonyms.json`（[格式](../development/data-files.md#synonymsjson)）：
+
+- **同义组**：动词（`remove`/`delete`/`destroy`/`drop`…，`get`/`fetch`/`retrieve`/`read`…，`find`/`search`/`query`/`lookup`…）和资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）各列一批等价词；组内成员可以是多词短语，查询里出现短语时整体匹配。
+- **词形还原**：单数化之外，按数据文件里的后缀规则（`ing`、`ed`、`ion`…）为查询词生成可能的原形（`creating` → `create`、`running` → `run`），只有在索引词表里确实存在的才采用，所以猜错无副作用。
+- **计分**：每个查询词的得分取「词本身」与「它的最佳替代词」中较高者；替代词按权重打折（动词 0.35，资源 0.6，词形还原 0.8），并且其 IDF 不超过它所代表的查询词，所以带原词的工具总是排在只带同义词的工具之前，罕见缩写（`pr`）也压不过它代表的常见词（`pull request`）。已经出现在查询里的词不会再作为替代词重复计分。
+- **口语填充词**（`i`、`want`、`please`…）在查询侧丢弃，除非查询只剩它们。
+- **不变的部分**：第 1–3 级的规范写法匹配、并列规则（同层级按分数、再按规范写法）、空查询、`--domain` 都不变；同义词只改变第 4 级的分数，不会让工具越过规范写法命中的工具，也不影响任何规范名。
+
+效果用 `npm run eval:search` 衡量：`test/fixtures/search/eval.json` 是 98 条自然语言查询到期望规范名的集合（调参用），`heldout.json` 是之后另写、从未用于调参的 30 条，对 `test/fixtures/tools/` 的 15 个 server 报告 recall@1、recall@5 与 MRR；回归测试断言不低于词法基线，并锁定实测下限。
+
+### embedding 检索（可选，默认关闭）
+
+在用户配置里设置 `search.semantic` 后，`via find` 额外用 embedding 与 BM25 融合排序（[config.md](config.md#searchsemantic)）。它调用第三方模型，是对「发现逻辑确定性」的唯一例外，所以有以下限制：
+
+- **范围**：只作用于 `via find <非空查询>`；`via`、`via <provider>`、`via sync` 等不触碰它；`--domain` 仍然生效（先在全目录上 embedding，再过滤）。
+- **embedding 的内容**：`<provider> <资源:动作>: <描述前 600 字符> (parameters: <参数名>)`，被 `deny` 隐藏的工具不在目录里，因此不会发出；查询原文也会发往端点（[security.md](security.md#embedding-检索的数据外流)）。
+- **缓存**：用户缓存目录下 `embeddings/<端点+模型+维度的哈希>.bin`（目录 0700、文件 0600，原子替换），内容是按文本哈希索引的单位向量；只含哈希与浮点数，不含端点、凭证或文本。目录里某个工具的文本变了，只重新请求这一个；超过 20,000 条时丢弃本次未用到的。
+- **请求**：`POST <url>/embeddings`（`url` 已以 `/embeddings` 结尾则原样使用），JSON `{ model, input: [文本…], encoding_format: "float", dimensions? }`，每批 64 条、至多 4 批并行；响应取 `data[].embedding`（按 `index` 排序）。不跟随重定向。
+- **融合**：第 1–3 级仍在最前；第 4 级用 RRF（`1/(60+排名)` 之和）融合 BM25 排名与语义排名（余弦相似度前 `max(3×条数, 30)` 名），同分按规范写法排序。同一份缓存、同一个查询，结果相同。仅语义命中的工具也会出现在第 4 级。
+- **超时与退回**：缓存已完整时整个语义步骤的期限是 `timeout`（默认 3 秒）；有工具要补 embedding 时是 `indexTimeout`（默认 30 秒）。期限内没完成（超时、网络错误、HTTP 错误、凭证缺失、响应格式不对、仍有工具没有 embedding）就整体退回词法排序——不会用残缺的向量排名——已经取得的向量照常写入缓存，下一次 `find` 接着补。退回时在 stderr 追加一行 `· semantic unavailable: <原因> · lexical results`，退出码不变；原因只含状态码或错误码，不含响应体、请求头和端点。第一次补全缓存时输出 `· semantic · embedded <N> tools (cached)`。
+- **daemon**：目录的拆分、分域和索引在 CLI 侧计算，embedding 也在 CLI 进程内完成并走磁盘缓存，daemon 不持有它们；用 daemon 与否结果相同。
+- **冷启动**：实现是独立分块，只在配置了 `search.semantic` 的 `find` 里加载；关闭时零开销。
 
 ## 找不到时
 

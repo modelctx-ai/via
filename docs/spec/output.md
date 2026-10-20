@@ -18,6 +18,17 @@
 
 宽度计算必须按显示宽度（中日韩字符双宽）对齐。
 
+## MCP 资源与 prompt
+
+`via resources`、`via read`、`via prompts`（[cli.md](cli.md#mcp-资源与-prompt-命令)）不另立格式，把结果换成工具结果的形状后走上面同一条流水线，所以预算、游标、媒体落盘、脱敏和 `-o text|json|raw`、`--full` 的含义都不变：
+
+- **资源内容**：每个内容相当于一个内嵌资源块。文本按 `text` 渲染（内容是 JSON 时被清理和整形，与工具结果一致；`-o raw` 输出 server 发来的原文），二进制 `blob` 按[媒体规则](#渲染流程)写入缓存目录、只打印路径。一次读取返回多个内容时，每个内容前加一行 `# <uri>`（`-o json` 里是同样的字符串元素）。超出预算的部分存入游标，`via more` 续读。
+- **列表**：资源、资源模板、prompt 的列表是文本表格（列宽按显示宽度对齐，描述取首行），同样受预算约束；`-o json` 输出完整的结构化数据，由 `cleanValue` 去掉空值。
+- **prompt 消息**：文本消息输出为 `[角色]` 加内容；非文本内容紧随其后。`-o raw` 的文本框架相同。`-o json` 见 cli.md。
+- **元信息行**：名称依次是 `resources <provider>`、`read <provider>`、`prompts <provider> <名称>`（不含 URI 与参数，它们可能带敏感信息）；大小按字节数写，不使用 `N rows`。
+- **退出码**：server 没有声明相应能力、资源 URI 不存在、prompt 名称不存在为 3；server 拒绝 prompt 参数为 1；鉴权、未信任、传输与超时同工具调用（4、5、6）。
+- 资源内容和 prompt 消息与工具输出一样是不可信的数据，via 不解释它们（[security.md](security.md)）。
+
 ## 输出格式
 
 | 选项 | 内容 | 用途 |
@@ -38,7 +49,7 @@
 - 耗时不足 1 秒写 `318ms`，否则写 `1.8s`。
 - 结果是列表（表格、数组）且未截断时写 `N rows`；其他情况写字节数，`k` 以 1024 为单位（`8.0k`，小于 1024 时写原始数字）；被截断时写 `已显示/总计 bytes`。
 - 标记有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)）和 `via batch` 的 `line N`（[cli.md](cli.md#via-batch)），排在 `+N cols` 之后、`next:` 之前，`unvalidated` 在前。`via batch` 另在最后输出一行 `· batch · …` 汇总。
-- 警告（如 `outputSchema` 不匹配）写在元信息行之前，每条一行 `warning: …`。
+- 警告（如 `outputSchema` 不匹配）写在元信息行之前，每条一行 `warning: …`。与结果无关的运行时警告（如刷新后的 OAuth 登录存不下来，[auth.md](auth.md#刷新)）在发生时同样写一行 `warning: …` 到 stderr，每个会话只提示一次。
 
 示例：
 
@@ -61,7 +72,7 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 
 ## 游标
 
-- 被截断的完整结果由 daemon 在内存中保存 30 分钟（daemon 空闲退出后随之失效）；进程内模式下存在用户缓存目录（权限 0700），按 TTL 清理。
+- 被截断的完整结果存在用户缓存目录（权限 0700，文件 0600，内容已脱敏），保存 30 分钟后按 TTL 清理。daemon 模式与进程内模式用同一个目录，daemon 空闲退出不会让游标提前失效。
 - `via more <游标>` 从截断处继续，格式与首段一致（表格的表头在每一段重复）；仍有剩余时元信息行给出新的游标。元信息行里的 `shown/total bytes` 中 `shown` 是到本段为止累计已显示的字节数。
 - 游标是不透明字符串（4 位十六进制起，冲突时变长的随机串），不得编码凭证或参数原文。
 - 游标不存在或已过期：退出码 3，提示 `next: rerun the original command`。

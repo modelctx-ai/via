@@ -4,12 +4,13 @@ import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { FetchLike, Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import pkg from '../../package.json';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ToolCallResult } from '../protocol';
+import type { GetPromptResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
 import type { McpTool } from '../catalog/types';
 import { createRedactor } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
-import { ClientError, internal, mapError, notFoundServer, untrustedServer, type Phase } from './errors';
+import { ClientError, internal, mapError, noFeature, notFoundServer, resourceNotFound, untrustedServer, type Phase } from './errors';
 import { Limiter } from './limiter';
+import { resolveRoots } from './roots';
 import type { ViaOAuthProvider } from './oauth/provider';
 import type { OAuthStore } from './oauth/store';
 
@@ -20,10 +21,14 @@ export interface CallOptions {
   retry?: boolean;
   /** Called for upstream `notifications/progress` (arguments.md, "调用过程"). */
   onProgress?: (progress: { progress: number; total?: number; message?: string }) => void;
+  /** Something the person should know about, caused by this call (see `SessionOptions.onWarning`). */
+  onWarning?: (message: string) => void;
 }
 
 export interface ListOptions {
   timeoutMs?: number;
+  /** Something the person should know about, caused by this operation (see `SessionOptions.onWarning`). */
+  onWarning?: (message: string) => void;
 }
 
 export interface SessionOptions {
@@ -36,6 +41,21 @@ export interface SessionOptions {
    * Runs on the connection that received it; must not throw.
    */
   onToolsChanged?: () => void;
+  /**
+   * A warning for the person running the command (`warning: …` on stderr), e.g. a refreshed OAuth
+   * login that could not be saved. Per-operation `onWarning` takes precedence. Each warning is
+   * given once per session.
+   */
+  onWarning?: (message: string) => void;
+  /** Base of relative `roots` entries and the meaning of `~`: the CLI's working directory and home (config.md, `roots`). */
+  roots?: { cwd: string; home: string };
+}
+
+const METHOD_NOT_FOUND = -32601;
+
+/** An object with a string member `key`: the minimum a list entry needs to be usable. */
+function hasString(value: unknown, key: string): boolean {
+  return typeof value === 'object' && value !== null && typeof (value as Record<string, unknown>)[key] === 'string';
 }
 
 /** Safety net against a server that keeps returning cursors. */
@@ -58,6 +78,7 @@ type Sdk = {
   Client: typeof import('@modelcontextprotocol/sdk/client/index.js').Client;
   ResultSchema: typeof import('@modelcontextprotocol/sdk/types.js').ResultSchema;
   ToolListChangedNotificationSchema: typeof import('@modelcontextprotocol/sdk/types.js').ToolListChangedNotificationSchema;
+  ListRootsRequestSchema: typeof import('@modelcontextprotocol/sdk/types.js').ListRootsRequestSchema;
 };
 
 let sdkPromise: Promise<Sdk> | undefined;
@@ -66,7 +87,12 @@ function loadSdk(): Promise<Sdk> {
   sdkPromise ??= Promise.all([
     import('@modelcontextprotocol/sdk/client/index.js'),
     import('@modelcontextprotocol/sdk/types.js'),
-  ]).then(([c, t]) => ({ Client: c.Client, ResultSchema: t.ResultSchema, ToolListChangedNotificationSchema: t.ToolListChangedNotificationSchema }));
+  ]).then(([c, t]) => ({
+    Client: c.Client,
+    ResultSchema: t.ResultSchema,
+    ToolListChangedNotificationSchema: t.ToolListChangedNotificationSchema,
+    ListRootsRequestSchema: t.ListRootsRequestSchema,
+  }));
   return sdkPromise;
 }
 
@@ -79,6 +105,9 @@ export class McpSession {
   private connecting?: Promise<Handle>;
   private readonly limiter: Limiter;
   private oauth?: ViaOAuthProvider;
+  /** Where warnings go: the operation that started last (the one that most likely caused it). */
+  private warnSink?: (message: string) => void;
+  private warnedSave = false;
 
   constructor(
     readonly server: ServerConfig,
@@ -102,33 +131,83 @@ export class McpSession {
   /** `tools/list`, following `nextCursor` until the server stops returning one. */
   listTools(options: ListOptions = {}): Promise<McpTool[]> {
     return this.limiter.run(async () => {
+      if (options.onWarning) this.warnSink = options.onWarning;
+      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
+      const handle = await this.ensureConnected();
+      return this.request(handle, 'request', timeoutMs, () => this.pages<McpTool>(handle, 'tools/list', 'tools', timeoutMs, (e): e is McpTool => hasString(e, 'name')));
+    });
+  }
+
+  /** What the server declared at `initialize`, once connected; undefined before the first connection. */
+  features(): ServerFeatures | undefined {
+    const capabilities = this.handle && !this.handle.closed ? this.handle.client.getServerCapabilities() : undefined;
+    return capabilities ? { resources: capabilities.resources !== undefined, prompts: capabilities.prompts !== undefined } : undefined;
+  }
+
+  /** `resources/list` and `resources/templates/list` (ADR 0010). A server without the capability is refused before any request. */
+  listResources(options: ListOptions = {}): Promise<ResourceListing> {
+    return this.limiter.run(async () => {
       const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
       const handle = await this.ensureConnected();
       return this.request(handle, 'request', timeoutMs, async () => {
+        this.require(handle, 'resources');
+        const resources = await this.pages<ResourceListing['resources'][number]>(handle, 'resources/list', 'resources', timeoutMs, (e): e is ResourceListing['resources'][number] => hasString(e, 'uri'));
+        // Templates are optional even for a server with resources: "method not found" means none.
+        const templates = await this.pages<ResourceListing['templates'][number]>(handle, 'resources/templates/list', 'resourceTemplates', timeoutMs, (e): e is ResourceListing['templates'][number] => hasString(e, 'uriTemplate')).catch((err: unknown) => {
+          if ((err as { code?: unknown } | null)?.code === METHOD_NOT_FOUND) return [];
+          throw err;
+        });
+        return { resources, templates };
+      });
+    });
+  }
+
+  /** `resources/read`. An unknown or unreadable URI is a "not found" (exit code 3). */
+  readResource(uri: string, options: ListOptions = {}): Promise<ReadResourceResult> {
+    return this.limiter.run(async () => {
+      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
+      const handle = await this.ensureConnected();
+      return this.request(handle, 'request', timeoutMs, async () => {
+        this.require(handle, 'resources');
         const { ResultSchema } = await loadSdk();
-        const tools: McpTool[] = [];
-        const seen = new Set<string>();
-        let cursor: string | undefined;
-        for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
-          const raw = await handle.client.request(
-            { method: 'tools/list', params: cursor === undefined ? {} : { cursor } },
-            ResultSchema,
-            { timeout: timeoutMs },
-          );
-          const entries = (raw as { tools?: unknown }).tools;
-          if (!Array.isArray(entries)) throw new Error('tools/list result has no "tools" array');
-          for (const entry of entries) {
-            if (typeof entry === 'object' && entry !== null && typeof (entry as McpTool).name === 'string') {
-              tools.push(entry as McpTool);
-            }
-          }
-          const next = (raw as { nextCursor?: unknown }).nextCursor;
-          if (typeof next !== 'string' || next === '') return tools;
-          if (seen.has(next)) throw new Error('tools/list returned the same cursor twice');
-          seen.add(next);
-          cursor = next;
-        }
-        throw new Error(`tools/list did not finish after ${MAX_LIST_PAGES} pages`);
+        const raw = await handle.client.request({ method: 'resources/read', params: { uri } }, ResultSchema, { timeout: timeoutMs }).catch((err: unknown) => {
+          throw resourceNotFound(err, uri, this.server.provider, this.redactor()) ?? err;
+        });
+        const contents = (raw as { contents?: unknown }).contents;
+        if (!Array.isArray(contents)) throw new Error('resources/read result has no "contents" array');
+        return { contents: contents.filter((c): c is ReadResourceResult['contents'][number] => hasString(c, 'uri')) };
+      });
+    });
+  }
+
+  /** `prompts/list`, following `nextCursor`. */
+  listPrompts(options: ListOptions = {}): Promise<McpPrompt[]> {
+    return this.limiter.run(async () => {
+      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
+      const handle = await this.ensureConnected();
+      return this.request(handle, 'request', timeoutMs, async () => {
+        this.require(handle, 'prompts');
+        return this.pages<McpPrompt>(handle, 'prompts/list', 'prompts', timeoutMs, (e): e is McpPrompt => hasString(e, 'name'));
+      });
+    });
+  }
+
+  /** `prompts/get`. The server rejecting the arguments surfaces like a tool doing so (exit code 1). */
+  getPrompt(name: string, args: Record<string, string>, options: ListOptions = {}): Promise<GetPromptResult> {
+    return this.limiter.run(async () => {
+      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
+      const handle = await this.ensureConnected();
+      return this.request(handle, 'request', timeoutMs, async () => {
+        this.require(handle, 'prompts');
+        const { ResultSchema } = await loadSdk();
+        const raw = await handle.client.request({ method: 'prompts/get', params: { name, arguments: args } }, ResultSchema, { timeout: timeoutMs });
+        const messages = (raw as { messages?: unknown }).messages;
+        if (!Array.isArray(messages)) throw new Error('prompts/get result has no "messages" array');
+        const description = (raw as { description?: unknown }).description;
+        return {
+          ...(typeof description === 'string' ? { description } : {}),
+          messages: messages.filter((m): m is GetPromptResult['messages'][number] => hasString(m, 'role') && typeof (m as { content?: unknown }).content === 'object'),
+        };
       });
     });
   }
@@ -136,6 +215,7 @@ export class McpSession {
   /** `tools/call`; returns the server's result untouched (`isError` included). */
   callTool(rawName: string, args: Record<string, unknown> | undefined, options: CallOptions = {}): Promise<ToolCallResult> {
     return this.limiter.run(async () => {
+      if (options.onWarning) this.warnSink = options.onWarning;
       const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
       const attempt = async (): Promise<ToolCallResult> => {
         const handle = await this.ensureConnected();
@@ -171,6 +251,31 @@ export class McpSession {
   }
 
   // Internals ---------------------------------------------------------------------------------
+
+  /** Follow `nextCursor` of a list method and collect `key` from every page. */
+  private async pages<T>(handle: Handle, method: string, key: string, timeoutMs: number, keep: (entry: unknown) => entry is T): Promise<T[]> {
+    const { ResultSchema } = await loadSdk();
+    const items: T[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+      const raw = await handle.client.request({ method, params: cursor === undefined ? {} : { cursor } }, ResultSchema, { timeout: timeoutMs });
+      const entries = (raw as Record<string, unknown>)[key];
+      if (!Array.isArray(entries)) throw new Error(`${method} result has no "${key}" array`);
+      for (const entry of entries) if (keep(entry)) items.push(entry);
+      const next = (raw as { nextCursor?: unknown }).nextCursor;
+      if (typeof next !== 'string' || next === '') return items;
+      if (seen.has(next)) throw new Error(`${method} returned the same cursor twice`);
+      seen.add(next);
+      cursor = next;
+    }
+    throw new Error(`${method} did not finish after ${MAX_LIST_PAGES} pages`);
+  }
+
+  /** Refuse a request the server did not declare support for, instead of sending it. */
+  private require(handle: Handle, feature: keyof ServerFeatures): void {
+    if (handle.client.getServerCapabilities()?.[feature] === undefined) throw noFeature(this.server, feature);
+  }
 
   private defaultTimeoutMs(): number {
     return this.server.timeout * 1000;
@@ -233,8 +338,12 @@ export class McpSession {
     let client: Client | undefined;
     let handle: Handle | undefined;
     try {
-      const { Client: ClientCtor, ToolListChangedNotificationSchema } = await loadSdk();
-      client = new ClientCtor({ name: 'via', version: pkg.version }, { capabilities: {} });
+      const { Client: ClientCtor, ToolListChangedNotificationSchema, ListRootsRequestSchema } = await loadSdk();
+      // The `roots` capability is declared only when the server has roots configured (ADR 0010), and
+      // never as `listChanged`: the roots of a session do not change during its life.
+      const roots = resolveRoots(server.roots, this.options.roots ?? { cwd: process.cwd(), home: process.env.HOME ?? '' });
+      client = new ClientCtor({ name: 'via', version: pkg.version }, { capabilities: roots.length > 0 ? { roots: { listChanged: false } } : {} });
+      if (roots.length > 0) client.setRequestHandler(ListRootsRequestSchema, () => ({ roots }));
       const onToolsChanged = this.options.onToolsChanged;
       if (onToolsChanged) client.setNotificationHandler(ToolListChangedNotificationSchema, () => onToolsChanged());
       let transport: Transport;
@@ -295,10 +404,21 @@ export class McpSession {
       this.oauth = createCallProvider(this.server, this.options.oauthStore ?? createOAuthStore(), {
         track,
         ...(this.options.now ? { now: this.options.now } : {}),
+        onSaveFailed: (reason) => {
+          if (this.warnedSave) return;
+          this.warnedSave = true;
+          this.warn(
+            `could not save the refreshed OAuth login for ${this.server.provider} (${reason}); the new token is used for now, but a server that rotates refresh tokens will ask for a new login. Make the login store writable (via doctor)`,
+          );
+        },
       });
     }
     await this.oauth.requireLogin();
     return this.oauth.createFetch();
+  }
+
+  private warn(message: string): void {
+    (this.warnSink ?? this.options.onWarning)?.(message);
   }
 
   /** Tear down the current connection (if any). */

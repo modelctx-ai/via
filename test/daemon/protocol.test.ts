@@ -1,6 +1,6 @@
 // The daemon in this process (no spawned child): protocol behavior, framing, validation, cursors,
 // lifecycle timers and the session rules, driven over a real unix socket.
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -202,6 +202,30 @@ describe('requests', () => {
     expect((await conn.request({ type: 'call', ...same, rawName: 'pid', args: {} })).ok).toBe(true);
   });
 
+  it('refuses a caller with other values without touching its own sessions, and never takes its values', async () => {
+    const VALUE_A = 'value-from-shell-a-0001';
+    const VALUE_B = 'value-from-shell-b-0002';
+    const h = await startDaemon({}, { MOCK_KEY: VALUE_A });
+    const conn = await h.connect();
+    const server = stdioServer({ env: { MOCK_SECRET: 'env:MOCK_KEY' } });
+    const pidOf = async (t: ServerTarget): Promise<string> => {
+      const response = (await conn.request({ type: 'call', ...t, rawName: 'pid', args: {} })) as { result: ToolCallResult };
+      return (response.result.content?.[0] as { text: string }).text;
+    };
+    const a = target(server, { MOCK_KEY: VALUE_A });
+    const b = target(server, { MOCK_KEY: VALUE_B });
+    const pid = await pidOf(a);
+    for (let i = 0; i < 3; i += 1) {
+      // Every kind of request is refused for B, without a session or a process being made for it.
+      await expect(conn.request({ type: 'call', ...b, rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
+      await expect(conn.request({ type: 'list', ...b, timeoutMs: 5000 })).rejects.toBeInstanceOf(DaemonStale);
+      expect(await pidOf(a)).toBe(pid);
+    }
+    expect(h.daemon['sessions'].status()).toHaveLength(1);
+    // A variable the caller has not set has its own digest too: refused, never answered with the daemon's value.
+    await expect(conn.request({ type: 'call', ...target(server, {}), rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
+  });
+
   it('maps a missing credential to exit code 4 before any process is started', async () => {
     const h = await startDaemon();
     const conn = await h.connect();
@@ -349,6 +373,91 @@ describe('cursors', () => {
     expect(await conn.request({ type: 'cursor-get', cursor: put.result })).toMatchObject({ result: { record } });
     expect(await conn.request({ type: 'cursor-get', cursor: 'ffff' })).toMatchObject({ result: { record: null } });
     expect(((await conn.request({ type: 'status' })) as { result: { cursors: number } }).result.cursors).toBe(1);
+  });
+});
+
+describe('OAuth refresh with a login store that cannot be written', () => {
+  it('forwards one warning to the request that triggered the refresh, and keeps serving', async () => {
+    const { startOAuthServer } = await import('../fixtures/mcp/oauth-server.mjs');
+    const { createMemoryOAuthStore, performLogin } = await import('../../src/client/oauth');
+    const srv = await startOAuthServer();
+    cleanups.push(() => srv.close());
+    const inner = createMemoryOAuthStore();
+    await performLogin({
+      target: { provider: 'linear', url: srv.url },
+      store: inner,
+      manual: false,
+      timeoutMs: 10_000,
+      io: {
+        showUrl: () => undefined,
+        note: () => undefined,
+        openUrl: async (url) => {
+          srv.browse(url).catch(() => undefined);
+          return { opened: true };
+        },
+        readLine: async () => undefined,
+      },
+    });
+    const readOnly = { get: inner.get.bind(inner), delete: inner.delete.bind(inner), set: async () => { throw new Error('EROFS: read-only file system'); } };
+    const h = await startDaemon({ oauthStore: readOnly });
+    const conn = await h.connect();
+    const server = httpServer(srv.url, { name: 'linear', provider: 'linear', auth: { type: 'oauth' } });
+    const call = async (message: string) => {
+      const events: unknown[] = [];
+      const response = (await conn.request({ type: 'call', ...target(server), rawName: 'echo_text', args: { message } }, { onEvent: (e) => events.push([e.event, e.data]) })) as { ok: boolean; result: ToolCallResult };
+      return { response, events };
+    };
+    const first = await call('one');
+    expect(first.response.ok).toBe(true);
+    expect(first.events).toEqual([]);
+    srv.expireAccessTokens(); // the server refuses the token: refresh, which cannot be saved
+    const second = await call('two');
+    expect(second.response.ok).toBe(true);
+    expect(second.response.result.content?.[0]).toMatchObject({ text: 'echo: two' });
+    expect(second.events).toHaveLength(1);
+    expect(second.events[0]).toMatchObject(['log', { level: 'warning', message: expect.stringContaining('could not save the refreshed OAuth login for linear') }]);
+    // Once per session: a later refresh stays quiet, and the rotated token is still used (not the stale stored one).
+    srv.expireAccessTokens();
+    const third = await call('three');
+    expect(third.response.ok).toBe(true);
+    expect(third.events).toEqual([]);
+    const secrets = [...srv.issuedAccessTokens(), ...srv.issuedRefreshTokens()];
+    expect(JSON.stringify(second.events)).not.toMatch(new RegExp(secrets.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')));
+  });
+});
+
+describe('cursors across daemon exit', () => {
+  const record: CursorRecord = { ref: 'gh issue:list', header: ['h'], lines: ['a', 'b'], offset: 1, shownBytes: 4, totalBytes: 8, budget: 8, hiddenColumns: 0, createdAt: Date.now() };
+
+  it('keeps a cursor readable after the daemon that stored it has exited (same TTL, private files)', async () => {
+    const first = await startDaemon();
+    const conn = await first.connect();
+    const put = (await conn.request({ type: 'cursor-put', record })) as { result: string };
+    conn.close();
+    await first.daemon.stop();
+    // A fresh daemon of the same user (same cache directory) still knows the cursor.
+    const root = mkdtempSync(join(tmpdir(), 'via-dp2-'));
+    const ctx = pathContext({ home: first.home, env: { XDG_RUNTIME_DIR: root }, platform: 'linux' });
+    const second = new DaemonServer({ paths: daemonPaths(ctx), version: VERSION, idleTimeoutMs: 60_000, env: { PATH: process.env.PATH ?? '' }, home: first.home, platform: 'linux' });
+    expect(await second.start()).toBe('started');
+    cleanups.push(async () => {
+      await second.stop();
+      rmSync(root, { recursive: true, force: true });
+    });
+    const result = await DaemonConnection.connect(daemonPaths(ctx), VERSION);
+    if (!('conn' in result)) throw new Error(`refused: ${result.refused}`);
+    const got = (await result.conn.request({ type: 'cursor-get', cursor: put.result })) as { result: { record: CursorRecord | null } };
+    result.conn.close();
+    expect(got.result.record).toMatchObject({ ref: record.ref, lines: record.lines });
+  });
+
+  it('writes cursor files into the private user cache directory', async () => {
+    const h = await startDaemon();
+    const conn = await h.connect();
+    const put = (await conn.request({ type: 'cursor-put', record })) as { result: string };
+    const dir = join(h.home, '.cache', 'via', 'cursors');
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    expect(statSync(join(dir, `${put.result}.json`)).mode & 0o777).toBe(0o600);
   });
 });
 

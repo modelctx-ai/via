@@ -14,6 +14,7 @@ export { CALLBACK_PATH, parseRedirect, startLoopback, type AuthorizationResponse
 export { accountOf, describeLogin, formatDuration, summarizeLogin, type LoginState, type LoginStatus } from './status';
 export {
   KEYCHAIN_SERVICE,
+  checkStoreWritable,
   createMemoryOAuthStore,
   createOAuthStore,
   oauthKey,
@@ -47,7 +48,7 @@ export function oauthTarget(server: ServerConfig): LoginTarget | undefined {
 export function createCallProvider(
   server: ServerConfig,
   store: OAuthStore,
-  options: { track?: (value: string) => void; now?: () => number } = {},
+  options: { track?: (value: string) => void; now?: () => number; onSaveFailed?: (reason: string) => void } = {},
 ): ViaOAuthProvider {
   const target = oauthTarget(server);
   if (!target) throw new Error(`${server.provider} does not use OAuth over HTTP`);
@@ -58,5 +59,6 @@ export function createCallProvider(
     store,
     ...(options.track ? { track: options.track } : {}),
     ...(options.now ? { now: options.now } : {}),
+    ...(options.onSaveFailed ? { onSaveFailed: options.onSaveFailed } : {}),
   });
 }

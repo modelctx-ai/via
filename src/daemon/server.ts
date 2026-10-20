@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import type { JsonSchema } from '../catalog/types';
 import { compileSchema, type CompileResult } from '../cli/args/validate';
 import { ClientError } from '../client';
+import type { OAuthStore } from '../client/oauth';
 import { createCredentialResolver } from '../config/credentials';
 import { pathContext, userCacheDir } from '../config/paths';
 import type {
@@ -24,7 +25,7 @@ import type {
   Stale,
   ValidateResult,
 } from '../protocol';
-import { MemoryCursorStore, type CursorRecord } from '../render/cursor';
+import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/pipeline';
 import type { DaemonPaths } from './paths';
@@ -45,6 +46,10 @@ export interface DaemonOptions {
   now?: () => number;
   /** How often to check that the socket file is still ours; an unreachable daemon exits. */
   watchMs?: number;
+  /** Where cursors are stored; default: `cursors/` in the user cache directory (same as in-process mode). */
+  cursorDir?: string;
+  /** Replaces the default OAuth login store (tests). */
+  oauthStore?: OAuthStore;
 }
 
 type State = 'new' | 'running' | 'draining' | 'stopped';
@@ -80,13 +85,15 @@ export class DaemonServer {
   private socketIno?: number;
   private token = '';
   private sessions!: SessionManager;
-  private readonly cursors: MemoryCursorStore;
+  /** Cursors live in the user cache directory (like in-process mode), so they outlive the daemon. */
+  private readonly cursors: FileCursorStore;
   private readonly schemas = new Map<string, JsonSchema>();
   private readonly now: () => number;
 
   constructor(private readonly options: DaemonOptions) {
     this.now = options.now ?? Date.now;
-    this.cursors = new MemoryCursorStore({ now: this.now });
+    const cacheCtx = pathContext({ home: options.home, env: options.env, platform: options.platform });
+    this.cursors = new FileCursorStore(options.cursorDir ?? join(userCacheDir(cacheCtx), 'cursors'), { now: this.now });
     this.closed = new Promise((resolve) => (this.resolveClosed = resolve));
   }
 
@@ -126,6 +133,7 @@ export class DaemonServer {
       now: this.now,
       home: this.options.home,
       platform: this.options.platform,
+      ...(this.options.oauthStore ? { oauthStore: this.options.oauthStore } : {}),
     });
     this.updateIdle();
     this.watchTimer = setInterval(() => this.watchSocket(), this.options.watchMs ?? 5000);
@@ -356,10 +364,11 @@ export class DaemonServer {
   private async handle(conn: Connection, request: Request): Promise<unknown> {
     switch (request.type) {
       case 'status':
-        return this.status();
+        return await this.status();
       case 'list': {
         if (this.stale(request)) return STALE;
-        const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true });
+        const onWarning = (message: string): void => this.sendWarning(conn, request.id, message);
+        const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true, onWarning });
         return result;
       }
       case 'call': {
@@ -374,8 +383,21 @@ export class DaemonServer {
           ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
           ...(request.retry ? { retry: true } : {}),
           ...(onProgress ? { onProgress } : {}),
+          onWarning: (message: string): void => this.sendWarning(conn, request.id, message),
         });
       }
+      case 'resources-list':
+        if (this.stale(request)) return STALE;
+        return this.sessions.resources(request, { timeoutMs: request.timeoutMs });
+      case 'resource-read':
+        if (this.stale(request)) return STALE;
+        return this.sessions.readResource(request, String(request.uri), { timeoutMs: request.timeoutMs });
+      case 'prompts-list':
+        if (this.stale(request)) return STALE;
+        return this.sessions.prompts(request, { timeoutMs: request.timeoutMs });
+      case 'prompt-get':
+        if (this.stale(request)) return STALE;
+        return this.sessions.getPrompt(request, String(request.name), promptArgs(request.args), { timeoutMs: request.timeoutMs });
       case 'validate':
         return this.validate(request.schema, request.label, request.data, request.compileOnly === true);
       case 'redact':
@@ -396,6 +418,11 @@ export class DaemonServer {
       default:
         throw new ClientError({ exitCode: ExitCode.Internal, message: `unknown message type: ${String((request as { type: unknown }).type).slice(0, 40)}` });
     }
+  }
+
+  /** A `log` event for the request that caused it: the CLI prints it as a `warning:` line. */
+  private sendWarning(conn: Connection, id: string, message: string): void {
+    this.send(conn, { id, type: 'event', event: 'log', data: { level: 'warning', message: this.sessions.redact(message) } } satisfies Event);
   }
 
   private stale(target: ServerTarget): boolean {
@@ -433,7 +460,7 @@ export class DaemonServer {
 
   // Status ------------------------------------------------------------------------------
 
-  private status(): DaemonStatus {
+  private async status(): Promise<DaemonStatus> {
     const now = this.now();
     // Asking for the status is itself a request on a connection: when nothing else is going on, the
     // daemon would be idle (and start counting) the moment this reply is out.
@@ -448,7 +475,7 @@ export class DaemonServer {
       idleTimeoutMs: this.options.idleTimeoutMs,
       ...idleExit,
       requests: this.requests,
-      cursors: this.cursors.size,
+      cursors: await this.cursors.count(),
       rssBytes: process.memoryUsage.rss(),
       sessions: this.sessions.status(),
     };
@@ -459,6 +486,15 @@ export class DaemonServer {
 const STALE = Symbol('stale');
 
 // Helpers -------------------------------------------------------------------------------
+
+/** Prompt arguments are strings; anything else a confused caller sent is dropped. */
+function promptArgs(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof value === 'object' && value !== null) {
+    for (const [key, v] of Object.entries(value)) if (typeof v === 'string') Object.defineProperty(out, key, { value: v, enumerable: true, writable: true, configurable: true });
+  }
+  return out;
+}
 
 function tokenMatches(expected: string, given: unknown): boolean {
   if (typeof given !== 'string' || given.length !== expected.length) return false;

@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "lexicon": "tsup scripts/build-lexicon.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/build-lexicon.js test/fixtures/tools --out data/domain-lexicon.json",
     "build:bin": "bun scripts/build-bin.ts",
+    "eval:search": "tsup scripts/eval-search.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/eval-search.js",
     "bench:perf": "tsup scripts/bench-perf.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-perf.js",
     "bench:tokens": "tsup scripts/bench-tokens.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-tokens.js",
     "bench:eval": "tsup scripts/bench-eval.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --external @anthropic-ai/sdk --silent && node .build/scripts/bench-eval.js",

@@ -45,6 +45,11 @@ export interface OAuthProviderOptions {
   now?: () => number;
   fetch?: FetchLike;
   login?: LoginMode;
+  /**
+   * The store refused a refreshed login (read-only keychain or directory). Called with the first
+   * line of the store's error each time it happens; the caller decides how often to tell the person.
+   */
+  onSaveFailed?: (reason: string) => void;
 }
 
 export type TokenState = 'valid' | 'expiring' | 'expired';
@@ -86,6 +91,12 @@ export class ViaOAuthProvider implements OAuthClientProvider {
   private readonly fetchFn: FetchLike | undefined;
   private readonly draft: Draft = {};
   private cached?: { record: OAuthRecord | undefined; at: number };
+  /**
+   * The newest refreshed login that could not be saved. A server that rotates refresh tokens has
+   * already retired the one still in the store, so this process keeps using this record instead of
+   * reading the stale one back (unless another process stored something newer).
+   */
+  private unsaved?: OAuthRecord;
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly options: OAuthProviderOptions) {
@@ -101,8 +112,14 @@ export class ViaOAuthProvider implements OAuthClientProvider {
   async load(force = false): Promise<OAuthRecord | undefined> {
     if (!force && this.cached && this.now() - this.cached.at < RECORD_CACHE_MS) return this.cached.record;
     const stored = await this.store.get(this.key);
-    this.remember(stored?.record);
-    return stored?.record;
+    let record = stored?.record;
+    if (this.unsaved) {
+      // Only while the login still exists in the store (a logout elsewhere ends it) and nothing newer was saved.
+      if (record?.tokens && (record.obtainedAt ?? 0) <= (this.unsaved.obtainedAt ?? 0)) record = this.unsaved;
+      else this.unsaved = undefined;
+    }
+    this.remember(record);
+    return record;
   }
 
   /** Throws LoginRequiredError('missing') without touching the network when there is no login. */
@@ -223,8 +240,12 @@ export class ViaOAuthProvider implements OAuthClientProvider {
     this.remember(next);
     try {
       await this.store.set(this.key, next);
-    } catch {
-      // Read-only store: this process keeps working with the fresh token; the next one refreshes again.
+      this.unsaved = undefined;
+    } catch (error) {
+      // Read-only store: this process keeps working with the fresh token. Another process starts
+      // from the stored one, which a rotating server no longer accepts; the person has to know.
+      this.unsaved = next;
+      this.options.onSaveFailed?.(firstLine(error));
     }
     return tokens.access_token;
   }
@@ -235,6 +256,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
     delete next.tokens;
     delete next.obtainedAt;
     delete next.expiresAt;
+    this.unsaved = undefined;
     this.remember(next);
     try {
       await this.store.set(this.key, next);

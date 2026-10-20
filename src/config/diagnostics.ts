@@ -12,11 +12,14 @@ export type DiagnosticCode =
   | 'invalid-server'
   | 'server-undefined'
   | 'cmd-forbidden'
+  | 'search-forbidden'
   | 'invalid-deny'
+  | 'unsafe-deny'
   | 'unknown-source'
   | 'unexpanded-variable'
   | 'legacy-transport'
   | 'plaintext-credential'
+  | 'roots-remote'
   | 'trust-store-corrupt';
 
 export interface ConfigDiagnostic {

@@ -9,6 +9,9 @@
 ### Changed
 
 - 规范补充（随单文件可执行，不改变既有设计决策）：daemon.md 写明拉起的是当前程序自身（脚本为 `<运行时> <入口脚本> daemon run`，可执行文件为 `<该文件> daemon run`）；config.md 补充钥匙串模块加载失败时 `keychain:` 的表现与 `NAPI_RS_NATIVE_LIBRARY_PATH`；security.md 新增「单文件可执行」一节（不读取当前目录的 `.env` 与 `bunfig.toml`、钥匙串模块的来源、校验和）。无规范写法（动词表、分类表）受影响。
+- `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0011](docs/adr/0011-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询、`--domain` 不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
+- AGENTS.md 的「发现逻辑是确定性的」改为「默认确定性；唯一的例外是用户显式开启的 `search.semantic`」（ADR 0011）。
+- 测试：`test/bench/synth-catalog.test.ts` 的「发送邮件」查询接受 `acme-workspace`（其 `mail-message:send` 现在是 `email` 的同义词命中，与 gmail 的描述命中同分）。
 - 规范补充（随 OAuth 实现）：auth.md 补全 OAuth 的发现、注册、回调、存储（含文件退路与 `VIA_OAUTH_STORE`）、刷新、状态与登出，以及调用时「需要登录」的行为；cli.md 的 `via auth` 说明；security.md、daemon.md 中 OAuth token 的脱敏与 daemon 持有的状态。`auth: oauth` 的 server 不再提示改用 bearer。
 - 项目名与命令名由占位名 `mx` 改为 `via`，npm 包名 `@modelctx/via`；配置路径、项目配置文件、socket、环境变量前缀随之改名（ADR 0009）。
 - 规范补充（随首个实现，不改变既有设计决策）：naming.md 明确逐词单数化并加入不规则复数；discovery.md 补全启发式打分的细节（递减计分、`minScore`、双域判定）、浏览视图的排序与截断、签名上限、安全标记和搜索排序的并列规则；output.md 补全表格选列、一行数组、元信息行格式、游标续读、脱敏顺序和错误文本清理；data-files.md 增加 `columns.json`、`singularIrregular`、`minScore`、`stopwords` 以及词典与差异检查的命令。
@@ -24,13 +27,23 @@
 - 未信任时的 `next:`：同一个 server 有多个文件待确认时提示不带路径的 `via trust`，路径含空格时加引号。
 - 规范补充（随 `via batch` 实现）：cli.md 的 `via batch` 一节补全输入字段（`tool`、`args`，其余字段报错）、行号、空输入（退出码 2）、全局选项对整批生效、危险工具缺少 `--yes` 时只让该行失败、`--dry-run`、全局并发上限 `--concurrency`（默认 16）、text 与 `-o json` 的逐行框架（`line N` 标记、`· batch · …` 汇总行、JSONL 记录字段、超出预算时的 `truncated` / `next`）以及整体退出码取数值最大者；output.md 的元信息行增加 `line N` 标记；arguments.md、config.md、daemon.md 各补一句与批量的关系。
 - 内部：`commands/tool.ts` 抽出 `executeCall`，`via <provider> …`、`via call`、`via batch` 共用同一条「校验 → dry-run / 确认 → 调用 → 渲染」路径；它返回结果（stdout、stderr、退出码、结构化的元信息与错误）而不直接写输出，也只通过 `app.client()` 触达上游，后端（进程内或 daemon）对它透明。渲染流水线的返回值附带元信息与结构化错误。
+- `via trust --yes` 不再是单个开关（security.md、cli.md）：agent 若能执行 `via trust --yes` 就能放行不可信的仓库。现在默认在终端里确认；`--yes` 必须带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1`，否则不记录（不带路径退出码 2，缺少变量退出码 5）。没有终端时的 `next:` 改为请用户在终端运行 `via trust <路径>`，不再建议 `--yes`。`via prompt` 生成的说明增加一句「不要自己运行 `via trust`，请用户来做」。
 
 ### Added
 
 - 单文件可执行（路线图 c1，`npm run build:bin`）：`scripts/build-bin.ts` 用 Bun 从 `src/` 编译出 `dist/bin/via-<系统>-<架构>[-musl][.exe]`（默认本机平台；`--all` 或 `--target a,b` 交叉编译 linux-x64/arm64、linux-x64/arm64-musl、darwin-x64/arm64、windows-x64），每个文件带 `.sha256`。构建参数是实测选出来的：`--bytecode` 去掉每次启动对整包 JS 的解析（`--version` 约 66 → 20 ms，对比 `node dist/via.js`；0.1 里不带标志的 `bun build --compile` 比 Node 还慢，原因在此，而不是 85 MiB 的体积），`--splitting` 保持 `--version`/`-h` 不加载命令运行器与库，关闭 `.env` 与 `bunfig.toml` 的自动加载（默认会读当前目录的，见 security.md）。`@napi-rs/keyring` 经 Bun 插件替换为目标平台的 `.node` 文件并内嵌（非本机平台的包从 npm 下载并校验 `package-lock.json` 的完整性），每个产物只带自己平台的模块；加载失败时 `keychain:` 报「native keychain module is not available」并提示改用 `env:`/`file:`，`NAPI_RS_NATIVE_LIBRARY_PATH` 可指定 `.node`。`via daemon run` 拉起的是可执行文件自身（`src/runtime.ts` 的 `selfCommand()`）；Bun 下不调用 `module.enableCompileCache()`。`dist/bin` 不进 npm 包。
 - 测试：`test/cli/bin.test.ts`（装有 `bun` 时构建本机产物并跑冒烟集，否则跳过；`VIA_REQUIRE_BUN=1` 时缺少 Bun 即失败）、`test/runtime.test.ts`、`test/bin-targets.test.ts`。CI 增加 `binary` 任务（Ubuntu、macOS，固定 Bun 1.4.2）；新增 `release.yml`（仅 `v*` 标签与手动触发）构建全部目标、生成 `SHA256SUMS` 并上传到 Release。
 - 性能基准：`npm run bench:perf` 的 Bun 一节比较 `bun dist/via.js`、不带标志的编译、逐个加标志的编译与 `build:bin` 产物，第 5 节增加产物经热 daemon 的整进程调用；`--only-bun` 只跑 Bun 一节。结果记录在 `bench/results/perf-0.3.md`。
-
+- MCP resources、prompts 与 roots（ADR 0010，roadmap c3；open-questions 里的对应条目已移除）：
+  - 新内置子命令 `via resources <provider>`（资源与资源模板）、`via read <provider> <uri>`、`via prompts <provider> [<名称> [参数]]`。`resources`、`read`、`prompts` 成为保留字，与之重名的 provider 需要 `alias`；`prompt` 与 `prompts` 是两个命令，`via prompt <provider>` 会提示后者。URI 是普通位置参数，不进工具语法（冒号）；不适用 `deny`、`--yes`、`--dry-run`（协议上只读）。订阅、补全、sampling 不在范围内。
+  - 输出走现有渲染流水线（预算、游标、媒体落盘、脱敏、`-o text|json|raw`），元信息行名称为 `resources <p>`、`read <p>`、`prompts <p> <名称>`；一次读取返回多个内容时每个前加 `# <uri>`。prompt 的参数转成字符串 schema，复用工具的参数解析、`-h`、校验与报错。server 没有声明相应能力退出码 3（不发请求），URI 不存在退出码 3，server 拒绝 prompt 参数退出码 1。
+  - `via <provider>` 在 server 声明了 resources 或 prompts 时多一行 `also: via resources <p> · via prompts <p>`；能力随 `tools/list` 缓存（缓存文件新增可选的 `features`，旧文件照常读取）。`via prompt` 的说明文本不变，不增加 token。
+  - 配置 `servers.<name>.roots`（路径或 `file://` URI）：声明 `roots` 能力并回应 `roots/list`。**默认不声明**；`listChanged` 为 `false`；相对路径相对运行 `via` 的当前目录，`~` 展开；daemon 里换算成绝对 URI 后参与会话键，所以相对 roots 不会跨目录共用会话。项目级配置设置非空 `roots` 需要 `via trust`（`via trust` 列出），`[]` 不需要；给 HTTP server 配 `roots` 有告警（`roots-remote`）。
+  - 协议：新增 `resources-list`、`resource-read`、`prompts-list`、`prompt-get` 请求（结果在 daemon 内脱敏，回退时作为无副作用请求重做），`list` 的结果带 `features`；会话键加入 `roots`。
+  - 测试夹具 `test/fixtures/mcp/cli-server.mjs` 增加可选的 resources（文本、JSON、二进制、多内容、长文本、模板、两页列表）、prompts 与读取 roots 的工具 `list_roots`。
+- 可选的 embedding 检索（路线图 c2 的第二层，默认关闭）：用户配置 `search.semantic: { provider: openai-compatible, url, model, auth, timeout, indexTimeout, dimensions }` 后，`via find` 把查询与工具描述的 embedding 同 BM25 做 RRF 融合（第 1–3 级规范写法匹配仍在最前）。只读用户配置与命令行覆盖，项目配置里的被忽略并告警（`search-forbidden`）；`url` 必须是 https（回环地址可用 http）且不含内嵌凭证；`auth` 是凭证引用，不跟随重定向，响应体、请求头、端点从不进入输出。工具描述的向量按文本哈希缓存在 `<缓存目录>/embeddings/`（目录 0700、文件 0600），描述变了才重新请求；缓存完整时语义步骤的期限是 `timeout`（默认 3 秒），补 embedding 时是 `indexTimeout`（默认 30 秒），期限内没完成（超时、HTTP 错误、凭证缺失、响应异常、缓存仍不完整）就退回词法排序并在 stderr 写一行 `· semantic unavailable: <原因> · lexical results`，退出码不变，已取得的向量保留供下次继续。只影响 `via find`；实现是独立分块，关闭时零加载；在 CLI 进程内完成，不经 daemon。spec 见 discovery.md、config.md、security.md（新增「embedding 检索的数据外流」）。
+- `npm run eval:search`（`scripts/eval-search.ts`）：在 `test/fixtures/search/eval.json`（调参集）和 `heldout.json`（留出集）上报告词法基线与默认的 recall@1、recall@5、MRR，`--misses` 列出仍然答错的查询；回归测试 `test/catalog/search-eval.test.ts` 断言不低于基线并锁定下限。
+- 测试：`test/helpers/embeddings-server.ts`（本机 OpenAI 兼容 embeddings 服务，确定性假向量），覆盖融合、缓存、超时与错误退回、脱敏、配置校验（`test/catalog/semantic.test.ts`、`test/cli/semantic.test.ts`、`test/config/search.test.ts`）；`test/cli/dist.test.ts` 校验默认的 `find` 不加载 embedding 分块。
 - OAuth（auth.md）：`via auth login|status|logout`。PKCE 授权码流程，按 MCP 授权规范发现受保护资源与授权服务器（RFC 9728 / 8414）、动态客户端注册（RFC 7591）、`resource` 参数（RFC 8707）；回调监听 `127.0.0.1` 的随机端口并校验 `state` 与 `Host`，`--manual` 在无头环境打印授权 URL、从终端读取粘贴的重定向 URL；平台打开命令只是尽力而为（SSH 会话或无显示时不尝试，打开失败不报错、不等待）。登录存入系统钥匙串（服务名 `via`，账户名 `oauth:<server 定义的哈希>`），不可用时退回用户数据目录下 0600 的文件，`VIA_OAUTH_STORE=file|keychain|auto` 可固定；调用前和收到 401 时用 refresh token 静默刷新（同进程串行，多进程轮换冲突时改用已刷新的 token），登录失效时退出码 4 并提示 `via auth login`，调用过程永远不会启动浏览器或等待输入；`logout` 撤销 token（RFC 7009，尽力而为）并删除本地记录。OAuth token 计入脱敏列表（`CredentialResolver.track`）。`via servers` 的鉴权列显示登录状态，`via doctor` 对未登录的 server 给出 `next: via auth login <provider>`。MCP SDK 仍按需加载。
 - 测试夹具 `test/fixtures/mcp/oauth-server.mjs`：模拟授权服务器（元数据、动态注册、PKCE 校验、刷新与轮换、撤销）加受保护的 Streamable HTTP MCP server。
 
@@ -86,6 +99,11 @@
 
 ### Fixed
 
+- daemon 的游标不再随 daemon 空闲退出（10 分钟）而提前失效：daemon 与进程内模式一样把游标写入用户缓存目录（0700 目录、0600 文件、内容已脱敏、TTL 30 分钟），`via more` 在 daemon 退出后仍可续读。
+- deny 规则的 ReDoS：项目配置可以追加会灾难性回溯的正则（如 `^(a+)+$`）卡死 via。现在加载时静态检查（嵌套量词、被重复分组里重叠的候选分支、反向引用、开放量词超过 3 个、长度超过 200 字符），不通过的规则按无效规则处理：忽略并给出 error 级诊断 `unsafe-deny`，CLI 停止执行；匹配只在不超过 256 字符的写法上进行，更长的工具名按 deny 处理（config.md「deny」）。
+- deny 规则与 `rename`：按工具默认规范写法写的规则（如 `^github/file:delete$`）在用户用 `rename` 改名后不再命中，该工具重新可见。现在一条规则同时匹配当前规范写法、原始名写法和默认规范写法（命名规则对原始名的拆分结果，不含 `rename`）（config.md「deny」）。
+- OAuth 刷新遇到不可写的登录存储时，新 token 只在内存里使用且没有任何提示，别的进程（以及之后的调用）读到的仍是旧记录，轮换 refresh token 的 server 会因此让登录失效。现在：当前会话继续用内存里的新记录（后续刷新不再读回存储里作废的旧 refresh token），并在 stderr 提示一次 `warning: could not save the refreshed OAuth login for <provider> …`（daemon 里作为 `log` 事件转发给触发刷新的请求）；`via doctor` 对不可写的文件存储给出提示和 `chmod` 建议（auth.md、daemon.md、agent-integration.md）。
+- daemon 在不同 shell 的 `env:` 值不同时反复重启：两个 shell 里同名变量（如 `GH_TOKEN`）取值不同，每次交替调用都会让 daemon 因摘要不一致而重启，会话和 stdio 子进程随之丢失。现在 daemon 回复 `stale` 时，CLI 不再重启 daemon，而是只把这个 server 的这一个请求改在进程内完成（也不会把取值发给 daemon，凭证值不过 socket 的约定不变）；与 daemon 环境一致的 shell 继续用 daemon，另一个 shell 各自用自己的取值，没有设置变量的调用方得到退出码 4 而不是 daemon 环境里的值。代价：取值不一致的 shell 里，该 server 的 stdio 子进程每次调用都重新拉起（daemon.md「环境与工作目录」）。
 - ADR 0008 的背景误称 mcp2cli 采用代码生成；mcp2cli 实际是运行时分发。
 - 多个 server 同时解析凭证（`via doctor`、`via sync`）时，CLI 可能创建两个凭证解析器和两个 MCP client：脱敏只认其中一个解析器的值，另一个解析出的凭证可能漏出脱敏，退出时也只关闭一个 client。现在一次运行共用一个。
 

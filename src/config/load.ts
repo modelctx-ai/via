@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { cwd as processCwd } from 'node:process';
+import { checkDenyPattern } from './deny-safety';
 import type { ConfigDiagnostic } from './diagnostics';
 import { BUNDLED_FRAMEWORKS, DEFAULT_POINTERS, findFramework, type ConfigFormat, type FrameworkDef } from './frameworks';
 import { validateLayer, type ConfigLayerData, type SourcesSetting } from './layer';
@@ -16,7 +17,7 @@ import { parseConfigText, resolvePointer, ParseFailure } from './parse';
 import { expandPath, pathContext, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
 import { parseCredentialRef } from './credentials';
 import { readTrustStore, trustStatus, type TrustStore } from './trust';
-import type { ConfigOrigin, ConfigScope, ServerConfig, Transport } from './types';
+import type { ConfigOrigin, ConfigScope, SemanticSearchConfig, ServerConfig, Transport } from './types';
 
 export const DEFAULTS = {
   timeout: 60,
@@ -24,6 +25,7 @@ export const DEFAULTS = {
   confirm: 'destructive',
   output: { budget: 8192, cellWidth: 80 },
   daemon: { idleTimeout: 600, serverIdleTimeout: 300 },
+  semantic: { timeout: 3, indexTimeout: 30 },
 } as const;
 
 /** The project config file name; the first one found walking up from the working directory is used. */
@@ -62,6 +64,8 @@ export interface LoadedConfig {
   domains: Record<string, string[]>;
   output: { budget: number; cellWidth: number };
   daemon: { idleTimeout: number; serverIdleTimeout: number };
+  /** Optional features of `via find`; `semantic` is set only by the user config (security.md). */
+  search?: { semantic?: SemanticSearchConfig };
   diagnostics: ConfigDiagnostic[];
   /** Every file that contributed, for `via doctor` and `via trust`. */
   files: LoadedFile[];
@@ -244,12 +248,27 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   const domains: Record<string, string[]> = {};
   const output = { budget: DEFAULTS.output.budget, cellWidth: DEFAULTS.output.cellWidth };
   const daemon = { idleTimeout: DEFAULTS.daemon.idleTimeout, serverIdleTimeout: DEFAULTS.daemon.serverIdleTimeout };
+  const search: LoadedConfig['search'] = {};
   for (const layer of layers) {
     for (const [i, pattern] of layer.data.deny.entries()) {
       if (seenDeny.has(pattern)) continue;
       seenDeny.add(pattern);
       try {
-        deny.push(new RegExp(pattern));
+        const re = new RegExp(pattern);
+        // A rule that can backtrack catastrophically is refused like an invalid one (fail closed:
+        // the diagnostic is an error, so the CLI stops instead of running without the rule).
+        const unsafe = checkDenyPattern(pattern);
+        if (unsafe !== undefined) {
+          const d: ConfigDiagnostic = {
+            level: 'error',
+            code: 'unsafe-deny',
+            message: `deny[${i}]: regular expression ${JSON.stringify(pattern.length > 80 ? `${pattern.slice(0, 77)}...` : pattern)} was refused: ${unsafe}; the rule was ignored`,
+          };
+          if (layer.origin.path) d.file = layer.origin.path;
+          diagnostics.push(d);
+          continue;
+        }
+        deny.push(re);
       } catch (error) {
         const d: ConfigDiagnostic = {
           level: 'error',
@@ -265,9 +284,23 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     }
     Object.assign(output, layer.data.output);
     Object.assign(daemon, layer.data.daemon);
+    const wanted = layer.data.search.semantic;
+    if (wanted !== undefined) {
+      if (layer.origin.scope !== 'user' && layer.origin.scope !== 'cli') {
+        // It would send tool descriptions and queries to a host chosen by the repository.
+        const d: ConfigDiagnostic = {
+          level: 'warning',
+          code: 'search-forbidden',
+          message: 'search.semantic is only read from the user config; it was ignored',
+        };
+        if (layer.origin.path) d.file = layer.origin.path;
+        diagnostics.push(d);
+      } else if (wanted === false) delete search.semantic;
+      else search.semantic = { provider: 'openai-compatible', ...DEFAULTS.semantic, ...wanted, origin: layer.origin };
+    }
   }
 
-  return { servers, deny, domains, output, daemon, diagnostics, files };
+  return { servers, deny, domains, output, daemon, search, diagnostics, files };
 }
 
 function finalize(
@@ -322,6 +355,17 @@ function finalize(
   };
   if (d.domain !== undefined) server.domain = d.domain;
   if (d.budget !== undefined) server.budget = d.budget;
+  if (d.roots !== undefined && d.roots.length > 0) {
+    server.roots = [...d.roots];
+    if (transport.type === 'http') {
+      diagnostics.push({
+        level: 'warning',
+        code: 'roots-remote',
+        message: `servers.${name}.roots: local directories are sent to the remote server ${name} when it asks for its roots`,
+        server: name,
+      });
+    }
+  }
   if (conflicts && conflicts.length > 0) server.conflicts = conflicts;
   if (acc.launch.size > 0) server.launchPaths = [...acc.launch.keys()];
   if (untrustedPaths) server.untrustedPaths = untrustedPaths;
