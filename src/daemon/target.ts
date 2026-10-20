@@ -1,7 +1,9 @@
 // What the CLI and the daemon agree on when a server definition crosses the socket: which session a
 // definition maps to, how the caller's working directory is applied, and how the two sides tell that
 // their environments differ for a credential variable without ever exchanging the value.
+import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
+import { rootUri } from '../client/roots';
 import { parseCredentialRef } from '../config/credentials';
 import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
@@ -19,8 +21,9 @@ function credentialRefs(server: ServerConfig): string[] {
  * Digest of the values of the variables behind the server's `env:` references, taken from `env`.
  * The CLI computes it from its environment and the daemon from its own; a difference means the
  * daemon would resolve a credential the CLI would not (it was started in another shell, or the
- * variable changed since), so the daemon asks to be restarted instead of using a stale value. Only
- * the digest travels; it is one-way, so the socket still never carries a credential.
+ * variable changed since). The daemon then answers `stale` and the CLI handles that server's
+ * request in-process, so the daemon never serves a caller with a value that is not its own. Only
+ * the digest travels; it is one-way, so the socket never carries a credential.
  */
 export function envStamp(server: ServerConfig, env: Readonly<Record<string, string | undefined>>): string {
   const names = new Set<string>();
@@ -34,8 +37,12 @@ export function envStamp(server: ServerConfig, env: Readonly<Record<string, stri
   return sha256Hex(material).slice(0, 32);
 }
 
-/** `file:` references and a stdio `cwd` are relative to the caller; the daemon has its own working directory. */
-export function effectiveServer(server: ServerConfig, cwd: string): ServerConfig {
+/**
+ * `file:` references, a stdio `cwd` and `roots` are relative to the caller; the daemon has its own
+ * working directory. Roots become absolute `file://` URIs here, which is what puts them into the
+ * session key: callers in other directories get sessions of their own (ADR 0010).
+ */
+export function effectiveServer(server: ServerConfig, cwd: string, home: string = homedir()): ServerConfig {
   const absolute = (ref: string): string => {
     const parsed = parseCredentialRef(ref);
     if (parsed.kind !== 'file' || parsed.arg === '' || parsed.arg.startsWith('~') || parsed.arg.includes('%') || isAbsolute(parsed.arg)) return ref;
@@ -51,6 +58,7 @@ export function effectiveServer(server: ServerConfig, cwd: string): ServerConfig
         : { ...transport, headers: map(transport.headers) },
     auth: auth.type === 'bearer' ? { ...auth, bearer: absolute(auth.bearer) } : auth.type === 'headers' ? { ...auth, headers: map(auth.headers) } : auth,
   };
+  if (server.roots !== undefined && server.roots.length > 0) next.roots = server.roots.map((entry) => rootUri(entry, { cwd, home }));
   return next;
 }
 
@@ -66,6 +74,7 @@ export function sessionKey(server: ServerConfig): string {
     auth: server.auth,
     exclusive: server.exclusive,
     concurrency: server.concurrency,
+    roots: server.roots ?? [],
   };
   return sha256Hex(JSON.stringify(identity)).slice(0, 24);
 }

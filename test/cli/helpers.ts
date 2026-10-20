@@ -11,6 +11,33 @@ import { afterEach } from 'vitest';
 import { run } from '../../src/cli/run';
 import { createCliServer, createCliState, type CliState } from '../fixtures/mcp/cli-server.mjs';
 
+/**
+ * Variables a child process needs in order to start properly on Windows (`SystemRoot` above all);
+ * nothing on other platforms. A sandbox hands its own small environment to `run()` and would
+ * otherwise leave the stdio servers and `cmd:` helpers it starts without them.
+ */
+export const SYSTEM_ENV: Record<string, string> = {};
+if (process.platform === 'win32') {
+  for (const name of ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP']) {
+    const value = process.env[name];
+    if (value !== undefined) SYSTEM_ENV[name] = value;
+  }
+}
+
+/**
+ * Environment for a real `via` child process whose home directory is `home`: HOME on POSIX; on
+ * Windows the variables Node and `via` read instead (`USERPROFILE`, `%APPDATA%\\via\\config.yaml`
+ * placed where the sandboxes write `.config/via/config.yaml`, `%LOCALAPPDATA%` for caches).
+ */
+export function homeEnv(home: string): Record<string, string> {
+  return {
+    PATH: process.env.PATH ?? '',
+    HOME: home,
+    ...SYSTEM_ENV,
+    ...(process.platform === 'win32' ? { USERPROFILE: home, APPDATA: join(home, '.config'), LOCALAPPDATA: join(home, '.local', 'app') } : {}),
+  };
+}
+
 export const CLI_STDIO_SERVER = fileURLToPath(new URL('../fixtures/mcp/cli-stdio-server.mjs', import.meta.url));
 
 /** Obviously fake; the credential scan must never find it in a snapshot. */
@@ -24,7 +51,7 @@ export interface FixtureServer {
 }
 
 /** Streamable HTTP fixture; requests need `Authorization: Bearer <token>` when `token` is set. */
-export async function startFixtureServer(options: { token?: string } = {}): Promise<FixtureServer> {
+export async function startFixtureServer(options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots'> } = {}): Promise<FixtureServer> {
   const state = createCliState();
   const result: FixtureServer = { url: '', state, requests: [], close: async () => undefined };
   const http: HttpServer = createServer((req, res) => {
@@ -42,7 +69,7 @@ export async function startFixtureServer(options: { token?: string } = {}): Prom
         }
         result.requests.push(req.headers);
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-        const server = createCliServer({ state, ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}) });
+        const server = createCliServer({ state, ...(options.features ? { features: options.features } : {}), ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}) });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => {
           void transport.close();
@@ -112,7 +139,8 @@ export function useCleanup(fn: () => Promise<void> | void): void {
 
 export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN }): Sandbox {
   const root = mkdtempSync(join(tmpdir(), 'via-cli-'));
-  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  // Retries: on Windows a directory that a process only just left (or antivirus is scanning) is briefly busy.
+  cleanups.push(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const home = join(root, 'home');
   const project = join(root, 'project');
   mkdirSync(home, { recursive: true });
@@ -144,7 +172,7 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
           return options.answer ?? options.stdin?.split('\n')[0] ?? '';
         },
         // OAuth logins go to files in the sandbox, never to the real keychain.
-        env: { PATH: process.env.PATH, VIA_OAUTH_STORE: 'file', ...env, ...options.env },
+        env: { PATH: process.env.PATH, ...SYSTEM_ENV, VIA_OAUTH_STORE: 'file', ...env, ...options.env },
         cwd: options.cwd ?? project,
         home,
         platform: 'linux',

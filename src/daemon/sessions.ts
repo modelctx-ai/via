@@ -7,9 +7,9 @@ import type { McpTool } from '../catalog/types';
 import { CATALOG_TTL_MS, CatalogCache } from '../cli/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ListResult, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
+import type { GetPromptResult, ListResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
-import { createRedactor, redactValue } from '../render/redact';
+import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
 import { effectiveServer, sessionKey } from './target';
 
@@ -71,6 +71,8 @@ interface Entry {
   fetchedAt?: number;
   /** Number of tools in that list, when known (for `status`). */
   toolCount?: number;
+  /** What the server declared at `initialize`, once known. */
+  features?: ServerFeatures;
   calls: number;
   active: number;
   lastUsed: number;
@@ -92,6 +94,8 @@ export interface SessionManagerOptions {
   /** Home directory and platform, for the OAuth store (logins are made by the CLI and read here). */
   home: string;
   platform: NodeJS.Platform;
+  /** Replaces the default login store (tests). */
+  oauthStore?: OAuthStore;
 }
 
 export class SessionManager {
@@ -103,18 +107,22 @@ export class SessionManager {
 
   constructor(private readonly options: SessionManagerOptions) {
     this.cache = new CatalogCache(options.catalogDir, options.now);
+    this.oauthStore = options.oauthStore;
   }
 
-  /** Replaces every credential value resolved so far with `***`. */
-  redact = (text: string): string => {
-    const values = this.options.resolver.resolvedValues();
-    return values.length === 0 ? text : createRedactor(values)(text);
-  };
+  /**
+   * Replaces the credential values resolved so far with `***`: the function redacts string content
+   * (upstream text), `.scan` text composed here, `.key` object keys (see `Redactor`).
+   */
+  readonly redact: Redactor = lazyRedactor(() => this.options.resolver.resolvedValues());
 
   // Operations --------------------------------------------------------------------------
 
   /** `tools/list`: this daemon's copy while it is fresh, else the disk cache, else the server. */
-  async list(target: ServerTarget, options: { timeoutMs: number; refresh: boolean; have?: number }): Promise<ListResult> {
+  async list(
+    target: ServerTarget,
+    options: { timeoutMs: number; refresh: boolean; have?: number; onWarning?: (message: string) => void },
+  ): Promise<ListResult> {
     const server = await this.admit(target);
     await this.prime(server, options.timeoutMs);
     const entry = this.entryFor(target, server);
@@ -123,25 +131,28 @@ export class SessionManager {
       if (!options.refresh) {
         const now = this.options.now();
         if (entry.fetchedAt !== undefined && now - entry.fetchedAt <= CATALOG_TTL_MS) {
-          if (options.have === entry.fetchedAt) return { unchanged: true, fetchedAt: entry.fetchedAt, fromCache: true };
-          if (entry.tools) return { tools: entry.tools, fetchedAt: entry.fetchedAt, fromCache: true };
+          const features = entry.features ? { features: entry.features } : {};
+          if (options.have === entry.fetchedAt) return { unchanged: true, fetchedAt: entry.fetchedAt, fromCache: true, ...features };
+          if (entry.tools) return { tools: entry.tools, fetchedAt: entry.fetchedAt, fromCache: true, ...features };
         }
         // The copy on disk: the one this daemon wrote, or an in-process run's.
         const hit = this.cache.read(entry.original);
         if (hit) {
           entry.fetchedAt = hit.fetchedAt;
-          if (options.have === hit.fetchedAt) return { unchanged: true, fetchedAt: hit.fetchedAt, fromCache: true };
+          if (hit.features) entry.features = hit.features;
+          const features = entry.features ? { features: entry.features } : {};
+          if (options.have === hit.fetchedAt) return { unchanged: true, fetchedAt: hit.fetchedAt, fromCache: true, ...features };
           const tools = hit.tools;
           entry.toolCount = tools.length;
-          return { tools, fetchedAt: hit.fetchedAt, fromCache: true };
+          return { tools, fetchedAt: hit.fetchedAt, fromCache: true, ...features };
         }
         // Nothing usable: ask the server (below). Forget what pointed at a copy that is gone.
         delete entry.tools;
         delete entry.fetchedAt;
       }
-      const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs });
+      const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs, ...(options.onWarning ? { onWarning: options.onWarning } : {}) });
       this.store(entry, tools);
-      return { tools, fetchedAt: entry.fetchedAt!, fromCache: false };
+      return { tools, fetchedAt: entry.fetchedAt!, fromCache: false, ...(entry.features ? { features: entry.features } : {}) };
     } finally {
       this.end(entry);
     }
@@ -152,7 +163,7 @@ export class SessionManager {
     target: ServerTarget,
     rawName: string,
     args: Record<string, unknown>,
-    options: { timeoutMs?: number; retry?: boolean; onProgress?: CallOptions['onProgress'] },
+    options: { timeoutMs?: number; retry?: boolean; onProgress?: CallOptions['onProgress']; onWarning?: (message: string) => void },
   ): Promise<ToolCallResult> {
     const server = await this.admit(target);
     const entry = this.entryFor(target, server);
@@ -162,13 +173,33 @@ export class SessionManager {
         timeoutMs: options.timeoutMs ?? server.timeout * 1000,
         ...(options.retry ? { retry: true } : {}),
         ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+        ...(options.onWarning ? { onWarning: options.onWarning } : {}),
       });
       entry.calls += 1;
-      const values = this.options.resolver.resolvedValues();
-      return values.length === 0 ? result : (redactValue(result, createRedactor(values)) as ToolCallResult);
+      return redactProtocol(result, this.redact) as ToolCallResult;
     } finally {
       this.end(entry);
     }
+  }
+
+  /** `resources/list` and `resources/templates/list`, redacted. */
+  resources(target: ServerTarget, options: { timeoutMs: number }): Promise<ResourceListing> {
+    return this.ask(target, (session) => session.listResources(options));
+  }
+
+  /** `resources/read`, redacted. */
+  readResource(target: ServerTarget, uri: string, options: { timeoutMs: number }): Promise<ReadResourceResult> {
+    return this.ask(target, (session) => session.readResource(uri, options));
+  }
+
+  /** `prompts/list`, redacted. */
+  prompts(target: ServerTarget, options: { timeoutMs: number }): Promise<McpPrompt[]> {
+    return this.ask(target, (session) => session.listPrompts(options));
+  }
+
+  /** `prompts/get`, redacted. */
+  getPrompt(target: ServerTarget, name: string, args: Record<string, string>, options: { timeoutMs: number }): Promise<GetPromptResult> {
+    return this.ask(target, (session) => session.getPrompt(name, args, options));
   }
 
   status(): SessionStatus[] {
@@ -206,6 +237,19 @@ export class SessionManager {
 
   // Internals ---------------------------------------------------------------------------
 
+  /** One request on the server's session; what comes back has resolved credentials replaced by `***`. */
+  private async ask<T>(target: ServerTarget, op: (session: McpSession) => Promise<T>): Promise<T> {
+    const server = await this.admit(target);
+    const entry = this.entryFor(target, server);
+    this.begin(entry);
+    try {
+      const result = await op(entry.session);
+      return redactProtocol(result, this.redact) as T;
+    } finally {
+      this.end(entry);
+    }
+  }
+
   /** Untrusted project servers are refused before anything is resolved, spawned or sent (security.md). */
   private async admit(target: ServerTarget): Promise<ServerConfig> {
     if (this.closing) throw new ClientError({ exitCode: ExitCode.Upstream, message: 'the via daemon is shutting down', next: 'rerun the command' });
@@ -216,7 +260,7 @@ export class SessionManager {
       const { createOAuthStore } = await import('../client/oauth');
       this.oauthStore = createOAuthStore({ home: this.options.home, env: this.options.env, platform: this.options.platform });
     }
-    return effectiveServer(target.server, target.cwd);
+    return effectiveServer(target.server, target.cwd, this.options.home);
   }
 
   /** Resolve the credentials first: a missing one fails before any network call (auth.md). */
@@ -258,7 +302,13 @@ export class SessionManager {
       refreshAgain: false,
       retired: false,
     };
-    entry.session = new McpSession(server, this.options.resolver, { onToolsChanged: () => this.toolsChanged(entry), now: this.options.now, ...(this.oauthStore ? { oauthStore: this.oauthStore } : {}) });
+    // `server.roots` is already absolute here (`effectiveServer`), so no base directory is needed.
+    entry.session = new McpSession(server, this.options.resolver, {
+      onToolsChanged: () => this.toolsChanged(entry),
+      now: this.options.now,
+      ...(this.oauthStore ? { oauthStore: this.oauthStore } : {}),
+      roots: { cwd: target.cwd, home: this.options.home },
+    });
     this.entries.set(key, entry);
     this.byName.set(server.name, key);
     return entry;
@@ -312,8 +362,10 @@ export class SessionManager {
   private store(entry: Entry, tools: McpTool[]): void {
     entry.fetchedAt = this.options.now();
     entry.toolCount = tools.length;
+    entry.features = entry.session.features() ?? entry.features;
     // Keep the list in memory only if it could not be written to disk.
-    if (this.cache.write(entry.original, tools, entry.fetchedAt) === undefined) entry.tools = tools;
+    const written = this.cache.write(entry.original, tools, { fetchedAt: entry.fetchedAt, ...(entry.features ? { features: entry.features } : {}) });
+    if (written === undefined) entry.tools = tools;
     else delete entry.tools;
   }
 

@@ -6,10 +6,10 @@ import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import type { CallOptions, McpClient } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ToolCallResult } from '../protocol';
+import type { ServerFeatures, ToolCallResult } from '../protocol';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
-import { createRedactor } from '../render/redact';
+import { createRedactor, redactValue } from '../render/redact';
 import type { CursorRecord, CursorStore } from '../render/cursor';
 import type { SchemaCompiler } from './args/validate';
 import type { OAuthStore } from '../client/oauth/store';
@@ -26,6 +26,8 @@ export interface Listing {
    * Together with `fetchedAt` it identifies the content without parsing it (view-cache.ts).
    */
   rawBytes?: number;
+  /** Resources and prompts the server declared; absent when not known (an older cache entry). */
+  features?: ServerFeatures;
 }
 
 export interface ListingOptions {
@@ -57,8 +59,10 @@ export interface Backend extends McpClient {
   compiler(): SchemaCompiler | undefined;
   /** Where the full text of truncated results is kept. */
   cursors(): CursorStore;
-  /** Replace the credential values this backend has resolved with `***`. */
+  /** Text the CLI composed, scanned for the credential values this backend has resolved (long ones only; see `Redactor.scan`). */
   redact(text: string): Promise<string>;
+  /** Content the CLI echoes (dry-run arguments): every string value redacted, the shape kept. */
+  redactValue<T>(value: T): Promise<T>;
   /** Credential values known to this process, for rendering. Empty when the daemon holds them. */
   secrets(): readonly string[];
 }
@@ -74,6 +78,10 @@ export interface InProcessBackendOptions {
   now: () => number;
   /** Where OAuth logins live; only given when some server uses OAuth. */
   oauthStore?: OAuthStore;
+  /** `warning: …` lines for the person running the command (e.g. a refreshed login that could not be saved). */
+  onWarning?: (message: string) => void;
+  /** Working directory and home of this run, for the `roots` of servers (config.md). */
+  roots?: { cwd: string; home: string };
 }
 
 /**
@@ -84,6 +92,7 @@ export class InProcessBackend implements Backend {
   readonly mode = 'in-process';
 
   private clientLoading?: Promise<McpClient>;
+  private loaded?: McpClient;
 
   private constructor(private readonly options: InProcessBackendOptions) {}
 
@@ -94,8 +103,13 @@ export class InProcessBackend implements Backend {
   /** The client that talks to servers, made on first use: browsing a cached catalog never needs it. */
   private client(): Promise<McpClient> {
     this.clientLoading ??= import('../client').then(({ InProcessClient }) => {
-      const { servers, resolver, now, oauthStore } = this.options;
-      return new InProcessClient(servers, resolver, { now, ...(oauthStore ? { oauthStore } : {}) });
+      const { servers, resolver, now, oauthStore, onWarning, roots } = this.options;
+      return (this.loaded = new InProcessClient(servers, resolver, {
+        now,
+        ...(oauthStore ? { oauthStore } : {}),
+        ...(onWarning ? { onWarning } : {}),
+        ...(roots ? { roots } : {}),
+      }));
     });
     return this.clientLoading;
   }
@@ -122,22 +136,35 @@ export class InProcessBackend implements Backend {
           fetchedAt: hit.fetchedAt,
           fromCache: true,
           rawBytes: hit.rawBytes,
+          ...(hit.features ? { features: hit.features } : {}),
           get tools(): McpTool[] {
             return hit.tools;
           },
         };
       }
     }
-    const tools = await (await this.client()).listTools(server.name, { timeoutMs });
+    const client = await this.client();
+    const tools = await client.listTools(server.name, { timeoutMs });
+    const features = client.features(server.name);
     const fetchedAt = now();
-    const rawBytes = cache.write(server, tools, fetchedAt);
-    return { tools, fetchedAt, fromCache: false, ...(rawBytes !== undefined ? { rawBytes } : {}) };
+    const rawBytes = cache.write(server, tools, { fetchedAt, ...(features ? { features } : {}) });
+    return { tools, fetchedAt, fromCache: false, ...(rawBytes !== undefined ? { rawBytes } : {}), ...(features ? { features } : {}) };
   }
 
   listTools: McpClient['listTools'] = async (server, options) => (await this.client()).listTools(server, options);
 
   async callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult> {
     return (await this.client()).callTool(server, rawName, args, options);
+  }
+
+  listResources: McpClient['listResources'] = async (server, options) => (await this.client()).listResources(server, options);
+  readResource: McpClient['readResource'] = async (server, uri, options) => (await this.client()).readResource(server, uri, options);
+  listPrompts: McpClient['listPrompts'] = async (server, options) => (await this.client()).listPrompts(server, options);
+  getPrompt: McpClient['getPrompt'] = async (server, name, args, options) => (await this.client()).getPrompt(server, name, args, options);
+
+  features(server: string): ServerFeatures | undefined {
+    // No client yet means no session, so nothing has been declared.
+    return this.loaded?.features(server);
   }
 
   compiler(): undefined {
@@ -149,7 +176,11 @@ export class InProcessBackend implements Backend {
   }
 
   async redact(text: string): Promise<string> {
-    return createRedactor(this.options.resolver.resolvedValues())(text);
+    return createRedactor(this.options.resolver.resolvedValues()).scan(text);
+  }
+
+  async redactValue<T>(value: T): Promise<T> {
+    return redactValue(value, createRedactor(this.options.resolver.resolvedValues())) as T;
   }
 
   secrets(): readonly string[] {
@@ -169,11 +200,17 @@ export class InProcessBackend implements Backend {
  * connection breaks) the rest of this run goes in-process, with one notice on stderr (daemon.md,
  * "生命周期" 5). A request that may already have reached the daemon is not repeated unless it has no
  * side effects: a list, or a call of a read-only tool.
+ *
+ * A request the daemon refuses as `stale` (this shell's values for the server's `env:` variables
+ * differ from what the daemon resolves) was not run, so it is always safe to run it in-process. Only
+ * that request goes in-process: the daemon stays in use for everything else, and neither it nor the
+ * socket ever sees the values (daemon.md, "环境与工作目录").
  */
 export class FallbackBackend implements Backend {
   private current: Backend;
   private fallback?: Promise<Backend>;
   private noted = false;
+  private localBackend?: Backend;
 
   constructor(
     private readonly primary: Backend,
@@ -195,6 +232,7 @@ export class FallbackBackend implements Backend {
     try {
       return await op(this.primary);
     } catch (error) {
+      if (error instanceof Error && error.name === 'DaemonStale') return op(await this.local());
       if (!(error instanceof Error && error.name === 'DaemonUnavailable')) throw error;
       const sent = (error as Error & { sent?: boolean }).sent === true;
       if (sent && !options.idempotent) {
@@ -207,6 +245,16 @@ export class FallbackBackend implements Backend {
       }
       return op(await this.switchToFallback(error.message));
     }
+  }
+
+  /** The in-process backend, without switching the run to it. */
+  private async local(): Promise<Backend> {
+    this.fallback ??= this.makeFallback().then((b) => (this.localBackend = b));
+    return this.fallback;
+  }
+
+  private localSecrets(): readonly string[] {
+    return this.localBackend?.secrets() ?? [];
   }
 
   private async switchToFallback(reason: string): Promise<Backend> {
@@ -230,6 +278,23 @@ export class FallbackBackend implements Backend {
     return this.run((b) => b.callTool(server, rawName, args, options), { idempotent: options?.retry === true, what: `calling ${rawName}` });
   }
 
+  // Lists, reads and prompt fetches change nothing on the server, so a request that may have reached the daemon is repeated.
+  listResources: McpClient['listResources'] = (server, options) =>
+    this.run((b) => b.listResources(server, options), { idempotent: true, what: `listing the resources of ${server}` });
+
+  readResource: McpClient['readResource'] = (server, uri, options) =>
+    this.run((b) => b.readResource(server, uri, options), { idempotent: true, what: `reading a resource of ${server}` });
+
+  listPrompts: McpClient['listPrompts'] = (server, options) =>
+    this.run((b) => b.listPrompts(server, options), { idempotent: true, what: `listing the prompts of ${server}` });
+
+  getPrompt: McpClient['getPrompt'] = (server, name, args, options) =>
+    this.run((b) => b.getPrompt(server, name, args, options), { idempotent: true, what: `getting a prompt of ${server}` });
+
+  features(server: string): ServerFeatures | undefined {
+    return this.current.features(server);
+  }
+
   compiler(): SchemaCompiler | undefined {
     return this.current.compiler();
   }
@@ -238,12 +303,21 @@ export class FallbackBackend implements Backend {
     return this.current !== this.primary ? this.current.cursors() : new CompositeCursorStore(this.primary.cursors(), this.files);
   }
 
-  redact(text: string): Promise<string> {
-    return this.current.redact(text);
+  /** Both sides: a value resolved in-process for a `stale` request is unknown to the daemon, and the other way round. */
+  async redact(text: string): Promise<string> {
+    const redacted = await this.current.redact(text);
+    if (this.current !== this.primary || !this.fallback) return redacted;
+    return (await this.fallback).redact(redacted);
+  }
+
+  async redactValue<T>(value: T): Promise<T> {
+    const redacted = await this.current.redactValue(value);
+    if (this.current !== this.primary || !this.fallback) return redacted;
+    return (await this.fallback).redactValue(redacted);
   }
 
   secrets(): readonly string[] {
-    return this.current.secrets();
+    return [...this.current.secrets(), ...(this.current === this.primary ? this.localSecrets() : [])];
   }
 
   async close(): Promise<void> {

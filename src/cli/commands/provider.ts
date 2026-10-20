@@ -29,7 +29,11 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
 
   if (typedTarget === undefined) {
     noteCanonical(app, [typedProvider], [visible.provider]);
-    app.out(withNewline(renderProvider(visible, { all: app.options.all })));
+    const also = [
+      ...(opened.listing.features?.resources ? [`via resources ${visible.provider}`] : []),
+      ...(opened.listing.features?.prompts ? [`via prompts ${visible.provider}`] : []),
+    ];
+    app.out(withNewline(renderProvider(visible, { all: app.options.all, also })));
     return ExitCode.Ok;
   }
 

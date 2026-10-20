@@ -64,9 +64,10 @@ export async function batchCommand(app: App, argv: readonly string[]): Promise<n
   const flush = (): void => {
     for (let entry = finished[next]; entry !== undefined; entry = finished[next]) {
       finished[next] = undefined;
-      app.err(app.redact(entry.before));
-      app.out(app.redact(entry.stdout));
-      app.err(app.redact(entry.stderr));
+      // Already redacted when each line was rendered; this is the net for a credential another line resolved since.
+      app.err(app.redact.scan(entry.before));
+      app.out(app.redact.scan(entry.stdout));
+      app.err(app.redact.scan(entry.stderr));
       if (entry.exitCode !== 0) failed += 1;
       exitCode = Math.max(exitCode, entry.exitCode);
       next += 1;

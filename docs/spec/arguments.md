@@ -2,6 +2,8 @@
 
 工具的 `inputSchema` 在运行时映射成命令行参数，不生成代码（[ADR 0008](../adr/0008-dynamic-dispatch-no-codegen.md)）；本地先做 JSON Schema 校验，不合法的调用不会发到上游。
 
+`via prompts <provider> <名称>` 的参数（MCP prompt 的参数是一组具名字符串）也走这套解析：via 把 `arguments` 转成只有 `string` 属性的 object schema（`required: true` 的进必填，`additionalProperties: false`），所以映射、`-h`、校验与报错都与工具一致，只是没有危险操作确认和 `outputSchema` 校验（[cli.md](cli.md#mcp-资源与-prompt-命令)）。
+
 ## 映射规则
 
 | schema 类型 | 命令行写法 | 说明 |
@@ -25,6 +27,7 @@
 - 任何参数值以 `@` 开头时从文件读取，值为 `-` 时从 stdin 读取（同一次调用只能有一个参数读 stdin）。
 - string 类型按原文传入；object 和 array 类型按 JSON 解析。
 - 字面量以 `@` 开头时写 `@@` 转义。
+- 文件和 stdin 的内容按 UTF-8 解码，开头的 UTF-8 BOM 被忽略，带 BOM 的 UTF-16（PowerShell 5.1 的 `>` 与 `Out-File` 的默认输出）转成文本；没有 BOM 的其他编码不猜测。
 - 适合长描述、代码、复杂对象：`--body @bug.md`、`--code - <<'JS' … JS`、`--pages @pages.json`。
 
 ### JSON 输入

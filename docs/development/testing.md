@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 拆分与分域 | 真实 server 的 `tools/list` 快照 → 规范写法、域 | 快照测试；规则变更时输出差异 |
 | 渲染 | 每种输出形状（表格、对象、文本、截断、媒体、错误） | vitest 快照，规则的任何变化在评审中显式可见 |
+| 检索质量 | `test/fixtures/search/` 里自然语言查询 → 期望规范名（调参集 `eval.json`、留出集 `heldout.json`），对 `test/fixtures/tools/` | recall@1、recall@5、MRR；`npm run eval:search` 打印词法基线与默认（同义词扩展）的对比，回归测试断言不低于基线并锁定实测下限；可选 embedding 检索用本机模拟端点（确定性假向量）测融合、缓存、超时退回与脱敏 |
 | 参数解析 | schema → 命令行参数的各条规则，含 anyOf 补齐、`@文件`、重名 | 单元测试 |
 | 配置 | 每个框架的真实配置样例、合并顺序、凭证引用、信任 | fixture 测试 |
 | 端到端 | 模拟 MCP server + CLI 全链路，含 daemon 与进程内模式 | 集成测试 |
@@ -26,12 +27,23 @@
 - 所有快照中不得出现测试凭证值，CI 中对快照做凭证值扫描。
 - 项目级配置未信任时 stdio 命令不得执行。
 
+### 跨平台约定
+
+- 路径、环境变量、引号、`PATHEXT` 等逻辑用注入的 `platform: 'win32'` 在所有宿主上测试（`test/config/paths.test.ts`、`test/platform/`、`test/daemon/paths.test.ts`），不要求在 Windows 上才能跑；守护进程的「按令牌派生的端点」流程用手工构造的 `derived` 路径集在 unix socket 上同样跑一遍（`test/daemon/protocol.test.ts`）。
+- 只在 POSIX 上有意义的测试（模式位、`chmod 000`、符号链接、unix socket 文件、`pgrep`）用 `it.skipIf(process.platform === 'win32')`，并在注释里写明原因，不要静默跳过。
+- 需要启动 Node 夹具时用 `process.execPath` 加脚本路径，不依赖 shebang 或 `.bin` 下的可执行文件；`--import` 的路径传 `pathToFileURL(...).href`；沙箱的子进程环境用 `test/cli/helpers.ts` 的 `homeEnv` / `SYSTEM_ENV`（Windows 上的子进程需要 `SystemRoot`，用户目录来自 `USERPROFILE` / `APPDATA` 而不是 `HOME` / `XDG_*`）。
+- 与快照或固定文本比较的路径输出，经 `test/helpers/portable.ts` 归一（Windows 上 `\` 换成 `/`；含沙箱路径的表格重排列宽，因为列宽取决于临时目录的长短）；断言一个具体路径时用 `path.join` 拼出期望值，不手写 `/`；`os.tmpdir()` 在 Windows 上可能是 8.3 短名（`RUNNER~1`），而 via 记录的是 `realpath.native` 的真实路径，断言此类输出用 `trustKey()`；`next:` 里的引号按平台（POSIX 单引号，Windows 双引号）。
+- 测试结束时仍在运行、并以沙箱为工作目录的子进程会让 Windows 无法删除目录（`EBUSY`）：daemon 测试的沙箱（`test/helpers/daemon.ts`）记下见过的 daemon 与 server 进程，结束时全部终止并等它们退出；删除沙箱目录时带 `maxRetries`。
+- Windows 上的 daemon 端到端测试用各沙箱独有的 `LOCALAPPDATA` 和 `USERNAME`，使管道和令牌文件互不干扰。
+
 ### 持续集成
 
 `.github/workflows/ci.yml` 在每个 PR 和 `main` 的推送上运行：
 
 - Node 22、24 上执行 `npm ci`、`npm run typecheck`、`npm run build`、`npm test`（含快照、拆分基线、词典是否最新、凭证扫描）；
+- `windows-latest`（Node 22）上执行同样四步，再用空的用户目录运行 `dist/via.js`（`--version`、浏览、`doctor`、`daemon status`）；
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
+- 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。
 
 ## token 基准
 
@@ -173,6 +185,6 @@ npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调�
 - **调用开销（无 daemon）**：对本地 Streamable HTTP 模拟 server，比较 `via <provider> <tool>` 端到端与官方 SDK client 直接调用（进程内与整进程两个口径）。
 - **热 daemon**：同一个 server 加一个 stdio server，另起 `via daemon run`，测 `via` 经热 daemon 调用的耗时，对照无 daemon 的 `via` 与复用连接的 SDK 调用（目标里的「额外开销」取前者减后者），并读 `via daemon status` 的 RSS：刚启动、建立一个 HTTP 会话后、再建立一个 stdio 会话后、多次调用后。脚本结束时执行 `via daemon stop`，不留下 daemon。
 - **模块加载**：用 `scripts/lib/load-trace.mjs`（`node --import` 的加载钩子）记录每条命令加载了哪些打包分块和 `node_modules` 包；`--version` 与 `-h` 不得加载任何包，命中缓存的浏览命令不得加载 MCP SDK 和 ajv，违反时脚本以非零退出码结束。`test/cli/dist.test.ts` 对同样的约束做了不依赖时间的断言。
-- **Bun**：已安装 `bun` 时，另测 `bun build --compile` 的单文件可执行与 `bun dist/via.js` 的冷启动，用来回答[运行时与分发](../open-questions.md)这个开放问题；未安装则跳过并说明。
+- **Bun**：已安装 `bun` 时，另测 `bun dist/via.js`、不带标志的 `bun build --compile`、逐个加 `--bytecode` 与 `--splitting` 的版本以及 `npm run build:bin` 的产物的冷启动（第 6 节；`--only-bun` 只跑这一节），第 5 节再加上产物经热 daemon 与无 daemon 的整进程调用，用来回答[运行时与分发](../open-questions.md)这个开放问题；未安装则跳过并说明。结果见 [perf-0.3](../../bench/results/perf-0.3.md)。
 
 性能数字不进 vitest 断言（CI 机器噪声太大）；测试只覆盖确定性的部分：合成目录的生成、`find` 在其上的结果、加载约束。0.1 的实测结果、环境和校准建议记录在 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)。

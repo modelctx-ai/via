@@ -2,6 +2,7 @@
 // for domain inference, which tools `deny` hides.
 import {
   buildProviderCatalog,
+  findDenyRule,
   normalizeProviderName,
   RESERVED_COMMANDS,
   type CatalogTool,
@@ -97,12 +98,9 @@ export function buildProvider(entry: ProviderEntry, tools: McpTool[], config: Lo
   return buildProviderCatalog(providerInput(entry, tools, config, withDeny));
 }
 
-/** The first `deny` rule that hides this tool, matched on both spellings (config.md, "deny"). */
-export function matchingDeny(tool: CatalogTool, deny: readonly RegExp[]): RegExp | undefined {
-  return deny.find((re) => {
-    const plain = re.global || re.sticky ? new RegExp(re.source, re.flags.replace(/[gy]/g, '')) : re;
-    return plain.test(tool.singleRef) || plain.test(`${tool.provider}/${tool.rawName}`);
-  });
+/** What denies this tool (`the deny rule /…/`), matched on every spelling (config.md, "deny"). */
+export function matchingDeny(tool: CatalogTool, deny: readonly RegExp[]): string | undefined {
+  return findDenyRule(tool, deny);
 }
 
 /** How a failed listing shows up in `via` (discovery.md, "浏览视图"). */

@@ -97,4 +97,44 @@ describe('deny: matching', () => {
     for (let i = 0; i < 3; i += 1) expect(matchingDeny(tool, [re])).toBeDefined();
     expect(names([new RegExp('^github/', 'gy')])).toHaveLength(0);
   });
+
+  it('hides a tool whose name is too long to check, as soon as any rule exists (fail closed)', () => {
+    const long = { name: `tool_${'x'.repeat(300)}`, inputSchema: { type: 'object' as const } };
+    const open = buildProviderCatalog({ provider: 'github', tools: [long] });
+    expect(open.tools).toHaveLength(1);
+    expect(buildProviderCatalog({ provider: 'github', tools: [long], deny: [/^never$/] }).tools).toHaveLength(0);
+    expect(matchingDeny(open.tools[0]!, [/^never$/])).toMatch(/longer than 256/);
+  });
+
+  it('stays fast on crafted names with a rule that passed the safety check', () => {
+    const crafted = { name: `${'a'.repeat(200)}!`, inputSchema: { type: 'object' as const } };
+    const started = Date.now();
+    buildProviderCatalog({ provider: 'github', tools: [crafted], deny: [/^.*.*.*b$/] });
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  describe('rules written against the default spelling survive `rename`', () => {
+    const defaultRef = buildProviderCatalog({ provider: 'github', tools }).tools.find((t) => t.rawName === 'delete_file')!.singleRef;
+    const exact = (ref: string): RegExp => new RegExp(`^${ref.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}$`);
+    const rename = { delete_file: 'file:erase' };
+
+    it('matches the raw name, the default spelling and the renamed spelling', () => {
+      for (const rule of [exact(defaultRef), exact('github/delete_file'), exact('github/file:erase')]) {
+        const catalog = buildProviderCatalog({ provider: 'github', tools, rename, deny: [rule] });
+        expect(catalog.tools.some((t) => t.rawName === 'delete_file'), rule.source).toBe(false);
+      }
+      expect(defaultRef).not.toBe('github/file:erase');
+    });
+
+    it('also covers a tool renamed to a leaf name, and matchingDeny for a direct call', () => {
+      const leaf = buildProviderCatalog({ provider: 'github', tools, rename: { delete_file: 'wipe' }, deny: [exact(defaultRef)] });
+      expect(leaf.tools.some((t) => t.rawName === 'delete_file')).toBe(false);
+      expect(matchingDeny(buildProviderCatalog({ provider: 'github', tools, rename }).tools.find((t) => t.rawName === 'delete_file')!, [exact(defaultRef)])).toBeDefined();
+    });
+
+    it('does not hide other tools', () => {
+      const catalog = buildProviderCatalog({ provider: 'github', tools, rename, deny: [exact(defaultRef)] });
+      expect(catalog.tools).toHaveLength(all.length - 1);
+    });
+  });
 });

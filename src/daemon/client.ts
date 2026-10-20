@@ -4,7 +4,7 @@
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, truncateSync } from 'node:fs';
 import { createConnection, type Socket } from 'node:net';
 import type { Event, Hello, HelloAck, RequestBody, Response, Stale } from '../protocol';
-import { unsafeReason, type DaemonPaths } from './paths';
+import { endpointOf, unsafeReason, type DaemonPaths } from './paths';
 import { encode, LineDecoder, parseMessage } from './wire';
 
 /**
@@ -63,8 +63,13 @@ export class DaemonConnection {
 
   /** Connect and say hello. Resolves with a refusal instead of throwing for "no daemon" and version/token mismatches. */
   static connect(paths: DaemonPaths, version: string, timeoutMs = 1000): Promise<ConnectResult> {
+    // The token is read before connecting: a derived pipe is named after it, and without a token
+    // file there is no daemon to connect to.
+    const token = readToken(paths);
+    const endpoint = endpointOf(paths, token);
+    if (endpoint === undefined) return Promise.resolve({ refused: 'absent' });
     return new Promise((resolve, reject) => {
-      const socket = createConnection(paths.socket);
+      const socket = createConnection(endpoint);
       const decoder = new LineDecoder();
       let settled = false;
       const finish = (action: () => void): void => {
@@ -115,7 +120,7 @@ export class DaemonConnection {
       });
       socket.once('close', () => refuse({ refused: 'absent' }));
       socket.once('connect', () => {
-        const hello: Hello = { type: 'hello', version, pid: process.pid, token: readToken(paths) };
+        const hello: Hello = { type: 'hello', version, pid: process.pid, token };
         socket.write(encode(hello));
       });
     });
@@ -201,7 +206,6 @@ export class DaemonConnection {
 }
 
 function readToken(paths: DaemonPaths): string {
-  if (paths.pipe) return '';
   try {
     return readFileSync(paths.token, 'utf8');
   } catch {
@@ -290,6 +294,11 @@ export class DaemonClient {
     this.conn = undefined;
   }
 
+  /** 2 s (daemon.md); Windows gets 5 s: process creation and antivirus scans of a cold node.exe are slower there. */
+  private readyTimeoutMs(): number {
+    return this.options.readyTimeoutMs ?? (process.platform === 'win32' ? 5000 : 2000);
+  }
+
   private async open(spawnIfAbsent: boolean): Promise<DaemonConnection | undefined> {
     const { paths, version } = this.options;
     const unsafe = unsafeReason(paths);
@@ -300,7 +309,7 @@ export class DaemonClient {
     if (!spawnIfAbsent) return undefined;
     // No daemon, or one of another version that is draining and has already released the socket.
     const child = await this.spawnDaemon();
-    const deadline = Date.now() + (this.options.readyTimeoutMs ?? 2000);
+    const deadline = Date.now() + this.readyTimeoutMs();
     let attempt = 0;
     for (;;) {
       const failure = child.failure();
@@ -308,7 +317,7 @@ export class DaemonClient {
       const result = await DaemonConnection.connect(paths, version);
       if ('conn' in result) return result.conn;
       if (result.refused === 'token') throw new DaemonUnavailable('the via daemon refused the handshake (token mismatch)');
-      if (Date.now() > deadline) throw new DaemonUnavailable(`the via daemon did not start within ${(this.options.readyTimeoutMs ?? 2000) / 1000}s${child.tail()}`);
+      if (Date.now() > deadline) throw new DaemonUnavailable(`the via daemon did not start within ${this.readyTimeoutMs() / 1000}s${child.tail()}`);
       attempt += 1;
       await sleep(Math.min(10 + attempt * 5, 40));
     }
@@ -331,7 +340,8 @@ export class DaemonClient {
     childEnv.HOME ??= home;
     const runtime = daemonRuntime(command.command);
     for (const [name, value] of Object.entries(runtime.env)) childEnv[name] ??= value;
-    const args = [...runtime.flags, ...command.args, 'daemon', 'run', '--socket', paths.socket, '--idle-timeout', String(idleTimeoutSec)];
+    // A derived pipe has no name to pass: the daemon computes the same default paths from its environment.
+    const args = [...runtime.flags, ...command.args, 'daemon', 'run', ...(paths.derived ? [] : ['--socket', paths.socket]), '--idle-timeout', String(idleTimeoutSec)];
     let failure: string | undefined;
     const child = spawn(command.command, args, {
       detached: true,

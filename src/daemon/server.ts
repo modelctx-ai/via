@@ -1,4 +1,4 @@
-// The daemon (daemon.md): a unix-socket server that keeps MCP sessions, tool lists, resolved
+// The daemon (daemon.md): a unix-socket (Windows: named pipe) server that keeps MCP sessions, tool lists, resolved
 // credentials and truncation cursors for every `via` process of one user. The CLI parses arguments
 // and renders; the daemon answers with structured results.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import type { JsonSchema } from '../catalog/types';
 import { compileSchema, type CompileResult } from '../cli/args/validate';
 import { ClientError } from '../client';
+import type { OAuthStore } from '../client/oauth';
 import { createCredentialResolver } from '../config/credentials';
 import { pathContext, userCacheDir } from '../config/paths';
 import type {
@@ -24,10 +25,11 @@ import type {
   Stale,
   ValidateResult,
 } from '../protocol';
-import { MemoryCursorStore, type CursorRecord } from '../render/cursor';
+import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/sanitize';
-import type { DaemonPaths } from './paths';
+import { redactValue } from '../render/redact';
+import { endpointOf, type DaemonPaths } from './paths';
 import { CREDENTIAL_TTL_MS, ExpiringResolver, SessionManager } from './sessions';
 import { envStamp } from './target';
 import { encode, LineDecoder, parseMessage } from './wire';
@@ -45,6 +47,10 @@ export interface DaemonOptions {
   now?: () => number;
   /** How often to check that the socket file is still ours; an unreachable daemon exits. */
   watchMs?: number;
+  /** Where cursors are stored; default: `cursors/` in the user cache directory (same as in-process mode). */
+  cursorDir?: string;
+  /** Replaces the default OAuth login store (tests). */
+  oauthStore?: OAuthStore;
 }
 
 type State = 'new' | 'running' | 'draining' | 'stopped';
@@ -79,19 +85,28 @@ export class DaemonServer {
   private watchTimer?: NodeJS.Timeout;
   private socketIno?: number;
   private token = '';
+  /** What the server listens on: the socket path, or for a derived pipe its full name. */
+  private endpoint = '';
   private sessions!: SessionManager;
-  private readonly cursors: MemoryCursorStore;
+  /** Cursors live in the user cache directory (like in-process mode), so they outlive the daemon. */
+  private readonly cursors: FileCursorStore;
   private readonly schemas = new Map<string, JsonSchema>();
   private readonly now: () => number;
 
   constructor(private readonly options: DaemonOptions) {
     this.now = options.now ?? Date.now;
-    this.cursors = new MemoryCursorStore({ now: this.now });
+    const cacheCtx = pathContext({ home: options.home, env: options.env, platform: options.platform });
+    this.cursors = new FileCursorStore(options.cursorDir ?? join(userCacheDir(cacheCtx), 'cursors'), { now: this.now });
     this.closed = new Promise((resolve) => (this.resolveClosed = resolve));
   }
 
   get paths(): DaemonPaths {
     return this.options.paths;
+  }
+
+  /** What the daemon listens on, once started. */
+  get address(): string {
+    return this.endpoint;
   }
 
   /**
@@ -101,13 +116,17 @@ export class DaemonServer {
    */
   async start(): Promise<'started' | 'running'> {
     const { paths } = this.options;
-    if (!paths.pipe) mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
-    const release = paths.pipe ? () => undefined : await acquireLock(paths.lock);
+    // On Windows the directory only holds the token, lock and log; its privacy is the user profile's ACL.
+    mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+    const release = await acquireLock(paths.lock);
     try {
-      if (await isAlive(paths.socket)) return 'running';
-      if (!paths.pipe) rmSync(paths.socket, { force: true });
+      // A derived pipe is found through the token of the daemon that made it.
+      const existing = endpointOf(paths, readFileOrEmpty(paths.token));
+      if (existing !== undefined && (await isAlive(existing))) return 'running';
+      if (!paths.pipe && !paths.derived) rmSync(paths.socket, { force: true });
       this.token = randomBytes(32).toString('hex');
-      if (!paths.pipe) writeFileAtomic(paths.token, this.token);
+      this.endpoint = endpointOf(paths, this.token)!;
+      writeFileAtomic(paths.token, this.token);
       await this.listen();
     } finally {
       release();
@@ -126,6 +145,7 @@ export class DaemonServer {
       now: this.now,
       home: this.options.home,
       platform: this.options.platform,
+      ...(this.options.oauthStore ? { oauthStore: this.options.oauthStore } : {}),
     });
     this.updateIdle();
     this.watchTimer = setInterval(() => this.watchSocket(), this.options.watchMs ?? 5000);
@@ -169,7 +189,7 @@ export class DaemonServer {
       // The socket must never exist with wider access than 0600, not even for an instant.
       let previous: number | undefined;
       try {
-        previous = process.umask(0o177);
+        if (!paths.pipe) previous = process.umask(0o177);
       } catch {
         // worker threads cannot set the umask; the chmod below and the private directory still apply
       }
@@ -180,14 +200,14 @@ export class DaemonServer {
         restore();
         reject(error);
       });
-      server.listen(paths.socket, () => {
+      server.listen(this.endpoint, () => {
         restore();
         server.removeAllListeners('error');
         server.on('error', () => undefined);
         if (!paths.pipe) {
           try {
-            chmodSync(paths.socket, 0o600);
-            this.socketIno = statSync(paths.socket).ino;
+            chmodSync(this.endpoint, 0o600);
+            this.socketIno = statSync(this.endpoint).ino;
           } catch {
             // the watcher notices a missing socket
           }
@@ -210,14 +230,14 @@ export class DaemonServer {
       server.unref();
       return;
     }
-    if (!this.options.paths.pipe) rmSync(this.options.paths.socket, { force: true });
+    if (!this.options.paths.pipe) rmSync(this.endpoint, { force: true });
     server.close();
   }
 
   private ownsSocket(): boolean {
     if (this.options.paths.pipe) return true;
     try {
-      return this.socketIno !== undefined && statSync(this.options.paths.socket).ino === this.socketIno;
+      return this.socketIno !== undefined && statSync(this.endpoint).ino === this.socketIno;
     } catch {
       return false;
     }
@@ -225,7 +245,7 @@ export class DaemonServer {
 
   private removeToken(): void {
     const { paths } = this.options;
-    if (paths.pipe || this.token === '') return;
+    if (this.token === '') return;
     try {
       if (readFileSync(paths.token, 'utf8') === this.token) rmSync(paths.token, { force: true });
     } catch {
@@ -233,10 +253,15 @@ export class DaemonServer {
     }
   }
 
-  /** A daemon whose socket file was removed or replaced cannot be reached; leaving it running only leaks. */
+  /**
+   * A daemon whose socket file was removed or replaced cannot be reached; leaving it running only leaks.
+   * A pipe leaves nothing on disk to watch but the token file: clients find the pipe (derived) or
+   * authenticate (fixed) through it, so a daemon whose token file is gone or belongs to another
+   * daemon is as unreachable.
+   */
   private watchSocket(): void {
     if (this.state !== 'running') return;
-    if (!this.options.paths.pipe && !this.ownsSocket()) void this.stop();
+    if (this.options.paths.pipe ? readFileOrEmpty(this.options.paths.token) !== this.token : !this.ownsSocket()) void this.stop();
   }
 
   // Idle exit ---------------------------------------------------------------------------
@@ -315,7 +340,7 @@ export class DaemonServer {
       return;
     }
     const hello = message as unknown as Hello;
-    if (!this.options.paths.pipe && !tokenMatches(this.token, hello.token)) {
+    if (!tokenMatches(this.token, hello.token)) {
       refuse('token');
       return;
     }
@@ -356,10 +381,16 @@ export class DaemonServer {
   private async handle(conn: Connection, request: Request): Promise<unknown> {
     switch (request.type) {
       case 'status':
-        return this.status();
+        return await this.status();
       case 'list': {
         if (this.stale(request)) return STALE;
-        const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true, ...(typeof request.have === 'number' ? { have: request.have } : {}) });
+        const onWarning = (message: string): void => this.sendWarning(conn, request.id, message);
+        const result: ListResult = await this.sessions.list(request, {
+          timeoutMs: request.timeoutMs,
+          refresh: request.refresh === true,
+          onWarning,
+          ...(typeof request.have === 'number' ? { have: request.have } : {}),
+        });
         return result;
       }
       case 'call': {
@@ -374,12 +405,26 @@ export class DaemonServer {
           ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
           ...(request.retry ? { retry: true } : {}),
           ...(onProgress ? { onProgress } : {}),
+          onWarning: (message: string): void => this.sendWarning(conn, request.id, message),
         });
       }
+      case 'resources-list':
+        if (this.stale(request)) return STALE;
+        return this.sessions.resources(request, { timeoutMs: request.timeoutMs });
+      case 'resource-read':
+        if (this.stale(request)) return STALE;
+        return this.sessions.readResource(request, String(request.uri), { timeoutMs: request.timeoutMs });
+      case 'prompts-list':
+        if (this.stale(request)) return STALE;
+        return this.sessions.prompts(request, { timeoutMs: request.timeoutMs });
+      case 'prompt-get':
+        if (this.stale(request)) return STALE;
+        return this.sessions.getPrompt(request, String(request.name), promptArgs(request.args), { timeoutMs: request.timeoutMs });
       case 'validate':
         return this.validate(request.schema, request.label, request.data, request.compileOnly === true);
       case 'redact':
-        return this.sessions.redact(String(request.text));
+        // A value is content the CLI echoes (dry-run arguments); text is something the CLI composed.
+        return 'value' in request ? redactValue(request.value, this.sessions.redact) : this.sessions.redact.scan(String(request.text));
       case 'cursor-put':
         return this.cursors.put(request.record);
       case 'cursor-get': {
@@ -396,6 +441,11 @@ export class DaemonServer {
       default:
         throw new ClientError({ exitCode: ExitCode.Internal, message: `unknown message type: ${String((request as { type: unknown }).type).slice(0, 40)}` });
     }
+  }
+
+  /** A `log` event for the request that caused it: the CLI prints it as a `warning:` line. */
+  private sendWarning(conn: Connection, id: string, message: string): void {
+    this.send(conn, { id, type: 'event', event: 'log', data: { level: 'warning', message: this.sessions.redact.scan(message) } } satisfies Event);
   }
 
   private stale(target: ServerTarget): boolean {
@@ -433,7 +483,7 @@ export class DaemonServer {
 
   // Status ------------------------------------------------------------------------------
 
-  private status(): DaemonStatus {
+  private async status(): Promise<DaemonStatus> {
     const now = this.now();
     // Asking for the status is itself a request on a connection: when nothing else is going on, the
     // daemon would be idle (and start counting) the moment this reply is out.
@@ -442,13 +492,13 @@ export class DaemonServer {
     return {
       pid: process.pid,
       version: this.options.version,
-      socket: this.options.paths.socket,
+      socket: this.endpoint,
       startedAt: this.startedAt,
       uptimeMs: now - this.startedAt,
       idleTimeoutMs: this.options.idleTimeoutMs,
       ...idleExit,
       requests: this.requests,
-      cursors: this.cursors.size,
+      cursors: await this.cursors.count(),
       rssBytes: process.memoryUsage.rss(),
       sessions: this.sessions.status(),
     };
@@ -460,15 +510,43 @@ const STALE = Symbol('stale');
 
 // Helpers -------------------------------------------------------------------------------
 
+/** Prompt arguments are strings; anything else a confused caller sent is dropped. */
+function promptArgs(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof value === 'object' && value !== null) {
+    for (const [key, v] of Object.entries(value)) if (typeof v === 'string') Object.defineProperty(out, key, { value: v, enumerable: true, writable: true, configurable: true });
+  }
+  return out;
+}
+
 function tokenMatches(expected: string, given: unknown): boolean {
   if (typeof given !== 'string' || given.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
 }
 
+function readFileOrEmpty(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
 function writeFileAtomic(path: string, content: string): void {
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, content, { mode: 0o600 });
-  renameSync(tmp, path);
+  try {
+    renameSync(tmp, path);
+  } catch (error) {
+    // Windows refuses to replace a file that a virus scanner or a reader holds open for a moment.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') throw error;
+    try {
+      writeFileSync(path, content, { mode: 0o600 });
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  }
 }
 
 /** Whether something accepts connections on `socket`. A refused or missing socket is stale or absent. */

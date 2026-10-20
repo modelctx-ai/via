@@ -58,7 +58,7 @@ describe('ViewCache round trip', () => {
     const fresh = { providers: [...built.values()].sort((a, b) => (a.provider < b.provider ? -1 : 1)), warnings: [] };
     const cached = { providers: [...restored.values()].sort((a, b) => (a.provider < b.provider ? -1 : 1)), warnings: [] };
     const freshIndex = new SearchIndex(fresh);
-    const cachedIndex = new SearchIndex(cached, undefined, { get: (tool: CatalogTool): DocTerms | undefined => restoredTerms.get(tool.provider)?.get(tool) });
+    const cachedIndex = new SearchIndex(cached, undefined, { precomputed: { get: (tool: CatalogTool): DocTerms | undefined => restoredTerms.get(tool.provider)?.get(tool) } });
     expect(cachedIndex.size).toBe(freshIndex.size);
     for (const query of ['create issue', 'search', 'list files', 'send message', 'query', '', 'github/issue', 'dm', 'page']) {
       const summary = (index: SearchIndex) => index.search(query, { limit: 25 }).map((h) => [h.tool.ref, h.tier, h.score]);
@@ -196,7 +196,7 @@ describe('ViewCache invalidation', () => {
 
   it('is cleared with the raw list of the server', () => {
     const { dir } = primed();
-    new CatalogCache(dir).write(server, tools, FETCHED_AT);
+    new CatalogCache(dir).write(server, tools, { fetchedAt: FETCHED_AT });
     new CatalogCache(dir).clear(server);
     expect(readdirSync(dir)).toEqual([]);
   });
@@ -228,7 +228,7 @@ describe('ViewCache and credentials', () => {
     const raw = new CatalogCache(dir);
     for (const s of [server, server2]) {
       const inp = input(s.provider, tools);
-      raw.write(s, tools, FETCHED_AT);
+      raw.write(s, tools, { fetchedAt: FETCHED_AT });
       cache.write(s, inp, { tools, fetchedAt: FETCHED_AT }, buildProviderCatalog(inp));
     }
     const names = readdirSync(dir);

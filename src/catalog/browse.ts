@@ -101,6 +101,8 @@ export interface ProviderViewOptions {
   all?: boolean;
   maxRows?: number;
   maxLeaves?: number;
+  /** Commands for what the server offers besides tools (`via resources <p>`); shown on an `also:` line. */
+  also?: readonly string[];
 }
 
 function verbList(group: ResourceGroup): string {
@@ -123,7 +125,8 @@ export function renderProvider(provider: ProviderCatalog, options: ProviderViewO
     lines.push(`tools: ${names.join(' · ')}`);
   }
   if (provider.tools.length === 0) lines.push('(no tools)');
-  else if (provider.resources.length > 0) lines.push(`→ via ${provider.provider} <resource> for signatures`);
+  if (options.also && options.also.length > 0) lines.push(`also: ${options.also.join(' · ')}`);
+  if (provider.tools.length > 0 && provider.resources.length > 0) lines.push(`→ via ${provider.provider} <resource> for signatures`);
   return lines.join('\n');
 }
 

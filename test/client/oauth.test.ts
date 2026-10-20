@@ -6,6 +6,7 @@ import { InProcessClient } from '../../src/client';
 import {
   accountOf,
   browserUnavailable,
+  checkStoreWritable,
   createCallProvider,
   createMemoryOAuthStore,
   createOAuthStore,
@@ -122,6 +123,49 @@ describe('OAuth store', () => {
     expect(await store.get(key)).toBeUndefined();
   });
 
+  it('splits a record over several Credential Manager entries on Windows, where one holds about 1280 characters', async () => {
+    const limited = fakeKeyring();
+    const entry = limited.AsyncEntry;
+    const writes: number[] = [];
+    // Credential Manager: a password longer than 1280 UTF-16 characters is refused.
+    limited.AsyncEntry = class extends entry {
+      override async setPassword(value: string) {
+        writes.push(value.length);
+        if (value.length > 1280) throw new Error('Attribute password is longer than platform limit of 1280 chars');
+        return super.setPassword(value);
+      }
+    };
+    const big: OAuthRecord = { ...record, tokens: { access_token: `${'a'.repeat(2500)}😀${'b'.repeat(1500)}`, token_type: 'Bearer', refresh_token: 'r'.repeat(900) } };
+    const key = oauthKey({ url: record.serverUrl });
+
+    const win = createOAuthStore({ dir: join(tmp(), 'oauth'), mode: 'keychain', platform: 'win32', loadKeyring: async () => limited });
+    expect(await win.set(key, big)).toEqual({ location: { kind: 'keychain' } });
+    expect(Math.max(...writes)).toBeLessThanOrEqual(1280);
+    expect(limited.data[key]).toMatch(/^via:chunks:\d+$/);
+    expect(Object.keys(limited.data).length).toBeGreaterThan(2);
+    expect((await win.get(key))?.record).toEqual(big);
+
+    // A shorter record afterwards leaves no stale pieces behind, and a small one stays in one entry.
+    await win.set(key, record);
+    expect(Object.keys(limited.data)).toEqual([key]);
+    expect(JSON.parse(limited.data[key]!)).toEqual(record);
+
+    await win.set(key, big);
+    expect(await win.delete(key)).toBe(true);
+    expect(limited.data).toEqual({});
+    expect(await win.get(key)).toBeUndefined();
+
+    // Elsewhere nothing is split: the platform decides what it accepts.
+    const posix = createOAuthStore({ dir: join(tmp(), 'oauth'), mode: 'keychain', platform: 'linux', loadKeyring: async () => limited });
+    await expect(posix.set(key, big)).rejects.toThrow('longer than platform limit');
+  });
+
+  it('treats a split record with a missing piece as no login', async () => {
+    const keyring = fakeKeyring({ 'oauth:k': 'via:chunks:3', 'oauth:k#0': '{"ver', 'oauth:k#1': 'sion":1' });
+    const store = createOAuthStore({ dir: join(tmp(), 'oauth'), mode: 'keychain', platform: 'win32', loadKeyring: async () => keyring });
+    expect(await store.get('oauth:k')).toBeUndefined();
+  });
+
   it('falls back to a 0600 file in a 0700 directory when the keychain does not work', async () => {
     const dir = join(tmp(), 'oauth');
     const store = createOAuthStore({ dir, mode: 'auto', loadKeyring: async () => fakeKeyring({}, 'no secret service') });
@@ -131,8 +175,11 @@ describe('OAuth store', () => {
     expect(set.fallbackReason).toBe('the system keychain is not available (no secret service)');
     const files = readdirSync(dir);
     expect(files).toEqual([`${key.replace(':', '-')}.json`]);
-    expect(statSync(join(dir, files[0]!)).mode & 0o777).toBe(0o600);
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    // Windows has no mode bits; the file sits in the user's profile and is protected by its ACL.
+    if (process.platform !== 'win32') {
+      expect(statSync(join(dir, files[0]!)).mode & 0o777).toBe(0o600);
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+    }
     expect((await store.get(key))?.record.tokens?.access_token).toBe('at-secret-value');
     expect(await store.delete(key)).toBe(true);
     expect(readdirSync(dir)).toEqual([]);
@@ -221,7 +268,21 @@ describe('browser opening', () => {
     expect(browserUnavailable({}, 'darwin')).toBeUndefined();
     expect(openerCommand('https://a/b?c=1&d=2', 'darwin')).toEqual({ command: 'open', args: ['https://a/b?c=1&d=2'] });
     expect(openerCommand('https://a/b?c=1&d=2', 'linux')).toEqual({ command: 'xdg-open', args: ['https://a/b?c=1&d=2'] });
-    expect(openerCommand('https://a/b?c=1&d=2', 'win32')).toEqual({ command: 'cmd', args: ['/c', 'start', '""', 'https://a/b?c=1^&d=2'] });
+  });
+
+  it('opens a URL on Windows without cmd.exe: the URL is an argument of rundll32 and no shell sees it', () => {
+    const hostile = 'https://a/b?c=1&d=2|calc^(%PATH%)';
+    expect(openerCommand(hostile, 'win32', { SystemRoot: 'C:\\Windows' })).toEqual({
+      command: 'C:\\Windows\\System32\\rundll32.exe',
+      args: ['url.dll,FileProtocolHandler', hostile],
+    });
+    expect(openerCommand(hostile, 'win32', {}).command).toBe('rundll32.exe');
+  });
+
+  it('opens web pages only', async () => {
+    for (const url of ['file:///C:/Windows/System32/calc.exe', 'C:\\Windows\\System32\\calc.exe', 'ms-settings:', 'javascript:alert(1)']) {
+      expect(await openBrowser(url, { DISPLAY: ':0' }, 'linux')).toEqual({ opened: false, reason: 'the URL is not an http(s) URL' });
+    }
   });
 
   it('does not hang or throw when the opener does not exist', async () => {
@@ -305,6 +366,89 @@ describe('token refresh', () => {
     const { store, target } = await loggedIn(srv);
     const provider = createCallProvider(httpServer(target.url, { provider: 'linear', auth: { type: 'oauth' } }), store, { now: () => T0 + 2 * HOUR });
     await expect(provider.accessToken()).rejects.toMatchObject({ name: 'LoginRequiredError', reason: 'expired' });
+  });
+});
+
+describe('checkStoreWritable', () => {
+  it('names what cannot be written: the file, or the directory it is replaced in', async () => {
+    const location = { kind: 'file' as const, path: '/data/via/oauth/oauth-abc.json' };
+    const denied = (blocked: string) => async (path: string) => {
+      if (path === blocked) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    };
+    expect(await checkStoreWritable(location, async () => undefined)).toBeUndefined();
+    expect(await checkStoreWritable(location, denied('/data/via/oauth'))).toEqual({ path: '/data/via/oauth', what: 'directory' });
+    expect(await checkStoreWritable(location, denied('/data/via/oauth/oauth-abc.json'))).toEqual({ path: '/data/via/oauth/oauth-abc.json', what: 'file' });
+  });
+
+  it('does not probe the keychain', async () => {
+    expect(await checkStoreWritable({ kind: 'keychain' }, async () => { throw new Error('never called'); })).toBeUndefined();
+  });
+
+  it('works on real files', async () => {
+    const dir = tmp();
+    const file = join(dir, 'x.json');
+    writeFileSync(file, '{}');
+    expect(await checkStoreWritable({ kind: 'file', path: file })).toBeUndefined();
+  });
+});
+
+describe('refresh with a read-only token store', () => {
+  /** A store that can be read but not written, like a login kept on a read-only mount. */
+  function readOnly(inner: ReturnType<typeof createMemoryOAuthStore>) {
+    return { get: inner.get.bind(inner), delete: inner.delete.bind(inner), set: async () => { throw new Error('EROFS: read-only file system, open \'/data/via/oauth/x.json\''); } };
+  }
+
+  it('keeps working with the refreshed token and warns once per session (not per refresh)', async () => {
+    const srv = await mockServer();
+    const { store } = await loggedIn(srv);
+    let now = T0;
+    const warnings: string[] = [];
+    const client = new InProcessClient([httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } })], new FakeResolver(), {
+      oauthStore: readOnly(store),
+      now: () => now,
+      onWarning: (m) => warnings.push(m),
+    });
+    cleanups.push(() => client.close());
+    await client.listTools('linear');
+    expect(warnings).toEqual([]);
+    now = T0 + 2 * HOUR;
+    const result = await client.callTool('linear', 'echo_text', { message: 'hi' });
+    expect(JSON.stringify(result)).toContain('echo: hi');
+    now = T0 + 4 * HOUR;
+    await client.callTool('linear', 'echo_text', { message: 'again' });
+    expect(srv.state.tokenRequests.filter((t) => t.grant_type === 'refresh_token')).toHaveLength(2);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('linear');
+    expect(warnings[0]).toContain('writable');
+    expect(warnings[0]).toContain('via doctor');
+    // No token value in the warning.
+    for (const secret of srv.issuedAccessTokens().concat(srv.issuedRefreshTokens())) expect(warnings[0]).not.toContain(secret);
+  });
+
+  it('delivers the warning to the call that caused it (what the daemon forwards to its caller)', async () => {
+    const srv = await mockServer();
+    const { store } = await loggedIn(srv);
+    let now = T0;
+    const client = new InProcessClient([httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } })], new FakeResolver(), { oauthStore: readOnly(store), now: () => now });
+    cleanups.push(() => client.close());
+    await client.listTools('linear');
+    now = T0 + 2 * HOUR;
+    const warnings: string[] = [];
+    await client.callTool('linear', 'echo_text', { message: 'hi' }, { onWarning: (m) => warnings.push(m) });
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('a writable store produces no warning', async () => {
+    const srv = await mockServer();
+    const { store } = await loggedIn(srv);
+    let now = T0;
+    const warnings: string[] = [];
+    const client = new InProcessClient([httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } })], new FakeResolver(), { oauthStore: store, now: () => now, onWarning: (m) => warnings.push(m) });
+    cleanups.push(() => client.close());
+    await client.listTools('linear');
+    now = T0 + 2 * HOUR;
+    await client.callTool('linear', 'echo_text', { message: 'hi' });
+    expect(warnings).toEqual([]);
   });
 });
 

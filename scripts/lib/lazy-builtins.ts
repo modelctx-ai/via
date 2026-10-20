@@ -43,7 +43,10 @@ function shimFor(id: Target): string {
     // fs/promises: loading the module itself is the cost, so each function loads it when called.
     header.push(`let cached; const m = () => (cached ??= load());`, `export default new Proxy({}, { get: (_, key) => m()[key] });`);
     for (const name of names) {
-      if (typeof real[name] === 'function') lines.push(`export const ${name} = (...args) => m().${name}(...args);`);
+      const value = real[name];
+      if (typeof value === 'function') lines.push(`export const ${name} = (...args) => m().${name}(...args);`);
+      // Plain objects (`constants`) load the module when something is read from them.
+      else if (typeof value === 'object' && value !== null) lines.push(`export const ${name} = new Proxy({}, { get: (_, key) => m().${name}[key] });`);
     }
   }
   return [...header, ...lines].join('\n');

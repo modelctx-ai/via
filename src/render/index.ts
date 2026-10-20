@@ -3,7 +3,7 @@ export type { ContentBlock, OutputFormat, ToolResult } from './types';
 export { cleanValue } from './clean';
 export { shapeValue, type ShapeOptions, type Shaped, type ShapeKind } from './shape';
 export { compileNoise, defaultNoise, defaultColumns, type NoiseData, type NoiseRules, type ColumnsData } from './rules';
-export { createRedactor, redactValue, REDACTED } from './redact';
+export { createRedactor, lazyRedactor, MIN_SCAN_LENGTH, redactProtocol, redactValue, REDACTED, scannerOf, type Redactor } from './redact';
 export { alignRows, displayWidth, padEndWidth, truncateChars } from './width';
 export { shellWord } from './shell';
 export {

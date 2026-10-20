@@ -4,7 +4,7 @@ import { ExitCode } from './exit-codes';
 import { formatError, type ErrorInfo } from './errors';
 import { formatMetaLine, type MetaInfo } from './meta';
 import type { MediaSink } from './media';
-import { createRedactor, redactValue } from './redact';
+import { createRedactor, redactValue, scannerOf, type Redactor } from './redact';
 import { sanitizeText } from './sanitize';
 import { defaultColumns, defaultNoise, type ColumnsData, type NoiseRules } from './rules';
 import { shapeValue } from './shape';
@@ -28,6 +28,12 @@ export interface RenderOptions {
   columns: ColumnsData;
   /** Resolved credential values that must never reach the output. */
   secrets: readonly string[];
+  /**
+   * The result was already redacted field by field (`redactProtocol`), so its protocol fields
+   * (`role`, `mimeType`, …) are final. Rendering then only runs the document scan over what it
+   * composes, and does not redact the values again.
+   */
+  redacted?: boolean;
 }
 
 export function renderOptions(overrides: Partial<RenderOptions> = {}): RenderOptions {
@@ -158,7 +164,8 @@ function textBody(pieces: Piece[], options: RenderOptions, redact: (s: string) =
       const text = redact(piece.text).replace(/\s+$/, '');
       if (text) sections.push({ lines: text.split('\n'), compact: !text.includes('\n') });
     } else {
-      sections.push({ lines: [piece.path ?? piece.uri ?? ''], compact: true });
+      // A saved file's path is ours (cache directory, hash, extension); a link's URI is the server's.
+      sections.push({ lines: [piece.path ?? redact(piece.uri ?? '')], compact: true });
     }
   }
   const single = sections.length === 1;
@@ -181,7 +188,7 @@ function jsonBody(pieces: Piece[], options: RenderOptions, redact: (s: string) =
     } else if (piece.kind === 'text') {
       values.push(redact(piece.text));
     } else {
-      values.push(piece.path !== undefined ? { type: piece.type, path: piece.path } : { type: piece.type, uri: piece.uri });
+      values.push(piece.path !== undefined ? { type: piece.type, path: piece.path } : { type: piece.type, uri: redact(piece.uri ?? '') });
     }
   }
   if (values.length === 0) return { lines: [], header: [], hiddenColumns: 0 };
@@ -194,22 +201,29 @@ function jsonBody(pieces: Piece[], options: RenderOptions, redact: (s: string) =
   };
 }
 
+/** The redactor for rendering: every credential for values, unless the result already went through `redactProtocol`. */
+function redactorFor(options: Pick<RenderOptions, 'secrets' | 'redacted'>): Redactor {
+  const redactor = createRedactor(options.secrets);
+  if (!options.redacted) return redactor;
+  return Object.assign((text: string) => redactor.scan(text), { scan: redactor.scan, key: redactor.key });
+}
+
 /** `-o raw`: the upstream content verbatim (text blocks as written), only redacted. */
 function rawText(result: ToolResult, media: MediaSink, redact: (s: string) => string): string {
   const parts: string[] = [];
   for (const block of result.content ?? []) {
-    if (block.type === 'text') parts.push(block.text);
-    else if (block.type === 'resource' && block.resource.text !== undefined) parts.push(block.resource.text);
+    if (block.type === 'text') parts.push(redact(block.text));
+    else if (block.type === 'resource' && block.resource.text !== undefined) parts.push(redact(block.resource.text));
     else {
       for (const piece of blockPieces(block, media)) {
-        if (piece.kind === 'media') parts.push(piece.path ?? piece.uri ?? '');
+        if (piece.kind === 'media') parts.push(piece.path ?? redact(piece.uri ?? ''));
       }
     }
   }
   if (parts.length === 0 && result.structuredContent !== undefined) {
-    parts.push(JSON.stringify(result.structuredContent, null, 2));
+    parts.push(JSON.stringify(redactValue(result.structuredContent, redact), null, 2));
   }
-  return redact(parts.join('\n'));
+  return parts.join('\n');
 }
 
 const withNewline = (s: string) => (s === '' || s.endsWith('\n') ? s : `${s}\n`);
@@ -231,13 +245,14 @@ export async function renderToolResult(
   options: RenderOptions,
   ctx: RenderContext,
 ): Promise<RenderOutput> {
-  const redact = createRedactor(options.secrets);
+  const redact = redactorFor(options);
+  const scan = scannerOf(redact);
   const now = ctx.now ?? Date.now;
 
   if (result.isError) return upstreamError(result, options, ctx, redact);
 
   if (options.format === 'raw') {
-    const text = withNewline(rawText(result, ctx.media, redact));
+    const text = withNewline(scan(rawText(result, ctx.media, redact)));
     const bytes = Buffer.byteLength(text, 'utf8');
     const meta: MetaInfo = { ref: ctx.ref, elapsedMs: ctx.elapsedMs, bytes: { shown: bytes, total: bytes }, flags: ctx.flags };
     return { stdout: text, stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok, meta };
@@ -245,7 +260,10 @@ export async function renderToolResult(
 
   const pieces = selectPieces(result, ctx.media);
   const body = (options.format === 'json' ? jsonBody : textBody)(pieces, options, redact);
-  const all = body.lines.map(redact);
+  // Values were redacted one by one while the body was built; this scan is the net for what the
+  // composing could have put together (a table cell, a path) and only knows long credentials, so it
+  // never rewrites a column header, a JSON key or a saved file's path.
+  const all = body.lines.map(scan);
   const header = all.slice(0, body.header.length);
   const rest = all.slice(body.header.length);
   const meta: MetaInfo = {
@@ -289,7 +307,7 @@ export async function renderMore(
   ctx: Pick<RenderContext, 'elapsedMs' | 'cursors' | 'now' | 'warnings'>,
   options: Pick<RenderOptions, 'format' | 'secrets'> = { format: 'text', secrets: [] },
 ): Promise<RenderOutput> {
-  const redact = createRedactor(options.secrets);
+  const redact = scannerOf(createRedactor(options.secrets));
   const record = await ctx.cursors.get(id);
   if (!record) {
     const info: ErrorInfo = {
@@ -331,7 +349,7 @@ function upstreamError(
     if (block.type === 'text') texts.push(block.text);
     else if (block.type === 'resource' && block.resource.text !== undefined) texts.push(block.resource.text);
   }
-  if (texts.length === 0 && result.structuredContent !== undefined) texts.push(JSON.stringify(result.structuredContent));
+  if (texts.length === 0 && result.structuredContent !== undefined) texts.push(JSON.stringify(redactValue(result.structuredContent, redact)));
   let lines = sanitizeText(redact(texts.join('\n')))
     .replace(/\s+$/, '')
     .split('\n');

@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "data/synonyms.json",
+  "type": "object",
+  "required": ["version", "weights", "verbs", "resources"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "weights": {
+      "type": "object",
+      "required": ["verb", "resource", "stem"],
+      "additionalProperties": false,
+      "properties": {
+        "verb": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "resource": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "stem": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      }
+    },
+    "queryStopwords": { "type": "array", "items": { "type": "string", "pattern": "^[a-z]+$" }, "uniqueItems": true },
+    "verbs": { "$ref": "#/definitions/groups" },
+    "resources": { "$ref": "#/definitions/groups" },
+    "suffixes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["suffix", "append"],
+        "additionalProperties": false,
+        "properties": {
+          "suffix": { "type": "string", "pattern": "^[a-z]+$" },
+          "append": { "type": "array", "items": { "type": "string", "pattern": "^[a-z]*$" }, "minItems": 1, "uniqueItems": true },
+          "undouble": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*( [a-z][a-z0-9]*)*$" },
+        "minItems": 2,
+        "uniqueItems": true
+      }
+    }
+  }
+}

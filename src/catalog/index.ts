@@ -10,6 +10,7 @@ export {
   type CatalogRules,
   type ProviderInput,
 } from './provider';
+export { denyForms, findDenyRule, MAX_DENY_INPUT_LENGTH } from './deny';
 export { buildCatalog, normalizeProviderName, RESERVED_COMMANDS } from './build';
 export {
   classifyProvider,
@@ -24,9 +25,10 @@ export {
 } from './domain';
 export { buildLexicon, formatLexicon } from './lexicon';
 export { extractParams, formatSignature, shortDescription, SIGNATURE_MAX_PARAMS } from './signature';
-export { docTerms, SearchIndex, type DocTerms, type SearchHit, type SearchOptions } from './search';
+export { docTerms, SearchIndex, type DocTerms, type SearchHit, type SearchOptions, type SearchIndexOptions } from './search';
 export { restoreProvider, snapshotProvider, type RestoredProvider, type RestoredTerms, type SnapshotHead } from './snapshot';
 export { rulesFingerprint } from './fingerprint';
+export { compileSynonyms, defaultSynonyms, expandQuery, stemCandidates, type Synonyms, type SynonymsData } from './synonyms';
 export {
   resolveProvider,
   resolveTarget,

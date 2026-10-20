@@ -43,14 +43,14 @@ describe('DaemonBackend.listing with `have`', () => {
     // No file at all.
     await backend.listing(server, { timeoutMs: 1000, have: T0 });
     // A file of another age.
-    cache.write(server, tools, T0 - 5);
+    cache.write(server, tools, { fetchedAt: T0 - 5 });
     await backend.listing(server, { timeoutMs: 1000, have: T0 });
     expect(requests.map((r) => r.have)).toEqual([undefined, undefined]);
   });
 
   it('offers `have` and reads the tools from the file when the daemon says nothing changed', async () => {
     const { backend, cache, requests } = setup((request) => (request.have === T0 ? { unchanged: true, fetchedAt: T0, fromCache: true } : { tools, fetchedAt: T0, fromCache: true }));
-    const bytes = cache.write(server, tools, T0);
+    const bytes = cache.write(server, tools, { fetchedAt: T0 });
     const listing = await backend.listing(server, { timeoutMs: 1000, have: T0 });
     expect(requests.map((r) => r.have)).toEqual([T0]);
     expect(listing).toMatchObject({ fetchedAt: T0, fromCache: true, rawBytes: bytes });
@@ -59,7 +59,7 @@ describe('DaemonBackend.listing with `have`', () => {
 
   it('does not trust an "unchanged" about a list other than the one in the file: it asks for a refresh', async () => {
     const { backend, cache, requests } = setup((request) => (request.refresh ? { tools, fetchedAt: T0 + 7, fromCache: false } : { unchanged: true, fetchedAt: T0 + 7, fromCache: true }));
-    cache.write(server, tools, T0);
+    cache.write(server, tools, { fetchedAt: T0 });
     const listing = await backend.listing(server, { timeoutMs: 1000, have: T0 });
     expect(requests.map((r) => [r.have, r.refresh])).toEqual([[T0, undefined], [undefined, true]]);
     expect(listing).toMatchObject({ fetchedAt: T0 + 7, fromCache: false });
@@ -68,15 +68,15 @@ describe('DaemonBackend.listing with `have`', () => {
 
   it('tells the length of the cache file a full answer was written to, when the file is that list', async () => {
     const { backend, cache } = setup(() => ({ tools, fetchedAt: T0, fromCache: false }));
-    const bytes = cache.write(server, tools, T0);
+    const bytes = cache.write(server, tools, { fetchedAt: T0 });
     expect((await backend.listing(server, { timeoutMs: 1000 })).rawBytes).toBe(bytes);
-    cache.write(server, tools, T0 + 1);
+    cache.write(server, tools, { fetchedAt: T0 + 1 });
     expect((await backend.listing(server, { timeoutMs: 1000 })).rawBytes).toBeUndefined();
   });
 
   it('never offers `have` for a refresh', async () => {
     const { backend, cache, requests } = setup(() => ({ tools, fetchedAt: T0, fromCache: false }));
-    cache.write(server, tools, T0);
+    cache.write(server, tools, { fetchedAt: T0 });
     await backend.listing(server, { timeoutMs: 1000, refresh: true, have: T0 });
     expect(requests.map((r) => r.have)).toEqual([undefined]);
     expect(requests[0]!.refresh).toBe(true);

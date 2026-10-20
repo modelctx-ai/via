@@ -44,8 +44,10 @@ describe('baseEnvironment', () => {
 describe('resolveConnection', () => {
   it('merges the resolved env onto the base env, resolved values winning', async () => {
     const server = stdioServer({ env: { PATH: 'literal-path', KEY: 'env:K' } });
-    const resolved = await resolveConnection(server, new FakeResolver({ K: 'fake-value' }), { PATH: '/usr/bin', HOME: '/h', OTHER: 'x' });
-    expect(resolved).toMatchObject({ type: 'stdio', env: { PATH: 'literal-path', HOME: '/h', KEY: 'fake-value' } });
+    // The base environment is the host's own (env.ts): the home variable is USERPROFILE on Windows, HOME elsewhere.
+    const home = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+    const resolved = await resolveConnection(server, new FakeResolver({ K: 'fake-value' }), { PATH: '/usr/bin', [home]: '/h', OTHER: 'x' });
+    expect(resolved).toMatchObject({ type: 'stdio', env: { PATH: 'literal-path', [home]: '/h', KEY: 'fake-value' } });
     expect(resolved.type === 'stdio' && 'OTHER' in resolved.env).toBe(false);
   });
 

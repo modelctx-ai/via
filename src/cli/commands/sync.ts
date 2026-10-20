@@ -19,7 +19,7 @@ export async function syncCommand(app: App, argv: readonly string[]): Promise<nu
       } catch (error) {
         const info = await toErrorInfo(error);
         const label = { 'needs-auth': 'needs auth', error: 'failed', untrusted: 'untrusted' }[statusOf(error)];
-        return { entry, row: [entry.name, `${label}: ${app.redact(info.message)}`], code: info.code as number };
+        return { entry, row: [entry.name, `${label}: ${app.redact.scan(info.message)}`], code: info.code as number };
       }
     }),
   );

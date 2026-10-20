@@ -2,6 +2,8 @@
 // process, home directory or terminal.
 import { homedir } from 'node:os';
 import { builtin } from '../builtin';
+import { decodeText } from '../platform/text';
+import { selfCommand } from '../runtime';
 import { stderrWriter, stdoutWriter, type Writer } from './stdio';
 
 export type { Writer };
@@ -34,7 +36,7 @@ function isTerminal(fd: number): boolean {
 async function readProcessStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Buffer));
-  return Buffer.concat(chunks).toString('utf8');
+  return decodeText(Buffer.concat(chunks));
 }
 
 async function askOnTerminal(question: string): Promise<string> {
@@ -64,7 +66,7 @@ export function makeEnv(overrides: Partial<CliEnv> = {}): CliEnv {
     },
     ask: askOnTerminal,
     now: Date.now,
-    daemonCommand: { command: process.execPath, args: [process.argv[1] ?? ''] },
+    daemonCommand: selfCommand(),
   };
   // Own properties of `overrides` replace the defaults (descriptors are copied so a getter stays lazy).
   Object.defineProperties(env, Object.getOwnPropertyDescriptors(overrides));

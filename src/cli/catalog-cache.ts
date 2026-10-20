@@ -11,6 +11,7 @@ import type { McpTool } from '../catalog/types';
 import { parseCredentialRef } from '../config/credentials';
 import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
+import type { ServerFeatures } from '../protocol';
 
 /** Default time to live of a cached `tools/list` (discovery.md). */
 export const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -22,6 +23,8 @@ interface CacheFile {
   version: number;
   fetchedAt: number;
   tools: McpTool[];
+  /** What the server declared at `initialize`; absent in files written before it was recorded. */
+  features?: ServerFeatures;
 }
 
 export interface CacheEntry {
@@ -30,10 +33,17 @@ export interface CacheEntry {
   rawBytes: number;
   /** The tools; parsed on first access, so a command that does not need them never pays for them. */
   readonly tools: McpTool[];
+  features?: ServerFeatures;
 }
 
 /** What `write` below puts first in every file, so `read` can learn the age without parsing the tools. */
-const FILE_HEAD = /^\{"version":(\d+),"fetchedAt":(\d+),"tools":(?=\[)/;
+const FILE_HEAD = /^\{"version":(\d+),"fetchedAt":(\d+),(?:"features":(\{[^{}]*\}),)?"tools":(?=\[)/;
+
+/** Features as stored: both flags must be booleans, otherwise the entry counts as written before they were recorded. */
+function validFeatures(value: unknown): ServerFeatures | undefined {
+  const f = value as Partial<ServerFeatures> | null | undefined;
+  return typeof f?.resources === 'boolean' && typeof f.prompts === 'boolean' ? { resources: f.resources, prompts: f.prompts } : undefined;
+}
 
 function sortedKeys(record: Record<string, string>): string[] {
   return Object.keys(record).sort();
@@ -100,9 +110,11 @@ export class CatalogCache {
         const fetchedAt = Number(head[2]);
         if (this.now() - fetchedAt > this.ttlMs) return undefined;
         let tools: McpTool[] | undefined;
+        const features = head[3] ? validFeatures(JSON.parse(head[3])) : undefined;
         return {
           fetchedAt,
           rawBytes: text.length,
+          ...(features ? { features } : {}),
           get tools(): McpTool[] {
             return (tools ??= JSON.parse(text.slice(head[0].length, -1)) as McpTool[]);
           },
@@ -111,7 +123,8 @@ export class CatalogCache {
       const data = JSON.parse(text) as Partial<CacheFile>;
       if (data.version !== CACHE_VERSION || typeof data.fetchedAt !== 'number' || !Array.isArray(data.tools)) return undefined;
       if (this.now() - data.fetchedAt > this.ttlMs) return undefined;
-      return { tools: data.tools, fetchedAt: data.fetchedAt, rawBytes: text.length };
+      const features = validFeatures(data.features);
+      return { tools: data.tools, fetchedAt: data.fetchedAt, rawBytes: text.length, ...(features ? { features } : {}) };
     } catch {
       return undefined;
     }
@@ -123,7 +136,8 @@ export class CatalogCache {
    * and the report agree (the prebuilt-catalog cache is keyed by it). Returns the length of the
    * text written, or undefined when nothing could be written.
    */
-  write(server: ServerConfig, tools: McpTool[], fetchedAt: number = this.now()): number | undefined {
+  write(server: ServerConfig, tools: McpTool[], options: { fetchedAt?: number; features?: ServerFeatures } = {}): number | undefined {
+    const { fetchedAt = this.now(), features } = options;
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       try {
@@ -133,7 +147,8 @@ export class CatalogCache {
       }
       const file = this.file(server);
       const tmp = `${file}.${process.pid}.tmp`;
-      const body: CacheFile = { version: CACHE_VERSION, fetchedAt, tools };
+      // `features` goes before `tools`: the tools array is the end of the text (see FILE_HEAD).
+      const body: CacheFile = { version: CACHE_VERSION, fetchedAt, ...(features ? { features } : {}), tools };
       const text = JSON.stringify(body);
       writeFileSync(tmp, text, { mode: 0o600 });
       renameSync(tmp, file);

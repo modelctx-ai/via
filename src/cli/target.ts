@@ -69,7 +69,7 @@ export function resolveInProvider(
   if (hidden.kind === 'tool') {
     const rule = matchingDeny(hidden.tool, deny);
     if (rule) {
-      throw fail(ExitCode.Denied, `${hidden.tool.ref} is denied by the deny rule ${rule.toString()}`, `via ${visible.provider}`);
+      throw fail(ExitCode.Denied, `${hidden.tool.ref} is denied by ${rule}`, `via ${visible.provider}`);
     }
   }
   throw new CliFailure(

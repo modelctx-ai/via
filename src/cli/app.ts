@@ -8,7 +8,7 @@ import type { OAuthStore } from '../client/oauth/store';
 import type { SchemaCompiler, ToolArgsError } from './args';
 import { pathContext, userCacheDir } from '../config/paths';
 import type { CredentialResolver, LoadedConfig, ServerConfig } from '../config';
-import { createRedactor } from '../render/redact';
+import { lazyRedactor, redactValue, type Redactor } from '../render/redact';
 import { formatError, type ErrorInfo } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
 import type { Backend, Listing } from './backend';
@@ -28,10 +28,8 @@ export type { Listing };
  * Whether servers are reached from this process instead of through the daemon: `VIA_NO_DAEMON` set
  * to anything but empty/`0`/`false` (daemon.md, "无 daemon 模式"). The injected environment wins;
  * the real one is consulted too so a test run can switch the daemon off for every sandbox at once.
- * Windows has no daemon before 0.3.
  */
 export function daemonDisabled(io: Pick<CliEnv, 'env' | 'platform'>): boolean {
-  if (io.platform === 'win32') return true;
   const value = io.env.VIA_NO_DAEMON ?? process.env.VIA_NO_DAEMON;
   return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false';
 }
@@ -73,11 +71,11 @@ export class App {
     if (text !== '') this.io.stderr.write(text);
   }
 
-  /** Replaces every credential value resolved so far with `***`. */
-  redact = (text: string): string => {
-    const values = this.resolverInstance?.resolvedValues() ?? [];
-    return values.length === 0 ? text : createRedactor(values)(text);
-  };
+  /**
+   * Replaces the credential values resolved so far with `***`. Call it on content (a value the user
+   * typed, text from a server); use `.scan` on text composed here (`Redactor`, output.md "脱敏").
+   */
+  readonly redact: Redactor = lazyRedactor(() => this.resolverInstance?.resolvedValues() ?? []);
 
   // Paths -------------------------------------------------------------------------------
 
@@ -141,6 +139,7 @@ export class App {
 
   private async createBackend(): Promise<Backend> {
     const config = await this.config({ allowErrors: true });
+    const onWarning = (message: string): void => this.err(`warning: ${this.redact.scan(message)}\n`);
     const inProcess = async (): Promise<Backend> => {
       const { InProcessBackend } = await this.deps();
       return InProcessBackend.create({
@@ -150,6 +149,8 @@ export class App {
         env: this.io.env,
         cacheDir: this.cacheDir,
         now: this.io.now,
+        onWarning,
+        roots: { cwd: this.io.cwd, home: this.io.home },
         ...(config.servers.some((s) => s.auth.type === 'oauth') ? { oauthStore: await this.oauthStore() } : {}),
       });
     };
@@ -163,6 +164,7 @@ export class App {
       env: this.io.env,
       serverIdleTimeoutSec: config.daemon.serverIdleTimeout,
       cache: await this.cache(),
+      onWarning,
     });
     return new FallbackBackend(primary, inProcess, (message) => this.err(message), () => new FileCursorStore(join(this.cacheDir, 'cursors'), { now: this.io.now }));
   }
@@ -204,10 +206,20 @@ export class App {
     return (backend.compiler() ?? (await import('./args/validate')).compileSchema)(schema, label);
   };
 
-  /** `redact` for text that is about to be printed after the sync paths could not know the daemon's secrets. */
+  /**
+   * Text the CLI composed, scanned for the credentials the daemon knows and this process does not
+   * (long ones only: `Redactor.scan`). Content that was echoed into it is redacted as a value first.
+   */
   async redactText(text: string): Promise<string> {
     const backend = this.backendReady;
-    return backend ? backend.redact(text) : this.redact(text);
+    return backend ? backend.redact(text) : this.redact.scan(text);
+  }
+
+  /** Content the CLI echoes, such as the arguments of a dry run: every string value redacted, the shape kept. */
+  async redactValue<T>(value: T): Promise<T> {
+    const local = redactValue(value, this.redact) as T;
+    const backend = this.backendReady;
+    return backend ? backend.redactValue(local) : local;
   }
 
   /** Where OAuth logins are kept: keychain, else a file in the data directory (auth.md). */

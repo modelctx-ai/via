@@ -39,8 +39,12 @@ const RENAMED = 1;
 const READ_ONLY = 2;
 const DESTRUCTIVE = 4;
 
-/** `[index in the raw list, raw name, resource, verb, canonical name, flags, description, params]`, params as `[name, arg, required]`. */
-type SnapshotTool = [number, string, string | null, string | null, string, number, string, Array<[string, string, 0 | 1]>];
+/**
+ * `[index in the raw list, raw name, resource, verb, canonical name, flags, description, params, default name]`,
+ * params as `[name, arg, required]`; the default name (what the split rules give, which `deny` also
+ * matches) is empty when it is the canonical name.
+ */
+type SnapshotTool = [number, string, string | null, string | null, string, number, string, Array<[string, string, 0 | 1]>, string];
 
 interface SnapshotBody {
   t: SnapshotTool[];
@@ -71,6 +75,7 @@ export function snapshotProvider(
       (tool.renamed ? RENAMED : 0) | (tool.readOnly ? READ_ONLY : 0) | (tool.destructive ? DESTRUCTIVE : 0),
       tool.description,
       tool.params.map((p) => [p.name, p.arg, p.required ? 1 : 0]),
+      tool.defaultSingleRef === tool.singleRef ? '' : tool.defaultSingleRef.slice(provider.provider.length + 1),
     ]);
     const known = docTerms(tool, rules);
     terms.set(tool, known);
@@ -118,10 +123,10 @@ export function restoreProvider(
     const terms = new Map<CatalogTool, DocTerms>();
     for (let i = 0; i < parsed.t.length; i += 1) {
       const item = parsed.t[i];
-      if (!Array.isArray(item) || item.length !== 8) throw new Error('malformed prebuilt catalog');
-      const [index, rawName, resource, verb, name, flags, description, params] = item;
+      if (!Array.isArray(item) || item.length !== 9) throw new Error('malformed prebuilt catalog');
+      const [index, rawName, resource, verb, name, flags, description, params, defaultName] = item;
       const known = parsed.x[i];
-      if (typeof index !== 'number' || typeof name !== 'string' || typeof description !== 'string' || typeof flags !== 'number' || !isParams(params)) throw new Error('malformed prebuilt catalog');
+      if (typeof index !== 'number' || typeof name !== 'string' || typeof description !== 'string' || typeof flags !== 'number' || typeof defaultName !== 'string' || !isParams(params)) throw new Error('malformed prebuilt catalog');
       if (!Array.isArray(known) || typeof known[0] !== 'number' || !Array.isArray(known[1]) || known[1].length % 2 !== 0) throw new Error('malformed prebuilt catalog');
       const tool = {
         provider,
@@ -131,6 +136,7 @@ export function restoreProvider(
         name,
         ref: `${provider} ${name}`,
         singleRef: `${provider}/${name}`,
+        defaultSingleRef: `${provider}/${defaultName === '' ? name : defaultName}`,
         description,
         params: params.map(([pname, arg, required]): ParamInfo => ({ name: pname, arg, required: required === 1 })),
         readOnly: (flags & READ_ONLY) !== 0,

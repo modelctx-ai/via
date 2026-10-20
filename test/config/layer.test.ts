@@ -55,6 +55,12 @@ describe('validateLayer', () => {
     expect(data.daemon).toEqual({ idleTimeout: 30, serverIdleTimeout: 10 });
   });
 
+  it('accepts roots as paths and file URIs', () => {
+    const { data, diagnostics } = validateLayer({ servers: { a: { command: 'x', roots: ['.', '~/notes', '/abs', 'C:\\work', 'file:///u', 'FILE:///v'] } } }, undefined);
+    expect(diagnostics).toEqual([]);
+    expect(data.servers.get('a')?.roots).toEqual(['.', '~/notes', '/abs', 'C:\\work', 'file:///u', 'FILE:///v']);
+  });
+
   it('reports type errors with the full path, and drops the bad field only', () => {
     const { data, diagnostics } = validateLayer({ servers: { github: { timeout: 'soon', url: 'https://g.invalid', concurrency: 2.5 } } }, '/c.yaml');
     expect(diagnostics.map((d) => d.message)).toEqual(['servers.github.timeout: expected number', 'servers.github.concurrency: expected positive integer']);
@@ -78,6 +84,10 @@ describe('validateLayer', () => {
     [{ servers: { a: { env: { A: { b: 1 } } } } }, 'servers.a.env.A: expected string'],
     [{ servers: { a: { rename: 'x' } } }, 'servers.a.rename: expected map of strings'],
     [{ servers: { a: { noise: 'x' } } }, 'servers.a.noise: expected list of strings'],
+    [{ servers: { a: { roots: '.' } } }, 'servers.a.roots: expected list of strings'],
+    [{ servers: { a: { roots: [1] } } }, 'servers.a.roots[0]: expected string'],
+    [{ servers: { a: { roots: [''] } } }, 'servers.a.roots[0]: expected non-empty path or file:// URI'],
+    [{ servers: { a: { roots: ['https://example.com/x'] } } }, 'servers.a.roots[0]: expected a path or file:// URI'],
     [{ servers: { a: { auth: 'basic' } } }, 'servers.a.auth: expected none, oauth, or a map with one of bearer, headers, oauth'],
     [{ servers: { a: { auth: { bearer: 'env:A', headers: {} } } } }, 'servers.a.auth: expected none, oauth, or a map with one of bearer, headers, oauth'],
     [{ servers: { a: { auth: { bearer: 5 } } } }, 'servers.a.auth.bearer: expected non-empty string'],

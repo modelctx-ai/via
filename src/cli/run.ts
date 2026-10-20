@@ -50,7 +50,8 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
       app.out(topic && topic !== 'help' ? `${COMMAND_USAGE[topic]}\n` : HELP);
       return ExitCode.Ok;
     }
-    if (options.help) {
+    // `via prompts <provider> <name> -h` is the usage of that prompt, which only the command can show.
+    if (options.help && !(builtin === 'prompts' && argv.length >= 2)) {
       app.out(`${COMMAND_USAGE[builtin]}\n`);
       return ExitCode.Ok;
     }
@@ -77,6 +78,12 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
         return (await import('./commands/daemon')).daemonCommand(app, argv);
       case 'auth':
         return (await import('./commands/auth')).authCommand(app, argv);
+      case 'resources':
+        return (await import('./commands/mcp-data')).resourcesCommand(app, argv);
+      case 'read':
+        return (await import('./commands/mcp-data')).readCommand(app, argv);
+      case 'prompts':
+        return (await import('./commands/mcp-data')).promptsCommand(app, argv);
     }
   }
   return (await import('./commands/provider')).providerCommand(app, words);

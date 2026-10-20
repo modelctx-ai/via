@@ -1,13 +1,13 @@
 // The daemon in this process (no spawned child): protocol behavior, framing, validation, cursors,
-// lifecycle timers and the session rules, driven over a real unix socket.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// lifecycle timers and the session rules, driven over a real unix socket (on Windows a named pipe).
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { pathContext } from '../../src/config/paths';
+import { pathContext, userCacheDir } from '../../src/config/paths';
 import { DaemonClient, DaemonConnection, DaemonStale } from '../../src/daemon/client';
-import { daemonPaths, type DaemonPaths } from '../../src/daemon/paths';
+import { daemonPaths, endpointOf, type DaemonPaths } from '../../src/daemon/paths';
 import { DaemonServer, type DaemonOptions } from '../../src/daemon/server';
 import { ExpiringResolver } from '../../src/daemon/sessions';
 import { effectiveServer, envStamp, sessionKey } from '../../src/daemon/target';
@@ -20,10 +20,29 @@ import { alive, waitFor } from '../helpers/daemon';
 
 const VERSION = '9.9.9-test';
 
+const isWindows = process.platform === 'win32';
+
+/**
+ * Where a daemon of this test lives: a private runtime directory on POSIX; on Windows the cache
+ * directory below `LOCALAPPDATA` and a pipe whose name carries a user name of its own, so parallel
+ * test files never share a pipe.
+ */
+function sandboxPaths(root: string, home: string): DaemonPaths {
+  if (!isWindows) return daemonPaths(pathContext({ home, env: { XDG_RUNTIME_DIR: root }, platform: 'linux' }));
+  const user = `via-test-${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
+  return daemonPaths(pathContext({ home, env: { LOCALAPPDATA: join(root, 'local'), USERNAME: user }, platform: 'win32' }));
+}
+
 interface Harness {
   daemon: DaemonServer;
   paths: DaemonPaths;
   home: string;
+  /** What the daemon listens on (the socket path; for a derived pipe, its full name). */
+  endpoint: string;
+  /** The catalog cache directory the daemon writes (`<user cache dir>/catalog`). */
+  catalogDir: string;
+  /** The environment the daemon was given (it decides the user cache directory). */
+  daemonEnv: Record<string, string>;
   connect(): Promise<DaemonConnection>;
 }
 
@@ -35,9 +54,10 @@ afterEach(async () => {
 async function startDaemon(options: Partial<DaemonOptions> = {}, env: Record<string, string> = {}): Promise<Harness> {
   const root = mkdtempSync(join(tmpdir(), 'via-dp-'));
   const home = join(root, 'home');
-  const ctx = pathContext({ home, env: { XDG_RUNTIME_DIR: root }, platform: 'linux' });
-  const paths = daemonPaths(ctx);
-  const daemon = new DaemonServer({ paths, version: VERSION, idleTimeoutMs: 60_000, env: { PATH: process.env.PATH ?? '', ...env }, home, platform: 'linux', ...options });
+  const paths = sandboxPaths(root, home);
+  const platform = isWindows ? 'win32' : 'linux';
+  const daemonEnv = { PATH: process.env.PATH ?? '', ...(isWindows ? { LOCALAPPDATA: join(root, 'local') } : {}), ...env };
+  const daemon = new DaemonServer({ paths, version: VERSION, idleTimeoutMs: 60_000, env: daemonEnv, home, platform, ...options });
   expect(await daemon.start()).toBe('started');
   const conns: DaemonConnection[] = [];
   cleanups.push(async () => {
@@ -49,6 +69,9 @@ async function startDaemon(options: Partial<DaemonOptions> = {}, env: Record<str
     daemon,
     paths,
     home,
+    endpoint: daemon.address,
+    catalogDir: join(userCacheDir(pathContext({ home, env: daemonEnv, platform })), 'catalog'),
+    daemonEnv,
     connect: async () => {
       const result = await DaemonConnection.connect(paths, VERSION);
       if (!('conn' in result)) throw new Error(`refused: ${result.refused}`);
@@ -104,7 +127,7 @@ describe('handshake', () => {
 
   it('drops a connection whose first message is not hello', async () => {
     const h = await startDaemon();
-    const socket = createConnection(h.paths.socket);
+    const socket = createConnection(h.endpoint);
     await new Promise<void>((resolve) => socket.once('connect', () => resolve()));
     socket.write(encode({ id: '1', type: 'status' }));
     await new Promise<void>((resolve) => socket.once('close', () => resolve()));
@@ -112,7 +135,7 @@ describe('handshake', () => {
 
   it('refuses a wrong token and keeps serving others', async () => {
     const h = await startDaemon();
-    const socket = createConnection(h.paths.socket);
+    const socket = createConnection(h.endpoint);
     const reply = await new Promise<string>((resolve) => {
       socket.once('connect', () => socket.write(encode({ type: 'hello', version: VERSION, pid: 1, token: 'wrong' })));
       socket.once('data', (d) => resolve(d.toString()));
@@ -127,7 +150,7 @@ describe('handshake', () => {
     expect(result).toEqual({ refused: 'version', version: VERSION });
     await h.daemon.closed;
     // The socket path is free for the CLI's successor.
-    const successor = new DaemonServer({ paths: h.paths, version: 'another-version', idleTimeoutMs: 60_000, env: {}, home: h.home, platform: 'linux' });
+    const successor = new DaemonServer({ paths: h.paths, version: 'another-version', idleTimeoutMs: 60_000, env: {}, home: h.home, platform: isWindows ? 'win32' : 'linux' });
     expect(await successor.start()).toBe('started');
     cleanups.push(() => successor.stop());
   });
@@ -202,6 +225,30 @@ describe('requests', () => {
     expect((await conn.request({ type: 'call', ...same, rawName: 'pid', args: {} })).ok).toBe(true);
   });
 
+  it('refuses a caller with other values without touching its own sessions, and never takes its values', async () => {
+    const VALUE_A = 'value-from-shell-a-0001';
+    const VALUE_B = 'value-from-shell-b-0002';
+    const h = await startDaemon({}, { MOCK_KEY: VALUE_A });
+    const conn = await h.connect();
+    const server = stdioServer({ env: { MOCK_SECRET: 'env:MOCK_KEY' } });
+    const pidOf = async (t: ServerTarget): Promise<string> => {
+      const response = (await conn.request({ type: 'call', ...t, rawName: 'pid', args: {} })) as { result: ToolCallResult };
+      return (response.result.content?.[0] as { text: string }).text;
+    };
+    const a = target(server, { MOCK_KEY: VALUE_A });
+    const b = target(server, { MOCK_KEY: VALUE_B });
+    const pid = await pidOf(a);
+    for (let i = 0; i < 3; i += 1) {
+      // Every kind of request is refused for B, without a session or a process being made for it.
+      await expect(conn.request({ type: 'call', ...b, rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
+      await expect(conn.request({ type: 'list', ...b, timeoutMs: 5000 })).rejects.toBeInstanceOf(DaemonStale);
+      expect(await pidOf(a)).toBe(pid);
+    }
+    expect(h.daemon['sessions'].status()).toHaveLength(1);
+    // A variable the caller has not set has its own digest too: refused, never answered with the daemon's value.
+    await expect(conn.request({ type: 'call', ...target(server, {}), rawName: 'pid', args: {} })).rejects.toBeInstanceOf(DaemonStale);
+  });
+
   it('maps a missing credential to exit code 4 before any process is started', async () => {
     const h = await startDaemon();
     const conn = await h.connect();
@@ -237,7 +284,7 @@ describe('catalog', () => {
       const first = await list(conn, t);
       const at = first.result.fetchedAt;
       const same = await list(conn, t, { have: at });
-      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true });
+      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true, features: { resources: false, prompts: false } });
       const other = await list(conn, t, { have: at - 1 });
       expect(other.result).toMatchObject({ fetchedAt: at, fromCache: true });
       expect((other.result as ListedTools).tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
@@ -247,7 +294,7 @@ describe('catalog', () => {
       const h = await startDaemon();
       const server = stdioServer();
       const { CatalogCache } = await import('../../src/cli/catalog-cache');
-      new CatalogCache(join(h.home, '.cache', 'via', 'catalog')).write(server, TOOLS as never, Date.now());
+      new CatalogCache(join(h.home, '.cache', 'via', 'catalog')).write(server, TOOLS as never, { fetchedAt: Date.now() });
       const conn = await h.connect();
       const t = target(server);
       const full = await list(conn, t);
@@ -323,7 +370,7 @@ describe('catalog', () => {
     const server = stdioServer();
     await conn.request({ type: 'list', ...target(server), timeoutMs: 5000 });
     const { CatalogCache } = await import('../../src/cli/catalog-cache');
-    const hit = new CatalogCache(join(h.home, '.cache', 'via', 'catalog')).read(server);
+    const hit = new CatalogCache(h.catalogDir).read(server);
     expect(hit?.tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
   });
 
@@ -341,7 +388,7 @@ describe('catalog', () => {
     const again = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
     expect(again.result.fromCache).toBe(true);
     const { CatalogCache } = await import('../../src/cli/catalog-cache');
-    expect(new CatalogCache(join(h.home, '.cache', 'via', 'catalog')).read(server)?.tools.some((x) => x.name === 'extra_1')).toBe(true);
+    expect(new CatalogCache(h.catalogDir).read(server)?.tools.some((x) => x.name === 'extra_1')).toBe(true);
   });
 
   it('coalesces a burst of list_changed notifications', async () => {
@@ -388,10 +435,11 @@ describe('sessions', () => {
 
   it('applies the caller\'s working directory to a stdio server without one', () => {
     const server = stdioServer({ env: { SECRET_FILE: 'file:keys/token', ABS: 'file:/etc/x', HOME_FILE: 'file:~/t', KEY: 'env:K' } });
-    const effective = effectiveServer(server, '/work/project');
-    expect(effective.transport).toMatchObject({ cwd: '/work/project', env: { SECRET_FILE: 'file:/work/project/keys/token', ABS: 'file:/etc/x', HOME_FILE: 'file:~/t', KEY: 'env:K' } });
-    expect(effectiveServer(stdioServer({ transport: { type: 'stdio', command: 'x', args: [], env: {}, cwd: 'sub' } }), '/work').transport).toMatchObject({ cwd: '/work/sub' });
-    expect(sessionKey(effective)).not.toBe(sessionKey(effectiveServer(server, '/elsewhere')));
+    const work = resolve('/work/project'); // a drive letter is prepended on Windows
+    const effective = effectiveServer(server, work);
+    expect(effective.transport).toMatchObject({ cwd: work, env: { SECRET_FILE: `file:${join(work, 'keys/token')}`, ABS: 'file:/etc/x', HOME_FILE: 'file:~/t', KEY: 'env:K' } });
+    expect(effectiveServer(stdioServer({ transport: { type: 'stdio', command: 'x', args: [], env: {}, cwd: 'sub' } }), resolve('/work')).transport).toMatchObject({ cwd: resolve('/work', 'sub') });
+    expect(sessionKey(effective)).not.toBe(sessionKey(effectiveServer(server, resolve('/elsewhere'))));
   });
 });
 
@@ -443,11 +491,99 @@ describe('cursors', () => {
   });
 });
 
+describe('OAuth refresh with a login store that cannot be written', () => {
+  it('forwards one warning to the request that triggered the refresh, and keeps serving', async () => {
+    const { startOAuthServer } = await import('../fixtures/mcp/oauth-server.mjs');
+    const { createMemoryOAuthStore, performLogin } = await import('../../src/client/oauth');
+    const srv = await startOAuthServer();
+    cleanups.push(() => srv.close());
+    const inner = createMemoryOAuthStore();
+    await performLogin({
+      target: { provider: 'linear', url: srv.url },
+      store: inner,
+      manual: false,
+      timeoutMs: 10_000,
+      io: {
+        showUrl: () => undefined,
+        note: () => undefined,
+        openUrl: async (url) => {
+          srv.browse(url).catch(() => undefined);
+          return { opened: true };
+        },
+        readLine: async () => undefined,
+      },
+    });
+    const readOnly = { get: inner.get.bind(inner), delete: inner.delete.bind(inner), set: async () => { throw new Error('EROFS: read-only file system'); } };
+    const h = await startDaemon({ oauthStore: readOnly });
+    const conn = await h.connect();
+    const server = httpServer(srv.url, { name: 'linear', provider: 'linear', auth: { type: 'oauth' } });
+    const call = async (message: string) => {
+      const events: unknown[] = [];
+      const response = (await conn.request({ type: 'call', ...target(server), rawName: 'echo_text', args: { message } }, { onEvent: (e) => events.push([e.event, e.data]) })) as { ok: boolean; result: ToolCallResult };
+      return { response, events };
+    };
+    const first = await call('one');
+    expect(first.response.ok).toBe(true);
+    expect(first.events).toEqual([]);
+    srv.expireAccessTokens(); // the server refuses the token: refresh, which cannot be saved
+    const second = await call('two');
+    expect(second.response.ok).toBe(true);
+    expect(second.response.result.content?.[0]).toMatchObject({ text: 'echo: two' });
+    expect(second.events).toHaveLength(1);
+    expect(second.events[0]).toMatchObject(['log', { level: 'warning', message: expect.stringContaining('could not save the refreshed OAuth login for linear') }]);
+    // Once per session: a later refresh stays quiet, and the rotated token is still used (not the stale stored one).
+    srv.expireAccessTokens();
+    const third = await call('three');
+    expect(third.response.ok).toBe(true);
+    expect(third.events).toEqual([]);
+    const secrets = [...srv.issuedAccessTokens(), ...srv.issuedRefreshTokens()];
+    expect(JSON.stringify(second.events)).not.toMatch(new RegExp(secrets.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')));
+  });
+});
+
+describe('cursors across daemon exit', () => {
+  const record: CursorRecord = { ref: 'gh issue:list', header: ['h'], lines: ['a', 'b'], offset: 1, shownBytes: 4, totalBytes: 8, budget: 8, hiddenColumns: 0, createdAt: Date.now() };
+
+  it('keeps a cursor readable after the daemon that stored it has exited (same TTL, private files)', async () => {
+    const first = await startDaemon();
+    const conn = await first.connect();
+    const put = (await conn.request({ type: 'cursor-put', record })) as { result: string };
+    conn.close();
+    await first.daemon.stop();
+    // A fresh daemon of the same user (same cache directory) still knows the cursor.
+    const root = mkdtempSync(join(tmpdir(), 'via-dp2-'));
+    const paths = sandboxPaths(root, first.home);
+    const second = new DaemonServer({ paths, version: VERSION, idleTimeoutMs: 60_000, env: first.daemonEnv, home: first.home, platform: isWindows ? 'win32' : 'linux' });
+    expect(await second.start()).toBe('started');
+    cleanups.push(async () => {
+      await second.stop();
+      rmSync(root, { recursive: true, force: true });
+    });
+    const result = await DaemonConnection.connect(paths, VERSION);
+    if (!('conn' in result)) throw new Error(`refused: ${result.refused}`);
+    const got = (await result.conn.request({ type: 'cursor-get', cursor: put.result })) as { result: { record: CursorRecord | null } };
+    result.conn.close();
+    expect(got.result.record).toMatchObject({ ref: record.ref, lines: record.lines });
+  });
+
+  it('writes cursor files into the private user cache directory', async () => {
+    const h = await startDaemon();
+    const conn = await h.connect();
+    const put = (await conn.request({ type: 'cursor-put', record })) as { result: string };
+    const dir = join(dirname(h.catalogDir), 'cursors');
+    expect(statSync(join(dir, `${put.result}.json`)).isFile()).toBe(true);
+    if (!isWindows) {
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(join(dir, `${put.result}.json`)).mode & 0o777).toBe(0o600);
+    }
+  });
+});
+
 describe('lifecycle timers', () => {
   it('exits after the idle timeout and removes its files', async () => {
     const h = await startDaemon({ idleTimeoutMs: 150 });
     await h.daemon.closed;
-    expect(() => readFileSync(h.paths.socket)).toThrow();
+    expect(() => readFileSync(h.endpoint)).toThrow(); // a socket file, or a pipe that is gone
     expect(() => readFileSync(h.paths.token)).toThrow();
   });
 
@@ -460,15 +596,16 @@ describe('lifecycle timers', () => {
     await h.daemon.closed;
   });
 
-  it('exits when its socket file is removed', async () => {
+  // POSIX: the socket file is how clients find it. Windows: the token file is (it names the pipe and authenticates).
+  it('exits when the file that makes it reachable is removed', async () => {
     const h = await startDaemon({ watchMs: 50 });
-    rmSync(h.paths.socket);
+    rmSync(isWindows ? h.paths.token : h.endpoint);
     await h.daemon.closed;
   });
 
   it('start() reports a running daemon instead of taking over its socket', async () => {
     const h = await startDaemon();
-    const second = new DaemonServer({ paths: h.paths, version: VERSION, idleTimeoutMs: 60_000, env: {}, home: h.home, platform: 'linux' });
+    const second = new DaemonServer({ paths: h.paths, version: VERSION, idleTimeoutMs: 60_000, env: {}, home: h.home, platform: isWindows ? 'win32' : 'linux' });
     expect(await second.start()).toBe('running');
     await h.connect(); // the first one still answers
   });
@@ -486,12 +623,105 @@ describe('lifecycle timers', () => {
   });
 });
 
+// The default Windows pipe is named after the start token. The flow is the same over a unix socket,
+// so it is tested here on every host with a hand-made `derived` path set.
+describe('derived endpoint', () => {
+  function derivedPaths(): { root: string; paths: DaemonPaths } {
+    const root = mkdtempSync(join(tmpdir(), 'via-dd-'));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    return { root, paths: { dir: root, socket: join(root, 'v.sock'), lock: join(root, 'via.lock'), token: join(root, 'via.token'), log: join(root, 'via.log'), pipe: isWindows, derived: true } };
+  }
+  // On Windows a derived path set needs a pipe prefix; the pipe flag is the real thing there.
+  const prefixed = (paths: DaemonPaths): DaemonPaths => (isWindows ? { ...paths, socket: `\\\\.\\pipe\\via-test-${process.pid}-${Math.random().toString(16).slice(2, 8)}` } : paths);
+  const options = (paths: DaemonPaths, root: string) => ({ paths, version: VERSION, idleTimeoutMs: 60_000, env: {}, home: root, platform: isWindows ? ('win32' as const) : ('linux' as const) });
+
+  it('listens on a name made from the token, which only the token file reveals', async () => {
+    const { root, paths: base } = derivedPaths();
+    const paths = prefixed(base);
+    const daemon = new DaemonServer(options(paths, root));
+    expect(await daemon.start()).toBe('started');
+    cleanups.push(() => daemon.stop());
+    const token = readFileSync(paths.token, 'utf8');
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect(daemon.address).toBe(endpointOf(paths, token));
+    expect(daemon.address).toMatch(/-[0-9a-f]{32}$/);
+    expect(daemon.address).not.toBe(paths.socket);
+    if (!isWindows) expect(existsSync(paths.socket)).toBe(false); // the prefix itself is never bound
+
+    const result = await DaemonConnection.connect(paths, VERSION);
+    expect('conn' in result).toBe(true);
+    if ('conn' in result) {
+      expect(result.conn.pid).toBe(process.pid);
+      result.conn.close();
+    }
+  });
+
+  it('finds no daemon without a token file, and none at the name of a dead one', async () => {
+    const { paths: base } = derivedPaths();
+    const paths = prefixed(base);
+    expect(await DaemonConnection.connect(paths, VERSION)).toEqual({ refused: 'absent' });
+    writeFileSync(paths.token, 'f'.repeat(64)); // left behind by a daemon that was killed
+    expect(await DaemonConnection.connect(paths, VERSION)).toEqual({ refused: 'absent' });
+  });
+
+  it('replaces a stale token file, names the new endpoint after the new token, and cleans up', async () => {
+    const { root, paths: base } = derivedPaths();
+    const paths = prefixed(base);
+    writeFileSync(paths.token, 'e'.repeat(64));
+    const daemon = new DaemonServer(options(paths, root));
+    expect(await daemon.start()).toBe('started');
+    const token = readFileSync(paths.token, 'utf8');
+    expect(token).not.toBe('e'.repeat(64));
+    expect(daemon.address).toBe(endpointOf(paths, token));
+    await daemon.stop();
+    expect(existsSync(paths.token)).toBe(false);
+    expect(await DaemonConnection.connect(paths, VERSION)).toEqual({ refused: 'absent' });
+  });
+
+  it('a second daemon finds the first through the token file and leaves it alone', async () => {
+    const { root, paths: base } = derivedPaths();
+    const paths = prefixed(base);
+    const first = new DaemonServer(options(paths, root));
+    expect(await first.start()).toBe('started');
+    cleanups.push(() => first.stop());
+    const token = readFileSync(paths.token, 'utf8');
+    const second = new DaemonServer(options(paths, root));
+    expect(await second.start()).toBe('running');
+    expect(readFileSync(paths.token, 'utf8')).toBe(token);
+    expect('conn' in (await DaemonConnection.connect(paths, VERSION))).toBe(true);
+  });
+
+  it('a start that is racing another one (the lock is held) waits and then sees it', async () => {
+    const { root, paths: base } = derivedPaths();
+    const paths = prefixed(base);
+    const racers = [1, 2, 3, 4].map(() => new DaemonServer(options(paths, root)));
+    const outcomes = await Promise.all(racers.map((d) => d.start()));
+    cleanups.push(() => Promise.all(racers.map((d) => d.stop())).then(() => undefined));
+    expect(outcomes.filter((o) => o === 'started')).toHaveLength(1);
+    expect(outcomes.filter((o) => o === 'running')).toHaveLength(3);
+  });
+
+  it('a wrong token is refused on a derived endpoint too', async () => {
+    const { root, paths: base } = derivedPaths();
+    const paths = prefixed(base);
+    const daemon = new DaemonServer(options(paths, root));
+    await daemon.start();
+    cleanups.push(() => daemon.stop());
+    const socket = createConnection(daemon.address);
+    const reply = await new Promise<string>((resolveReply) => {
+      socket.once('connect', () => socket.write(encode({ type: 'hello', version: VERSION, pid: 1, token: 'wrong' })));
+      socket.once('data', (d) => resolveReply(d.toString()));
+    });
+    expect(JSON.parse(reply)).toMatchObject({ type: 'hello', ok: false, reason: 'token' });
+  });
+});
+
 describe('client', () => {
   it('does not start a daemon when asked not to', async () => {
     const root = mkdtempSync(join(tmpdir(), 'via-dc-'));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
     const client = new DaemonClient({
-      paths: daemonPaths(pathContext({ home: root, env: { XDG_RUNTIME_DIR: root }, platform: 'linux' })),
+      paths: sandboxPaths(root, root),
       version: VERSION,
       command: { command: process.execPath, args: ['-e', 'process.exit(1)'] },
       env: {},
