@@ -11,6 +11,7 @@
 //   --compare <dir> a second build (say, from the previous commit) to run next to --dist/dist in the
 //                   scenarios section, alternating runs so both see the same machine load
 //   --dist <dir>   measure this build instead of dist/ (relative to the repository root)
+//   --plain-daemon start the section-5 daemon without the V8 and malloc settings of daemonRuntime (for a --dist build older than them)
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -801,7 +802,8 @@ async function benchDaemon(binaries?: Binaries | string): Promise<{ overhead: nu
 
     // Idle memory: a daemon that has just started and holds no session.
     // Started the way the CLI starts it (V8 and malloc settings of daemonRuntime), not with a bare `node`.
-    const runtime = daemonRuntime(process.execPath);
+    // `--plain-daemon` starts it with a bare `node` instead: the way a build from before those settings is measured.
+    const runtime = argv.includes('--plain-daemon') ? { flags: [], env: {} } : daemonRuntime(process.execPath);
     standalone = spawn(process.execPath, [...runtime.flags, DIST, 'daemon', 'run'], { env: { ...daemonEnv, ...runtime.env }, cwd: sb.project, stdio: 'ignore' });
     let info: DaemonInfo | undefined;
     for (let i = 0; i < 100 && !info; i += 1) {
