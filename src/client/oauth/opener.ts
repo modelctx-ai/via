@@ -30,7 +30,7 @@ export async function openBrowser(url: string, env: Env = process.env, platform:
   const { command, args } = openerCommand(url, platform);
   return new Promise<OpenResult>((resolve) => {
     try {
-      const child = spawn(command, args, { stdio: 'ignore', detached: true, windowsHide: true, windowsVerbatimArguments: platform === 'win32' });
+      const child = spawn(command, args, { env: { ...env }, stdio: 'ignore', detached: true, windowsHide: true, windowsVerbatimArguments: platform === 'win32' });
       // 'spawn' fires once the process exists; 'error' (ENOENT, EACCES) fires instead when it cannot start.
       child.once('error', (error: NodeJS.ErrnoException) => resolve({ opened: false, reason: error.code === 'ENOENT' ? `${command} is not installed` : `cannot run ${command}` }));
       child.once('spawn', () => {
