@@ -19,6 +19,8 @@ export interface ServerProbe {
   /** Suggested fix for the `next:` line (e.g. `CredentialError.next`), already redacted. Overrides the derived one. */
   next?: string;
   toolCount?: number;
+  /** Something to fix that does not stop the server from working (e.g. an unwritable OAuth login store). */
+  warning?: { message: string; next?: string };
   /** Length of the serialized `tools/list` result, for the tokens/turn estimate. */
   schemaBytes?: number;
 }
@@ -79,6 +81,13 @@ function oneLine(text: string): string {
 
 const shorten = (path: string, home: string | undefined): string => shortenHome(path, home);
 
+/** `shorten` for paths inside a sentence. */
+function shortenIn(text: string, home: string | undefined): string {
+  if (!home) return text;
+  const base = home.replace(/[\\/]+$/, '');
+  return text.split(`${base}/`).join('~/');
+}
+
 // servers ------------------------------------------------------------------------------------
 
 interface Row {
@@ -87,6 +96,7 @@ interface Row {
   status: Status;
   message?: string;
   next?: string;
+  warning?: { message: string; next?: string };
 }
 
 /** Probes, plus config servers nobody probed that are known to be unusable (untrusted, disabled). */
@@ -96,6 +106,7 @@ function collectRows(input: DoctorInput): Row[] {
     const row: Row = { server: p.server, provider: p.provider, status: p.status };
     if (p.message) row.message = oneLine(p.message);
     if (p.next) row.next = oneLine(p.next);
+    if (p.warning) row.warning = { message: oneLine(p.warning.message), ...(p.warning.next ? { next: oneLine(p.warning.next) } : {}) };
     return row;
   });
   const probed = new Set(input.probes.map((p) => p.server));
@@ -130,9 +141,14 @@ function renderServers(rows: readonly Row[], home: string | undefined): string[]
   }
   const lines = [`servers   ${parts.join(' · ')}`];
   for (const row of rows) {
-    if (row.status === 'ok' || row.status === 'disabled') continue;
-    lines.push(`  ${row.provider}: ${STATUS_LABEL[row.status]}${row.message ? ` (${row.message})` : ''}`);
-    for (const next of row.next?.split('\n') ?? []) lines.push(`    next: ${shorten(next, home)}`);
+    if (row.status !== 'ok' && row.status !== 'disabled') {
+      lines.push(`  ${row.provider}: ${STATUS_LABEL[row.status]}${row.message ? ` (${row.message})` : ''}`);
+      for (const next of row.next?.split('\n') ?? []) lines.push(`    next: ${shorten(next, home)}`);
+    }
+    if (row.warning) {
+      lines.push(`  ${row.provider}: warning: ${shortenIn(row.warning.message, home)}`);
+      if (row.warning.next) lines.push(`    next: ${shortenIn(row.warning.next, home)}`);
+    }
   }
   return lines;
 }

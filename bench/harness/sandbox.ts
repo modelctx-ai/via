@@ -35,6 +35,15 @@ export function createSandbox(servers: Readonly<Record<string, string>>): Sandbo
       XDG_CONFIG_HOME: join(home, '.config'),
       XDG_CACHE_HOME: join(home, '.cache'),
       XDG_DATA_HOME: join(home, '.local', 'share'),
+      // Windows reads the profile variables instead of HOME / XDG_*, and its processes need SystemRoot.
+      ...(process.platform === 'win32'
+        ? {
+            USERPROFILE: home,
+            APPDATA: join(home, '.config'),
+            LOCALAPPDATA: join(home, '.local', 'app'),
+            ...Object.fromEntries(['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP'].flatMap((n) => (process.env[n] === undefined ? [] : [[n, process.env[n]!]]))),
+          }
+        : {}),
       NO_COLOR: '1',
       // The benchmark counts tokens against HTTP replays: no background process outliving its sandbox.
       VIA_NO_DAEMON: '1',

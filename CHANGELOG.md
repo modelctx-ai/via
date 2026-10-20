@@ -8,6 +8,9 @@
 
 ### Changed
 
+- `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0011](docs/adr/0011-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询、`--domain` 不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
+- AGENTS.md 的「发现逻辑是确定性的」改为「默认确定性；唯一的例外是用户显式开启的 `search.semantic`」（ADR 0011）。
+- 测试：`test/bench/synth-catalog.test.ts` 的「发送邮件」查询接受 `acme-workspace`（其 `mail-message:send` 现在是 `email` 的同义词命中，与 gmail 的描述命中同分）。
 - 规范补充（随 Windows 支持）：daemon.md 的「生命周期」「无 daemon 模式」「socket 安全」按平台改写并新增「Windows」一节；config.md 的 Windows 基础环境、「Windows 上启动 stdio 命令」与 `cmd:` 分词；security.md 新增「Windows 上的子进程」「Windows 上的文件权限」，并说明信任记录的 Windows 路径规范化；auth.md 的打开命令与 Credential Manager 拆分存放。`open-questions.md` 的「Windows 支持」条目随之移除。没有动词表、分类表或命名规则的改动，规范写法不受影响。
 - 规范补充（随 OAuth 实现）：auth.md 补全 OAuth 的发现、注册、回调、存储（含文件退路与 `VIA_OAUTH_STORE`）、刷新、状态与登出，以及调用时「需要登录」的行为；cli.md 的 `via auth` 说明；security.md、daemon.md 中 OAuth token 的脱敏与 daemon 持有的状态。`auth: oauth` 的 server 不再提示改用 bearer。
 - 项目名与命令名由占位名 `mx` 改为 `via`，npm 包名 `@modelctx/via`；配置路径、项目配置文件、socket、环境变量前缀随之改名（ADR 0009）。
@@ -24,6 +27,7 @@
 - 未信任时的 `next:`：同一个 server 有多个文件待确认时提示不带路径的 `via trust`，路径含空格时加引号。
 - 规范补充（随 `via batch` 实现）：cli.md 的 `via batch` 一节补全输入字段（`tool`、`args`，其余字段报错）、行号、空输入（退出码 2）、全局选项对整批生效、危险工具缺少 `--yes` 时只让该行失败、`--dry-run`、全局并发上限 `--concurrency`（默认 16）、text 与 `-o json` 的逐行框架（`line N` 标记、`· batch · …` 汇总行、JSONL 记录字段、超出预算时的 `truncated` / `next`）以及整体退出码取数值最大者；output.md 的元信息行增加 `line N` 标记；arguments.md、config.md、daemon.md 各补一句与批量的关系。
 - 内部：`commands/tool.ts` 抽出 `executeCall`，`via <provider> …`、`via call`、`via batch` 共用同一条「校验 → dry-run / 确认 → 调用 → 渲染」路径；它返回结果（stdout、stderr、退出码、结构化的元信息与错误）而不直接写输出，也只通过 `app.client()` 触达上游，后端（进程内或 daemon）对它透明。渲染流水线的返回值附带元信息与结构化错误。
+- `via trust --yes` 不再是单个开关（security.md、cli.md）：agent 若能执行 `via trust --yes` 就能放行不可信的仓库。现在默认在终端里确认；`--yes` 必须带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1`，否则不记录（不带路径退出码 2，缺少变量退出码 5）。没有终端时的 `next:` 改为请用户在终端运行 `via trust <路径>`，不再建议 `--yes`。`via prompt` 生成的说明增加一句「不要自己运行 `via trust`，请用户来做」。
 
 ### Added
 
@@ -34,6 +38,9 @@
   - 配置 `servers.<name>.roots`（路径或 `file://` URI）：声明 `roots` 能力并回应 `roots/list`。**默认不声明**；`listChanged` 为 `false`；相对路径相对运行 `via` 的当前目录，`~` 展开；daemon 里换算成绝对 URI 后参与会话键，所以相对 roots 不会跨目录共用会话。项目级配置设置非空 `roots` 需要 `via trust`（`via trust` 列出），`[]` 不需要；给 HTTP server 配 `roots` 有告警（`roots-remote`）。
   - 协议：新增 `resources-list`、`resource-read`、`prompts-list`、`prompt-get` 请求（结果在 daemon 内脱敏，回退时作为无副作用请求重做），`list` 的结果带 `features`；会话键加入 `roots`。
   - 测试夹具 `test/fixtures/mcp/cli-server.mjs` 增加可选的 resources（文本、JSON、二进制、多内容、长文本、模板、两页列表）、prompts 与读取 roots 的工具 `list_roots`。
+- 可选的 embedding 检索（路线图 c2 的第二层，默认关闭）：用户配置 `search.semantic: { provider: openai-compatible, url, model, auth, timeout, indexTimeout, dimensions }` 后，`via find` 把查询与工具描述的 embedding 同 BM25 做 RRF 融合（第 1–3 级规范写法匹配仍在最前）。只读用户配置与命令行覆盖，项目配置里的被忽略并告警（`search-forbidden`）；`url` 必须是 https（回环地址可用 http）且不含内嵌凭证；`auth` 是凭证引用，不跟随重定向，响应体、请求头、端点从不进入输出。工具描述的向量按文本哈希缓存在 `<缓存目录>/embeddings/`（目录 0700、文件 0600），描述变了才重新请求；缓存完整时语义步骤的期限是 `timeout`（默认 3 秒），补 embedding 时是 `indexTimeout`（默认 30 秒），期限内没完成（超时、HTTP 错误、凭证缺失、响应异常、缓存仍不完整）就退回词法排序并在 stderr 写一行 `· semantic unavailable: <原因> · lexical results`，退出码不变，已取得的向量保留供下次继续。只影响 `via find`；实现是独立分块，关闭时零加载；在 CLI 进程内完成，不经 daemon。spec 见 discovery.md、config.md、security.md（新增「embedding 检索的数据外流」）。
+- `npm run eval:search`（`scripts/eval-search.ts`）：在 `test/fixtures/search/eval.json`（调参集）和 `heldout.json`（留出集）上报告词法基线与默认的 recall@1、recall@5、MRR，`--misses` 列出仍然答错的查询；回归测试 `test/catalog/search-eval.test.ts` 断言不低于基线并锁定下限。
+- 测试：`test/helpers/embeddings-server.ts`（本机 OpenAI 兼容 embeddings 服务，确定性假向量），覆盖融合、缓存、超时与错误退回、脱敏、配置校验（`test/catalog/semantic.test.ts`、`test/cli/semantic.test.ts`、`test/config/search.test.ts`）；`test/cli/dist.test.ts` 校验默认的 `find` 不加载 embedding 分块。
 
 - Windows 支持（路线图 c4；daemon.md「Windows」、security.md「Windows 上的子进程」「Windows 上的文件权限」、ADR 0012）：
   - daemon 在 Windows 上启用（不再始终用进程内模式；`VIA_NO_DAEMON=1` 照常有效）。默认管道名为 `\\.\pipe\via-<用户名>-<令牌摘要>`，摘要取自 daemon 每次启动生成、写在 `%LOCALAPPDATA%\via\Cache\via.token` 的令牌，因此名字无法被预先占位；握手令牌校验与 POSIX 一致，启动锁、陈旧令牌清理、令牌文件被删后自行退出。`via daemon status` 在 daemon 未运行时显示 `\\.\pipe\via-<用户名>-*`。peer 身份（对端 SID）与文件 ACL 不校验，残留风险写入规范。
@@ -98,6 +105,11 @@
 
 ### Fixed
 
+- daemon 的游标不再随 daemon 空闲退出（10 分钟）而提前失效：daemon 与进程内模式一样把游标写入用户缓存目录（0700 目录、0600 文件、内容已脱敏、TTL 30 分钟），`via more` 在 daemon 退出后仍可续读。
+- deny 规则的 ReDoS：项目配置可以追加会灾难性回溯的正则（如 `^(a+)+$`）卡死 via。现在加载时静态检查（嵌套量词、被重复分组里重叠的候选分支、反向引用、开放量词超过 3 个、长度超过 200 字符），不通过的规则按无效规则处理：忽略并给出 error 级诊断 `unsafe-deny`，CLI 停止执行；匹配只在不超过 256 字符的写法上进行，更长的工具名按 deny 处理（config.md「deny」）。
+- deny 规则与 `rename`：按工具默认规范写法写的规则（如 `^github/file:delete$`）在用户用 `rename` 改名后不再命中，该工具重新可见。现在一条规则同时匹配当前规范写法、原始名写法和默认规范写法（命名规则对原始名的拆分结果，不含 `rename`）（config.md「deny」）。
+- OAuth 刷新遇到不可写的登录存储时，新 token 只在内存里使用且没有任何提示，别的进程（以及之后的调用）读到的仍是旧记录，轮换 refresh token 的 server 会因此让登录失效。现在：当前会话继续用内存里的新记录（后续刷新不再读回存储里作废的旧 refresh token），并在 stderr 提示一次 `warning: could not save the refreshed OAuth login for <provider> …`（daemon 里作为 `log` 事件转发给触发刷新的请求）；`via doctor` 对不可写的文件存储给出提示和 `chmod` 建议（auth.md、daemon.md、agent-integration.md）。
+- daemon 在不同 shell 的 `env:` 值不同时反复重启：两个 shell 里同名变量（如 `GH_TOKEN`）取值不同，每次交替调用都会让 daemon 因摘要不一致而重启，会话和 stdio 子进程随之丢失。现在 daemon 回复 `stale` 时，CLI 不再重启 daemon，而是只把这个 server 的这一个请求改在进程内完成（也不会把取值发给 daemon，凭证值不过 socket 的约定不变）；与 daemon 环境一致的 shell 继续用 daemon，另一个 shell 各自用自己的取值，没有设置变量的调用方得到退出码 4 而不是 daemon 环境里的值。代价：取值不一致的 shell 里，该 server 的 stdio 子进程每次调用都重新拉起（daemon.md「环境与工作目录」）。
 - ADR 0008 的背景误称 mcp2cli 采用代码生成；mcp2cli 实际是运行时分发。
 - 多个 server 同时解析凭证（`via doctor`、`via sync`）时，CLI 可能创建两个凭证解析器和两个 MCP client：脱敏只认其中一个解析器的值，另一个解析出的凭证可能漏出脱敏，退出时也只关闭一个 client。现在一次运行共用一个。
 

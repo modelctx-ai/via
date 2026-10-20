@@ -1,5 +1,7 @@
 // Resources, prompts and roots through a real daemon (a spawned child, as in production), and the
 // session-key rules for roots (ADR 0010; daemon.md).
+import { dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { effectiveServer, sessionKey } from '../../src/daemon/target';
@@ -103,7 +105,7 @@ describe('roots through the daemon', () => {
   it('gives each working directory a session of its own, never the roots of another directory', async () => {
     const d = await sandbox(config('    roots: ["."]\n'));
     const a = d.sb.project;
-    const b = d.sb.write('other/.keep', '').replace(/\/\.keep$/, '');
+    const b = dirname(d.sb.write('other/.keep', ''));
     const ask = (cwd: string) => d.via(['fs', 'list-roots'], { cwd });
     const first = await ask(a);
     expect(first.stdout).toContain(pathToFileURL(a).href);
@@ -117,8 +119,8 @@ describe('roots through the daemon', () => {
   });
 
   it('shares one session between directories when neither roots nor cwd depend on them', async () => {
-    const d = await sandbox(config('    cwd: /tmp\n    roots: ["/shared/place"]\n'));
-    const b = d.sb.write('other/.keep', '').replace(/\/\.keep$/, '');
+    const d = await sandbox(config(`    cwd: ${JSON.stringify(tmpdir())}\n    roots: ["/shared/place"]\n`));
+    const b = dirname(d.sb.write('other/.keep', ''));
     const first = await d.via(['fs', 'list-roots']);
     const pid = (await d.status())!.sessions[0]!.pid;
     const second = await d.via(['fs', 'list-roots'], { cwd: b });

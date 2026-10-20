@@ -280,6 +280,11 @@ export class DaemonClient {
     this.conn = undefined;
   }
 
+  /** 2 s (daemon.md); Windows gets 5 s: process creation and antivirus scans of a cold node.exe are slower there. */
+  private readyTimeoutMs(): number {
+    return this.options.readyTimeoutMs ?? (process.platform === 'win32' ? 5000 : 2000);
+  }
+
   private async open(spawnIfAbsent: boolean): Promise<DaemonConnection | undefined> {
     const { paths, version } = this.options;
     const unsafe = unsafeReason(paths);
@@ -290,7 +295,7 @@ export class DaemonClient {
     if (!spawnIfAbsent) return undefined;
     // No daemon, or one of another version that is draining and has already released the socket.
     const child = this.spawnDaemon();
-    const deadline = Date.now() + (this.options.readyTimeoutMs ?? 2000);
+    const deadline = Date.now() + this.readyTimeoutMs();
     let attempt = 0;
     for (;;) {
       const failure = child.failure();
@@ -298,7 +303,7 @@ export class DaemonClient {
       const result = await DaemonConnection.connect(paths, version);
       if ('conn' in result) return result.conn;
       if (result.refused === 'token') throw new DaemonUnavailable('the via daemon refused the handshake (token mismatch)');
-      if (Date.now() > deadline) throw new DaemonUnavailable(`the via daemon did not start within ${(this.options.readyTimeoutMs ?? 2000) / 1000}s${child.tail()}`);
+      if (Date.now() > deadline) throw new DaemonUnavailable(`the via daemon did not start within ${this.readyTimeoutMs() / 1000}s${child.tail()}`);
       attempt += 1;
       await sleep(Math.min(10 + attempt * 5, 40));
     }

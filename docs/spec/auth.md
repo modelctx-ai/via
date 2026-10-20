@@ -42,6 +42,7 @@
 - 每次发请求前检查 access token：已过期或不足 60 秒到期且有 refresh token 时，先用 refresh token 静默刷新，成功后写回存储；服务端轮换 refresh token 时保存新值。收到 401 时刷新一次后重试一次。
 - 会话由谁持有都一样：进程内模式在每次请求前检查，daemon 里长期存活的会话同样在每次请求前检查，所以不需要后台定时器；登录或登出由另一个进程完成后，持有会话的进程在几秒内就会读到新的状态。
 - 并发：同一进程内同一 server 的刷新串行化。多个进程同时刷新而 refresh token 被轮换时，输掉的一方重新读取存储，改用已经刷新好的 token。
+- 存储不可写（只读的目录或钥匙串）时，刷新得到的新 token 存不下来：当前进程继续使用内存里的新记录（后续刷新也用它，不会读回存储里已被服务端轮换作废的旧 refresh token），但别的进程只能读到旧记录，服务端轮换 refresh token 时就会被拒绝而要求重新登录。因此 via 在 stderr 提示一次 `warning: could not save the refreshed OAuth login for <provider> (<原因>); …`（每个会话一次：进程内模式是本次运行，daemon 是该 server 的会话；daemon 里这条提示作为 `log` 事件发给触发刷新的那个请求，见 [daemon.md](daemon.md#cli-与-daemon-的协议)）。`via doctor` 对存放在文件里且目录或文件不可写的登录给出提示与 `chmod` 建议（不改变退出码）；钥匙串不做探测，因为探测只能靠写入。
 - 刷新被拒绝（`invalid_grant` 等，说明登录已失效）时，删除记录里的 token（保留客户端信息），按下文「需要登录」处理。网络错误或授权服务器的 5xx 不算登录失效，按上游错误处理（退出码 6），不删除 token。
 
 ### 状态与登出

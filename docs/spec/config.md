@@ -18,7 +18,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 - 框架配置中的 `env`、`headers` 原样继承，包括其中的明文值；`via doctor` 对明文值告警。
 - 同一框架的项目级配置整条覆盖它的用户级配置（框架自己的优先级），这不算冲突；只有不同框架之间才记录冲突。冲突项记在 server 的 `conflicts` 里，列出被忽略的来源；内容完全相同的重复定义不算冲突。
 - 覆盖层只写了部分字段时只改这些字段：`env`、`headers`、`rename` 按键合并，`args` 整体替换，`noise` 追加去重，其余标量字段后者覆盖。覆盖层给出的传输方式与来源不同（对 HTTP server 写了 `command`，或对 stdio server 写了 `url`）时，整体替换传输定义，不继承另一种传输的字段。
-- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`domains` 按域名逐项覆盖；`output.*`、`daemon.*` 逐字段覆盖。
+- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`domains` 按域名逐项覆盖；`output.*`、`daemon.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
 - 覆盖层里没有任何来源定义的 server（只有 `timeout` 之类设置，没有 `command` 或 `url`）被忽略并给出告警，通常是框架那边已经删掉了它。
 
 `sources` 的细节：
@@ -70,6 +70,35 @@ domains:
 | `output.cellWidth` | 字符数 | `80` | 表格单元格截断宽度 |
 | `daemon.idleTimeout` | 秒 | `600` | daemon 空闲退出时间 |
 | `daemon.serverIdleTimeout` | 秒 | `300` | 单个 stdio server 空闲停止时间 |
+| `search.semantic` | 映射 \| `false` | 未设置 | `via find` 的可选 embedding 检索，**只在用户配置里生效**，见[下文](#searchsemantic) |
+
+### `search.semantic`
+
+`via find` 的可选 embedding 检索（[discovery.md](discovery.md#embedding-检索可选默认关闭)，[ADR 0011](../adr/0011-find-synonym-expansion-and-optional-embeddings.md)）。默认关闭；它会把工具描述与每次查询发往 `url`，所以只在用户配置（和命令行覆盖）里读取：
+
+```yaml
+search:
+  semantic:
+    provider: openai-compatible
+    url: https://api.openai.com/v1
+    model: text-embedding-3-small
+    auth: { bearer: "env:OPENAI_API_KEY" }
+```
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `provider` | `openai-compatible` | `openai-compatible` | 目前只有 OpenAI 兼容的 `/embeddings` 接口 |
+| `url` | 字符串 | 必填 | 基础地址（`…/v1`，请求发往 `<url>/embeddings`）或完整的 `…/embeddings` 地址。必须是 https；`localhost`、`127.0.0.0/8`、`::1` 允许 http（本机 Ollama、vLLM 等）。不允许内嵌用户名或密码 |
+| `model` | 字符串 | 必填 | 模型名，原样放进请求 |
+| `auth` | `none` \| `{ bearer }` \| `{ headers }` | `none` | 与 server 的 `auth` 同形（[auth.md](auth.md)），值是凭证引用；不支持 `oauth`。字面量凭证加载时告警 |
+| `timeout` | 秒 | `3` | 缓存已完整时，整个语义步骤（只剩查询要 embedding）的期限 |
+| `indexTimeout` | 秒 | `30` | 有工具还没有 embedding（首次、目录变了）时的期限 |
+| `dimensions` | 正整数 | 不传 | 作为 `dimensions` 发给端点（支持缩短向量的模型）；也参与缓存键 |
+
+- `search.semantic: false` 显式关闭（命令行覆盖可以用它临时关掉用户配置里的设置）。
+- 项目配置里出现 `search.semantic` 时被忽略并给出告警（`search-forbidden`）：它会把工具描述与查询发往仓库指定的主机（[security.md](security.md#embedding-检索的数据外流)）。框架配置没有 `search` 字段，不读取。
+- `url` 为 http 且不是回环地址、含内嵌凭证、缺少 `url` 或 `model`、`provider` 不是 `openai-compatible`、`auth` 是 `oauth`，都是 `invalid-field` 错误（与其他字段错误一样，命令拒绝执行，退出码 2），整段 `search.semantic` 被忽略。
+- 凭证引用在 `find` 需要请求端点时才解析；解析失败不让 `find` 失败，只退回词法排序并在 stderr 说明缺哪一项，不含值。
 
 ### `servers.<name>`
 
@@ -136,6 +165,7 @@ domains:
 - 未知字段只告警，用来发现拼写错误（`timout`）。
 - 文件不存在、无法读取或无法解析时跳过该文件并给出诊断，不影响其他来源。诊断信息不引用文件内容，避免泄露凭证。
 - `deny` 中无效的正则被忽略并报错（其余规则照常编译）。因为无效的 deny 规则意味着本应隐藏的工具会可见，诊断为 error 级，调用方应当停下来让用户修复，而不是继续运行：CLI 对任何带 error 级诊断的配置都拒绝执行命令（`via doctor`、`via servers` 除外，它们负责展示诊断），退出码 2（[cli.md](cli.md#配置错误)）。
+- `deny` 中会让 via 卡死的正则（嵌套量词等，见「deny」的正则安全）同样被忽略，诊断为 error 级 `unsafe-deny`，处理方式与无效正则相同。
 - 加载结果同时返回全部诊断，供 `via doctor` 和 `via servers` 展示；诊断分 `error`、`warning`、`info` 三级。
 
 ## 凭证引用
@@ -165,10 +195,23 @@ domains:
 
 ## deny
 
-- 正则在单字符串形式上匹配，例如 `^github/.*:delete$`、`^notion/page:(delete|move)$`；同时也匹配原始名形式 `provider/原始名`（如 `^github/delete_file$`），用 `rename` 改了规范写法也绕不过按原始名写的规则。写法都是 JavaScript 正则、区分大小写、不隐含锚定，没有标志位。
+- 正则在单字符串形式上匹配，例如 `^github/.*:delete$`、`^notion/page:(delete|move)$`。一条规则对每个工具匹配三种写法，任一命中即 deny：
+  1. 当前规范写法 `provider/资源:动作`（`rename` 之后的写法，有 `alias` 时 provider 是别名）；
+  2. 原始名写法 `provider/原始名`（如 `^github/delete_file$`）；
+  3. 默认规范写法：命名规则对原始名拆分的结果（[naming.md](naming.md)），不含 `rename`，也不含重名时降级为叶子工具的调整。
+
+  所以无论规则是按默认写法、原始名还是 `rename` 后的写法写的，用户或项目配置用 `rename` 改名都不会让规则失效。写法都是 JavaScript 正则、区分大小写、不隐含锚定，没有标志位。
 - `provider` 是 CLI 上用的名字（有 `alias` 时是别名），不是 `servers` 下的键。
 - 命中的工具在浏览、`find`、未命中时的候选提示中都不可见，直接调用退出码 5（用任何写法：规范写法、原始名、`via call`、唯一前缀，带不带 `--yes` 都一样；`--dry-run` 同样拒绝）。deny 先于 `--yes` 检查：被 deny 的危险工具报的是 deny，而不是缺少 `--yes`。
-- 各层取并集，顺序为用户配置、项目配置、命令行；相同的规则只算一条。项目配置和命令行只能追加规则，不能撤销用户配置的规则（没有「取消 deny」的写法，`deny: []` 什么也不改变），项目配置也不能通过重定义 server、改别名或 `rename` 绕过。
+- 各层取并集，顺序为用户配置、项目配置、命令行；相同的规则只算一条。项目配置和命令行只能追加规则，不能撤销用户配置的规则（没有「取消 deny」的写法，`deny: []` 什么也不改变），项目配置也不能通过重定义 server、改别名或 `rename` 绕过（规则对 `rename` 前后的写法都生效，见上）。
+- **正则安全**：项目配置可以追加 deny 规则，所以规则不能让 via 卡死。V8 的正则没有超时，加载配置时对每条规则做静态检查，下列写法与无效正则一样被拒绝（忽略该规则，诊断为 error 级 `unsafe-deny`，CLI 停止执行，不会在缺少这条规则的情况下继续）：
+  - 长度超过 200 个字符；
+  - 反向引用（`\1`、`\k<name>`）；
+  - 被重复的分组（后跟 `*`、`+`、`{n,}` 或 `{n,m}` 且 m > 1）里含有开放量词（`*`、`+`、`{n,}`），即嵌套量词，如 `(a+)+`、`(\w+\s?)*`；
+  - 被重复的分组里的候选分支不是互不为前缀的纯字面量，如 `(a|a)*`、`(a|aa)+`、`(\d|\d\d)+`（`(delete|remove)` 这类没有被重复的分组不受限）；
+  - 整条正则里开放量词超过 3 个。
+
+  规则只在**有界的输入**上匹配：每个被匹配的写法（见上）不超过 256 个字符，更长的工具名无法检查，按 deny 处理（隐藏，直接调用退出码 5）。常见写法（`^github/.*:delete$`、`^notion/page:(delete|move)$`、`_(delete|remove)s?$`）都能通过检查。
 - `deny` 不是字符串列表（包括只写 `deny:` 而没有值）视为类型错误，与无效正则一样是 error 级诊断，CLI 停止执行（见「校验与诊断」）。用户配置和项目配置文件本身无法解析同样是 error 级诊断。
 - 项目配置的 `deny` 在未信任时同样生效：它只会让更多工具不可见。
 - deny 只在 via 一侧生效；需要不可绕过的限制时使用上游的只读端点或网关（见 [security.md](security.md)）。

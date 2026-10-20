@@ -15,6 +15,7 @@ describe('data files validate against data/schema (data-files.md)', () => {
     ['domain-lexicon.json', 'schema/domain-lexicon.schema.json'],
     ['noise.json', 'schema/noise.schema.json'],
     ['columns.json', 'schema/columns.schema.json'],
+    ['synonyms.json', 'schema/synonyms.schema.json'],
   ])('%s', (file, schema) => {
     const validate = ajv.compile(read(schema) as object);
     const ok = validate(read(file));
@@ -42,5 +43,16 @@ describe('data files validate against data/schema (data-files.md)', () => {
     for (const [term, weights] of Object.entries(lexicon.terms)) {
       for (const domain of Object.keys(weights)) expect(known.has(domain), `${term} -> ${domain}`).toBe(true);
     }
+  });
+
+  it('synonym groups are well formed (data-files.md, "synonyms.json")', () => {
+    const data = read('synonyms.json') as { verbs: string[][]; resources: string[][]; queryStopwords: string[] };
+    for (const group of [...data.verbs, ...data.resources]) {
+      expect(new Set(group).size, group.join('/')).toBe(group.length);
+      for (const member of group) expect(member, group.join('/')).toBe(member.toLowerCase());
+    }
+    // Query filler must not be a word the verb table treats as an action.
+    const { verbs } = read('verbs.json') as { verbs: string[] };
+    expect(data.queryStopwords.filter((w) => verbs.includes(w))).toEqual([]);
   });
 });

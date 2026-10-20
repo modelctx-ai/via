@@ -128,6 +128,7 @@ export class App {
 
   private async createBackend(): Promise<Backend> {
     const config = await this.config({ allowErrors: true });
+    const onWarning = (message: string): void => this.err(`warning: ${this.redact(message)}\n`);
     const inProcess = async (): Promise<Backend> => {
       const { InProcessBackend } = await import('./backend');
       return InProcessBackend.create({
@@ -137,6 +138,7 @@ export class App {
         env: this.io.env,
         cacheDir: this.cacheDir,
         now: this.io.now,
+        onWarning,
         roots: { cwd: this.io.cwd, home: this.io.home },
         ...(config.servers.some((s) => s.auth.type === 'oauth') ? { oauthStore: await this.oauthStore() } : {}),
       });
@@ -154,6 +156,7 @@ export class App {
       cwd: this.io.cwd,
       env: this.io.env,
       serverIdleTimeoutSec: config.daemon.serverIdleTimeout,
+      onWarning,
     });
     return new FallbackBackend(primary, inProcess, (message) => this.err(message), () => new FileCursorStore(join(this.cacheDir, 'cursors'), { now: this.io.now }));
   }

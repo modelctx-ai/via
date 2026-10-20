@@ -21,8 +21,9 @@ function credentialRefs(server: ServerConfig): string[] {
  * Digest of the values of the variables behind the server's `env:` references, taken from `env`.
  * The CLI computes it from its environment and the daemon from its own; a difference means the
  * daemon would resolve a credential the CLI would not (it was started in another shell, or the
- * variable changed since), so the daemon asks to be restarted instead of using a stale value. Only
- * the digest travels; it is one-way, so the socket still never carries a credential.
+ * variable changed since). The daemon then answers `stale` and the CLI handles that server's
+ * request in-process, so the daemon never serves a caller with a value that is not its own. Only
+ * the digest travels; it is one-way, so the socket never carries a credential.
  */
 export function envStamp(server: ServerConfig, env: Readonly<Record<string, string | undefined>>): string {
   const names = new Set<string>();

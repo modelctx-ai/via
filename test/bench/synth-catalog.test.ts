@@ -36,7 +36,8 @@ describe('synthetic 1,000-tool catalog', () => {
       expect(index.search(tool.ref)[0]?.tool.ref).toBe(tool.ref);
     }
     expect(index.search('github create pull request')[0]?.tool.provider).toMatch(/^github/);
-    expect(index.search('send an email message')[0]?.tool.provider).toMatch(/^gmail/);
+    // `mail-message:send` of the workspace clones is a synonym hit for `email` and ties with gmail's description hit.
+    expect(index.search('send an email message')[0]?.tool.provider).toMatch(/^(gmail|acme-workspace)/);
     expect(index.search('run a sql statement')[0]?.tool.provider).toMatch(/^(postgres|sqlite|acme-sql)/);
     const hits = index.search('merge pull request', { limit: 5 });
     expect(hits.length).toBe(5);

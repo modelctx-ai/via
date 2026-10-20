@@ -112,7 +112,8 @@ export type Response =
 
 /**
  * The request was not run because the daemon's environment differs from the caller's for a variable
- * a credential reference points at. The caller restarts the daemon and asks again.
+ * a credential reference points at. The caller handles that server's request in-process; the daemon
+ * is neither restarted nor given the caller's values.
  */
 export type Stale = { id: string; type: 'stale'; reason: 'environment' };
 

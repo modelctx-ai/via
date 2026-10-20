@@ -24,6 +24,26 @@ export type AuthConfig =
   | { type: "headers"; headers: Record<string, CredentialRef> }
   | { type: "oauth"; scopes?: string[]; clientId?: string };
 
+/**
+ * `search.semantic` (config.md, ADR 0011): optional embedding retrieval for `via find`. Read from
+ * the user config only; it sends tool descriptions and queries to `url`.
+ */
+export interface SemanticSearchConfig {
+  provider: 'openai-compatible';
+  /** Base URL (`…/v1`) or the full `…/embeddings` URL. https, or http for loopback only. */
+  url: string;
+  model: string;
+  /** `none`, `bearer` or `headers`; values are credential references. */
+  auth: Exclude<AuthConfig, { type: 'oauth' }>;
+  /** Seconds allowed for the whole semantic step when only the query needs embedding. */
+  timeout: number;
+  /** Seconds allowed when tools still have to be embedded (first run, changed catalog). */
+  indexTimeout: number;
+  /** Passed to the endpoint as `dimensions` when set. */
+  dimensions?: number;
+  origin: ConfigOrigin;
+}
+
 export interface StdioTransport {
   type: "stdio";
   command: string;

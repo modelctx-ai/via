@@ -38,7 +38,7 @@ via/
 ├─ src/
 │  ├─ cli/          # 入口、子命令、工具参数解析
 │  ├─ config/       # 框架配置探测与解析、合并、凭证引用
-│  ├─ catalog/      # 名称拆分、分域、索引、搜索、浏览视图、缓存
+│  ├─ catalog/      # 名称拆分、分域、索引、搜索（含同义词扩展与可选的 embedding 检索 semantic.ts）、浏览视图、缓存
 │  ├─ client/       # MCP 会话、鉴权、OAuth
 │  ├─ render/       # 输出流水线：清理、形状判断、表格、截断、游标
 │  ├─ platform/     # 平台差异：Windows 上命令的解析与 cmd.exe 启动（command.ts）、BOM / UTF-16 文本解码（text.ts）
@@ -49,10 +49,11 @@ via/
 │  ├─ verbs.json    # 动词表与单数化例外
 │  ├─ domains.json  # 内置 server 分类表与分域参数
 │  ├─ domain-lexicon.json  # 由脚本生成的分域词典
+│  ├─ synonyms.json # find 的查询侧同义词、词形还原与口语停用词
 │  ├─ noise.json    # 默认噪声字段表
 │  ├─ columns.json  # 表格选列规则
 │  └─ schema/       # 上述数据文件的 JSON Schema
-├─ scripts/         # 词典生成（npm run lexicon）、拆分结果差异检查（npm run split-diff）、token 基准（npm run bench:tokens）、agent 评测（npm run bench:eval）
+├─ scripts/         # 词典生成（npm run lexicon）、拆分结果差异检查（npm run split-diff）、token 基准（npm run bench:tokens）、检索质量评测（npm run eval:search）、agent 评测（npm run bench:eval）
 ├─ bench/           # token 基准：tasks/（任务）、recordings/（合成的返回值）、replay-server.mjs（回放 MCP server）、harness/、results/；eval/ 是 agent 评测的实现，复用任务与回放 server（见 bench/README.md）
 ├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；`mcp/`：模拟 MCP server（stdio 与 Streamable HTTP）；`config/`：每个框架的配置样例与 via 用户/项目配置
 └─ docs/
