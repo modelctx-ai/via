@@ -14,7 +14,7 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 
 - MCP 会话：stdio 子进程、HTTP 的 session id。
 - 工具目录的内存副本（同时持久化到磁盘缓存），以及 `list_changed` 订阅。
-- 凭证解析结果与 OAuth token 刷新。
+- 凭证解析结果与 OAuth token 刷新：会话持有的 OAuth 提供者在每次请求前检查并刷新 access token（[auth.md](auth.md#刷新)），读写的是与 CLI 共用的存储；`via auth login` 与 `logout` 在 CLI 进程里完成，daemon 在下一次请求时读到新的状态。daemon 对工具结果脱敏时，OAuth token 与凭证引用解析出的值一样计入脱敏列表。
 - 截断结果的游标。
 
 ## CLI 与 daemon 的协议
@@ -67,6 +67,7 @@ type ErrorInfo = {
 
 - `result` 中是清理前的结构化数据（MCP content 与 structuredContent），截断与渲染在 CLI 侧做；游标保存在 daemon。
 - 协议中不得出现解析后的凭证值。
+- `auth` 请求的 `login` 不经过 daemon：登录需要浏览器或终端交互，由 CLI 在自己的进程里完成并写入共用存储（[auth.md](auth.md#oauth)）；daemon 里的会话在下一次请求前读取存储，所以新的登录、登出和刷新结果无需通知。
 - 未知消息类型返回 `exitCode: 7` 的错误，不断开连接。
 
 ## 并发

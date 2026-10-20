@@ -73,6 +73,8 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
         return (await import('./commands/trust')).trustCommand(app, argv);
       case 'prompt':
         return (await import('./commands/prompt')).promptCommand(app, argv);
+      case 'auth':
+        return (await import('./commands/auth')).authCommand(app, argv);
       default:
         return (await import('./commands/future')).futureCommand(app, builtin);
     }

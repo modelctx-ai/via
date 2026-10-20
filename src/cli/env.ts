@@ -20,6 +20,8 @@ export interface CliEnv {
   interactive: boolean;
   /** Ask a question on stderr and return the first line typed in reply (`via trust`). */
   ask: (question: string) => Promise<string>;
+  /** Opens a URL in a browser; the default uses the platform opener (`via auth login`). */
+  openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }>;
   now: () => number;
 }
 
@@ -33,7 +35,9 @@ async function askOnTerminal(question: string): Promise<string> {
   const { createInterface } = await import('node:readline/promises');
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
-    return await rl.question(question);
+    // At end of input readline closes without answering; that counts as an empty answer.
+    const closed = new Promise<string>((resolve) => rl.once('close', () => resolve('')));
+    return await Promise.race([rl.question(question), closed]);
   } finally {
     rl.close();
   }
