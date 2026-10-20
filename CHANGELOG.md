@@ -20,6 +20,7 @@
 
 ### Added
 
+- token 基准（`npm run bench:tokens`，路线图门槛 1 的前半）：`bench/` 下九个任务（github、linear、notion、playwright、cloudflare，含一个跨 server 任务）、回放 MCP server `bench/replay-server.mjs`（Streamable HTTP 或 stdio；`tools/list` 取自夹具，`tools/call` 按任务里的返回值回答，其余 `isError`；任务文件格式与回放接口供之后的 agent 评测复用）和测量脚本。比较原生注入、`via`（真实运行 `dist/via.js`）和 mcp2cli（PATH 上有才运行并记录版本，说明文本取自它的 skill），核对三者发出的 `tools/call` 一致；结果记录在 `bench/results/0.1.md` 与 `0.1.json`。冒烟测试校验任务文件、回放 server 和全部 via 命令，凭证扫描覆盖 `bench/`。
 - `via batch`：从 stdin 读 JSON Lines（`{"tool":"<provider>/<resource>:<verb>","args":{…}}`），各行并发执行，同一 server 遵守其 `concurrency`，另有 `--concurrency <n>` 限制整批在途行数；结果严格按输入顺序输出，单行失败（解析、找不到、deny、危险操作、校验、上游）不影响其他行；text 输出以元信息行分隔并汇总，`-o json` 输出每行一条记录。不再属于「保留名字」的子命令。
 - 工程骨架：`@modelctx/via` 包（ESM、Node 20+，TypeScript strict），tsup 打成单个文件并内联 `data/`，vitest 测试，`typecheck` / `build` / `test` 脚本。
 - `src/catalog/`：工具名拆分（切词、去 provider 词、找动作、复合动词、逐词单数化、叶子工具、`resource:verb` 冲突退回叶子、`rename` 覆盖、`deny` 过滤）；分域（配置 → 内置分类表 → 启发式打分 → `other`，按资源拆分，`--why` 的依据）；`SearchIndex`（规范写法三级匹配 + BM25）；工具引用解析与 did you mean；`via`、`via <provider>`、`via <provider> <resource>`、`via find` 的浏览视图。规则放在 `data/verbs.json`、`data/domains.json`、`data/domain-lexicon.json`（`npm run lexicon` 生成）。
