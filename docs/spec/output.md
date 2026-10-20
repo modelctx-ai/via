@@ -69,7 +69,22 @@ next: via auth login linear
 
 - `isError` 结果：上游错误文本经清理、脱敏后输出，退出码 1。
 - 参数错误附 usage（[arguments.md](arguments.md#校验与报错)）；找不到附 did you mean（[discovery.md](discovery.md#找不到时)）。
-- `-o json` 时错误同样写 stderr，格式为 `{"error": {"code": <退出码>, "message": "…", "next": "…"}}`。
+- `-o json` 时错误同样写 stderr，格式为 `{"error": {"code": <退出码>, "message": "…", "next": "…", "details": [...]}}`。参数校验失败时 `details` 中每条错误一个对象：
+
+  ```json
+  {"error": {
+    "code": 2,
+    "message": "2 invalid arguments",
+    "next": "via github issue:list -h",
+    "details": [
+      {"arg": "--repo", "path": "/repo", "rule": "required"},
+      {"arg": "--state", "path": "/state", "rule": "enum",
+       "expected": ["open", "closed", "all"], "got": "opened", "suggest": "open"}
+    ]
+  }}
+  ```
+
+  `arg` 是命令行写法，`path` 是 JSON Pointer，`rule` 是失败的 schema 关键字（`required`、`type`、`enum`、`maximum`、`pattern`、`additionalProperties` 等，JSON 解析失败为 `json`）。`got` 遵循与文本输出相同的截断与脱敏规则。
 
 ## 退出码
 

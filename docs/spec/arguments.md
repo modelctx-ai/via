@@ -96,16 +96,59 @@ alias: issue_read · read-only
 
 ### 报错
 
-校验失败时退出码为 2，一次列出所有问题，并附上 usage：
+校验失败时退出码为 2，报错写到 stderr。目标是让 agent 读一次报错就能改对：每条错误都说清是哪个参数、要求是什么、实际传了什么。
+
+只有一个错误时，一行说明，后面跟 usage：
 
 ```console
-error: missing required --repo; --state must be one of open, closed, all
-usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all]
+$ via github issue:list --owner acme
+error: --repo is required
+usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all] [--per-page <num>]
 ```
 
-- 报错中的参数名一律用 kebab-case 和命令行写法（`--filter.state`），而不是 JSON Pointer。
-- 未知参数报错并给出最接近的参数名；根对象允许任意字段时例外（见 [JSON 输入](#json-输入)）。
+有多个错误时一次全部列出，每个参数一行：
+
+```console
+$ via github issue:list --owner acme --state opened --per-page 500 --titel x
+error: 4 invalid arguments
+  --repo       required
+  --state      must be one of: open, closed, all (got "opened"; did you mean "open"?)
+  --per-page   must be <= 100 (got 500)
+  --titel      unknown argument; did you mean --title?
+usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all] [--per-page <num>]
+next: via github issue:list -h
+```
+
+各类错误的固定说法：
+
+| 失败类型 | 提示 |
+| --- | --- |
+| 缺少必填 | `--repo  required` |
+| 类型不符 | `--count  must be a number (got "abc")` |
+| 枚举 / const | `--state  must be one of: open, closed, all (got "opened"; did you mean "open"?)` |
+| 数值范围 | `--per-page  must be <= 100 (got 500)` |
+| 字符串长度 | `--title  must be at most 256 characters (got 300)` |
+| 正则 | `--id  must match ^[A-Z]+-\d+$ (got "eng123")` |
+| 数组长度 | `--labels  must have at most 10 items (got 12)` |
+| 数组元素 | `--labels[1]  must be a string (got 3)` |
+| 嵌套字段 | `--filter.state  must be one of: open, closed (got "x")` |
+| 未知参数 | `--titel  unknown argument; did you mean --title?` |
+| anyOf / oneOf 不匹配 | `--parent  must provide one of: page_id, database_id, data_source_id` |
+| JSON 解析失败 | `--filter  invalid JSON at 1:18: unexpected "}"; consider @file` |
+| 文件读取失败 | `--body  cannot read @bug.md: no such file` |
+| `format` 不符（仅警告） | `warning: --due should be a date-time (got "tomorrow")` |
+
+规则：
+
+- 参数名一律用 kebab-case 的命令行写法（`--filter.state`、`--labels[1]`），而不是 JSON Pointer；参数来自 `--args` 时同样换算成这种写法。
+- `(got …)` 中的值超过 40 个字符时截断；值命中已解析的凭证时显示为 `***`。
+- 有更接近的合法值时附 did you mean（枚举值、参数名都适用），最多给一个。
 - anyOf / oneOf 无法匹配时，列出各分支需要的字段，而不是逐条罗列每个分支的失败原因。
+- 未知参数在根对象允许任意字段时不报错（见 [JSON 输入](#json-输入)）。
+- 错误信息使用英文。模型对英文 CLI 报错最熟悉，也方便在 issue 和日志中搜索。
+- `-o json` 时报错为结构化 JSON，格式见 [output.md](output.md#错误)。
+
+上游返回的参数错误（本地校验通过、上游拒绝）原样输出上游的错误文本，退出码 1，并在 stderr 提示「schema 与 server 行为不一致」，便于判断是哪一侧的问题。
 
 ### schema 不可靠时
 
