@@ -77,7 +77,9 @@ async function status(app: App): Promise<number> {
   const client = await app.daemonClient();
   const conn = await client.connection({ spawn: false });
   if (!conn) {
-    app.out(json ? `${JSON.stringify({ running: false, socket: client.paths.socket })}\n` : `daemon: not running\nsocket: ${client.paths.socket}\n`);
+    const { describeEndpoint } = await import('../../daemon/paths');
+    const socket = describeEndpoint(client.paths);
+    app.out(json ? `${JSON.stringify({ running: false, socket })}\n` : `daemon: not running\nsocket: ${socket}\n`);
     return ExitCode.Ok;
   }
   const response = await conn.request({ type: 'status' }, { deadlineMs: 5000 });
@@ -125,7 +127,7 @@ async function runDaemon(app: App, argv: readonly string[]): Promise<number> {
   } else {
     idleTimeoutSec = (await app.config({ allowErrors: true })).daemon.idleTimeout;
   }
-  const [{ DaemonServer }, { daemonPaths }, { VERSION }, { pathContext }] = await Promise.all([
+  const [{ DaemonServer }, { daemonPaths, describeEndpoint }, { VERSION }, { pathContext }] = await Promise.all([
     import('../../daemon/server'),
     import('../../daemon/paths'),
     import('../help'),
@@ -142,11 +144,11 @@ async function runDaemon(app: App, argv: readonly string[]): Promise<number> {
     platform: app.io.platform,
   });
   if ((await daemon.start()) === 'running') {
-    app.err(`daemon: already running on ${paths.socket}\n`);
+    app.err(`daemon: already running on ${describeEndpoint(paths)}\n`);
     return ExitCode.Ok;
   }
   // Started by hand: say where it listens. Started by the CLI its stderr goes to a log file.
-  if (process.stderr.isTTY) app.err(`daemon: listening on ${paths.socket} (exits after ${formatDuration(idleTimeoutSec * 1000)} idle)\n`);
+  if (process.stderr.isTTY) app.err(`daemon: listening on ${daemon.address} (exits after ${formatDuration(idleTimeoutSec * 1000)} idle)\n`);
   const onSignal = (): void => void daemon.stop();
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.once(signal, onSignal);
   const onCrash = (error: unknown): void => {

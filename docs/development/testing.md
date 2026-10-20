@@ -27,11 +27,21 @@
 - 所有快照中不得出现测试凭证值，CI 中对快照做凭证值扫描。
 - 项目级配置未信任时 stdio 命令不得执行。
 
+### 跨平台约定
+
+- 路径、环境变量、引号、`PATHEXT` 等逻辑用注入的 `platform: 'win32'` 在所有宿主上测试（`test/config/paths.test.ts`、`test/platform/`、`test/daemon/paths.test.ts`），不要求在 Windows 上才能跑；守护进程的「按令牌派生的端点」流程用手工构造的 `derived` 路径集在 unix socket 上同样跑一遍（`test/daemon/protocol.test.ts`）。
+- 只在 POSIX 上有意义的测试（模式位、`chmod 000`、符号链接、unix socket 文件、`pgrep`）用 `it.skipIf(process.platform === 'win32')`，并在注释里写明原因，不要静默跳过。
+- 需要启动 Node 夹具时用 `process.execPath` 加脚本路径，不依赖 shebang 或 `.bin` 下的可执行文件；`--import` 的路径传 `pathToFileURL(...).href`；沙箱的子进程环境用 `test/cli/helpers.ts` 的 `homeEnv` / `SYSTEM_ENV`（Windows 上的子进程需要 `SystemRoot`，用户目录来自 `USERPROFILE` / `APPDATA` 而不是 `HOME` / `XDG_*`）。
+- 与快照或固定文本比较的路径输出，经 `test/helpers/portable.ts` 归一（Windows 上 `\` 换成 `/`；含沙箱路径的表格重排列宽，因为列宽取决于临时目录的长短）；断言一个具体路径时用 `path.join` 拼出期望值，不手写 `/`；`os.tmpdir()` 在 Windows 上可能是 8.3 短名（`RUNNER~1`），而 via 记录的是 `realpath.native` 的真实路径，断言此类输出用 `trustKey()`；`next:` 里的引号按平台（POSIX 单引号，Windows 双引号）。
+- 测试结束时仍在运行、并以沙箱为工作目录的子进程会让 Windows 无法删除目录（`EBUSY`）：daemon 测试的沙箱（`test/helpers/daemon.ts`）记下见过的 daemon 与 server 进程，结束时全部终止并等它们退出；删除沙箱目录时带 `maxRetries`。
+- Windows 上的 daemon 端到端测试用各沙箱独有的 `LOCALAPPDATA` 和 `USERNAME`，使管道和令牌文件互不干扰。
+
 ### 持续集成
 
 `.github/workflows/ci.yml` 在每个 PR 和 `main` 的推送上运行：
 
 - Node 22、24 上执行 `npm ci`、`npm run typecheck`、`npm run build`、`npm test`（含快照、拆分基线、词典是否最新、凭证扫描）；
+- `windows-latest`（Node 22）上执行同样四步，再用空的用户目录运行 `dist/via.js`（`--version`、浏览、`doctor`、`daemon status`）；
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
 - 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。
 

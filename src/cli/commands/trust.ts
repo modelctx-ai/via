@@ -20,6 +20,7 @@ import {
   type TrustStore,
 } from '../../config';
 import { ExitCode } from '../../render/exit-codes';
+import { shortenHome } from '../../config/paths';
 import { shellWord } from '../../render/shell';
 import { alignRows } from '../../render/width';
 import type { App } from '../app';
@@ -42,12 +43,12 @@ function safe(text: string): string {
 
 /** One word of a command line, quoted the way a shell would need it so that spaces stay visible. */
 function word(text: string): string {
-  return /^[\w@%+=:,./~-]+$/.test(text) ? text : safe(JSON.stringify(text));
+  // A backslash is a path separator on Windows, and shown as is rather than doubled by JSON quoting.
+  const plain = process.platform === 'win32' ? /^[\w@%+=:,./\\~-]+$/ : /^[\w@%+=:,./~-]+$/;
+  return plain.test(text) ? text : safe(JSON.stringify(text));
 }
 
-function shorten(path: string, home: string): string {
-  return home !== '' && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
-}
+const shorten = (path: string, home: string): string => shortenHome(path, home);
 
 /** `https://host/path`; the query string, fragment and userinfo are hidden since they often carry a token. */
 function describeUrl(raw: string): string {

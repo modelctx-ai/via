@@ -7,7 +7,8 @@ import { copyFixtureTree, CONFIG_FIXTURES, loadFixture, makeTree, server, snapsh
 import { loadTools } from '../helpers/fixtures';
 
 const codes = (diagnostics: readonly ConfigDiagnostic[]) => diagnostics.map((d) => `${d.level}:${d.code}`);
-const relative = (path: string | undefined) => path?.slice(CONFIG_FIXTURES.length);
+const slashes = (path: string): string => path.replace(/\\/g, '/'); // Windows paths have backslashes
+const relative = (path: string | undefined) => (path === undefined ? undefined : slashes(path.slice(CONFIG_FIXTURES.length)));
 
 describe('the sample tree (one config per framework)', () => {
   it('finds the servers of all six frameworks, in sources order', async () => {
@@ -99,7 +100,7 @@ describe('the sample tree (one config per framework)', () => {
     ]);
     expect(hasErrors(config.diagnostics)).toBe(true);
     expect(config.servers.map((s) => s.name)).not.toContain('broken');
-    expect(formatDiagnostic(config.diagnostics.find((d) => d.server === 'broken')!)).toMatch(/home\/\.claude\.json: servers\.broken: unsupported transport "websocket"$/);
+    expect(formatDiagnostic(config.diagnostics.find((d) => d.server === 'broken')!)).toMatch(/home[\\/]\.claude\.json: servers\.broken: unsupported transport "websocket"$/);
   });
 
   it('never writes anything, framework configs included', async () => {
@@ -167,7 +168,7 @@ describe('trust (security.md)', () => {
 
   it('hashes the bytes it parsed, so the file cannot change between hashing and parsing', async () => {
     const config = await loadFixture({ dataDir: tempDir() });
-    const file = config.files.find((f) => f.path.endsWith('project/.via.yaml'));
+    const file = config.files.find((f) => slashes(f.path).endsWith('project/.via.yaml'));
     expect(file?.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -296,7 +297,7 @@ describe('sources', () => {
     expect(names(config)).toEqual(['only_cc', 'only_cursor', 'only_file', 'shared']);
     const shared = server(config, 'shared');
     expect(shared.transport).toMatchObject({ command: 'from-cursor' });
-    expect(shared.conflicts?.map((c) => c.path?.slice(tree.home.length))).toEqual(['/tools/mcp.json', '/.claude.json']);
+    expect(shared.conflicts?.map((c) => (c.path === undefined ? undefined : slashes(c.path.slice(tree.home.length))))).toEqual(['/tools/mcp.json', '/.claude.json']);
   });
 
   it('does not read frameworks left out of the list', async () => {
@@ -526,7 +527,7 @@ describe('bad input never throws', () => {
     });
     const config = await tree.load();
     expect(config.servers.map((s) => s.name)).toEqual(['good', 'b']);
-    expect(config.diagnostics.map((d) => `${d.level}:${d.code}:${d.file?.slice(tree.home.length)}`)).toEqual([
+    expect(config.diagnostics.map((d) => `${d.level}:${d.code}:${d.file?.slice(tree.home.length).replaceAll('\\', '/')}`)).toEqual([
       'warning:file-malformed:/.claude.json',
       'warning:file-malformed:/.codex/config.toml',
       'warning:file-malformed:/.config/Code/User/mcp.json',
@@ -563,6 +564,7 @@ describe('bad input never throws', () => {
   });
 
   it('survives a directory or an unreadable file where a config should be', async () => {
+    // On Windows chmod 0o000 does not make a file unreadable; only the directory case below applies.
     const tree = makeTree({ 'home/.cursor/x': '' });
     rmSync(join(tree.home, '.cursor/x'));
     mkdirSync(join(tree.home, '.cursor/mcp.json'));
@@ -572,7 +574,7 @@ describe('bad input never throws', () => {
     writeFileSync(unreadable, '[mcp_servers.a]\ncommand = "a"\n');
     chmodSync(unreadable, 0o000);
     const config = await tree.load();
-    expect(config.servers.map((s) => s.name)).toEqual(process.getuid?.() === 0 ? ['a'] : []);
+    expect(config.servers.map((s) => s.name)).toEqual(process.getuid?.() === 0 || process.platform === 'win32' ? ['a'] : []);
     expect(config.diagnostics.every((d) => d.code === 'file-unreadable' || d.code === 'file-malformed')).toBe(true);
     expect(config.diagnostics.length).toBeGreaterThanOrEqual(1);
     chmodSync(unreadable, 0o600);

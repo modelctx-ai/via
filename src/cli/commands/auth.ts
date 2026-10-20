@@ -3,6 +3,7 @@
 // wires the person-facing I/O into the flow in client/oauth/, and prints the outcome.
 import type { LoginIO, LoginStatus, LoginTarget } from '../../client/oauth';
 import type { ServerConfig } from '../../config';
+import { userConfigHint } from '../../config/paths';
 import { ExitCode } from '../../render/exit-codes';
 import { alignRows } from '../../render/width';
 import type { App } from '../app';
@@ -43,7 +44,7 @@ async function oauthServer(app: App, name: string): Promise<{ entry: ProviderEnt
   if (server.auth.type === 'oauth') {
     throw fail(ExitCode.Usage, `${entry.name} is a stdio server; auth: oauth applies to HTTP servers only`, `via servers`);
   }
-  throw fail(ExitCode.Usage, `${entry.name} is not configured for OAuth (auth: ${describeMethod(server)})`, `set servers.${server.name}.auth to oauth in ~/.config/via/config.yaml`);
+  throw fail(ExitCode.Usage, `${entry.name} is not configured for OAuth (auth: ${describeMethod(server)})`, `set servers.${server.name}.auth to oauth in ${userConfigHint(app.io.platform)}`);
 }
 
 function describeMethod(server: ServerConfig): string {

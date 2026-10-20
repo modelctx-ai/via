@@ -68,7 +68,8 @@ describe('trust store', () => {
     if (process.platform !== 'win32') expect(statSync(dataDir).mode & 0o777).toBe(0o700);
   });
 
-  it('keys records by real path, so a symlink does not borrow trust', () => {
+  // Creating a symlink needs elevated rights (or developer mode) on Windows.
+  it.skipIf(process.platform === 'win32')('keys records by real path, so a symlink does not borrow trust', () => {
     const { dir, file, dataDir } = setup();
     recordTrust(dataDir, file);
     const link = join(dir, 'link.yaml');
@@ -113,5 +114,32 @@ describe('trust store', () => {
   it('reports a missing file as untrusted', () => {
     const { dir, dataDir } = setup();
     expect(checkTrust(dataDir, join(dir, 'nope.yaml'))).toBe('untrusted');
+  });
+});
+
+// Windows file systems ignore case, and one file has several spellings: drive letter case, `/` or
+// `\`, `\\?\` prefixes. A record must follow the file, not the spelling (security.md, "项目级配置的信任").
+describe('trust on Windows', () => {
+  const sha = hashContent('servers: {}\n');
+  const store = (key: string) => ({ version: 1 as const, entries: { [key]: { sha256: sha, trustedAt: '2026-01-01T00:00:00.000Z' } } });
+
+  it('gives every spelling of one file the same key', () => {
+    const key = trustKey('C:\\Users\\Me\\repo\\.via.yaml', 'win32');
+    expect(key).toBe('C:\\Users\\Me\\repo\\.via.yaml');
+    expect(trustKey('c:/Users/Me/repo/./.via.yaml', 'win32')).toBe(key);
+    expect(trustKey('\\\\?\\C:\\Users\\Me\\repo\\.via.yaml', 'win32')).toBe(key);
+    expect(trustKey('C:\\Users\\Me\\repo\\sub\\..\\.via.yaml', 'win32')).toBe(key);
+  });
+
+  it('finds a record whatever the case of the path, and still checks the content', () => {
+    const records = store('C:\\Users\\Me\\Repo\\.via.yaml');
+    expect(trustStatus(records, 'c:\\users\\me\\repo\\.VIA.yaml', sha, 'win32')).toBe('trusted');
+    expect(trustStatus(records, 'C:/Users/Me/Repo/.via.yaml', sha, 'win32')).toBe('trusted');
+    expect(trustStatus(records, 'c:\\users\\me\\repo\\.via.yaml', hashContent('other'), 'win32')).toBe('changed');
+    expect(trustStatus(records, 'C:\\Users\\Me\\Other\\.via.yaml', sha, 'win32')).toBe('untrusted');
+  });
+
+  it('does not fold case on other platforms', () => {
+    expect(trustStatus(store('/home/me/Repo/.via.yaml'), '/home/me/repo/.via.yaml', sha, 'linux')).toBe('untrusted');
   });
 });
