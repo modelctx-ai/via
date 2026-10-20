@@ -13,14 +13,17 @@ export interface ErrorInfo {
   details?: unknown[];
 }
 
+/** The object inside `{"error": …}` of `-o json` (output.md, "错误"): code, message, next, details. */
+export function errorEnvelope(info: ErrorInfo): Record<string, unknown> {
+  const error: Record<string, unknown> = { code: info.code, message: info.message };
+  if (info.next) error.next = info.next;
+  if (info.details) error.details = info.details;
+  return error;
+}
+
 /** Format an error for stderr. Text: `error:` line, detail lines, `next:` line. */
 export function formatError(info: ErrorInfo, format: OutputFormat, redact: (s: string) => string = (s) => s): string {
-  if (format === 'json') {
-    const error: Record<string, unknown> = { code: info.code, message: info.message };
-    if (info.next) error.next = info.next;
-    if (info.details) error.details = info.details;
-    return `${redact(JSON.stringify({ error }))}\n`;
-  }
+  if (format === 'json') return `${redact(JSON.stringify({ error: errorEnvelope(info) }))}\n`;
   const lines = [`error: ${info.message}`, ...(info.lines ?? [])];
   if (info.next) lines.push(`next: ${info.next}`);
   return `${redact(lines.join('\n'))}\n`;

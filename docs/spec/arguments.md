@@ -46,6 +46,7 @@
 - JSON 解析失败时退出码 2，报错指出参数名和出错位置，并提示可以改用 `@文件`。
 - 合并顺序：先取 `--args`，再按命令行顺序应用其余参数；同一路径后写的覆盖先写的，对象之间做深合并。例如 `--filter '{"state":"open","label":"bug"}' --filter.state closed` 的结果是 `{"state":"closed","label":"bug"}`。
 - 帮助中 object、array 参数显示为 `--filter <json>`，有声明字段的 object 额外列出 `--filter.<field>` 写法。
+- `via batch` 每行的 `args` 就是这里的 `--args` 基础对象，没有命令行参数可叠加，也不展开 `@文件` 与 `-`（[cli.md](cli.md#via-batch)）。
 - `--dry-run` 打印合并后的完整参数 JSON，用于确认最终发给上游的内容。
 - shell 中内联 JSON 用单引号包裹；内容较长或带单引号时，用 `@文件` 或 heredoc（`--args - <<'JSON' … JSON`）。
 
