@@ -6,7 +6,22 @@ import type { Compiled, CompileResult, SchemaCompiler } from '../cli/args/valida
 import type { McpTool } from '../catalog/types';
 import { ClientError, type CallOptions, type ListOptions } from '../client';
 import type { ServerConfig } from '../config/types';
-import type { CursorGetResult, ErrorInfo, Event, ListResult, RequestBody, Response, ServerTarget, ToolCallResult, ValidateResult } from '../protocol';
+import type {
+  CursorGetResult,
+  ErrorInfo,
+  Event,
+  GetPromptResult,
+  ListResult,
+  McpPrompt,
+  ReadResourceResult,
+  RequestBody,
+  ResourceListing,
+  Response,
+  ServerFeatures,
+  ServerTarget,
+  ToolCallResult,
+  ValidateResult,
+} from '../protocol';
 import type { CursorRecord, CursorStore } from '../render/cursor';
 import { ExitCode } from '../render/exit-codes';
 import { DaemonStale, DaemonUnavailable, type DaemonClient } from './client';
@@ -76,6 +91,35 @@ export class DaemonBackend implements Backend {
     if (event.event !== 'log') return;
     const data = event.data as { level?: unknown; message?: unknown } | null;
     if (data?.level === 'warning' && typeof data.message === 'string') this.options.onWarning?.(data.message);
+  }
+
+  async listResources(server: string, options: ListOptions = {}): Promise<ResourceListing> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<ResourceListing>(await this.send({ type: 'resources-list', ...this.target(config), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
+  }
+
+  async readResource(server: string, uri: string, options: ListOptions = {}): Promise<ReadResourceResult> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<ReadResourceResult>(await this.send({ type: 'resource-read', ...this.target(config), uri, timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
+  }
+
+  async listPrompts(server: string, options: ListOptions = {}): Promise<McpPrompt[]> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<McpPrompt[]>(await this.send({ type: 'prompts-list', ...this.target(config), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
+  }
+
+  async getPrompt(server: string, name: string, args: Record<string, string>, options: ListOptions = {}): Promise<GetPromptResult> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<GetPromptResult>(await this.send({ type: 'prompt-get', ...this.target(config), name, args, timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
+  }
+
+  /** The daemon returns `features` with every listing; there is no other source in this process. */
+  features(): ServerFeatures | undefined {
+    return undefined;
   }
 
   /**

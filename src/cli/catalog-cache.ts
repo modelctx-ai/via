@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import { parseCredentialRef } from '../config/credentials';
 import type { ServerConfig } from '../config/types';
+import type { ServerFeatures } from '../protocol';
 
 /** Default time to live of a cached `tools/list` (discovery.md). */
 export const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -22,11 +23,14 @@ interface CacheFile {
   version: number;
   fetchedAt: number;
   tools: McpTool[];
+  /** What the server declared at `initialize`; absent in files written before it was recorded. */
+  features?: ServerFeatures;
 }
 
 export interface CacheEntry {
   tools: McpTool[];
   fetchedAt: number;
+  features?: ServerFeatures;
 }
 
 function sortedKeys(record: Record<string, string>): string[] {
@@ -77,14 +81,16 @@ export class CatalogCache {
       const data = JSON.parse(readFileSync(this.file(server), 'utf8')) as Partial<CacheFile>;
       if (data.version !== CACHE_VERSION || typeof data.fetchedAt !== 'number' || !Array.isArray(data.tools)) return undefined;
       if (this.now() - data.fetchedAt > this.ttlMs) return undefined;
-      return { tools: data.tools, fetchedAt: data.fetchedAt };
+      const features = data.features;
+      const known = typeof features?.resources === 'boolean' && typeof features.prompts === 'boolean';
+      return { tools: data.tools, fetchedAt: data.fetchedAt, ...(known ? { features } : {}) };
     } catch {
       return undefined;
     }
   }
 
   /** Best effort: a cache that cannot be written must never fail a command. */
-  write(server: ServerConfig, tools: McpTool[]): void {
+  write(server: ServerConfig, tools: McpTool[], features?: ServerFeatures): void {
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       try {
@@ -94,7 +100,7 @@ export class CatalogCache {
       }
       const file = this.file(server);
       const tmp = `${file}.${process.pid}.tmp`;
-      const body: CacheFile = { version: CACHE_VERSION, fetchedAt: this.now(), tools };
+      const body: CacheFile = { version: CACHE_VERSION, fetchedAt: this.now(), tools, ...(features ? { features } : {}) };
       writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 });
       renameSync(tmp, file);
     } catch {

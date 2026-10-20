@@ -8,7 +8,7 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 2. 不存在则以 `via daemon run` 分离启动（`--socket`、`--idle-timeout` 由 CLI 传入），最多等待 2 秒就绪，然后转发请求。启动出错（可执行文件不存在、进程立即退出）时不必等满 2 秒，直接回退。
 3. 握手时交换版本；CLI 与 daemon 版本不一致时，daemon 回复 `ok: false, reason: "version"`，**先停止监听并删除 socket**，处理完在途请求后退出，由本次 CLI 重新拉起一个版本一致的 daemon（旧 daemon 与新 daemon 因此可以短暂并存）。
 4. daemon 空闲 10 分钟退出（没有连接、没有在途请求）；单个 stdio server 空闲 5 分钟停止子进程（均可配置，见 [config.md](config.md)）。HTTP 会话不因空闲关闭（它们不占本机进程，保留下来才能继续订阅 `list_changed`），随 daemon 退出而结束。socket 文件被删除或被别的 daemon 替换后，旧 daemon 在几秒内自行退出，避免出现无法连上的常驻进程。
-5. daemon 异常（拉起失败、握手被拒、连接中断）时，CLI 回退为进程内模式完成本次调用，并在 stderr 提示一次（`warning: <原因>; continuing without the daemon (VIA_NO_DAEMON=1 silences this)`）。回退只对**没有副作用**的请求自动发生：列目录、校验、以及只读工具（`readOnlyHint`）的调用。其他调用若在请求已经写出之后连接中断，它可能已经执行，via 不重放，而是以退出码 6 报告 `lost the connection to the via daemon while calling …; it may or may not have run`，`next: via daemon status`。请求写出之前的失败（拉起失败、连不上）则对所有请求都回退。
+5. daemon 异常（拉起失败、握手被拒、连接中断）时，CLI 回退为进程内模式完成本次调用，并在 stderr 提示一次（`warning: <原因>; continuing without the daemon (VIA_NO_DAEMON=1 silences this)`）。回退只对**没有副作用**的请求自动发生：列目录、校验、MCP 资源与 prompt 的列出和读取（协议上都是只读的），以及只读工具（`readOnlyHint`）的调用。其他调用若在请求已经写出之后连接中断，它可能已经执行，via 不重放，而是以退出码 6 报告 `lost the connection to the via daemon while calling …; it may or may not have run`，`next: via daemon status`。请求写出之前的失败（拉起失败、连不上）则对所有请求都回退。
 
 ### 启动竞争与陈旧 socket
 
@@ -18,7 +18,8 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 
 CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用**）、自己的工作目录、`daemon.serverIdleTimeout`，daemon 自己不读配置文件，所以项目级 `.via.yaml` 随调用目录变化，不会被某个 daemon 的启动目录固化。
 
-- stdio server 没有写 `cwd` 时，以调用方的工作目录启动；`file:` 引用的相对路径同样相对调用方的目录（daemon 内换算成绝对路径）。会话按「server 名 + 传输 + 鉴权 + `exclusive` + `concurrency`」的哈希区分，所以不同目录下的同名 stdio server 是不同的会话。
+- stdio server 没有写 `cwd` 时，以调用方的工作目录启动；`file:` 引用的相对路径同样相对调用方的目录（daemon 内换算成绝对路径）。会话按「server 名 + 传输 + 鉴权 + `exclusive` + `concurrency` + `roots`」的哈希区分，所以不同目录下的同名 stdio server 是不同的会话。
+- `roots`（[config.md](config.md#roots)）里的相对路径和 `~` 同样由 daemon 按调用方的目录与家目录换成绝对 `file://` URI，换算后的列表参与会话键：写了 `roots: ["."]` 的 server 在两个目录里是两个会话，一个会话的 roots 在它的生命周期里不变，所以 via 声明 `roots` 能力时 `listChanged` 为 `false`，不需要发 `notifications/roots/list_changed`。没有 `cwd` 的 HTTP server 因 roots 而按目录分会话，代价与 stdio 的 `cwd` 相同：两个目录交替使用时，后到的会话替换先到的（同名 server 只保留最新定义的会话）。
 - `env:` 引用按**调用方的环境**解析。每个请求带 `envStamp`：对该 server 所有 `env:` 引用的变量名与调用方当前取值取单向摘要（没有 `env:` 引用时为空串）。会话按「定义哈希 + `envStamp`」区分，所以两个 shell 里 `GH_TOKEN` 不同时，同一个 server 在 daemon 里各有一个会话（各有自己的 stdio 子进程或 HTTP 会话），交替调用互不影响，daemon 也不会因此重启。旧令牌不会服务另一个值的调用方：请求只会落到摘要相同的会话上，摘要不同的调用方得不到它的会话。
   - daemon 认得三种摘要：与自己（由第一个启动它的 CLI 继承的）环境算出的摘要相同；之前登记过的；调用方当场证明的。都不是则回复 `stale`（不执行请求）。
   - 收到 `stale` 后，CLI 把这个 server 的 `env:` 引用所涉变量的**取值**放进 `envValues` 重发一次。daemon 用 `envValues` 重新计算摘要，与 `envStamp` 一致才登记（变量没设置的不出现在 `envValues` 里，也不会退回 daemon 自己环境里的同名变量）；不一致仍回复 `stale`，CLI 此时回退为进程内模式完成本次调用。登记之后，同一摘要的请求不再带取值。
@@ -29,7 +30,7 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 ## daemon 持有的状态
 
 - MCP 会话：stdio 子进程、HTTP 的 session id、OAuth 会话（登录与登出由 CLI 完成，daemon 在下一次请求时读到存储里的新状态，见 [auth.md](auth.md#oauth)）。
-- 工具目录的内存副本（同时持久化到磁盘缓存，写入的是与进程内模式相同的 `catalog/` 文件，两种模式共享），以及 `list_changed` 订阅：收到 `notifications/tools/list_changed` 后 50 毫秒内（合并连发的通知）重新 `tools/list`，同时替换内存副本和磁盘缓存，所以下一次浏览、`find` 或调用就能看到变化；刷新失败时丢弃副本与磁盘缓存，下一次请求重新向 server 拉取。内存副本的有效期与磁盘缓存相同（24 小时）。stdio server 因空闲被停止后订阅随之结束，之后只靠 TTL。
+- 工具目录的内存副本，连同 server 在 `initialize` 里声明的 `resources` / `prompts` 能力（同时持久化到磁盘缓存，写入的是与进程内模式相同的 `catalog/` 文件，两种模式共享），以及 `list_changed` 订阅：收到 `notifications/tools/list_changed` 后 50 毫秒内（合并连发的通知）重新 `tools/list`，同时替换内存副本和磁盘缓存，所以下一次浏览、`find` 或调用就能看到变化；刷新失败时丢弃副本与磁盘缓存，下一次请求重新向 server 拉取。内存副本的有效期与磁盘缓存相同（24 小时）。stdio server 因空闲被停止后订阅随之结束，之后只靠 TTL。
 - 凭证解析结果与 OAuth token 刷新。
 - 截断结果的游标。daemon 与进程内模式一样把游标写入用户缓存目录（`cursors/`，目录 0700、文件 0600，内容已脱敏，TTL 30 分钟，按文件修改时间清理），所以 daemon 空闲退出（10 分钟）不会让游标提前失效；只有 TTL 到期或 id 不存在才报告过期（退出码 3）。`via more` 先问已经在运行的 daemon（不会为它拉起新的），再看缓存目录。
 - 编译好的 JSON Schema（见下「校验」）。
@@ -60,6 +61,10 @@ type Request =
   | { id; type: "status" }
   | ({ id; type: "list"; timeoutMs: number; refresh?: boolean } & ServerTarget)
   | ({ id; type: "call"; rawName: string; args: object; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
+  | ({ id; type: "resources-list"; timeoutMs: number } & ServerTarget)
+  | ({ id; type: "resource-read"; uri: string; timeoutMs: number } & ServerTarget)
+  | ({ id; type: "prompts-list"; timeoutMs: number } & ServerTarget)
+  | ({ id; type: "prompt-get"; name: string; args: Record<string, string>; timeoutMs: number } & ServerTarget)
   | { id; type: "validate"; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
   | { id; type: "redact"; text: string }
   | { id; type: "cursor-put"; record: CursorRecord }
@@ -89,8 +94,12 @@ type ErrorInfo = {
 
 | 请求 | 行为 |
 | --- | --- |
-| `list` | 返回 `{ tools, fetchedAt, fromCache }`。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5 |
+| `list` | 返回 `{ tools, fetchedAt, fromCache, features? }`，`features` 是 `{ resources, prompts }`（server 是否声明了这两种能力，缓存里没有记录时省略）。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5 |
 | `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样 |
+| `resources-list` | 返回 `{ resources, templates }`：`resources/list` 与 `resources/templates/list` 分页拉全（server 没有实现模板方法时 `templates` 为空）。不缓存。server 没有声明 `resources` 能力时不发请求，退出码 3 |
+| `resource-read` | 返回 `{ contents }`（`resources/read` 的原始结果：`text` 或 base64 的 `blob`）。server 不认识这个 URI（`-32002`，或把它报告为 `-32602` 的 server）退出码 3，信息带 server 的说明；没有声明 `resources` 时同 `resources-list` |
+| `prompts-list` | 返回 `prompts/list` 分页拉全的数组。没有声明 `prompts` 能力时退出码 3，不发请求 |
+| `prompt-get` | 返回 `{ description?, messages }`（`prompts/get` 的原始结果）。参数都是字符串；server 用 `-32602` 拒绝参数时退出码 1，与工具一致 |
 | `validate` | 编译 JSON Schema（按内容缓存）并校验 `data`，返回 ajv 的错误与 `format` 警告；`compileOnly` 只编译。这样 CLI 进程不加载 ajv |
 | `redact` | 把文本里 daemon 已知的凭证值换成 `***`；CLI 在打印可能回显用户输入的文本（错误、`--dry-run`、校验警告）前用它补上本地没有的脱敏。只在已有连接时发，不为它拉起 daemon |
 | `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录；记录落在用户缓存目录，不随 daemon 退出而丢失 |
@@ -99,7 +108,7 @@ type ErrorInfo = {
 
 约定：
 
-- `call` 的 `result` 是清理前的结构化数据（MCP content 与 structuredContent），截断与渲染在 CLI 侧做，渲染所需的游标写入 daemon。
+- `call` 的 `result` 是清理前的结构化数据（MCP content 与 structuredContent），截断与渲染在 CLI 侧做，渲染所需的游标写入 daemon。四个资源与 prompt 请求同样返回原始结果，凭证值在 daemon 内递归替换为 `***` 后才发出，也受 `envStamp` 与未信任检查约束。
 - 协议中不得出现解析后的凭证值：server 定义里只有引用；`env:` 的差异以摘要交换，只有 daemon 不认得摘要、回复 `stale` 之后才在重发的请求里带上该 server `env:` 引用涉及的变量取值（`envValues`，见「环境与工作目录」）；`call` 的结果、进度和错误在 daemon 内先脱敏。CLI 在 daemon 模式下本地不解析凭证，脱敏靠 daemon 的结果和 `redact`。
 - `auth` 请求的 `login` 不经过 daemon：登录需要浏览器或终端交互，由 CLI 在自己的进程里完成并写入共用存储（[auth.md](auth.md#oauth)）；daemon 里的会话在下一次请求前读取存储，所以新的登录、登出和刷新结果无需通知。
 - 未知消息类型返回 `exitCode: 7` 的错误，不断开连接。

@@ -61,6 +61,11 @@ export interface ServerConfig {
   concurrency: number;
   budget?: number;
   noise: string[];
+  /**
+   * Directories the server may work in, as written (paths or `file://` URIs; config.md, `roots`).
+   * Absent or empty: via does not declare the `roots` capability.
+   */
+  roots?: string[];
   /** Source of the transport definition. */
   origin: ConfigOrigin;
   /**

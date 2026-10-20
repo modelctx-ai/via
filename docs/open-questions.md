@@ -7,7 +7,6 @@
 - [ ] **截断预算默认值**：8 KB 是起点，需要用 token 基准和 agent 评测确定。
 - [ ] **拆分规则**：动词表的范围、拆分失败（退回叶子工具）的比例，需要在真实 server 上统计和调整。
 - [ ] **分域参数**：阈值、领先倍数、信号权重的初始值需要调参。
-- [ ] **MCP resources、prompts 与 roots**：是否提供 `via read <uri>` 和 `via prompts`，还是只覆盖 tools；filesystem 一类 server 依赖客户端声明的 roots，via 是否按 server 配置 `roots`（默认当前工作目录？）。
 - [ ] **按使用频率排序**：`via find` 和资源视图是否参考本地调用记录，把常用工具排前面（mcp2cli 的 `--sort usage` 做法）。这能省 token，但同样的查询在不同机器、不同时间结果不同，与「输出严格」有冲突；需要决定是默认开启、作为同分时的次级排序，还是只作为选项。
 - [ ] **`via serve` 模式**：是否让 via 以 MCP server 身份对外暴露少量元工具，服务没有 shell 的 agent。这与网关的角色部分重叠。
 - [ ] **Windows 支持**：Node 的 `net` 模块可直接使用 named pipe，剩下的差异主要在钥匙串、路径和对端身份校验。

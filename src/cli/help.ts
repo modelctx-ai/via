@@ -13,9 +13,12 @@ usage:
   via <provider> <resource>:<verb> [args]    call a tool
   via find <query> [--domain <d>] [-n 10]    search tools across providers
   via batch [--concurrency <n>]              JSON Lines on stdin: concurrent calls, results in input order
+  via resources <provider>                   resources and resource templates of a server
+  via read <provider> <uri>                  read a resource
+  via prompts <provider> [<name> [args]]     prompts of a server; with a name, get that prompt
 
 commands:
-  find call more batch servers sync doctor prompt trust auth daemon
+  find call more batch servers sync doctor prompt trust auth daemon resources read prompts
 
 options:
   -o text|json|raw  --full  --all  --yes  --dry-run  --no-validate  --timeout <seconds>  -h
@@ -36,4 +39,7 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   auth: 'usage: via auth login <provider> [--manual] | via auth status [<provider>] | via auth logout <provider>',
   trust: 'usage: via trust [<path>] [--dry-run] | via trust <path> --yes (scripts only: needs VIA_ALLOW_NONINTERACTIVE_TRUST=1) | via trust --list | via trust --revoke <path>',
   daemon: 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>]',
+  resources: 'usage: via resources <provider>  (resources and resource templates; read one with via read <provider> <uri>)',
+  read: 'usage: via read <provider> <uri>',
+  prompts: 'usage: via prompts <provider> [<name> [--arg <value>…]]  (without a name: list; via prompts <provider> <name> -h: usage of one prompt)',
 };

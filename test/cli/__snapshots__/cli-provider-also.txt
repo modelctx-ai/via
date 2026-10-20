@@ -1,0 +1,9 @@
+code          search
+file          delete!
+issue         read · write · list
+job           run
+pull-request  list
+stat          get
+tools: request-copilot-review · whoami · echo-text · sleepy · broken-tool · picky-tool
+also: via resources gh · via prompts gh
+→ via gh <resource> for signatures

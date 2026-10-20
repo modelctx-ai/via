@@ -1,6 +1,6 @@
 import type { McpTool } from '../catalog/types';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ToolCallResult } from '../protocol';
+import type { GetPromptResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
 import { notFoundServer } from './errors';
 import { McpSession, type CallOptions, type ListOptions, type SessionOptions } from './session';
 
@@ -12,6 +12,13 @@ import { McpSession, type CallOptions, type ListOptions, type SessionOptions } f
 export interface McpClient {
   listTools(server: string, options?: ListOptions): Promise<McpTool[]>;
   callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult>;
+  /** `resources/list` and `resources/templates/list` (ADR 0010). */
+  listResources(server: string, options?: ListOptions): Promise<ResourceListing>;
+  readResource(server: string, uri: string, options?: ListOptions): Promise<ReadResourceResult>;
+  listPrompts(server: string, options?: ListOptions): Promise<McpPrompt[]>;
+  getPrompt(server: string, name: string, args: Record<string, string>, options?: ListOptions): Promise<GetPromptResult>;
+  /** What the server declared at `initialize`, once a session to it exists; undefined if unknown. */
+  features(server: string): ServerFeatures | undefined;
   close(): Promise<void>;
 }
 
@@ -36,6 +43,26 @@ export class InProcessClient implements McpClient {
 
   async callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult> {
     return this.session(server).callTool(rawName, args, options);
+  }
+
+  async listResources(server: string, options?: ListOptions): Promise<ResourceListing> {
+    return this.session(server).listResources(options);
+  }
+
+  async readResource(server: string, uri: string, options?: ListOptions): Promise<ReadResourceResult> {
+    return this.session(server).readResource(uri, options);
+  }
+
+  async listPrompts(server: string, options?: ListOptions): Promise<McpPrompt[]> {
+    return this.session(server).listPrompts(options);
+  }
+
+  async getPrompt(server: string, name: string, args: Record<string, string>, options?: ListOptions): Promise<GetPromptResult> {
+    return this.session(server).getPrompt(name, args, options);
+  }
+
+  features(server: string): ServerFeatures | undefined {
+    return this.sessions.get(this.find(server).name)?.features();
   }
 
   /** Close every session and kill stdio children. */

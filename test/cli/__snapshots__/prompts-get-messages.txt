@@ -1,0 +1,8 @@
+[user]
+Summarize the readme.
+
+[user]
+# Project
+
+[assistant]
+It is a project.
