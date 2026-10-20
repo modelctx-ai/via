@@ -1,0 +1,41 @@
+{
+  "teams": [
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000000",
+      "name": "Platform",
+      "key": "PLT",
+      "description": "Platform team",
+      "color": "#5e6ad2",
+      "icon": "Gear",
+      "private": false,
+      "timezone": "Europe/Berlin",
+      "createdAt": "2025-03-11T08:00:00.000Z",
+      "updatedAt": "2026-08-02T12:20:00.000Z"
+    },
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "name": "Growth",
+      "key": "GRO",
+      "description": "Growth team",
+      "color": "#26b5ce",
+      "icon": "Rocket",
+      "private": false,
+      "timezone": "Europe/Berlin",
+      "createdAt": "2025-03-11T08:00:00.000Z",
+      "updatedAt": "2026-08-02T12:20:00.000Z"
+    },
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000002",
+      "name": "Infrastructure",
+      "key": "INF",
+      "description": "Infrastructure team",
+      "color": "#f2994a",
+      "icon": "Cloud",
+      "private": false,
+      "timezone": "Europe/Berlin",
+      "createdAt": "2025-03-11T08:00:00.000Z",
+      "updatedAt": "2026-08-02T12:20:00.000Z"
+    }
+  ],
+  "hasNextPage": false
+}

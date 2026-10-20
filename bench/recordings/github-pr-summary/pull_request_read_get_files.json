@@ -1,0 +1,74 @@
+[
+  {
+    "sha": "9f2c4a7e1b10d3c5a8e6f0b2d41c7a9e5f3b8d10",
+    "filename": "src/middleware/rate_limiter.ts",
+    "status": "modified",
+    "additions": 64,
+    "deletions": 12,
+    "changes": 76,
+    "blob_url": "https://github.com/acme/api/blob/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/src/middleware/rate_limiter.ts",
+    "raw_url": "https://github.com/acme/api/raw/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/src/middleware/rate_limiter.ts",
+    "contents_url": "https://api.github.com/repos/acme/api/contents/src/middleware/rate_limiter.ts?ref=9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1",
+    "patch": "@@ -10,7 +10,59 @@ export class RateLimiter {\n   constructor(private readonly options: RateLimiterOptions = limits.default) {}\n-  private bucket(req: Request): string {\n-    return req.ip ?? 'unknown';\n+  private bucket(req: Request): string {\n+    return tenantOf(req) ?? req.ip ?? 'unknown';\n   }"
+  },
+  {
+    "sha": "9f2c4a7e1b11d3c5a8e6f0b2d41c7a9e5f3b8d11",
+    "filename": "src/config/limits.ts",
+    "status": "modified",
+    "additions": 21,
+    "deletions": 2,
+    "changes": 23,
+    "blob_url": "https://github.com/acme/api/blob/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/src/config/limits.ts",
+    "raw_url": "https://github.com/acme/api/raw/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/src/config/limits.ts",
+    "contents_url": "https://api.github.com/repos/acme/api/contents/src/config/limits.ts?ref=9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1",
+    "patch": "@@ -11,7 +11,26 @@ export class RateLimiter {\n   constructor(private readonly options: RateLimiterOptions = limits.default) {}\n-  private bucket(req: Request): string {\n-    return req.ip ?? 'unknown';\n+  private bucket(req: Request): string {\n+    return tenantOf(req) ?? req.ip ?? 'unknown';\n   }"
+  },
+  {
+    "sha": "9f2c4a7e1b12d3c5a8e6f0b2d41c7a9e5f3b8d12",
+    "filename": "src/lib/tenant.ts",
+    "status": "added",
+    "additions": 38,
+    "deletions": 0,
+    "changes": 38,
+    "blob_url": "https://github.com/acme/api/blob/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/src/lib/tenant.ts",
+    "raw_url": "https://github.com/acme/api/raw/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/src/lib/tenant.ts",
+    "contents_url": "https://api.github.com/repos/acme/api/contents/src/lib/tenant.ts?ref=9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1",
+    "patch": "@@ -12,7 +12,45 @@ export class RateLimiter {\n   constructor(private readonly options: RateLimiterOptions = limits.default) {}\n-  private bucket(req: Request): string {\n-    return req.ip ?? 'unknown';\n+  private bucket(req: Request): string {\n+    return tenantOf(req) ?? req.ip ?? 'unknown';\n   }"
+  },
+  {
+    "sha": "9f2c4a7e1b13d3c5a8e6f0b2d41c7a9e5f3b8d13",
+    "filename": "test/middleware/rate_limiter.test.ts",
+    "status": "modified",
+    "additions": 52,
+    "deletions": 9,
+    "changes": 61,
+    "blob_url": "https://github.com/acme/api/blob/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/test/middleware/rate_limiter.test.ts",
+    "raw_url": "https://github.com/acme/api/raw/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/test/middleware/rate_limiter.test.ts",
+    "contents_url": "https://api.github.com/repos/acme/api/contents/test/middleware/rate_limiter.test.ts?ref=9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1",
+    "patch": "@@ -13,7 +13,50 @@ export class RateLimiter {\n   constructor(private readonly options: RateLimiterOptions = limits.default) {}\n-  private bucket(req: Request): string {\n-    return req.ip ?? 'unknown';\n+  private bucket(req: Request): string {\n+    return tenantOf(req) ?? req.ip ?? 'unknown';\n   }"
+  },
+  {
+    "sha": "9f2c4a7e1b14d3c5a8e6f0b2d41c7a9e5f3b8d14",
+    "filename": "docs/rate-limiting.md",
+    "status": "modified",
+    "additions": 11,
+    "deletions": 0,
+    "changes": 11,
+    "blob_url": "https://github.com/acme/api/blob/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/docs/rate-limiting.md",
+    "raw_url": "https://github.com/acme/api/raw/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/docs/rate-limiting.md",
+    "contents_url": "https://api.github.com/repos/acme/api/contents/docs/rate-limiting.md?ref=9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1",
+    "patch": "@@ -14,7 +14,18 @@ export class RateLimiter {\n   constructor(private readonly options: RateLimiterOptions = limits.default) {}\n-  private bucket(req: Request): string {\n-    return req.ip ?? 'unknown';\n+  private bucket(req: Request): string {\n+    return tenantOf(req) ?? req.ip ?? 'unknown';\n   }"
+  },
+  {
+    "sha": "9f2c4a7e1b15d3c5a8e6f0b2d41c7a9e5f3b8d15",
+    "filename": "CHANGELOG.md",
+    "status": "modified",
+    "additions": 1,
+    "deletions": 0,
+    "changes": 1,
+    "blob_url": "https://github.com/acme/api/blob/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/CHANGELOG.md",
+    "raw_url": "https://github.com/acme/api/raw/9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1/CHANGELOG.md",
+    "contents_url": "https://api.github.com/repos/acme/api/contents/CHANGELOG.md?ref=9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1",
+    "patch": "@@ -15,7 +15,8 @@ export class RateLimiter {\n   constructor(private readonly options: RateLimiterOptions = limits.default) {}\n-  private bucket(req: Request): string {\n-    return req.ip ?? 'unknown';\n+  private bucket(req: Request): string {\n+    return tenantOf(req) ?? req.ip ?? 'unknown';\n   }"
+  }
+]

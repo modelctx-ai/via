@@ -1,0 +1,123 @@
+{
+  "total_count": 3,
+  "incomplete_results": false,
+  "items": [
+    {
+      "id": 1950000482,
+      "node_id": "PR_kwDOJ9482",
+      "number": 482,
+      "title": "Add per-tenant limits to the rate limiter",
+      "state": "open",
+      "user": {
+        "login": "priya-nair",
+        "id": 1421,
+        "node_id": "U_kgDO1421x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1421?v=4",
+        "html_url": "https://github.com/priya-nair",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        }
+      ],
+      "comments": 2,
+      "draft": false,
+      "created_at": "2026-09-24T13:02:00Z",
+      "updated_at": "2026-09-28T08:40:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/pull/482",
+      "url": "https://api.github.com/repos/acme/api/issues/482",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "pull_request": {
+        "url": "https://api.github.com/repos/acme/api/pulls/482",
+        "html_url": "https://github.com/acme/api/pull/482"
+      },
+      "score": 1
+    },
+    {
+      "id": 1950000487,
+      "node_id": "PR_kwDOJ9487",
+      "number": 487,
+      "title": "Fail open when Redis is unreachable (PLT-300)",
+      "state": "open",
+      "user": {
+        "login": "dlindqvist",
+        "id": 1147,
+        "node_id": "U_kgDO1147x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1147?v=4",
+        "html_url": "https://github.com/dlindqvist",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        }
+      ],
+      "comments": 2,
+      "draft": false,
+      "created_at": "2026-09-24T13:02:00Z",
+      "updated_at": "2026-09-28T08:40:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/pull/487",
+      "url": "https://api.github.com/repos/acme/api/issues/487",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "pull_request": {
+        "url": "https://api.github.com/repos/acme/api/pulls/487",
+        "html_url": "https://github.com/acme/api/pull/487"
+      },
+      "score": 1
+    },
+    {
+      "id": 1950000455,
+      "node_id": "PR_kwDOJ9455",
+      "number": 455,
+      "title": "Rate limiter: extract key derivation",
+      "state": "closed",
+      "user": {
+        "login": "tomasz-w",
+        "id": 1282,
+        "node_id": "U_kgDO1282x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1282?v=4",
+        "html_url": "https://github.com/tomasz-w",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        }
+      ],
+      "comments": 2,
+      "draft": false,
+      "created_at": "2026-09-24T13:02:00Z",
+      "updated_at": "2026-09-28T08:40:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/pull/455",
+      "url": "https://api.github.com/repos/acme/api/issues/455",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "pull_request": {
+        "url": "https://api.github.com/repos/acme/api/pulls/455",
+        "html_url": "https://github.com/acme/api/pull/455"
+      },
+      "score": 1
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "id": 1950000482,
+  "node_id": "PR_kwDOJ9Gy0w5x",
+  "number": 482,
+  "title": "Add per-tenant limits to the rate limiter",
+  "body": "Adds a `tenantId` bucket to the limiter so one noisy tenant no longer exhausts the shared quota.\n\n- new `limits.perTenant` config\n- limiter key falls back to the IP when the request is unauthenticated\n- docs and tests updated\n\nCloses #214.",
+  "state": "open",
+  "draft": false,
+  "merged": false,
+  "mergeable": true,
+  "mergeable_state": "clean",
+  "user": {
+    "login": "priya-nair",
+    "id": 1421,
+    "node_id": "U_kgDO1421x",
+    "avatar_url": "https://avatars.githubusercontent.com/u/1421?v=4",
+    "html_url": "https://github.com/priya-nair",
+    "type": "User",
+    "site_admin": false
+  },
+  "labels": [
+    {
+      "id": 5341,
+      "node_id": "LA_kwDOenhancement",
+      "name": "enhancement",
+      "color": "d73a4a",
+      "default": false,
+      "description": "Issues labeled enhancement"
+    }
+  ],
+  "assignees": [],
+  "requested_reviewers": [
+    {
+      "login": "dlindqvist",
+      "id": 1147,
+      "node_id": "U_kgDO1147x",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1147?v=4",
+      "html_url": "https://github.com/dlindqvist",
+      "type": "User",
+      "site_admin": false
+    }
+  ],
+  "head": {
+    "label": "acme:feat/tenant-limits",
+    "ref": "feat/tenant-limits",
+    "sha": "9f2c4a7e1b01d3c5a8e6f0b2d41c7a9e5f3b8d1",
+    "repo": {
+      "id": 604221907,
+      "node_id": "R_kgDOJ9Gy0w",
+      "name": "api",
+      "full_name": "acme/api",
+      "private": true,
+      "owner": {
+        "login": "acme",
+        "id": 88001,
+        "node_id": "O_kgDOA",
+        "avatar_url": "https://avatars.githubusercontent.com/u/88001?v=4",
+        "html_url": "https://github.com/acme",
+        "type": "Organization",
+        "site_admin": false
+      },
+      "html_url": "https://github.com/acme/api",
+      "description": "Public REST API for the Acme platform",
+      "fork": false,
+      "url": "https://api.github.com/repos/acme/api",
+      "default_branch": "main"
+    }
+  },
+  "base": {
+    "label": "acme:main",
+    "ref": "main",
+    "sha": "9f2c4a7e1b02d3c5a8e6f0b2d41c7a9e5f3b8d2",
+    "repo": {
+      "id": 604221907,
+      "node_id": "R_kgDOJ9Gy0w",
+      "name": "api",
+      "full_name": "acme/api",
+      "private": true,
+      "owner": {
+        "login": "acme",
+        "id": 88001,
+        "node_id": "O_kgDOA",
+        "avatar_url": "https://avatars.githubusercontent.com/u/88001?v=4",
+        "html_url": "https://github.com/acme",
+        "type": "Organization",
+        "site_admin": false
+      },
+      "html_url": "https://github.com/acme/api",
+      "description": "Public REST API for the Acme platform",
+      "fork": false,
+      "url": "https://api.github.com/repos/acme/api",
+      "default_branch": "main"
+    }
+  },
+  "commits": 4,
+  "additions": 187,
+  "deletions": 23,
+  "changed_files": 6,
+  "comments": 2,
+  "review_comments": 5,
+  "created_at": "2026-09-24T13:02:00Z",
+  "updated_at": "2026-09-28T08:40:00Z",
+  "html_url": "https://github.com/acme/api/pull/482",
+  "url": "https://api.github.com/repos/acme/api/pulls/482",
+  "diff_url": "https://github.com/acme/api/pull/482.diff",
+  "patch_url": "https://github.com/acme/api/pull/482.patch"
+}

@@ -1,0 +1,67 @@
+### Ran Playwright code
+```js
+await page.getByRole('searchbox', { name: 'Search docs' }).fill('rate limit');
+await page.getByRole('searchbox', { name: 'Search docs' }).press('Enter');
+```
+
+### Page state
+- Page URL: https://docs.acme.test/search?q=rate+limit
+- Page Title: Search · Acme Docs
+- Page Snapshot:
+```yaml
+- generic [ref=e1]:
+- banner [ref=e2]:
+  - link "Acme Docs" [ref=e3] [cursor=pointer]:
+    - /url: /
+  - navigation [ref=e4]:
+    - link "Guides" [ref=e5] [cursor=pointer]:
+      - /url: /guides
+    - link "API reference" [ref=e6] [cursor=pointer]:
+      - /url: /reference
+    - link "Changelog" [ref=e7] [cursor=pointer]:
+      - /url: /changelog
+  - searchbox "Search docs" [ref=e8]: rate limit
+  - complementary [ref=e20]:
+    - heading "Getting started" [level=3] [ref=e21]
+    - list [ref=e22]:
+      - listitem [ref=e23]:
+        - link "Installation" [ref=e24] [cursor=pointer]:
+          - /url: /guides/install
+      - listitem [ref=e25]:
+        - link "Authentication" [ref=e26] [cursor=pointer]:
+          - /url: /guides/auth
+      - listitem [ref=e27]:
+        - link "Pagination" [ref=e28] [cursor=pointer]:
+          - /url: /guides/pagination
+      - listitem [ref=e29]:
+        - link "Rate limits" [ref=e30] [cursor=pointer]:
+          - /url: /guides/rate-limits
+      - listitem [ref=e31]:
+        - link "Webhooks" [ref=e32] [cursor=pointer]:
+          - /url: /guides/webhooks
+      - listitem [ref=e33]:
+        - link "Errors" [ref=e34] [cursor=pointer]:
+          - /url: /guides/errors
+  - main [ref=e40]:
+    - heading "Search results for \"rate limit\"" [level=1] [ref=e70]
+    - list [ref=e71]:
+      - listitem [ref=e72]:
+        - link "Rate limits" [ref=e73] [cursor=pointer]:
+          - /url: /guides/rate-limits
+        - paragraph [ref=e74]: Every API key is limited to 600 requests per minute. Responses include X-RateLimit headers...
+      - listitem [ref=e75]:
+        - link "Errors: 429 Too Many Requests" [ref=e76] [cursor=pointer]:
+          - /url: /guides/errors#429
+        - paragraph [ref=e77]: A 429 response includes a Retry-After header with the number of seconds to wait...
+      - listitem [ref=e78]:
+        - link "Per-tenant limits" [ref=e79] [cursor=pointer]:
+          - /url: /guides/rate-limits#tenants
+        - paragraph [ref=e80]: Enterprise plans can set limits per tenant. Unauthenticated requests fall back to the client IP...
+      - listitem [ref=e81]:
+        - link "Webhook delivery retries" [ref=e82] [cursor=pointer]:
+          - /url: /guides/webhooks#retries
+        - paragraph [ref=e83]: Failed deliveries are retried with exponential backoff for up to 24 hours...
+  - contentinfo [ref=e90]:
+    - link "Status" [ref=e91] [cursor=pointer]:
+      - /url: https://status.acme.test
+```

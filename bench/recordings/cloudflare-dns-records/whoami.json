@@ -1,0 +1,20 @@
+{
+  "user": {
+    "id": "7b0a1d2c3e4f5a6b7c8d9e0f1a2b3c4d",
+    "email": "jo.doe@acme.test",
+    "first_name": "Jo",
+    "last_name": "Doe"
+  },
+  "accounts": [
+    {
+      "id": "023e105f4ecef8ad9ca31a8372d0c353",
+      "name": "Acme Production",
+      "type": "standard"
+    },
+    {
+      "id": "5d3a8c1f0b9e4a7d8c6b5a4f3e2d1c0b",
+      "name": "Acme Staging",
+      "type": "standard"
+    }
+  ]
+}
