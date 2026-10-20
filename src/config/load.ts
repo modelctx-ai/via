@@ -3,7 +3,7 @@
 // Nothing here throws for a bad file: problems are collected in `diagnostics`.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { cwd as processCwd } from 'node:process';
 import type { ConfigDiagnostic } from './diagnostics';
@@ -74,6 +74,8 @@ interface SourceFile {
   origin: ConfigOrigin;
   /** Report a missing file (an explicit source), instead of treating it as "framework not installed". */
   mandatory: boolean;
+  /** From the framework's data file: a whole-value `$NAME` is an environment reference. */
+  dollarVariables?: boolean;
 }
 
 interface Layer {
@@ -362,6 +364,7 @@ function resolveSources(
         pointers: [config.pointer],
         origin: { scope: config.scope === 'user' ? 'framework-user' : 'framework-project', path, framework: framework.id },
         mandatory: mandatory && config.scope === 'user',
+        ...(config.dollarVariables ? { dollarVariables: true } : {}),
       });
     }
     return list;
@@ -416,22 +419,31 @@ async function readFrameworks(
   for (const group of groups) {
     // Within one framework a project file overrides the user file (users first, then projects).
     const own = new Map<string, OriginedDef>();
+    // A framework may list alternative spellings of one file (`settings.json` / `settings.jsonc`);
+    // an explicit source reports missing files only when none of the group's files exists.
+    const missing: ConfigDiagnostic[] = [];
+    let anyRead = false;
     for (const source of group) {
-      const read = await readAndParse(source.path, source.format, 'warning', source.mandatory, diagnostics);
-      if (!read) continue;
+      const read = await readAndParse(source.path, source.format, 'warning', false, diagnostics);
+      if (!read) {
+        if (source.mandatory && !existsSync(source.path)) missing.push({ level: 'warning', code: 'file-missing', message: 'file does not exist', file: source.path });
+        continue;
+      }
+      anyRead = true;
       const loaded: LoadedFile = { path: source.path, scope: source.origin.scope, format: source.format, sha256: sha256(read.bytes) };
       if (source.origin.framework) loaded.framework = source.origin.framework;
       files.push(loaded);
       const map = findServerMap(read.value, source, diagnostics);
       if (!map) continue;
       for (const [name, entry] of ownEntries(map)) {
-        const { def, diagnostics: found } = normalizeFrameworkEntry(name, entry, source.path);
+        const { def, diagnostics: found } = normalizeFrameworkEntry(name, entry, source.path, source.dollarVariables ? { dollarVariables: true } : {});
         diagnostics.push(...found);
         if (!def || !allowedHere(name, def, source.origin, diagnostics)) continue;
         if (own.get(name)?.origin.scope === source.origin.scope) continue;
         own.set(name, { def, origin: source.origin });
       }
     }
+    if (!anyRead) diagnostics.push(...missing);
     for (const [name, candidate] of own) {
       const winner = winners.get(name);
       if (!winner) {

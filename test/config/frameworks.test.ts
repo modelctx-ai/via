@@ -26,11 +26,15 @@ describe('data/frameworks', () => {
       { ...base, configs: [{ path: 'x', format: 'json', pointer: 'a', scope: 'user' }] },
       { ...base, configs: [{ path: 'x', format: 'json', pointer: '/a', scope: 'global' }] },
       { ...base, configs: [{ path: 'x', format: 'json', pointer: '/a', scope: 'user', platforms: ['freebsd'] }] },
-      { ...base, verifiedAt: '2026-13' },
+      { ...base, verifiedAt: '2026-13-01' },
+      { ...base, verifiedAt: '2026-10' },
+      { ...base, sources: [] },
+      { ...base, sources: ['http://example.invalid/docs'] },
+      { ...base, configs: [{ path: 'x', format: 'json', pointer: '/a', scope: 'user', dollarVariables: 'yes' }] },
       { ...base, extra: true },
     ];
     for (const entry of bad) expect(validate(entry), JSON.stringify(entry)).toBe(false);
-    expect(validate({ ...base, verifiedAt: '2026-10' })).toBe(true);
+    expect(validate({ ...base, verifiedAt: '2026-10-20', sources: ['https://cursor.com/docs/context/mcp'] })).toBe(true);
     expect(validate({ ...base, verifiedAt: null })).toBe(true);
   });
 
@@ -40,7 +44,19 @@ describe('data/frameworks', () => {
   });
 
   it('covers the frameworks named in config.md, in the documented order', () => {
-    expect(BUNDLED_FRAMEWORKS.map((f) => f.id)).toEqual(['claude-code', 'claude-desktop', 'cursor', 'codex', 'vscode', 'windsurf']);
+    expect(BUNDLED_FRAMEWORKS.map((f) => f.id)).toEqual([
+      'claude-code',
+      'claude-desktop',
+      'cursor',
+      'codex',
+      'vscode',
+      'devin',
+      'windsurf',
+      'gemini-cli',
+      'antigravity',
+      'copilot-cli',
+      'amp',
+    ]);
     expect(findFramework('cursor')?.name).toBe('Cursor');
     expect(findFramework('nope')).toBeUndefined();
   });
@@ -64,8 +80,25 @@ describe('data/frameworks', () => {
     }
   });
 
-  it('does not keep a dated claim it cannot back up', () => {
-    for (const f of BUNDLED_FRAMEWORKS) expect(f.verifiedAt === null || /^\d{4}-\d{2}$/.test(f.verifiedAt)).toBe(true);
+  it('does not keep a dated claim it cannot back up: a verified entry names its sources, an unverified one does not', () => {
+    for (const f of BUNDLED_FRAMEWORKS) {
+      if (f.verifiedAt === null) expect(f.sources, f.id).toBeUndefined();
+      else {
+        expect(f.verifiedAt, f.id).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(f.sources?.length, f.id).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('within a scope, a framework lists the file that wins first', () => {
+    const devin = findFramework('devin')!.configs.filter((c) => c.scope === 'project').map((c) => c.path);
+    expect(devin).toEqual(['.devin/mcp_config.local.json', '.devin/mcp_config.json']);
+  });
+
+  it('only frameworks whose documentation says so read a bare $NAME as a variable', () => {
+    const flagged = BUNDLED_FRAMEWORKS.filter((f) => f.configs.some((c) => c.dollarVariables)).map((f) => f.id);
+    expect(flagged).toEqual(['gemini-cli']);
+    expect(findFramework('gemini-cli')!.configs.every((c) => c.dollarVariables)).toBe(true);
   });
 
   it('default pointers for files given by path cover the three spellings', () => {
