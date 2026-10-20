@@ -59,7 +59,7 @@ function loads(args: string[]): { packages: string[]; files: string[]; libraries
   });
   expect(result.status).toBe(0);
   const urls = existsSync(trace) ? readFileSync(trace, 'utf8').split('\n').filter((u) => u.startsWith('file://')) : [];
-  const paths = urls.map((u) => fileURLToPath(u));
+  const paths = urls.map((u) => fileURLToPath(u).replace(/\\/g, '/')); // the patterns below use '/'
   const packages = new Set<string>();
   for (const path of paths) {
     const m = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(path);
