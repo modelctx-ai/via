@@ -70,6 +70,23 @@ function loads(args: string[]): { packages: string[]; files: string[]; libraries
   return { packages: [...packages].sort(), files: bundle.map((p) => p.slice(p.lastIndexOf('/') + 1)), libraries: [...libraries].sort() };
 }
 
+/** The Node-internal modules a run loaded (`process.moduleLoadList`), from the preload in scripts/lib/builtin-trace.cjs. */
+function internalModules(args: string[]): string[] {
+  const trace = join(dir, 'builtins.txt');
+  rmSync(trace, { force: true });
+  const result = spawnSync(process.execPath, ['--require', join(root, 'scripts', 'lib', 'builtin-trace.cjs'), bin, ...args], {
+    encoding: 'utf8',
+    cwd: home,
+    env: { PATH: process.env.PATH, HOME: home, GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1', VIA_BUILTIN_TRACE: trace },
+    timeout: 20_000,
+  });
+  expect(result.status).toBe(0);
+  return readFileSync(trace, 'utf8')
+    .split('\n')
+    .filter((l) => l.startsWith('NativeModule '))
+    .map((l) => l.slice('NativeModule '.length));
+}
+
 beforeAll(() => {
   mkdirSync(join(root, '.build'), { recursive: true });
   dir = mkdtempSync(join(root, '.build', 'dist-'));
@@ -189,6 +206,29 @@ describe('built dist/via.js', () => {
         expect(libraries).toEqual([]);
         expect(files.filter((f) => /^(run|app)-/.test(f))).toEqual([]);
         expect(files).toContain('via.js');
+      }
+    });
+
+    // Each of these costs milliseconds to initialise and none is needed to print a table: `net` and
+    // `tty` come with process.stdout / isatty, `crypto` with createHash, `internal/fs/promises` and
+    // the stream classes with the ES module facade of `fs` (scripts/lib/lazy-builtins.ts).
+    it('no command that prints a view initialises crypto, net, tty or the fs promises and stream classes', async () => {
+      // A warm catalog: list once while the server is up, then browse from the disk cache.
+      const srv = await startFixtureServer({ token: FAKE_TOKEN });
+      try {
+        writeUserConfig(ghConfig(srv.url));
+        expect((await viaAsync(['sync'])).code).toBe(0);
+      } finally {
+        await srv.close();
+      }
+      try {
+        const forbidden = ['crypto', 'net', 'tty', 'stream', 'fs/promises', 'internal/fs/promises', 'internal/fs/streams', 'readline', 'child_process'];
+        for (const args of [['--version'], ['-h'], [], ['find', 'issue'], ['gh'], ['gh', 'issue'], ['servers']]) {
+          expect(internalModules(args).filter((m) => forbidden.includes(m)), `via ${args.join(' ')}`).toEqual([]);
+        }
+      } finally {
+        rmSync(join(home, '.config'), { recursive: true, force: true });
+        rmSync(join(home, '.cache'), { recursive: true, force: true });
       }
     });
 

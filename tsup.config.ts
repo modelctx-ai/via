@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import { lazyBuiltins } from './scripts/lib/lazy-builtins';
 
 // ESM bundle with code splitting: `via.js` is the thin entry, the command runner and everything
 // behind it are separate chunks loaded by dynamic import(), so `--version` and `-h` never parse
@@ -22,6 +23,10 @@ export default defineConfig({
   sourcemap: false,
   noExternal: [/^(?!@napi-rs\/keyring(\/|$))/],
   external: NATIVE,
+  // `fs` without the ES module facade that costs ~12 ms on a cold start (see the plugin).
+  esbuildPlugins: [lazyBuiltins()],
+  // Keep `node:` prefixes so the plugin above sees the import before tsup turns it into an external.
+  removeNodeProtocol: false,
   // CommonJS packages in the bundle (ajv, cross-spawn, ...) call require() for Node built-ins.
   banner: {
     js: "#!/usr/bin/env node\nimport { createRequire as __viaCreateRequire } from 'node:module';\nconst require = __viaCreateRequire(import.meta.url);",
