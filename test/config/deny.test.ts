@@ -97,4 +97,19 @@ describe('deny: matching', () => {
     for (let i = 0; i < 3; i += 1) expect(matchingDeny(tool, [re])).toBeDefined();
     expect(names([new RegExp('^github/', 'gy')])).toHaveLength(0);
   });
+
+  it('hides a tool whose name is too long to check, as soon as any rule exists (fail closed)', () => {
+    const long = { name: `tool_${'x'.repeat(300)}`, inputSchema: { type: 'object' as const } };
+    const open = buildProviderCatalog({ provider: 'github', tools: [long] });
+    expect(open.tools).toHaveLength(1);
+    expect(buildProviderCatalog({ provider: 'github', tools: [long], deny: [/^never$/] }).tools).toHaveLength(0);
+    expect(matchingDeny(open.tools[0]!, [/^never$/])).toMatch(/longer than 256/);
+  });
+
+  it('stays fast on crafted names with a rule that passed the safety check', () => {
+    const crafted = { name: `${'a'.repeat(200)}!`, inputSchema: { type: 'object' as const } };
+    const started = Date.now();
+    buildProviderCatalog({ provider: 'github', tools: [crafted], deny: [/^.*.*.*b$/] });
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
 });

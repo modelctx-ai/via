@@ -9,6 +9,7 @@ export {
   type CatalogRules,
   type ProviderInput,
 } from './provider';
+export { denyForms, findDenyRule, MAX_DENY_INPUT_LENGTH } from './deny';
 export { buildCatalog, normalizeProviderName, RESERVED_COMMANDS } from './build';
 export {
   classifyProvider,

@@ -1,3 +1,4 @@
+import { findDenyRule } from './deny';
 import type { DomainRules, ProviderIdentity } from './domain';
 import { classifyProvider, defaultDomainRules } from './domain';
 import { defaultSplitRules, type SplitRules } from './rules';
@@ -126,9 +127,8 @@ export function buildProviderCatalog(
   }
 
   const all = drafts.map((d) => toCatalogTool(input.provider, d));
-  // `g` / `y` flags make RegExp#test stateful; drop them so every tool is tested from the start.
-  const deny = (input.deny ?? []).map((re) => (re.global || re.sticky ? new RegExp(re.source, re.flags.replace(/[gy]/g, '')) : re));
-  const visible = all.filter((t) => !deny.some((re) => re.test(t.singleRef) || re.test(`${t.provider}/${t.rawName}`)));
+  const deny = input.deny ?? [];
+  const visible = all.filter((t) => findDenyRule(t, deny) === undefined);
 
   const groups = new Map<string, ResourceGroup>();
   const leaves: CatalogTool[] = [];

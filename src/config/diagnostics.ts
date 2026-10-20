@@ -13,6 +13,7 @@ export type DiagnosticCode =
   | 'server-undefined'
   | 'cmd-forbidden'
   | 'invalid-deny'
+  | 'unsafe-deny'
   | 'unknown-source'
   | 'unexpanded-variable'
   | 'legacy-transport'

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { cwd as processCwd } from 'node:process';
+import { checkDenyPattern } from './deny-safety';
 import type { ConfigDiagnostic } from './diagnostics';
 import { BUNDLED_FRAMEWORKS, DEFAULT_POINTERS, findFramework, type ConfigFormat, type FrameworkDef } from './frameworks';
 import { validateLayer, type ConfigLayerData, type SourcesSetting } from './layer';
@@ -249,7 +250,21 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
       if (seenDeny.has(pattern)) continue;
       seenDeny.add(pattern);
       try {
-        deny.push(new RegExp(pattern));
+        const re = new RegExp(pattern);
+        // A rule that can backtrack catastrophically is refused like an invalid one (fail closed:
+        // the diagnostic is an error, so the CLI stops instead of running without the rule).
+        const unsafe = checkDenyPattern(pattern);
+        if (unsafe !== undefined) {
+          const d: ConfigDiagnostic = {
+            level: 'error',
+            code: 'unsafe-deny',
+            message: `deny[${i}]: regular expression ${JSON.stringify(pattern.length > 80 ? `${pattern.slice(0, 77)}...` : pattern)} was refused: ${unsafe}; the rule was ignored`,
+          };
+          if (layer.origin.path) d.file = layer.origin.path;
+          diagnostics.push(d);
+          continue;
+        }
+        deny.push(re);
       } catch (error) {
         const d: ConfigDiagnostic = {
           level: 'error',
