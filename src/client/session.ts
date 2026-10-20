@@ -35,12 +35,23 @@ interface Handle {
   client: Client;
   closed: boolean;
   stderr: () => string;
+  /** Process id of the stdio child. */
+  pid?: () => number | null;
   terminate?: () => Promise<void>;
+}
+
+export interface SessionHooks {
+  /**
+   * The server sent `notifications/tools/list_changed` (the daemon refreshes its catalog on it).
+   * Runs on the connection that received it; must not throw.
+   */
+  onToolsChanged?: () => void;
 }
 
 type Sdk = {
   Client: typeof import('@modelcontextprotocol/sdk/client/index.js').Client;
   ResultSchema: typeof import('@modelcontextprotocol/sdk/types.js').ResultSchema;
+  ToolListChangedNotificationSchema: typeof import('@modelcontextprotocol/sdk/types.js').ToolListChangedNotificationSchema;
 };
 
 let sdkPromise: Promise<Sdk> | undefined;
@@ -49,7 +60,7 @@ function loadSdk(): Promise<Sdk> {
   sdkPromise ??= Promise.all([
     import('@modelcontextprotocol/sdk/client/index.js'),
     import('@modelcontextprotocol/sdk/types.js'),
-  ]).then(([c, t]) => ({ Client: c.Client, ResultSchema: t.ResultSchema }));
+  ]).then(([c, t]) => ({ Client: c.Client, ResultSchema: t.ResultSchema, ToolListChangedNotificationSchema: t.ToolListChangedNotificationSchema }));
   return sdkPromise;
 }
 
@@ -65,6 +76,7 @@ export class McpSession {
   constructor(
     readonly server: ServerConfig,
     private readonly resolver: CredentialResolver,
+    private readonly hooks: SessionHooks = {},
   ) {
     this.limiter = new Limiter(server.concurrency);
   }
@@ -72,6 +84,12 @@ export class McpSession {
   /** Whether a live connection exists right now. */
   get connected(): boolean {
     return this.handle !== undefined && !this.handle.closed;
+  }
+
+  /** Process id of the running stdio child, if any. */
+  get pid(): number | undefined {
+    if (!this.handle || this.handle.closed) return undefined;
+    return this.handle.pid?.() ?? undefined;
   }
 
   /** `tools/list`, following `nextCursor` until the server stops returning one. */
@@ -206,10 +224,13 @@ export class McpSession {
     let client: Client | undefined;
     let handle: Handle | undefined;
     try {
-      const { Client: ClientCtor } = await loadSdk();
+      const { Client: ClientCtor, ToolListChangedNotificationSchema } = await loadSdk();
       client = new ClientCtor({ name: 'via', version: pkg.version }, { capabilities: {} });
+      const onToolsChanged = this.hooks.onToolsChanged;
+      if (onToolsChanged) client.setNotificationHandler(ToolListChangedNotificationSchema, () => onToolsChanged());
       let transport: Transport;
       let terminate: (() => Promise<void>) | undefined;
+      let pid: (() => number | null) | undefined;
 
       if (resolved.type === 'stdio') {
         const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
@@ -224,6 +245,7 @@ export class McpSession {
         stdio.stderr?.on('data', (chunk: Buffer | string) => {
           stderrBuf = (stderrBuf + chunk.toString()).slice(-STDERR_KEEP);
         });
+        pid = () => stdio.pid;
         transport = stdio;
       } else {
         let url: URL;
@@ -238,7 +260,7 @@ export class McpSession {
         transport = http;
       }
 
-      const created: Handle = { client, closed: false, stderr: () => stderrBuf, ...(terminate ? { terminate } : {}) };
+      const created: Handle = { client, closed: false, stderr: () => stderrBuf, ...(pid ? { pid } : {}), ...(terminate ? { terminate } : {}) };
       handle = created;
       client.onclose = () => {
         created.closed = true;

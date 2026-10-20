@@ -75,6 +75,11 @@ export class MemoryCursorStore implements CursorStore {
     this.generate = options.generateId ?? randomCursorId;
   }
 
+  /** Cursors held right now (expired ones are only dropped on the next `put`). */
+  get size(): number {
+    return this.records.size;
+  }
+
   async put(record: CursorRecord): Promise<string> {
     this.sweep();
     const id = await allocateId((candidate) => this.records.has(candidate), this.generate);
