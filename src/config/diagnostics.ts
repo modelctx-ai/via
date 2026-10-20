@@ -12,6 +12,7 @@ export type DiagnosticCode =
   | 'invalid-server'
   | 'server-undefined'
   | 'cmd-forbidden'
+  | 'search-forbidden'
   | 'invalid-deny'
   | 'unknown-source'
   | 'unexpanded-variable'

@@ -16,6 +16,7 @@
 | [0008](0008-dynamic-dispatch-no-codegen.md) | 运行时动态分发，不生成代码 | 已接受 |
 | [0009](0009-project-name-via.md) | 项目名与命令名为 via | 已接受 |
 | [0010](0010-mcp-resources-prompts-and-roots.md) | 提供 MCP resources、prompts 与 roots，且不进入工具语法 | 已接受 |
+| [0011](0011-find-synonym-expansion-and-optional-embeddings.md) | `via find` 默认用确定性同义词扩展，embedding 检索是用户显式开启的可选项 | 已接受 |
 
 ## 流程
 

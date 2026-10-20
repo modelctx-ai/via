@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 拆分与分域 | 真实 server 的 `tools/list` 快照 → 规范写法、域 | 快照测试；规则变更时输出差异 |
 | 渲染 | 每种输出形状（表格、对象、文本、截断、媒体、错误） | vitest 快照，规则的任何变化在评审中显式可见 |
+| 检索质量 | `test/fixtures/search/` 里自然语言查询 → 期望规范名（调参集 `eval.json`、留出集 `heldout.json`），对 `test/fixtures/tools/` | recall@1、recall@5、MRR；`npm run eval:search` 打印词法基线与默认（同义词扩展）的对比，回归测试断言不低于基线并锁定实测下限；可选 embedding 检索用本机模拟端点（确定性假向量）测融合、缓存、超时退回与脱敏 |
 | 参数解析 | schema → 命令行参数的各条规则，含 anyOf 补齐、`@文件`、重名 | 单元测试 |
 | 配置 | 每个框架的真实配置样例、合并顺序、凭证引用、信任 | fixture 测试 |
 | 端到端 | 模拟 MCP server + CLI 全链路，含 daemon 与进程内模式 | 集成测试 |
