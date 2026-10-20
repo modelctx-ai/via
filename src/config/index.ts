@@ -1,7 +1,6 @@
 export * from './types';
+export { DEFAULTS, PROJECT_CONFIG_NAME, loadConfig, type LoadConfigOptions, type LoadedConfig, type LoadedFile } from './load';
 export { formatDiagnostic, hasErrors, type ConfigDiagnostic, type DiagnosticCode, type DiagnosticLevel } from './diagnostics';
-export { BUNDLED_FRAMEWORKS, DEFAULT_POINTERS, findFramework, type ConfigFormat, type FrameworkConfigFile, type FrameworkDef } from './frameworks';
-export { pathContext, userConfigDir, userConfigPath, userDataDir, type PathContext } from './paths';
 export {
   MIN_REDACTED_LITERAL_LENGTH,
   createCredentialResolver,
@@ -25,3 +24,5 @@ export {
   type TrustStatus,
   type TrustStore,
 } from './trust';
+export { BUNDLED_FRAMEWORKS, DEFAULT_POINTERS, findFramework, type ConfigFormat, type FrameworkConfigFile, type FrameworkDef } from './frameworks';
+export { pathContext, userConfigDir, userConfigPath, userDataDir, type PathContext } from './paths';

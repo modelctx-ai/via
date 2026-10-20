@@ -1,0 +1,12 @@
+{
+  // User-level servers; VS Code allows comments and trailing commas here.
+  "inputs": [],
+  "servers": {
+    "sqlite": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "${workspaceFolder}/data.db"],
+    },
+    "notion": { "type": "http", "url": "https://mcp.notion.example.invalid/mcp" },
+  },
+}

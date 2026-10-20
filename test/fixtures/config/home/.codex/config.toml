@@ -1,0 +1,17 @@
+model = "example-model"
+
+[mcp_servers.linear]
+url = "https://mcp.linear.example.invalid/mcp"
+bearer_token_env_var = "LINEAR_API_KEY"
+
+[mcp_servers.docs]
+command = "npx"
+args = ["-y", "docs-mcp"]
+env = { LOG_LEVEL = "info" }
+env_vars = ["DOCS_TOKEN"]
+enabled = false
+
+[mcp_servers.search]
+url = "https://search.example.invalid/mcp"
+http_headers = { "X-Team" = "platform" }
+env_http_headers = { "X-Api-Key" = "SEARCH_KEY" }

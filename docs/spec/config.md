@@ -7,8 +7,8 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 后者覆盖前者：
 
 1. **框架配置（只读）**：每次加载时读取，不做快照，框架那边改了这边自动生效。默认探测的框架与路径由 `data/frameworks/` 描述（[数据文件](../development/data-files.md#frameworks)），包括 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Windsurf。具体路径实现时按各框架当前版本核对。
-2. **用户配置**：`~/.config/via/config.yaml`（遵循 `XDG_CONFIG_HOME`；Windows 为 `%APPDATA%\via\config.yaml`）。补充凭证、覆盖定义、新增 server。
-3. **项目配置**：当前目录向上查找的第一个 `.via.yaml`。首次使用需 `via trust`（[security.md](security.md#项目级配置的信任)）。
+2. **用户配置**：`~/.config/via/config.yaml`（遵循 `XDG_CONFIG_HOME`，macOS 上同样如此；Windows 为 `%APPDATA%\via\config.yaml`）。补充凭证、覆盖定义、新增 server。
+3. **项目配置**：当前目录向上查找的第一个 `.via.yaml`。其中的 stdio 命令首次使用需 `via trust`（[security.md](security.md#项目级配置的信任)）。
 4. **命令行参数**。
 
 合并规则：
@@ -16,6 +16,18 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 - 以 server 名为键逐字段深合并，优先级高的来源覆盖低的。
 - 不同框架配置中出现同名但定义不同的 server 时，按 `sources` 中的顺序取第一份，并在 `via servers` 里标出冲突。
 - 框架配置中的 `env`、`headers` 原样继承，包括其中的明文值；`via doctor` 对明文值告警。
+- 同一框架的项目级配置整条覆盖它的用户级配置（框架自己的优先级），这不算冲突；只有不同框架之间才记录冲突。冲突项记在 server 的 `conflicts` 里，列出被忽略的来源；内容完全相同的重复定义不算冲突。
+- 覆盖层只写了部分字段时只改这些字段：`env`、`headers`、`rename` 按键合并，`args` 整体替换，`noise` 追加去重，其余标量字段后者覆盖。覆盖层给出的传输方式与来源不同（对 HTTP server 写了 `command`，或对 stdio server 写了 `url`）时，整体替换传输定义，不继承另一种传输的字段。
+- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`domains` 按域名逐项覆盖；`output.*`、`daemon.*` 逐字段覆盖。
+- 覆盖层里没有任何来源定义的 server（只有 `timeout` 之类设置，没有 `command` 或 `url`）被忽略并给出告警，通常是框架那边已经删掉了它。
+
+`sources` 的细节：
+
+- `auto` 按 `data/frameworks/` 的注册顺序探测全部框架，文件不存在是正常情况，不产生诊断；列表里显式写出的框架或文件不存在时给出告警。
+- 列表项先按框架 id 匹配；不是 id 的按文件路径处理（必须含 `/`、`.` 或 `~`，否则按拼错的 id 告警）。相对路径相对于写下它的配置文件所在目录（命令行覆盖则相对于当前目录）。
+- 按路径给出的文件没有 `pointer` 信息，依次尝试 `/mcpServers`、`/servers`、`/mcp_servers`，格式按扩展名判断（`.toml`、`.yaml`/`.yml`、`.jsonc`，其余按 JSON）。
+- 项目配置里列出的文件按项目级处理（stdio 命令需信任），用户配置和命令行里列出的按用户级处理。
+- 多层都写了 `sources` 时，优先级最高的一层生效，不做合并。
 
 ## 配置示例
 
@@ -75,6 +87,29 @@ domains:
 | `budget` | 全部 | 覆盖输出预算 |
 | `noise` | 全部 | 追加的噪声字段名或通配 |
 
+## 框架配置的规范化
+
+各框架对同一件事的写法不同，读取时统一成 `ServerConfig`（对所有 server 一视同仁，不为特定 server 或网关写适配，[ADR 0007](../adr/0007-no-gateway-specific-adaptation.md)）：
+
+| 内容 | 接受的写法 |
+| --- | --- |
+| 传输方式 | `type` 或 `transport`：`stdio`、`local` 为 stdio；`http`、`streamable-http`、`streamableHttp`、`remote` 为 Streamable HTTP；`sse`（旧版 HTTP+SSE）按 HTTP 处理并告警；缺省时有 `command` 为 stdio、有 URL 为 HTTP；其他取值报错并跳过该 server |
+| URL | `url`、`serverUrl`、`httpUrl` |
+| 请求头 | `headers`，或 Codex 的 `http_headers`；Codex 的 `env_http_headers`（头名 → 环境变量名）转成 `env:` 引用 |
+| 鉴权 | Codex 的 `bearer_token_env_var` 转成 `auth: { bearer: "env:NAME" }` |
+| 环境变量 | `env`；Codex 的 `env_vars`（要透传的变量名列表）转成 `env:` 引用 |
+| 变量引用 | `env`、`headers` 的值整体为 `${NAME}` 或 `${env:NAME}` 时转成 `env:NAME`；其他位置或夹在文本中的 `${…}`（如 `${workspaceFolder}`）via 不展开，原样保留并给出告警 |
+
+框架自己的开关（`disabled`、`enabled`）不继承：在框架里关掉一个 server 正是迁移到 via 的步骤（[集成](../guides/agent-integration.md)），via 里的 `disabled` 只由 via 自己的配置决定。框架配置里的辅助命令（如 `headersHelper`）既不执行也不继承。
+
+## 校验与诊断
+
+- 用户配置、项目配置和命令行覆盖按「字段参考」校验类型，错误带完整路径，例如 `servers.github.timeout: expected number`、`servers.github.concurrency: expected positive integer`。出错的字段被忽略（使用默认值），其余字段照常生效；同时写了 `command` 和 `url` 的 server 整条忽略。
+- 未知字段只告警，用来发现拼写错误（`timout`）。
+- 文件不存在、无法读取或无法解析时跳过该文件并给出诊断，不影响其他来源。诊断信息不引用文件内容，避免泄露凭证。
+- `deny` 中无效的正则被忽略并报错（其余规则照常编译）。因为无效的 deny 规则意味着本应隐藏的工具会可见，诊断为 error 级，调用方应当停下来让用户修复，而不是继续运行。
+- 加载结果同时返回全部诊断，供 `via doctor` 和 `via servers` 展示；诊断分 `error`、`warning`、`info` 三级。
+
 ## 凭证引用
 
 配置里只写引用，不写明文：
@@ -84,10 +119,13 @@ domains:
 | `env:NAME` | 读取环境变量 |
 | `file:~/.secrets/x` | 读取文件内容并去掉首尾空白 |
 | `keychain:service/account` | 读取系统钥匙串（macOS Keychain、Linux Secret Service、Windows Credential Manager） |
-| `cmd:op read op://dev/exa/key` | 执行命令取 stdout，结果在 daemon 内存中按 TTL（默认 10 分钟）缓存；只允许出现在用户配置中 |
+| `cmd:op read op://dev/exa/key` | 执行命令取 stdout，结果在 daemon 内存中按 TTL（默认 10 分钟）缓存；只允许出现在用户配置中。**0.2 才实现**：0.1 中写在用户配置里会在解析时报错（退出码 4，提示改用 `env:`、`file:` 或 `keychain:`） |
 
 - 凭证引用可以出现在 `env`、`headers` 的值以及 `auth.bearer` 中。
-- 不以上述前缀开头的值视为字面量；出现在用户或项目配置中的字面量凭证，`via doctor` 告警。
+- 不以上述前缀开头的值视为字面量；出现在用户或项目配置中的字面量凭证，`via doctor` 告警。`auth.bearer`、`auth.headers` 中的字面量在加载时就告警。
+- `env:` 的变量未设置或为空、`file:` 的文件不存在或为空、`keychain:` 无此条目，都是凭证缺失（退出码 4），错误信息只说明缺哪一项，不含任何解析出的值。`file:` 的相对路径相对于当前目录。
+- `cmd:` 出现在项目配置或项目级、框架级配置里时，加载阶段就拒绝：该 server 的定义整条被忽略并报错（[security.md](security.md#项目级配置的信任)）。
+- 字面量值长度不足 8 个字符时不进入脱敏列表，避免把 `1`、`on` 之类的短值在输出里全部替换成 `***`。
 - 解析结果只存在于 daemon（或进程内模式下的当前进程）内存中，不写盘。
 
 ## deny

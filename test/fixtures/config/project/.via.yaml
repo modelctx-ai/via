@@ -1,0 +1,13 @@
+servers:
+  local-tool:                # defined in .mcp.json; the project adds an env entry
+    env: { TOOL_TOKEN: "env:TOOL_TOKEN" }
+  proj-yaml:
+    command: node
+    args: [./server.js]
+  exa:
+    timeout: 30
+deny: ["^proj/.*:delete$", "^github/.*:delete$"]
+domains:
+  research: [exa]
+output:
+  budget: 2048
