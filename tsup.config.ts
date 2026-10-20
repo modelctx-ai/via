@@ -1,7 +1,5 @@
-import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { defineConfig } from 'tsup';
+import { parseId, rulesId } from './scripts/lib/build-ids';
 import { lazyBuiltins } from './scripts/lib/lazy-builtins';
 import { stripUnusedRequire } from './scripts/lib/strip-require';
 
@@ -15,35 +13,6 @@ import { stripUnusedRequire } from './scripts/lib/strip-require';
 // one by one: `yaml` alone costs ~30 ms against ~6 ms bundled, the MCP SDK and ajv more
 // (`npm run bench:perf`). Only the native keychain binding has to stay a real package.
 const NATIVE = ['@napi-rs/keyring'];
-
-/**
- * Identifies the catalog rules of this build: the package version plus a hash of the data files and
- * of the code that derives a catalog from a tool list. The prebuilt-catalog cache
- * (src/cli/view-cache.ts) is keyed by it, so editing a verb table or the naming code can never
- * serve a stale build. Files are visited in sorted order, so the id is the same on every machine.
- */
-function rulesId(): string {
-  const files: string[] = [];
-  const walk = (dir: string, accept: (name: string) => boolean): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      if (entry.isDirectory()) walk(join(dir, entry.name), accept);
-      else if (accept(entry.name)) files.push(join(dir, entry.name));
-    }
-  };
-  readdirSync('data').filter((n) => n.endsWith('.json')).sort().forEach((n) => files.push(join('data', n)));
-  walk('src/catalog', (n) => n.endsWith('.ts'));
-  files.push('src/cli/view-cache.ts');
-  const hash = createHash('sha256');
-  for (const file of files) hash.update(`${file}\0`).update(readFileSync(file)).update('\0');
-  const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version;
-  return `${version}-${hash.digest('hex').slice(0, 16)}`;
-}
-
-/** Identifies the YAML parser of this build: via's version and the bundled `yaml` package's. */
-function parseId(): string {
-  const read = (path: string): string => (JSON.parse(readFileSync(path, 'utf8')) as { version: string }).version;
-  return `${read('package.json')}+yaml-${read('node_modules/yaml/package.json')}`;
-}
 
 export default defineConfig((flags) => ({
   entry: { via: 'src/cli/main.ts' },
