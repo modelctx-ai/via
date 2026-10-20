@@ -17,3 +17,4 @@
 - 指南：快速上手、与 agent 框架集成、GitHub / Linear / Notion / Cloudflare / 网关类 server 示例、组合用法。
 - 开发文档：实现说明、测试与评测、数据文件格式。
 - 架构决策记录 ADR 0001–0009。
+- 参数映射：object / array 参数支持内联 JSON；明确 JSON 文本型 string 参数原样传入、宽松 schema 的处理与参数合并顺序。

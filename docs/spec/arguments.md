@@ -8,9 +8,10 @@
 | --- | --- | --- |
 | string / number / integer | `--name value` 或 `--name=value` | 按 schema 转换类型；enum 在帮助里列出可选值并校验 |
 | boolean | `--flag` / `--no-flag` | — |
-| 标量数组 | `--tag a --tag b` | 重复传参；不用逗号分隔，避免值内含逗号时歧义 |
-| object | `--filter.state open` | 点号路径逐层赋值 |
-| 复杂结构 | `--args '{…}'`、`--args @file.json`、`--args -` | `--args` 作为基础，其余参数在其上覆盖 |
+| 标量数组 | `--tag a --tag b` 或 `--tag '["a","b"]'` | 重复传参，或整体写 JSON 数组；不用逗号分隔，避免值内含逗号时歧义 |
+| object | `--filter.state open` 或 `--filter '{"state":"open"}'` | 点号路径逐层赋值，或整体写 JSON 对象 |
+| 对象数组 | `--pages '[{…}]'` 或 `--pages @pages.json` | 只能整体写 JSON |
+| 复杂结构 | `--args '{…}'`、`--args @file.json`、`--args -` | 整个参数对象写成 JSON；`--args` 作为基础，其余参数在其上覆盖 |
 | 唯一必填的 string 参数 | 位置参数 `via exa web:search "rust mcp"` | 仅当恰好一个必填参数且其类型为 string 时启用 |
 
 ### 参数名
@@ -25,6 +26,28 @@
 - string 类型按原文传入；object 和 array 类型按 JSON 解析。
 - 字面量以 `@` 开头时写 `@@` 转义。
 - 适合长描述、代码、复杂对象：`--body @bug.md`、`--code - <<'JS' … JS`、`--pages @pages.json`。
+
+### JSON 输入
+
+需要 JSON 的场景分四种，处理方式不同：
+
+| 场景 | 写法 | 处理 |
+| --- | --- | --- |
+| 整个参数对象是 JSON | `--args '{…}'`、`--args @args.json`、`--args -`；脚本用 `via call <provider>/<resource>:<verb> --args …`；批量用 `via batch` 的 JSONL | 作为参数对象的基础 |
+| object / array 类型的参数 | `--filter '{"state":"open"}'`、`--labels '["bug","p1"]'`、`--pages @pages.json` | 按 JSON 解析 |
+| string 类型、但内容是 JSON 文本的参数 | `--query '{"bool":{…}}'`、`--query @query.json` | **不解析**，按原文作为字符串传入 |
+| schema 宽松的参数（未声明 `type`，或 object 未声明 `properties` 且允许任意字段） | `--payload '{…}'`、`--count 3`、`--name acme` | 值是合法 JSON 时按 JSON 解析，否则按字符串传入 |
+
+规则：
+
+- 是否解析由 schema 决定，不由值的外观决定。只有 schema 不允许字符串的位置才会把 `{…}`、`[…]` 当作 JSON；允许字符串的位置一律原样传入，避免把用户想传的 JSON 文本意外改成对象。
+- schema 同时允许 string 和 object/array（如 `type: ["string", "object"]`）时，值以 `{` 或 `[` 开头且能解析为 JSON 才按 JSON 处理，否则按字符串。需要强制原样传入时，用 `--args` 整体给出。
+- 根对象允许任意字段（未声明 `properties`，或 `additionalProperties` 不为 `false`）时，未声明的 `--key value` 不报错，值按上一条「schema 宽松」的规则处理；`-h` 中提示「accepts extra fields」。
+- JSON 解析失败时退出码 2，报错指出参数名和出错位置，并提示可以改用 `@文件`。
+- 合并顺序：先取 `--args`，再按命令行顺序应用其余参数；同一路径后写的覆盖先写的，对象之间做深合并。例如 `--filter '{"state":"open","label":"bug"}' --filter.state closed` 的结果是 `{"state":"closed","label":"bug"}`。
+- 帮助中 object、array 参数显示为 `--filter <json>`，有声明字段的 object 额外列出 `--filter.<field>` 写法。
+- `--dry-run` 打印合并后的完整参数 JSON，用于确认最终发给上游的内容。
+- shell 中内联 JSON 用单引号包裹；内容较长或带单引号时，用 `@文件` 或 heredoc（`--args - <<'JSON' … JSON`）。
 
 ### anyOf / oneOf 自动补齐
 
@@ -61,7 +84,7 @@ error: missing required --repo; --state must be one of open, closed, all
 usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all]
 ```
 
-未知参数报错并给出最接近的参数名。
+未知参数报错并给出最接近的参数名；根对象允许任意字段时例外（见 [JSON 输入](#json-输入)）。
 
 ## 危险操作
 
