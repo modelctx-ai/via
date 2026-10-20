@@ -1,7 +1,7 @@
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { CredentialError, createCredentialResolver, isCredentialRef, parseCredentialRef, type ConfigOrigin, type KeyringModule } from '../../src/config';
+import { CredentialError, createCredentialResolver, isCredentialRef, parseCredentialRef, splitCommandLine, type ConfigOrigin, type KeyringModule } from '../../src/config';
 import { createRedactor } from '../../src/render';
 import { tempDir } from '../helpers/config';
 
@@ -173,16 +173,168 @@ describe('keychain:', () => {
   });
 });
 
-describe('cmd:', () => {
-  it('is not supported yet in the user config', async () => {
-    const error = await failure(createCredentialResolver().resolve('cmd:op read op://dev/exa/key', user));
-    expect(error.message).toContain('not supported yet');
-    expect(error.ref).toBe('cmd:op read op://dev/exa/key');
+/** A credential helper written as a Node script, so the tests need no particular program on the machine. */
+function helper(dir: string): { ref: (...args: string[]) => string; counter: string } {
+  const script = join(dir, 'helper.mjs');
+  const counter = join(dir, 'runs');
+  writeFileSync(
+    script,
+    `import { appendFileSync } from 'node:fs';
+const [mode, value = ''] = process.argv.slice(2);
+if (process.env.HELPER_COUNTER) appendFileSync(process.env.HELPER_COUNTER, 'x');
+if (mode === 'print') process.stdout.write(value + '\\n');
+else if (mode === 'env') process.stdout.write(process.env[value] ?? '');
+else if (mode === 'fail') { process.stdout.write(value); process.stderr.write(value); process.exit(3); }
+else if (mode === 'empty') process.stdout.write('  \\n');
+else if (mode === 'big') process.stdout.write('x'.repeat(200 * 1024));
+else if (mode === 'hang') setInterval(() => {}, 1000);
+`,
+  );
+  return { ref: (...args) => `cmd:'${process.execPath}' '${script}' ${args.join(' ')}`, counter };
+}
+
+describe('splitCommandLine', () => {
+  it.each([
+    ['op read op://dev/exa/key', ['op', 'read', 'op://dev/exa/key']],
+    ['  a   b  ', ['a', 'b']],
+    [`sh -c 'echo "$HOME" | cat'`, ['sh', '-c', 'echo "$HOME" | cat']],
+    ['say "hello \\"you\\" \\\\ x"', ['say', 'hello "you" \\ x']],
+    ['a\\ b c', ['a b', 'c']],
+    ["a '' b", ['a', '', 'b']],
+    ['$HOME ~ * | >', ['$HOME', '~', '*', '|', '>']],
+  ])('%j', (text, words) => {
+    expect(splitCommandLine(text)).toEqual(words);
   });
 
-  it.each(['project', 'framework-project', 'framework-user'] as const)('is refused outside the user config (%s)', async (scope) => {
-    const error = await failure(createCredentialResolver().resolve('cmd:echo hi', { scope, path: '/fake/.via.yaml' }));
+  it.each(['', '   ', "a 'b", 'a "b', "''"])('rejects %j', (text) => {
+    expect(splitCommandLine(text)).toBeUndefined();
+  });
+});
+
+describe('cmd:', () => {
+  it('runs the command without a shell and returns its trimmed stdout', async () => {
+    const h = helper(tempDir());
+    const resolver = createCredentialResolver();
+    expect(await resolver.resolve(h.ref('print', FAKE), user)).toBe(FAKE);
+    expect(resolver.resolvedValues()).toContain(FAKE);
+  });
+
+  it('does not expand variables, pipes or globs', async () => {
+    const h = helper(tempDir());
+    expect(await createCredentialResolver({ env: { HOME: '/nope' } }).resolve(h.ref('print', "'$HOME|*'"), user)).toBe('$HOME|*');
+  });
+
+  it('gives the command the resolver environment', async () => {
+    const h = helper(tempDir());
+    expect(await createCredentialResolver({ env: { ...process.env, PASS_THROUGH: FAKE } }).resolve(h.ref('env', 'PASS_THROUGH'), user)).toBe(FAKE);
+  });
+
+  it('is allowed for the command-line layer too', async () => {
+    const h = helper(tempDir());
+    expect(await createCredentialResolver().resolve(h.ref('print', FAKE), { scope: 'cli' })).toBe(FAKE);
+  });
+
+  it.each(['project', 'framework-project', 'framework-user'] as const)('is refused outside the user config (%s) and never runs', async (scope) => {
+    const h = helper(tempDir());
+    const env = { ...process.env, HELPER_COUNTER: h.counter };
+    const error = await failure(createCredentialResolver({ env }).resolve(h.ref('print', FAKE), { scope, path: '/fake/.via.yaml' }));
     expect(error.message).toContain('only allowed in the user config');
+    expect(existsSync(h.counter)).toBe(false);
+  });
+
+  it('a cached value is not handed to a project origin either', async () => {
+    const h = helper(tempDir());
+    const resolver = createCredentialResolver();
+    await resolver.resolve(h.ref('print', FAKE), user);
+    const error = await failure(resolver.resolve(h.ref('print', FAKE), { scope: 'project', path: '/fake/.via.yaml' }));
+    expect(error.message).toContain('only allowed in the user config');
+    expect(error.message).not.toContain(FAKE);
+  });
+
+  it('runs once per reference within the TTL, and again after it', async () => {
+    const h = helper(tempDir());
+    let clock = 1_000;
+    const resolver = createCredentialResolver({ env: { ...process.env, HELPER_COUNTER: h.counter }, now: () => clock, cmdTtlMs: 5_000 });
+    const runs = (): number => readFileSync(h.counter, 'utf8').length;
+    await resolver.resolve(h.ref('print', FAKE), user);
+    await resolver.resolve(h.ref('print', FAKE), user);
+    expect(runs()).toBe(1);
+    clock += 4_999;
+    await resolver.resolve(h.ref('print', FAKE), user);
+    expect(runs()).toBe(1);
+    clock += 2;
+    await resolver.resolve(h.ref('print', FAKE), user);
+    expect(runs()).toBe(2);
+  });
+
+  it('concurrent resolves share one run; a TTL of 0 disables the cache', async () => {
+    const h = helper(tempDir());
+    const env = { ...process.env, HELPER_COUNTER: h.counter };
+    const shared = createCredentialResolver({ env });
+    await Promise.all([1, 2, 3].map(() => shared.resolve(h.ref('print', FAKE), user)));
+    expect(readFileSync(h.counter, 'utf8')).toBe('x');
+
+    const uncached = createCredentialResolver({ env, cmdTtlMs: 0 });
+    await uncached.resolve(h.ref('print', FAKE), user);
+    await uncached.resolve(h.ref('print', FAKE), user);
+    expect(readFileSync(h.counter, 'utf8')).toBe('xxx');
+  });
+
+  it('a failure is not cached', async () => {
+    const dir = tempDir();
+    const marker = join(dir, 'ready');
+    const script = join(dir, 'flaky.mjs');
+    writeFileSync(script, `import { existsSync } from 'node:fs'; if (existsSync(${JSON.stringify(marker)})) process.stdout.write(${JSON.stringify(FAKE)}); else process.exit(1);`);
+    const resolver = createCredentialResolver();
+    const ref = `cmd:'${process.execPath}' '${script}'`;
+    await failure(resolver.resolve(ref, user));
+    writeFileSync(marker, '');
+    expect(await resolver.resolve(ref, user)).toBe(FAKE);
+  });
+
+  it('a nonzero exit is a credential error that shows neither stdout nor stderr', async () => {
+    const h = helper(tempDir());
+    const resolver = createCredentialResolver();
+    const error = await failure(resolver.resolve(h.ref('fail', FAKE), user));
+    expect(error.message).toContain('exited with status 3');
+    expect(error.message).toContain('its output is not shown');
+    expect(`${error.message}\n${error.next ?? ''}`).not.toContain(FAKE);
+    expect(resolver.resolvedValues()).not.toContain(FAKE);
+  });
+
+  it('empty output is a missing credential', async () => {
+    const error = await failure(createCredentialResolver().resolve(helper(tempDir()).ref('empty'), user));
+    expect(error.message).toContain('printed nothing');
+  });
+
+  it('refuses output that is far too large to be a credential', async () => {
+    const error = await failure(createCredentialResolver().resolve(helper(tempDir()).ref('big'), user));
+    expect(error.message).toContain('more than 64 KiB');
+  });
+
+  it('kills a command that hangs', async () => {
+    const started = Date.now();
+    const error = await failure(createCredentialResolver({ cmdTimeoutMs: 300 }).resolve(helper(tempDir()).ref('hang'), user));
+    expect(error.message).toContain('did not finish');
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('reports a missing program by its name only', async () => {
+    const error = await failure(createCredentialResolver().resolve('cmd:/no/such/dir/via-no-such-helper --token abcdefgh12345', user));
+    expect(error.message).toContain('"via-no-such-helper" was not found');
+    expect(error.message).not.toContain('abcdefgh12345');
+    expect(error.message).not.toContain('/no/such/dir');
+  });
+
+  it.each(['cmd:', 'cmd:   ', "cmd:op 'unterminated"])('rejects %j as invalid', async (ref) => {
+    const error = await failure(createCredentialResolver().resolve(ref, user));
+    expect(error.message).toContain('invalid cmd: credential reference');
+  });
+
+  it('the resolved value is redacted from text that mentions it', async () => {
+    const resolver = createCredentialResolver();
+    await resolver.resolve(helper(tempDir()).ref('print', FAKE), user);
+    expect(createRedactor(resolver.resolvedValues())(`Authorization: Bearer ${FAKE}`)).toBe('Authorization: Bearer ***');
   });
 });
 

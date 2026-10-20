@@ -36,7 +36,9 @@ export interface LoadedProviders {
 export class App {
   private loaded?: LoadedConfig;
   private resolverInstance?: CredentialResolver;
+  private resolverLoading?: Promise<CredentialResolver>;
   private clientInstance?: McpClient;
+  private clientLoading?: Promise<McpClient>;
   private tableInstance?: ProviderTable;
   private cacheInstance?: CatalogCache;
 
@@ -87,11 +89,13 @@ export class App {
   }
 
   async resolver(): Promise<CredentialResolver> {
-    if (!this.resolverInstance) {
-      const { createCredentialResolver } = await import('../config');
+    // One resolver per run, even when several servers ask at once (doctor, sync): two instances would
+    // each cache and run `cmd:` separately, and redaction only knows the values of the one it holds.
+    this.resolverLoading ??= import('../config').then(({ createCredentialResolver }) => {
       this.resolverInstance = createCredentialResolver({ home: this.io.home, env: this.io.env, platform: this.io.platform, cwd: this.io.cwd });
-    }
-    return this.resolverInstance;
+      return this.resolverInstance;
+    });
+    return this.resolverLoading;
   }
 
   /** Every credential value resolved in this run. */
@@ -100,12 +104,14 @@ export class App {
   }
 
   async client(): Promise<McpClient> {
-    if (!this.clientInstance) {
+    // Cached as a promise: concurrent callers (doctor, sync) must share one client, or `close` misses the others.
+    this.clientLoading ??= (async () => {
       const config = await this.config({ allowErrors: true });
       const { InProcessClient } = await import('../client');
       this.clientInstance = new InProcessClient(config.servers, await this.resolver());
-    }
-    return this.clientInstance;
+      return this.clientInstance;
+    })();
+    return this.clientLoading;
   }
 
   async cache(): Promise<CatalogCache> {
