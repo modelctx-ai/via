@@ -45,3 +45,18 @@ mcp2cli:
   - run: mcp2cli @notion notion-update-page --help
   - run: >-
       mcp2cli @notion notion-update-page --page-id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 --command insert_content_after --old-str "- Who owns the on-call runbook for the new queue?" --new-str "- Decision: per-tenant limits will be exposed in the public API docs."
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+success:
+  require:
+    - { server: notion, tool: notion-search, args: { query: { $contains: roadmap } } }
+    - { server: notion, tool: notion-fetch, args: { id: { $regex: "2f1c9e4a-?7b6d-?4e3f-?a1b2-?c3d4e5f6a701" } } }
+    - server: notion
+      tool: notion-update-page
+      args:
+        page_id: { $regex: "^2f1c9e4a-?7b6d-?4e3f-?a1b2-?c3d4e5f6a701$" }
+        command: { $oneOf: [insert_content_after, replace_content_range, replace_content] }
+        new_str: { $containsAll: [tenant, public API docs] }
+      max: 1
+  forbid:
+    - { server: notion, tool: notion-update-page, args: { page_id: { $not: { $regex: "2f1c9e4a-?7b6d-?4e3f-?a1b2-?c3d4e5f6a701" } } } }

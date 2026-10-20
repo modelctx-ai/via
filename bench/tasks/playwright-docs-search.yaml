@@ -19,8 +19,10 @@ native:
 
 calls:
   - { server: playwright, tool: browser_navigate, textFile: recordings/playwright-docs-search/browser_navigate.txt }
-  - { server: playwright, tool: browser_type, textFile: recordings/playwright-docs-search/browser_type.txt }
-  - { server: playwright, tool: browser_click, textFile: recordings/playwright-docs-search/browser_click.txt }
+  # Element refs come from the page snapshot (e8 is the search box, e73 the "Rate limits" result);
+  # acting on any other element fails.
+  - { server: playwright, tool: browser_type, args: { ref: e8 }, textFile: recordings/playwright-docs-search/browser_type.txt }
+  - { server: playwright, tool: browser_click, args: { ref: e73 }, textFile: recordings/playwright-docs-search/browser_click.txt }
 
 via:
   - run: via playwright
@@ -37,3 +39,10 @@ mcp2cli:
   - run: mcp2cli @playwright browser-type --element "Search docs" --ref e8 --text "rate limit" --submit
   - run: mcp2cli @playwright browser-click --help
   - run: mcp2cli @playwright browser-click --element "Rate limits result" --ref e73
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+success:
+  require:
+    - { server: playwright, tool: browser_navigate, args: { url: { $contains: docs.acme.test } } }
+    - { server: playwright, tool: browser_type, args: { ref: e8, text: { $contains: rate limit } } }
+    - { server: playwright, tool: browser_click, args: { ref: e73 } }

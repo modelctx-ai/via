@@ -58,7 +58,7 @@ $ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 ma
 - **via 一列是真实运行**：脚本跑的是打包后的 `dist/via.js`，命令序列是人按「合理的 agent 路径」写的（从 `via <provider>` 或 `via find` 开始，签名足够时不加 `-h`）。mcp2cli 同理，工具不超过 25 个的 server 用 `--list`，更大的用 `--search`，每条要用的命令先看 `--help`。
 - **做同样的事**：每个任务有一份原生调用序列和一份回放用的返回值。测量时核对回放 server 的调用日志，via 与 mcp2cli 发出的 `tools/call` 必须与原生的工具名、参数完全一致，否则报错。
 - **原生一列也经过回放 server**：用官方 SDK 的 client 取 `tools/list` 和 `tools/call`，不手算。
-- **token 估算**：4 字节约 1 token，与 `via doctor` 用的是同一个常量（`BYTES_PER_TOKEN`）。可复现起见，元信息行的耗时、端口、沙箱路径归一为常量。可选的精确计数（调用 token 计数接口）0.1 没有做，留给 agent 评测。
+- **token 估算**：4 字节约 1 token，与 `via doctor` 用的是同一个常量（`BYTES_PER_TOKEN`）。可复现起见，元信息行的耗时、端口、沙箱路径归一为常量。可选的精确计数（调用 token 计数接口）0.1 没有做；agent 评测直接使用 API 返回的 `usage`。
 - **mcp2cli 是可选的一列**：PATH 上有 `mcp2cli` 才运行，并记录版本；没有就在输出里说明已跳过，不伪造数字。说明文本取自它自带的 skill（`bench/vendor/mcp2cli/`，MIT）。
 
 ### 结果随版本记录
@@ -80,13 +80,71 @@ $ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 ma
 
 ## agent 评测
 
-同一组任务分别让 agent 用原生 MCP、mcp2cli 和 via 完成，比较：
+同一组任务分别让模型用原生 MCP、mcp2cli 和 via 完成，比较：
 
-- 总 token；
 - 任务成功率；
-- 工具调用轮数与错误调用次数。
+- 总 token（取自 API 返回的 `usage`，输入含缓存读写）；
+- 模型轮数、工具调用数与错误调用次数。
 
-这是验证「MCP 做提供方、CLI 做消费方」这一判断的关键证据，也是 0.1 → 0.2 的门槛（[路线图](../roadmap.md)）。与 mcp2cli 的对比单独验证 via 自己的设计：`resource:verb` 拆分、分域浏览和紧凑渲染相对于平铺的原始工具名和原样 JSON，是否减少了错误调用和发现轮数。拆分出错时模型可能更难找到工具，这一项要单独统计。0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测应以 HTTP server 为主，避免启动延迟干扰结论。
+这是验证「MCP 做提供方、CLI 做消费方」这一判断的关键证据，也是 0.1 → 0.2 的门槛（[路线图](../roadmap.md)）。与 mcp2cli 的对比单独验证 via 自己的设计：`resource:verb` 拆分、分域浏览和紧凑渲染相对于平铺的原始工具名和原样 JSON，是否减少了错误调用和发现轮数。拆分出错时模型可能更难找到工具，这一项要单独统计（逐任务的成功次数和未成功运行的检查明细就是为此保留的）。0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测以 HTTP 回放 server 为主，避免启动延迟干扰结论。
+
+### 怎么跑
+
+```console
+$ npm run build
+$ export ANTHROPIC_API_KEY=...                      # 也支持 ANTHROPIC_BASE_URL
+$ npm run bench:eval -- --trials 10                 # 写 bench/results/eval-<日期>.md 与 .json
+$ npm run bench:eval -- --fake-model                # 不需要密钥：只验证流水线，不衡量任何模型
+```
+
+没有密钥时 `bench:eval` 给出说明并以退出码 2 结束。选项（`--trials`、`--task`、`--condition`、`--model`、`--max-turns`、`--concurrency`、`--out` 等）、三种条件的工具与系统提示、每次运行的记录项见 [bench/README.md](../../bench/README.md#agent-评测)。模型默认值在 `bench/eval/anthropic.ts`，用 `--model` 换；结论只对评测所用的模型成立，换模型要重跑。`@anthropic-ai/sdk` 是 devDependency，via 本身不依赖它。
+
+### 对比什么
+
+三个条件使用同一批回放 server（与 token 基准相同的合成录制）、同一份任务描述和同一段系统提示骨架，只有各自的工具和说明文本不同：
+
+| 条件 | 模型看到什么 | 模型能做什么 |
+| --- | --- | --- |
+| native | 全部挂载 server 的工具定义，原样（167 个工具） | 直接调用 MCP 工具，调用转发给回放 server |
+| via | `via prompt` 的输出 | 一个 `shell` 工具，只能运行 `via …`（不经真实 shell） |
+| mcp2cli | mcp2cli 自带 skill 原文加 server 别名 | 一个 `shell` 工具，只能运行 `mcp2cli …` |
+
+mcp2cli 不在 PATH 上时这一条件跳过并在输出里说明，不伪造数字。
+
+### 怎么判定成功
+
+确定性的，只看回放 server 收到的调用日志，不调用模型打分，也不信模型自己说「做完了」。每个任务文件有 `success` 块：
+
+- **必需调用**：工具加参数子集，且被回放 server 回答了（命中某个录制的返回值）才算；写操作可以限制最多几次，防止重复执行；
+- **禁止调用**：不论是否被回答，企图对错误的对象做写操作就算违规（例如评论了别的 issue、用了测试环境的账号）；
+- **最终回答**：只读任务（找代码、总结 PR、列 DNS 记录）另查回答里是否提到关键事实，否则「读了数据但什么也没说」也会算成功。
+
+标准只看结果，不要求模型走脚本里的路径：并列的合理选择（两个同样紧急的 issue、优先级 1 或 2、团队名或键或 ID）都放行。判定标准本身有测试：每个任务自带的原生调用序列必须满足它。模型没有自己停下（用完轮数、回复被截断、被拒绝、API 出错）的运行一律不算成功。
+
+| 任务 | 成功的条件（摘要） |
+| --- | --- |
+| github-triage-bugs | 列出 acme/api 的 OPEN 且带 bug 标签的 issue；读 #214；在 #214 评论一次，内容提到日志（log）和 Redis；不评论别的 issue、不改 issue |
+| github-find-code | 搜 `RateLimiter`；读 `src/middleware/rate_limiter.ts`；回答里提到这个路径 |
+| github-pr-summary | 对 PR #482 取 `get`、`get_files`、`get_reviews` 三种读取；回答提到标题里的 per-tenant、改动的文件和「changes requested」 |
+| linear-create-issue | 创建一次 issue：标题含 rate limiter，团队 Platform（名、键或 ID），描述提到 Redis，优先级 1 或 2，指派给我 |
+| linear-my-work | 列出进行中的 issue；读并列最紧急的 PLT-300 或 PLT-328；把它设为 Done 一次；不改别的 issue |
+| notion-update-doc | 搜 roadmap；读 Q3 Roadmap 页面；对这个页面更新一次，新增内容提到 per-tenant 限制和 public API docs |
+| playwright-docs-search | 打开 docs.acme.test；在搜索框（`e8`）输入 `rate limit`；点击 `Rate limits` 结果（`e73`） |
+| cloudflare-dns-records | 用生产账号（Acme Production）执行包含 DNS 的代码；不用测试账号；回答列出记录（含 `203.0.113.10`、`docs.acme.test`、`status.acme.test`） |
+| cross-issue-to-pr | 读 PLT-300；在它下面评论一次，只含修复它的 PR #487 的编号，不含 #482、#455 |
+
+回放 server 对承载身份的参数按参数区分（读或改录制里没有的 issue 会失败），所以走错对象的模型会在运行里看到一次普通的工具失败，并计入错误调用。
+
+### 门槛 1 比较什么
+
+门槛 1 要求 via 的任务成功率**不低于**原生 MCP，**且不低于** mcp2cli。`bench:eval` 在汇总后打印这个判断：逐条件的成功次数 / 运行次数、点估计的比较，以及 95% Wilson 区间是否重叠。区间重叠时不要把差异当结论：增加 `--trials`，或看逐任务的成功次数和未成功运行的检查明细，判断是模型随机性还是 via 的某个设计（拆分、分域、渲染）确实让模型找不到工具。mcp2cli 缺失时比较标为不完整，不算门槛通过。token、轮数与错误调用不是门槛条件，但随结果一起记录：token 基准说明「几乎不占上下文」，这里说明「省下的上下文有没有换来更多弯路」。
+
+### 局限
+
+- 返回值是合成的，且同一工具的返回值基本不随参数变化；它检验模型能否找到并正确调用工具，不检验真实 server 的行为差异。
+- 评测对象是「模型加说明文本加工具」整体，三个条件的说明文本篇幅和风格天然不同（native 没有文字说明，mcp2cli 是一份通用 skill，via 是一段为它写的短说明）；这正是被比较的东西，但意味着结论包含了提示的差异。
+- 模型有随机性、API 会变；每份结果记录模型、日期、effort 和次数，只对那一次成立。
+- `--fake-model` 的输出不是结果（见 bench/README.md），不会写入 `bench/results/`。
 
 ## 性能目标
 

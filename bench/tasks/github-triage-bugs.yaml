@@ -25,8 +25,9 @@ native:
 # Canned results, shared by every column.
 calls:
   - { server: github, tool: list_issues, resultFile: recordings/github-triage-bugs/list_issues.json }
-  - { server: github, tool: issue_read, resultFile: recordings/github-triage-bugs/issue_read.json }
-  - { server: github, tool: add_issue_comment, resultFile: recordings/github-triage-bugs/add_issue_comment.json }
+  # Only issue 214 exists in the recordings: reading or commenting on another issue fails.
+  - { server: github, tool: issue_read, args: { method: get, issue_number: 214 }, resultFile: recordings/github-triage-bugs/issue_read.json }
+  - { server: github, tool: add_issue_comment, args: { issue_number: 214 }, resultFile: recordings/github-triage-bugs/add_issue_comment.json }
 
 via:
   - run: via github
@@ -47,3 +48,16 @@ mcp2cli:
   - run: mcp2cli @github add-issue-comment --help
   - run: >-
       mcp2cli @github add-issue-comment --owner acme --repo api --issue-number 214 --body "Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed."
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+success:
+  require:
+    - { server: github, tool: list_issues, args: { owner: acme, repo: api, state: OPEN, labels: { $contains: bug } } }
+    - { server: github, tool: issue_read, args: { method: get, owner: acme, repo: api, issue_number: 214 } }
+    - server: github
+      tool: add_issue_comment
+      args: { owner: acme, repo: api, issue_number: 214, body: { $containsAll: [log, redis] } }
+      max: 1
+  forbid:
+    - { server: github, tool: add_issue_comment, args: { issue_number: { $not: 214 } } }
+    - { server: github, tool: issue_write }
