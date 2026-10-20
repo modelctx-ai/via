@@ -60,8 +60,9 @@
 **打分规则**：
 
 - 每个域在词典（`data/domain-lexicon.json`）中有一组关键词及权重。权重按区分度计算：只在一个域出现的词权重高，在多个域都常见的词（search、query、file）权重低。
-- 对一个 server，把所有工具的信号词按「词典权重 × 信号来源权重」累加，得到每个域的分数，再归一化为置信度。
-- 最高分超过阈值，且至少是第二名的 1.5 倍时，判定为该域；两个域分数接近时，server 同时列在这两个域下；都不够时归入 `other`。阈值和倍数在真实 server 上调参，作为数据文件中的参数，不写死在代码里。
+- 对一个 server，把所有工具的信号词按「词典权重 × 信号来源权重」累加，得到每个域的分数，再归一化为置信度。同一个信号词在多个工具里重复出现时递减计分（第 n 个工具带来的权重因子是 `1 + ln n` 的增量），避免一个大 server 的重复资源名压倒其他信号。
+- 最高分占总分的比例（置信度）超过阈值，且至少是第二名的 1.5 倍时，判定为该域；前两名的置信度之和超过阈值、且第二名至少是第三名的 1.5 倍时，server 同时列在这两个域下；都不够时归入 `other`。总分低于 `minScore` 时不下结论，同样归入 `other`。阈值、倍数和 `minScore` 在真实 server 上调参，作为数据文件中的参数，不写死在代码里。
+- 启发式只会落在词典里出现过的域，也就是分类表里已有的域；其他域通过配置自定义。
 
 **按资源拆分**：大而杂的 server（例如同时提供邮件、网盘、日历的办公套件）按资源分别打分。各资源的域明显不同时，这个 provider 同时出现在多个域下，并注明相关资源，例如 comm 一行显示 `workspace (mail)`，docs 一行显示 `workspace (drive)`。
 
@@ -70,11 +71,12 @@
 **可解释、可覆盖**：
 
 ```console
-$ via servers --why acme-ops
-acme-ops → ops (heuristic, 0.82)
-  ops   12.4   deployment, cluster, pod, logs
-  data   3.1   query, table
-  next: set servers.acme-ops.domain in ~/.config/via/config.yaml to override
+$ via servers --why acme-sql
+acme-sql → data (heuristic, 0.79)
+  data      31.7   table, sql, database
+  docs      5.0    param, show
+  project   2.2    limit
+  next: set servers.acme-sql.domain in ~/.config/via/config.yaml to override
 ```
 
 判断不对时在配置里写 `domain:` 覆盖，或用顶层 `domains:` 自定义域并指定成员。
@@ -97,7 +99,8 @@ browser  playwright
 
 - 第一行：provider 数、可见工具数、异常状态（需要鉴权、连接失败）。
 - 可见 provider 不超过 6 个时不分域，直接每行一个 provider 并标注域。
-- 需要鉴权或连接失败的 provider 仍然列出，并带标记。
+- 需要鉴权或连接失败的 provider 仍然列出，并带标记：`linear (needs auth)`、`slack (failed)`、`notion (untrusted)`。
+- 按域分组时，域的顺序依次为分类表中的顺序、配置里自定义的域、`other`；同一个 provider 分在多个域时，在每个域下各出现一次并注明相关资源（`workspace (mail)`）。
 
 ### `via <provider>`
 
@@ -110,10 +113,11 @@ commit         get · list
 … 14 more · via github --all
 ```
 
-- 每个资源一行，动作内联，按资源名排序。
-- 叶子工具在最后一行：`tools: search · fetch`。
-- 资源行数超过一屏（默认 20 行）时截断，提示 `--all`。
+- 每个资源一行，动作内联，按资源名排序；一行内的动作按 `tools/list` 中的先后顺序排列。
+- 叶子工具在资源行之后：`tools: search · fetch`，按 `tools/list` 顺序，超过 12 个时截断并提示 `--all`。
+- 资源行数超过一屏（默认 20 行）时截断，提示 `… N more · via <provider> --all`，位于叶子工具行之前。
 - 危险动作可以加标记（如 `delete!`），只读资源不加标记。
+- 最后一行提示下一步：`→ via <provider> <resource> for signatures`。
 
 ### `via <provider> <resource>`
 
@@ -126,8 +130,10 @@ issue:search   query, [owner], [repo]                  Search issues
 → via github issue:<verb> -h for usage
 ```
 
-- 每个工具一行：动作、签名、截断到 60 字符的描述。
-- 签名中必填参数在前，可选参数加方括号，参数名统一为 kebab-case。
+- 每个工具一行：动作、签名、截断到 60 字符的描述（取描述的第一个非空行）。
+- 签名中必填参数在前，可选参数加方括号，参数名统一为 kebab-case；各组内按 schema 中 `properties` 的顺序。
+- 签名最多显示 6 个参数，必填参数一个不省略，其余可选参数以 `…` 表示，完整参数用 `-h` 查看。
+- 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后（[arguments.md](arguments.md#危险操作)）。
 
 ## 搜索
 
@@ -139,7 +145,9 @@ issue:search   query, [owner], [repo]                  Search issues
 4. 多词查询按 BM25 对名称、描述、参数名打分，名称命中权重最高；
 5. 空查询按规范写法顺序列出全部工具。
 
-结果默认 10 条，每条一行，格式同资源视图但带 provider 前缀，大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。`--domain` 只在该域内搜索。语义检索作为后续可选项，不进 MVP。
+1–3 是三个层级，所有命中它们的工具排在只命中 BM25 的工具之前；同一层级内按 BM25 分数、再按规范写法排序，保证结果确定。查询大小写不敏感，`/` 视同空格、`_` 视同 `-`，所以 `github/issue:read` 与 `github issue:read` 等价；省略 provider 的 `issue:read` 同样算完全匹配。BM25 比较时，查询词与索引词都先单数化，`issues` 能命中 `issue`；描述中的停用词（`data/domains.json` 的 `stopwords`）不进索引。
+
+结果默认 10 条，每条一行，格式同资源视图但带 provider 前缀，大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。`--domain` 只在该域内搜索；provider 按资源分在多个域下时，只搜索属于该域的那些资源。语义检索作为后续可选项，不进 MVP。
 
 ## 找不到时
 
