@@ -1,0 +1,21 @@
+· gh issue:read · <t> · 47 bytes · line 1
+error: line 3: invalid JSON at column 27: unexpected end of input
+next: via batch -h
+error: line 4: expected a JSON object like {"tool":"<provider>/<resource>:<verb>","args":{…}}
+next: via batch -h
+error: line 5: expected a JSON object like {"tool":"<provider>/<resource>:<verb>","args":{…}}
+next: via batch -h
+error: line 6: "tool" is required: a string like linear/issue:get
+next: via batch -h
+error: line 7: unknown field "arg"; a line has "tool" and "args"
+next: via batch -h
+error: line 8: "args" must be a JSON object
+next: via batch -h
+error: line 9: --message must be a string (got 1)
+usage: via gh echo-text --message <str>
+error: line 10: expected a tool reference like <provider>/<resource>:<verb>
+next: via batch -h
+error: line 11: gh/issue is a resource, not a tool
+next: via gh issue
+· gh issue:read · <t> · 47 bytes · line 13
+· batch · 11 calls · 2 ok · 9 failed · 0ms
