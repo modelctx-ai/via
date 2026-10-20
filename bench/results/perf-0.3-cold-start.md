@@ -26,7 +26,7 @@
 
 ## 做了什么
 
-每一项都是测过才留下的；输出逐字节不变（现有的快照与端到端测试不变，另有新缓存的失效测试）。实现说明见 [implementation.md](../../docs/development/implementation.md#03-的冷启动工作数据见-benchresultsperf-03-cold-startmd)。
+每一项都是测过才留下的；输出逐字节不变（现有的快照与端到端测试不变，另有新缓存的失效测试）。实现说明见 [implementation.md](../../docs/development/implementation.md#启动速度)。
 
 | 优化 | 效果（进程内，一次实验，多次中位数） |
 | --- | --- |
