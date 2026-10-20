@@ -61,9 +61,9 @@ describe('data/frameworks', () => {
     expect(findFramework('nope')).toBeUndefined();
   });
 
-  it('every framework is reachable on linux and darwin, and has a user-scoped config', () => {
+  it('every framework is reachable on linux, darwin and win32, and has a user-scoped config', () => {
     for (const f of BUNDLED_FRAMEWORKS) {
-      for (const platform of ['linux', 'darwin'] as const) {
+      for (const platform of ['linux', 'darwin', 'win32'] as const) {
         const reachable = f.configs.filter((c) => !c.platforms || c.platforms.includes(platform));
         expect(reachable.length, `${f.id} on ${platform}`).toBeGreaterThan(0);
         expect(reachable.some((c) => c.scope === 'user'), `${f.id} on ${platform}`).toBe(true);

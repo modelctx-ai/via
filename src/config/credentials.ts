@@ -4,8 +4,10 @@
 import { readFile } from 'node:fs/promises';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { CredentialError, type ConfigOrigin, type CredentialRef, type CredentialResolver } from './types';
-import { expandPath, pathContext, type Env, type PathContext } from './paths';
 import { importKeyring } from '../keyring';
+import { planSpawn } from '../platform/command';
+import { decodeText } from '../platform/text';
+import { expandPath, getEnv, pathContext, userConfigHint, type Env, type PathContext } from './paths';
 
 export type CredentialKind = 'env' | 'file' | 'keychain' | 'cmd' | 'literal';
 
@@ -40,25 +42,50 @@ export const CMD_MAX_OUTPUT_BYTES = 64 * 1024;
  * `'…'` is literal, `"…"` honours `\"` and `\\`, a backslash outside quotes escapes the next
  * character. Nothing is expanded (no `$VAR`, `~`, globs, pipes). Returns undefined for an empty
  * command or an unterminated quote. Users who want a shell write `cmd:sh -c '…'`.
+ *
+ * On Windows a backslash is a path separator, so the quoting follows the C runtime instead (what
+ * `CommandLineToArgvW` does): a backslash is literal unless it comes right before a double quote,
+ * where `2n` of them mean `n` and `2n+1` mean `n` plus a literal quote. `cmd:C:\Tools\op.exe read x`
+ * and `cmd:"C:\Program Files\1Password CLI\op.exe" read x` both work. `'…'` stays a literal quote.
  */
-export function splitCommandLine(text: string): string[] | undefined {
+export function splitCommandLine(text: string, platform: NodeJS.Platform = process.platform): string[] | undefined {
   const words: string[] = [];
   let current = '';
   let inWord = false;
   let quote: '"' | "'" | undefined;
+  const windows = platform === 'win32';
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i]!;
+    if (windows && c === '\\' && quote !== "'") {
+      let run = 1;
+      while (text[i + run] === '\\') run += 1;
+      if (text[i + run] === '"') {
+        current += '\\'.repeat(Math.floor(run / 2));
+        inWord = true;
+        if (run % 2 === 1) {
+          current += '"';
+          i += run; // the quote is consumed as a literal
+        } else {
+          i += run - 1; // the quote that follows toggles quoting on the next turn
+        }
+      } else {
+        current += '\\'.repeat(run);
+        inWord = true;
+        i += run - 1;
+      }
+      continue;
+    }
     if (quote === "'") {
       if (c === "'") quote = undefined;
       else current += c;
     } else if (quote === '"') {
       if (c === '"') quote = undefined;
-      else if (c === '\\' && (text[i + 1] === '"' || text[i + 1] === '\\')) current += text[++i];
+      else if (!windows && c === '\\' && (text[i + 1] === '"' || text[i + 1] === '\\')) current += text[++i];
       else current += c;
     } else if (c === "'" || c === '"') {
       quote = c;
       inWord = true;
-    } else if (c === '\\' && i + 1 < text.length) {
+    } else if (!windows && c === '\\' && i + 1 < text.length) {
       current += text[++i];
       inWord = true;
     } else if (/\s/.test(c)) {
@@ -123,7 +150,7 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
     if (!ENV_NAME.test(name)) {
       throw new CredentialError(`invalid credential reference ${ref}: expected env:NAME`, ref, 'use a reference like env:EXA_API_KEY');
     }
-    const value = ctx.env[name];
+    const value = getEnv(ctx.env, name, ctx.platform);
     if (value === undefined || value === '') {
       throw new CredentialError(`environment variable ${name} is not set${where(origin)}`, ref, `export ${name}=<value>, or point the reference at another source (file:, keychain:)`);
     }
@@ -136,7 +163,7 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
     const path = isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
     let text: string;
     try {
-      text = await readFile(path, 'utf8');
+      text = decodeText(await readFile(path));
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
@@ -163,10 +190,10 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
     } catch (error) {
       // The platform error text is about the keychain, not the secret; keep only the first line.
       const reason = error instanceof Error ? error.message.split('\n')[0] : 'unknown error';
-      throw new CredentialError(`cannot read the system keychain: ${reason}${where(origin)}`, ref, 'use env: or file: instead, or check that a keychain service is running');
+      throw new CredentialError(`cannot read the system keychain: ${reason}${where(origin)}`, ref, ctx.platform === 'win32' ? 'use env: or file: instead, or check Windows Credential Manager (Control Panel > Credential Manager)' : 'use env: or file: instead, or check that a keychain service is running');
     }
     if (found === null || found === '') {
-      throw new CredentialError(`no keychain entry for service "${service}", account "${account}"${where(origin)}`, ref, `add it to the keychain (service "${service}", account "${account}"), or change the reference`);
+      throw new CredentialError(`no keychain entry for service "${service}", account "${account}"${where(origin)}`, ref, `add it to ${ctx.platform === 'win32' ? 'Windows Credential Manager' : 'the keychain'} (service "${service}", account "${account}"), or change the reference`);
     }
     return found;
   }
@@ -174,7 +201,7 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
   /** `cmd:` is for the user config only; checked on every resolve, before any cached value is looked at. */
   function checkCmdOrigin(ref: string, origin: ConfigOrigin): void {
     if (origin.scope !== 'user' && origin.scope !== 'cli') {
-      throw new CredentialError(`cmd: credential references are only allowed in the user config${where(origin)}`, ref, 'move this server definition to ~/.config/via/config.yaml, or use env:, file: or keychain:');
+      throw new CredentialError(`cmd: credential references are only allowed in the user config${where(origin)}`, ref, `move this server definition to ${userConfigHint(ctx.platform)}, or use env:, file: or keychain:`);
     }
   }
 
@@ -183,7 +210,7 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
    * an error message: a failing credential helper may well print the secret it was asked for.
    */
   async function runCmd(ref: string, arg: string, origin: ConfigOrigin): Promise<string> {
-    const argv = splitCommandLine(arg);
+    const argv = splitCommandLine(arg, ctx.platform);
     if (!argv) {
       throw new CredentialError('invalid cmd: credential reference: expected a command such as cmd:op read op://vault/item/field (empty command or unterminated quote)', ref, 'use a reference like cmd:op read op://dev/exa/key');
     }
@@ -194,9 +221,18 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
       const fail = (message: string, next: string): void => reject(new CredentialError(`${message}${where(origin)}`, ref, next));
       const env: Record<string, string> = {};
       for (const [key, value] of Object.entries(ctx.env)) if (value !== undefined) env[key] = value;
+      // On Windows: PATH/PATHEXT lookup that skips the working directory, and `.cmd` / `.bat` through
+      // cmd.exe with strict quoting (platform/command.ts). Elsewhere the plan is the command as is.
+      const planned = planSpawn(program, args, { env: ctx.env, cwd, platform: ctx.platform });
+      if (!planned.ok) {
+        if (planned.reason === 'not-found') fail(`credential command ${name} was not found`, 'install it, check PATH, or use env:, file: or keychain: instead');
+        else fail(`credential command ${name} ${planned.message}`, 'use a native executable (.exe), or env:, file: or keychain: instead');
+        return;
+      }
       let child: ReturnType<typeof spawn>;
       try {
-        child = spawn(program, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true });
+        const { plan } = planned;
+        child = spawn(plan.command, plan.args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true, windowsVerbatimArguments: plan.windowsVerbatimArguments });
       } catch (error) {
         fail(`cannot run credential command ${name}: ${(error as NodeJS.ErrnoException).code ?? 'spawn error'}`, 'check the command in the cmd: reference');
         return;

@@ -9,6 +9,7 @@ import type { McpTool } from '../catalog/types';
 import { createRedactor } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
 import { ClientError, internal, mapError, noFeature, notFoundServer, resourceNotFound, untrustedServer, type Phase } from './errors';
+import { prepareStdioCommand } from '../platform/command';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
 import type { ViaOAuthProvider } from './oauth/provider';
@@ -352,8 +353,12 @@ export class McpSession {
 
       if (resolved.type === 'stdio') {
         const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+        // Windows: PATH/PATHEXT lookup that never looks in the working directory, `.cmd` shims checked
+        // for arguments `cmd.exe` cannot carry (platform/command.ts). A no-op elsewhere.
+        const prepared = prepareStdioCommand(resolved.command, resolved.args, { env: resolved.env, cwd: resolved.cwd ?? process.cwd(), platform: process.platform });
+        if (!prepared.ok) throw Object.assign(new Error(prepared.message), { code: prepared.code });
         const stdio = new StdioClientTransport({
-          command: resolved.command,
+          command: prepared.command,
           args: resolved.args,
           env: resolved.env,
           ...(resolved.cwd !== undefined ? { cwd: resolved.cwd } : {}),

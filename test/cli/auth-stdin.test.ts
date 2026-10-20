@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startOAuthServer } from '../fixtures/mcp/oauth-server.mjs';
+import { homeEnv } from './helpers';
 
 // `via auth login --manual` against the built binary, with a real pipe on stdin: the redirect URL
 // is read from the terminal, one line, and the process ends on its own afterwards.
@@ -16,7 +17,7 @@ beforeAll(() => {
   mkdirSync(join(root, '.build'), { recursive: true });
   dir = mkdtempSync(join(root, '.build', 'auth-'));
   const out = join(dir, 'out');
-  const build = spawnSync(join(root, 'node_modules', '.bin', 'tsup'), ['--out-dir', out, '--silent'], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+  const build = spawnSync(process.execPath, [join(root, 'node_modules', 'tsup', 'dist', 'cli-default.js'), '--out-dir', out, '--silent'], { cwd: root, encoding: 'utf8', timeout: 60_000 });
   if (build.status !== 0) throw new Error(`tsup failed: ${build.stderr || build.stdout}`);
   bin = join(out, 'via.js');
 }, 90_000);
@@ -34,7 +35,7 @@ describe('built dist/via.js: auth login --manual', () => {
       writeFileSync(join(home, '.config', 'via', 'config.yaml'), `sources: false\nservers:\n  linear:\n    url: ${srv.url}\n    auth: oauth\n`);
       const child = spawn(process.execPath, [bin, 'auth', 'login', 'linear', '--manual'], {
         cwd: home,
-        env: { PATH: process.env.PATH, HOME: home, VIA_OAUTH_STORE: 'file', NODE_DISABLE_COMPILE_CACHE: '1' },
+        env: { ...homeEnv(home), VIA_OAUTH_STORE: 'file', NODE_DISABLE_COMPILE_CACHE: '1' },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       let stdout = '';

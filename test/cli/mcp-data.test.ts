@@ -1,5 +1,6 @@
 // `via resources`, `via read`, `via prompts` and roots, in-process (VIA_NO_DAEMON=1 in the test
 // environment); the daemon path is covered in test/daemon/mcp-data.test.ts.
+import { dirname, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -349,8 +350,8 @@ describe('roots', () => {
     expect(r.stdout.split('\n')).toEqual([
       'roots (listChanged: false):',
       `${pathToFileURL(sb.project).href} project`,
-      `${pathToFileURL(`${sb.project}/sub/dir`).href} dir`,
-      `${pathToFileURL(`${sb.home}/notes`).href} notes`,
+      `${pathToFileURL(join(sb.project, 'sub', 'dir')).href} dir`,
+      `${pathToFileURL(join(sb.home, 'notes')).href} notes`,
       `${pathToFileURL('/abs/place').href} place`,
       'file:///already/a/uri uri',
       '',
@@ -361,7 +362,7 @@ describe('roots', () => {
     const sb = makeSandbox();
     sb.userConfig(stdioConfig('    roots: ["."]\n'));
     const elsewhere = sb.write('other/.keep', '');
-    const dir = elsewhere.replace(/\/\.keep$/, '');
+    const dir = dirname(elsewhere);
     const r = await sb.via(['fs', 'list-roots'], { cwd: dir });
     expect(r.stdout).toContain(pathToFileURL(dir).href);
   });

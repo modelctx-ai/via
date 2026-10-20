@@ -2,6 +2,8 @@
 
 所有工具共用一套渲染规则，不为单个工具写模板。数据写 stdout，元信息写 stderr：`| jq` 拿到的是干净数据，agent 仍能看到提示。
 
+编码：输出一律是 UTF-8，换行是 `\n`，各平台一致（Windows 上也不写 `\r\n`；终端交互时 Node 直接写宽字符，不受控制台代码页影响，管道和重定向的读取方按各自的编码解码，见 [快速上手](../guides/getting-started.md#windows)）。
+
 ## 渲染流程
 
 1. **选数据源**：`isError` 为真时走[错误路径](#错误)；否则优先取 `structuredContent`，其次尝试把 text 内容解析为 JSON，都不行就按原文处理。多个 content 块依次渲染：单行文本和媒体路径紧挨着输出，结构化内容（表格、对象）前后各空一行。`structuredContent` 与 text 里只是重复它的 JSON 文本不再重复渲染。工具声明了 `outputSchema` 时先校验 `structuredContent`，不匹配只在 stderr 警告（[arguments.md](arguments.md#输出校验)）。

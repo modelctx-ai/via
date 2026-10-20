@@ -27,10 +27,8 @@ export type { Listing };
  * Whether servers are reached from this process instead of through the daemon: `VIA_NO_DAEMON` set
  * to anything but empty/`0`/`false` (daemon.md, "无 daemon 模式"). The injected environment wins;
  * the real one is consulted too so a test run can switch the daemon off for every sandbox at once.
- * Windows has no daemon before 0.3.
  */
 export function daemonDisabled(io: Pick<CliEnv, 'env' | 'platform'>): boolean {
-  if (io.platform === 'win32') return true;
   const value = io.env.VIA_NO_DAEMON ?? process.env.VIA_NO_DAEMON;
   return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false';
 }

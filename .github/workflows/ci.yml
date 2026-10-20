@@ -32,6 +32,34 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  # Windows 支持（docs/spec/daemon.md、security.md）：同一套检查在 Windows 上跑一遍。
+  # 换行由仓库根的 .gitattributes 固定为 LF，快照与夹具不受 runner 的 core.autocrlf 影响。
+  windows:
+    name: check (windows, node 22)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      # 打包产物在 Windows 上能启动：空的用户目录，覆盖 --version、浏览与 doctor（懒加载的 chunk）。
+      - name: run bundle
+        shell: bash
+        run: |
+          export USERPROFILE="$RUNNER_TEMP/profile" APPDATA="$RUNNER_TEMP/profile/AppData/Roaming" LOCALAPPDATA="$RUNNER_TEMP/profile/AppData/Local"
+          mkdir -p "$USERPROFILE" "$APPDATA" "$LOCALAPPDATA" "$RUNNER_TEMP/work"
+          cd "$RUNNER_TEMP/work"
+          via="$GITHUB_WORKSPACE/dist/via.js"
+          node "$via" --version
+          node "$via"
+          node "$via" doctor
+          node "$via" daemon status
+
   # 发布产物声明支持 Node 20（engines），开发工具链却需要 22+：在 22 上打包，换到 20 上跑打包结果。
   runtime-node20:
     name: runtime (node 20)

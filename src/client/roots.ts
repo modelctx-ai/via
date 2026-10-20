@@ -18,7 +18,7 @@ export interface RootsContext {
 /** One configured entry as an absolute `file://` URI. Idempotent: a URI comes back unchanged. */
 export function rootUri(entry: string, ctx: RootsContext): string {
   if (/^file:\/\//i.test(entry)) return entry;
-  const expanded = entry === '~' || entry.startsWith('~/') ? join(ctx.home, entry.slice(1)) : entry;
+  const expanded = entry === '~' || entry.startsWith('~/') || entry.startsWith('~\\') ? join(ctx.home, entry.slice(1)) : entry;
   return pathToFileURL(isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.cwd, expanded)).href;
 }
 

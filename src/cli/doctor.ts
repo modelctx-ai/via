@@ -4,6 +4,7 @@
 import { formatDiagnostic, isCredentialRef, type ConfigDiagnostic, type FrameworkDef, type LoadedConfig, type ServerConfig } from '../config';
 import type { CatalogWarning } from '../catalog';
 import { ExitCode } from '../render/exit-codes';
+import { shortenHome } from '../config/paths';
 import { shellWord } from '../render/shell';
 import { displayWidth, padEndWidth, truncateChars } from '../render/width';
 
@@ -78,13 +79,7 @@ function oneLine(text: string): string {
   return truncateChars(text.replace(/\s+/g, ' ').trim(), MESSAGE_MAX);
 }
 
-/** `~/.cursor/mcp.json` instead of the absolute path, when `home` is known. */
-function shorten(path: string, home: string | undefined): string {
-  if (!home) return path;
-  const base = home.replace(/[\\/]+$/, '');
-  if (path === base) return '~';
-  return path.startsWith(`${base}/`) || path.startsWith(`${base}\\`) ? `~${path.slice(base.length)}` : path;
-}
+const shorten = (path: string, home: string | undefined): string => shortenHome(path, home);
 
 /** `shorten` for paths inside a sentence. */
 function shortenIn(text: string, home: string | undefined): string {

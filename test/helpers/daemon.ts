@@ -1,7 +1,8 @@
 // Harness for tests that run a real daemon: the CLI is bundled once with esbuild (a single file next
 // to the repo's node_modules) so `via daemon run` can be started as a detached child, exactly as
-// the CLI does it in production. Every sandbox gets its own socket directory, and every daemon it
-// started is stopped (and killed if need be) when the test ends.
+// the CLI does it in production. Every sandbox gets its own socket directory (on Windows its own
+// profile directories and pipe-name prefix), and every daemon it started is stopped (and killed if
+// need be) when the test ends.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,8 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { afterAll, afterEach } from 'vitest';
 import { run } from '../../src/cli/run';
+import { pathContext, userCacheDir } from '../../src/config/paths';
+import { daemonPaths, type DaemonPaths } from '../../src/daemon/paths';
 import type { DaemonStatus } from '../../src/protocol';
-import { makeSandbox, type CliResult, type Sandbox } from '../cli/helpers';
+import { makeSandbox, SYSTEM_ENV, type CliResult, type Sandbox } from '../cli/helpers';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -61,11 +64,25 @@ export async function waitFor(condition: () => boolean | Promise<boolean>, ms = 
   }
 }
 
+export const isWindows = process.platform === 'win32';
+
 export interface DaemonSandbox {
   sb: Sandbox;
-  /** Short private directory holding `via.sock` (`XDG_RUNTIME_DIR`). */
+  /** Short private directory holding `via.sock` (`XDG_RUNTIME_DIR`); on Windows it holds the profile directories. */
   runtime: string;
+  /** The socket file; on Windows the pipe-name prefix (`\\.\pipe\via-<user>`), the real name adds a digest of the token. */
   socket: string;
+  /** Daemon files (`.token`, `.lock`, `.log`) and the platform they were computed for. */
+  paths: DaemonPaths;
+  platform: NodeJS.Platform;
+  /** The user cache directory (catalog cache, cursors, media) of the sandbox's platform. */
+  cacheDir: string;
+  /** Environment for a real child process that must find this sandbox's daemon and configuration. */
+  processEnv(): Record<string, string>;
+  /** The text `daemon status` prints after `socket: ` when the daemon runs, as a regular expression source. */
+  runningSocketPattern: string;
+  /** The text it prints when no daemon runs. */
+  idleSocketText: string;
   /** Run `via` with the daemon enabled and the bundled CLI as the program to start it. */
   via(argv: string[], options?: { env?: Record<string, string | undefined>; cwd?: string; daemonCommand?: { command: string; args: string[] }; openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }> }): Promise<CliResult>;
   /** `via daemon status -o json`, or undefined when no daemon runs. */
@@ -86,9 +103,32 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
   const sb = makeSandbox(env);
   sb.userConfig(config);
   const runtime = mkdtempSync(join(tmpdir(), 'via-rt-'));
-  const socket = join(runtime, 'via.sock');
+  const platform: NodeJS.Platform = isWindows ? 'win32' : 'linux';
+  const user = `via-test-${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
   // OAuth logins go to files in the sandbox, never to the real keychain.
-  const sandboxEnv = { PATH: process.env.PATH, XDG_RUNTIME_DIR: runtime, VIA_NO_DAEMON: '0', VIA_OAUTH_STORE: 'file', ...env };
+  const sandboxEnv: Record<string, string | undefined> = isWindows
+    ? {
+        PATH: process.env.PATH,
+        ...SYSTEM_ENV,
+        // Config in <home>\.config\via (where `sb.userConfig` writes), the rest under <runtime>.
+        APPDATA: join(sb.home, '.config'),
+        LOCALAPPDATA: join(runtime, 'local'),
+        USERNAME: user,
+        USERPROFILE: sb.home,
+        VIA_NO_DAEMON: '0',
+        VIA_OAUTH_STORE: 'file',
+        ...env,
+      }
+    : { PATH: process.env.PATH, XDG_RUNTIME_DIR: runtime, VIA_NO_DAEMON: '0', VIA_OAUTH_STORE: 'file', ...env };
+  const paths = daemonPaths(pathContext({ home: sb.home, env: sandboxEnv, platform }));
+  const socket = isWindows ? paths.socket : join(runtime, 'via.sock');
+  const cacheDir = isWindows ? userCacheDir(pathContext({ home: sb.home, env: sandboxEnv, platform })) : sb.cacheDir;
+  const processEnv = (): Record<string, string> => {
+    const out: Record<string, string> = { HOME: sb.home };
+    for (const [name, value] of Object.entries(sandboxEnv)) if (value !== undefined) out[name] = value;
+    return out;
+  };
+  const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const via: DaemonSandbox['via'] = async (argv, options = {}) => {
     let stdout = '';
@@ -98,7 +138,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
       env: { ...sandboxEnv, ...options.env },
       cwd: options.cwd ?? sb.project,
       home: sb.home,
-      platform: 'linux',
+      platform,
       stdout: { write: (s) => void ((stdout += s), (combined += s)) },
       stderr: { write: (s) => void ((stderr += s), (combined += s)) },
       readStdin: async () => '',
@@ -130,7 +170,20 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
     await stop().catch(() => undefined);
     rmSync(runtime, { recursive: true, force: true });
   });
-  return { sb, runtime, socket, via, status, stop };
+  return {
+    sb,
+    runtime,
+    socket,
+    paths,
+    platform,
+    cacheDir,
+    processEnv,
+    runningSocketPattern: isWindows ? `${escape(socket)}-[0-9a-f]{32}` : escape(socket),
+    idleSocketText: isWindows ? `${socket}-*` : socket,
+    via,
+    status,
+    stop,
+  };
 }
 
 /** The stdio mock server as a `servers:` entry for the user config. */

@@ -12,7 +12,7 @@
 | 配置解析 | `yaml`、`smol-toml`、`jsonc-parser`（部分框架配置带注释） |
 | 钥匙串 | `@napi-rs/keyring` |
 | 用户目录 | `env-paths` |
-| 进程间通信 | Node 内置 `net`（unix socket，Windows 上为 named pipe） |
+| 进程间通信 | Node 内置 `net`（unix socket，Windows 上为 named pipe，名字由握手令牌派生，见 [daemon.md](../spec/daemon.md#windows)） |
 | 表格对齐 | `get-east-asian-width`（中日韩字符按双宽计算）；宽度算法是 `string-width` 的移植，只是把 `Intl.Segmenter` 与 emoji 正则推迟到第一次遇到非窄字符时才创建，一致性由测试把 `string-width`（仅开发依赖）当参照来保证 |
 | 打包 | `tsup`（esbuild）打成带按需分块的 ESM 包（npm 发布）；`scripts/build-bin.ts` 用 Bun 从 `src/` 编译出单文件可执行（见[下文](#单文件可执行)） |
 | 测试 | `vitest`（含快照） |
@@ -86,6 +86,7 @@ via/
 │  ├─ catalog/      # 名称拆分、分域、索引、搜索（含同义词扩展与可选的 embedding 检索 semantic.ts）、浏览视图、缓存
 │  ├─ client/       # MCP 会话、鉴权、OAuth
 │  ├─ render/       # 输出流水线：清理、形状判断、表格、截断、游标
+│  ├─ platform/     # 平台差异：Windows 上命令的解析与 cmd.exe 启动（command.ts）、BOM / UTF-16 文本解码（text.ts）
 │  ├─ daemon/       # socket 服务（server）、会话与目录（sessions）、CLI 侧连接与拉起（client、backend）、路径与安全检查（paths）、协议帧（wire）
 │  └─ protocol.ts   # CLI 与 daemon 之间的消息类型
 ├─ data/
@@ -102,6 +103,14 @@ via/
 ├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；`mcp/`：模拟 MCP server（stdio 与 Streamable HTTP）；`config/`：每个框架的配置样例与 via 用户/项目配置
 └─ docs/
 ```
+
+### Windows 约定
+
+- 所有平台相关的路径与环境变量查找走 `PathContext`（`src/config/paths.ts`：`platform` 可注入；Windows 的 `userConfigDir` / `userCacheDir` / `userDataDir`、不分大小写的 `getEnv`、`pathIdentity`、`shortenHome`）。需要读懂「某个平台的路径」时传 `platform: 'win32'`，不要写 `process.platform === 'win32'` 的分支。凡是拼出字符串但不碰文件系统的地方用 `pathModule(platform)`（`win32` 的 `join` / `resolve` 在任何宿主上给出反斜杠路径），碰文件系统的地方用宿主的 `node:path`。
+- 子进程只经 `src/platform/command.ts`（`planSpawn`、`prepareStdioCommand`），不要在别处对用户给的命令直接 `spawn`。`shell: true` 一律不用。
+- 读用户文件和标准输入时用 `decodeText`（去 BOM、识别 UTF-16），而不是 `toString('utf8')`；批处理输入与配置已兼容 CRLF。输出一律是 UTF-8 加 `\n`。
+- 权限位（0600 / 0700）在 Windows 上无效，代码仍然传，但文档与测试不得假定它们生效（[security.md](../spec/security.md#windows-上的文件权限)）。
+- 仓库根的 `.gitattributes` 把全部文本文件固定为 LF，快照、夹具和信任记录的内容哈希依赖确切的字节。
 
 `protocol.ts` 定义的消息类型（见 [daemon.md](../spec/daemon.md#cli-与-daemon-的协议)）由 CLI、daemon 和进程内模式共用，这是用 TypeScript 的一个好处：两端不会出现序列化格式不一致。
 

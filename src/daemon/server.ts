@@ -1,4 +1,4 @@
-// The daemon (daemon.md): a unix-socket server that keeps MCP sessions, tool lists, resolved
+// The daemon (daemon.md): a unix-socket (Windows: named pipe) server that keeps MCP sessions, tool lists, resolved
 // credentials and truncation cursors for every `via` process of one user. The CLI parses arguments
 // and renders; the daemon answers with structured results.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -28,7 +28,7 @@ import type {
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/pipeline';
-import type { DaemonPaths } from './paths';
+import { endpointOf, type DaemonPaths } from './paths';
 import { CREDENTIAL_TTL_MS, ExpiringResolver, SessionManager } from './sessions';
 import { envStamp } from './target';
 import { encode, LineDecoder, parseMessage } from './wire';
@@ -84,6 +84,8 @@ export class DaemonServer {
   private watchTimer?: NodeJS.Timeout;
   private socketIno?: number;
   private token = '';
+  /** What the server listens on: the socket path, or for a derived pipe its full name. */
+  private endpoint = '';
   private sessions!: SessionManager;
   /** Cursors live in the user cache directory (like in-process mode), so they outlive the daemon. */
   private readonly cursors: FileCursorStore;
@@ -101,6 +103,11 @@ export class DaemonServer {
     return this.options.paths;
   }
 
+  /** What the daemon listens on, once started. */
+  get address(): string {
+    return this.endpoint;
+  }
+
   /**
    * Bind the socket. Returns `running` when another daemon already answers on it. Starting daemons
    * take a lock around "look for a live one, remove a stale socket, bind", so two of them started
@@ -108,13 +115,17 @@ export class DaemonServer {
    */
   async start(): Promise<'started' | 'running'> {
     const { paths } = this.options;
-    if (!paths.pipe) mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
-    const release = paths.pipe ? () => undefined : await acquireLock(paths.lock);
+    // On Windows the directory only holds the token, lock and log; its privacy is the user profile's ACL.
+    mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+    const release = await acquireLock(paths.lock);
     try {
-      if (await isAlive(paths.socket)) return 'running';
-      if (!paths.pipe) rmSync(paths.socket, { force: true });
+      // A derived pipe is found through the token of the daemon that made it.
+      const existing = endpointOf(paths, readFileOrEmpty(paths.token));
+      if (existing !== undefined && (await isAlive(existing))) return 'running';
+      if (!paths.pipe && !paths.derived) rmSync(paths.socket, { force: true });
       this.token = randomBytes(32).toString('hex');
-      if (!paths.pipe) writeFileAtomic(paths.token, this.token);
+      this.endpoint = endpointOf(paths, this.token)!;
+      writeFileAtomic(paths.token, this.token);
       await this.listen();
     } finally {
       release();
@@ -177,7 +188,7 @@ export class DaemonServer {
       // The socket must never exist with wider access than 0600, not even for an instant.
       let previous: number | undefined;
       try {
-        previous = process.umask(0o177);
+        if (!paths.pipe) previous = process.umask(0o177);
       } catch {
         // worker threads cannot set the umask; the chmod below and the private directory still apply
       }
@@ -188,14 +199,14 @@ export class DaemonServer {
         restore();
         reject(error);
       });
-      server.listen(paths.socket, () => {
+      server.listen(this.endpoint, () => {
         restore();
         server.removeAllListeners('error');
         server.on('error', () => undefined);
         if (!paths.pipe) {
           try {
-            chmodSync(paths.socket, 0o600);
-            this.socketIno = statSync(paths.socket).ino;
+            chmodSync(this.endpoint, 0o600);
+            this.socketIno = statSync(this.endpoint).ino;
           } catch {
             // the watcher notices a missing socket
           }
@@ -218,14 +229,14 @@ export class DaemonServer {
       server.unref();
       return;
     }
-    if (!this.options.paths.pipe) rmSync(this.options.paths.socket, { force: true });
+    if (!this.options.paths.pipe) rmSync(this.endpoint, { force: true });
     server.close();
   }
 
   private ownsSocket(): boolean {
     if (this.options.paths.pipe) return true;
     try {
-      return this.socketIno !== undefined && statSync(this.options.paths.socket).ino === this.socketIno;
+      return this.socketIno !== undefined && statSync(this.endpoint).ino === this.socketIno;
     } catch {
       return false;
     }
@@ -233,7 +244,7 @@ export class DaemonServer {
 
   private removeToken(): void {
     const { paths } = this.options;
-    if (paths.pipe || this.token === '') return;
+    if (this.token === '') return;
     try {
       if (readFileSync(paths.token, 'utf8') === this.token) rmSync(paths.token, { force: true });
     } catch {
@@ -241,10 +252,15 @@ export class DaemonServer {
     }
   }
 
-  /** A daemon whose socket file was removed or replaced cannot be reached; leaving it running only leaks. */
+  /**
+   * A daemon whose socket file was removed or replaced cannot be reached; leaving it running only leaks.
+   * A pipe leaves nothing on disk to watch but the token file: clients find the pipe (derived) or
+   * authenticate (fixed) through it, so a daemon whose token file is gone or belongs to another
+   * daemon is as unreachable.
+   */
   private watchSocket(): void {
     if (this.state !== 'running') return;
-    if (!this.options.paths.pipe && !this.ownsSocket()) void this.stop();
+    if (this.options.paths.pipe ? readFileOrEmpty(this.options.paths.token) !== this.token : !this.ownsSocket()) void this.stop();
   }
 
   // Idle exit ---------------------------------------------------------------------------
@@ -323,7 +339,7 @@ export class DaemonServer {
       return;
     }
     const hello = message as unknown as Hello;
-    if (!this.options.paths.pipe && !tokenMatches(this.token, hello.token)) {
+    if (!tokenMatches(this.token, hello.token)) {
       refuse('token');
       return;
     }
@@ -469,7 +485,7 @@ export class DaemonServer {
     return {
       pid: process.pid,
       version: this.options.version,
-      socket: this.options.paths.socket,
+      socket: this.endpoint,
       startedAt: this.startedAt,
       uptimeMs: now - this.startedAt,
       idleTimeoutMs: this.options.idleTimeoutMs,
@@ -501,10 +517,29 @@ function tokenMatches(expected: string, given: unknown): boolean {
   return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
 }
 
+function readFileOrEmpty(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
 function writeFileAtomic(path: string, content: string): void {
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, content, { mode: 0o600 });
-  renameSync(tmp, path);
+  try {
+    renameSync(tmp, path);
+  } catch (error) {
+    // Windows refuses to replace a file that a virus scanner or a reader holds open for a moment.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') throw error;
+    try {
+      writeFileSync(path, content, { mode: 0o600 });
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  }
 }
 
 /** Whether something accepts connections on `socket`. A refused or missing socket is stale or absent. */
