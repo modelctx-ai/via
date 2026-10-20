@@ -9,12 +9,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { afterAll, afterEach } from 'vitest';
+import { afterAll } from 'vitest';
 import { run } from '../../src/cli/run';
 import { pathContext, userCacheDir } from '../../src/config/paths';
 import { daemonPaths, type DaemonPaths } from '../../src/daemon/paths';
 import type { DaemonStatus } from '../../src/protocol';
-import { makeSandbox, SYSTEM_ENV, type CliResult, type Sandbox } from '../cli/helpers';
+import { makeSandbox, SYSTEM_ENV, useCleanup, type CliResult, type Sandbox } from '../cli/helpers';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -89,13 +89,9 @@ export interface DaemonSandbox {
   status(): Promise<DaemonStatus | undefined>;
   /** Stop the daemon and wait until its process is gone. */
   stop(): Promise<void>;
+  /** Have teardown end this process too (a server the test may orphan, e.g. by killing the daemon). */
+  track(pid: number): void;
 }
-
-const tracked: Array<() => Promise<void>> = [];
-
-afterEach(async () => {
-  for (const stop of tracked.splice(0)) await stop();
-});
 
 /** A sandbox whose `via` talks to a daemon of its own. `config` is the user config (YAML). */
 export async function daemonSandbox(config: string, env: Record<string, string> = {}): Promise<DaemonSandbox> {
@@ -183,7 +179,9 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
     await Promise.all(left.map((pid) => waitFor(() => !alive(pid), 5000, `process ${pid} to exit`).catch(() => undefined)));
     seen.clear();
   };
-  tracked.push(async () => {
+  // Registered after the sandbox's own cleanup, so it runs first: every process that could hold
+  // the sandbox as its working directory is gone before the directory is removed.
+  useCleanup(async () => {
     await stop().catch(() => undefined);
     rmSync(runtime, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
@@ -200,6 +198,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
     via,
     status,
     stop,
+    track: (pid) => void seen.add(pid),
   };
 }
 

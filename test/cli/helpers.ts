@@ -128,11 +128,23 @@ export interface Sandbox {
   via(argv: string[], options?: RunOptions): Promise<CliResult>;
 }
 
+// One list, run last-in first-out: whatever a test registers after making its sandbox (stopping a
+// daemon, closing a server) runs before the sandbox directory is removed. Every step runs even if
+// an earlier one throws; the first error is reported afterwards.
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
-  for (const fn of cleanups.splice(0)) await fn();
+  let failure: unknown;
+  for (const fn of cleanups.splice(0).reverse()) {
+    try {
+      await fn();
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  if (failure) throw failure;
 });
 
+/** Run `fn` when the test ends, before the cleanups registered earlier (the sandbox directory is the first of them). */
 export function useCleanup(fn: () => Promise<void> | void): void {
   cleanups.push(fn);
 }

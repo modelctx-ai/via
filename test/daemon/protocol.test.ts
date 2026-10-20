@@ -294,7 +294,7 @@ describe('catalog', () => {
       const h = await startDaemon();
       const server = stdioServer();
       const { CatalogCache } = await import('../../src/cli/catalog-cache');
-      new CatalogCache(join(h.home, '.cache', 'via', 'catalog')).write(server, TOOLS as never, { fetchedAt: Date.now() });
+      new CatalogCache(h.catalogDir).write(server, TOOLS as never, { fetchedAt: Date.now() });
       const conn = await h.connect();
       const t = target(server);
       const full = await list(conn, t);
@@ -342,8 +342,10 @@ describe('catalog', () => {
 
     it('keeps it in memory when it cannot be written to disk', async () => {
       const h = await startDaemon();
-      mkdirSync(h.home, { recursive: true });
-      writeFileSync(join(h.home, '.cache'), 'a file where the cache directory should be');
+      // A file where the catalog directory should be: unwritable on every platform (chmod does not
+      // do it on Windows). The rest of the cache directory stays, the daemon's token file lives there.
+      mkdirSync(dirname(h.catalogDir), { recursive: true });
+      writeFileSync(h.catalogDir, 'a file where the catalog directory should be');
       const conn = await h.connect();
       const t = target(stdioServer());
       const first = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
@@ -357,7 +359,7 @@ describe('catalog', () => {
       const conn = await h.connect();
       const t = target(stdioServer());
       await conn.request({ type: 'list', ...t, timeoutMs: 5000 });
-      rmSync(join(h.home, '.cache'), { recursive: true, force: true });
+      rmSync(h.catalogDir, { recursive: true, force: true });
       const again = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
       expect(again.result.fromCache).toBe(false);
       expect(again.result.tools).toHaveLength(TOOLS.length);
