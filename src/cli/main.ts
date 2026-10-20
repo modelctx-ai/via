@@ -1,22 +1,27 @@
-// Entry point. Kept thin on purpose: argument parsing and socket communication only.
-// Heavy dependencies (MCP SDK, ajv) must be loaded lazily by the subcommands that need them.
-import pkg from '../../package.json';
+// Entry point. Kept thin on purpose: the trivial paths (`--version`, `-h`) touch nothing but
+// static text. Everything else, commander-free option handling included, lives in the command
+// runner, which is imported only when needed (implementation.md, "启动速度").
+import * as nodeModule from 'node:module';
+import { HELP, VERSION } from './help';
 
-const HELP = `via ${pkg.version}
-usage: via <provider> [<resource>[:<verb>]] [args]
-       via find <query>
+const argv = process.argv.slice(2);
+const first = argv[0];
 
-The command surface is not implemented yet.
-`;
-
-function main(argv: string[]): number {
-  const first = argv[0];
-  if (first === '--version' || first === '-V') {
-    process.stdout.write(`${pkg.version}\n`);
-    return 0;
-  }
+let code = 0;
+if (first === '--version' || first === '-V') {
+  process.stdout.write(`${VERSION}\n`);
+} else if (first === '-h' || first === '--help') {
   process.stdout.write(HELP);
-  return first === undefined || first === '-h' || first === '--help' ? 0 : 2;
+} else {
+  try {
+    // Node 22+: cache compiled code between runs.
+    (nodeModule as { enableCompileCache?: () => unknown }).enableCompileCache?.();
+  } catch {
+    // an unwritable cache directory must not stop the command
+  }
+  const { run } = await import('./run');
+  code = await run(argv);
 }
-
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = code;
+// Open handles (a stdio server that ignores SIGTERM) must not keep the process alive for ever.
+setTimeout(() => process.exit(code), 3000).unref();

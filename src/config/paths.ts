@@ -38,6 +38,16 @@ export function userDataDir(ctx: PathContext): string {
 }
 
 /**
+ * User cache directory (catalog cache, cursors, media). Mirrors the `env-paths` cache directory
+ * for the platform, taking its inputs from the context instead of `process`.
+ */
+export function userCacheDir(ctx: PathContext): string {
+  if (ctx.platform === 'darwin') return join(ctx.home, 'Library', 'Caches', 'via');
+  if (ctx.platform === 'win32') return join(ctx.env.LOCALAPPDATA || join(ctx.home, 'AppData', 'Local'), 'via', 'Cache');
+  return join(ctx.env.XDG_CACHE_HOME || join(ctx.home, '.cache'), 'via');
+}
+
+/**
  * Expand a leading `~` and `%NAME%` variables. Returns undefined when a variable is not set,
  * so a Windows-only path is skipped quietly elsewhere.
  */

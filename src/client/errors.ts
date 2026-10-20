@@ -126,6 +126,13 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
 
   if (ctx.phase === 'connect') return startupFailure(err, ctx);
 
+  // The server rejected the arguments at the protocol level: a tool-level failure (exit 1), not a
+  // transport one (arguments.md, "校验与报错"). The CLI adds the "schema and server disagree" hint.
+  if (mcpCode(err) === INVALID_PARAMS) {
+    const detail = clean(errorMessage(err).replace(/^MCP error -32602:\s*/, ''), ctx);
+    return new ClientError({ exitCode: ExitCode.ToolError, message: detail || `${provider} rejected the arguments`, next: 'check the arguments with -h' });
+  }
+
   if (status !== undefined) {
     const detail = clean(stripSdkPrefix(errorMessage(err)), ctx);
     return new ClientError({
@@ -206,6 +213,7 @@ function httpStatus(err: unknown): number | undefined {
 
 const REQUEST_TIMEOUT = -32001;
 const CONNECTION_CLOSED = -32000;
+const INVALID_PARAMS = -32602;
 
 function mcpCode(err: unknown): number | undefined {
   if (err instanceof Error && err.name === 'McpError') {

@@ -25,4 +25,4 @@ export {
   type TrustStore,
 } from './trust';
 export { BUNDLED_FRAMEWORKS, DEFAULT_POINTERS, findFramework, type ConfigFormat, type FrameworkConfigFile, type FrameworkDef } from './frameworks';
-export { pathContext, userConfigDir, userConfigPath, userDataDir, type PathContext } from './paths';
+export { pathContext, userConfigDir, userCacheDir, userConfigPath, userDataDir, type PathContext } from './paths';

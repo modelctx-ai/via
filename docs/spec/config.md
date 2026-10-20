@@ -114,7 +114,7 @@ domains:
 - 用户配置、项目配置和命令行覆盖按「字段参考」校验类型，错误带完整路径，例如 `servers.github.timeout: expected number`、`servers.github.concurrency: expected positive integer`。出错的字段被忽略（使用默认值），其余字段照常生效；同时写了 `command` 和 `url` 的 server 整条忽略。
 - 未知字段只告警，用来发现拼写错误（`timout`）。
 - 文件不存在、无法读取或无法解析时跳过该文件并给出诊断，不影响其他来源。诊断信息不引用文件内容，避免泄露凭证。
-- `deny` 中无效的正则被忽略并报错（其余规则照常编译）。因为无效的 deny 规则意味着本应隐藏的工具会可见，诊断为 error 级，调用方应当停下来让用户修复，而不是继续运行。
+- `deny` 中无效的正则被忽略并报错（其余规则照常编译）。因为无效的 deny 规则意味着本应隐藏的工具会可见，诊断为 error 级，调用方应当停下来让用户修复，而不是继续运行：CLI 对任何带 error 级诊断的配置都拒绝执行命令（`via doctor`、`via servers` 除外，它们负责展示诊断），退出码 2（[cli.md](cli.md#配置错误)）。
 - 加载结果同时返回全部诊断，供 `via doctor` 和 `via servers` 展示；诊断分 `error`、`warning`、`info` 三级。
 
 ## 凭证引用

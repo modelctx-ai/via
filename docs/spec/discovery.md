@@ -17,6 +17,10 @@
 - 位置：用户缓存目录下的 `catalog/`，权限 0700。
 - TTL 默认 24 小时；daemon 在线时订阅 `notifications/tools/list_changed` 实时刷新。
 - `via sync [provider]` 强制刷新。
+- 进程内模式（0.1）下，缓存是 `tools/list` 的唯一来源：`via <provider>` 只读取、必要时只拉取该 provider；`via`、`via find`、`via prompt` 并行处理全部 server，单个 server 的拉取超时取 `min(server 的 timeout, 10 秒)`（`--timeout` 覆盖）。拉取失败不中止：该 provider 仍然列出，标记 `needs auth`、`failed` 或 `untrusted`（[浏览视图](#via)）。
+- 命中缓存时仍会在本地解析该 server 的凭证引用，缺失就按「需要鉴权」处理，并让输出脱敏知道这些值；不发起网络请求。未信任的项目级 server 不读缓存，也不拉取。
+- 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt` 与原始 `tools/list` 结果。
+- 校验失败且缓存超过 5 分钟时，刷新该 server 的缓存一次再校验（[arguments.md](arguments.md#schema-不可靠时)）。
 - 缓存中保存原始 `tools/list` 结果；拆分、分域、索引在加载时重新计算，因此规则升级无需清缓存。
 
 ## 分域

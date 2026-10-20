@@ -48,7 +48,31 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 | `via prompt [--out <文件>]` | 生成给 agent 的说明与域摘要 |
 | `via daemon status\|stop\|run` | 管理后台进程；`run` 供内部拉起使用 |
 
-内置子命令名是保留字。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警。
+内置子命令名是保留字，大小写不敏感，不接受前缀。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警，该 server 在改名前不出现在任何视图里。
+
+0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`auth`、`trust`、`daemon` 先保留名字，执行时退出码为 2，说明 `… is not available until 0.2`（[路线图](../roadmap.md)）。
+
+各命令的细节：
+
+- `via call`：`<provider>/<ref>` 按与命令行形式相同的规则解析（provider 与资源接受唯一前缀，原始名可用）；其后的参数交给工具参数解析器，`--args`、`@文件`、`-`（stdin）均可用。
+- `via find`：没有命中时输出 `no tools match "<查询>"`；个别 provider 无法连接时照常搜索其余的，并在 stderr 警告哪些没有被搜索。
+- `via more`：只读游标，不加载配置和目录。
+- `via servers`：每个 server 一行，依次为 provider、传输方式（HTTP 只写 scheme 与主机，stdio 只写命令）、鉴权方式及凭证引用是否可解析（只写引用，不写值）、来源文件、备注（`disabled`、`untrusted`、框架间冲突、保留名冲突）；之后列出配置诊断。不连接任何 server。配置里有 error 级诊断时照常显示，不中止。
+- `via sync`：向各 server（或指定的 provider）重新拉取 `tools/list` 并更新缓存，每个 provider 一行（`gh  14 tools` 或 `linear  needs auth: …`）；有失败时退出码取其中最大的，并在 stderr 提示 `next: via doctor`。
+- `via doctor`：对每个 server 实时探测（不读缓存，成功后更新缓存），再输出检测结果；退出码取各项问题中最高的一个（见[退出码](output.md#退出码)）。
+- `via prompt --out <文件>`：路径相对当前目录；目标文件已存在时需要 `--yes` 才会覆盖（退出码 5），避免覆盖用户自己写的 AGENTS.md。成功后在 stderr 输出 `· wrote <文件> · N bytes`。
+
+### 配置错误
+
+配置里有 error 级诊断（例如 `deny` 的正则无效）时，除 `via doctor` 与 `via servers`（它们展示诊断）和不读配置的 `via more` 外，所有命令都不执行，退出码 2：
+
+```console
+$ via github
+error: invalid configuration: ~/.config/via/config.yaml: deny[0]: invalid regular expression "(unclosed" (…); the rule was ignored
+next: via doctor
+```
+
+因为无效的 `deny` 规则意味着本应隐藏的工具会可见，这里宁可停下，也不带着缺失的规则继续运行（[config.md](config.md#校验与诊断)）。
 
 ### via batch 输入格式
 
@@ -70,12 +94,32 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 | `--full` | 关闭截断 |
 | `--all` | 浏览视图不截断条目 |
 | `--yes` | 确认执行危险工具 |
-| `--dry-run` | 只解析并打印将要发出的调用，不执行 |
+| `--dry-run` | 只解析并打印将要发出的调用，不执行（输出格式见下） |
 | `--no-validate` | 跳过本地 schema 校验（[arguments.md](arguments.md#schema-不可靠时)）；`--yes` 与 `deny` 照常生效 |
 | `--timeout <秒>` | 覆盖本次调用的超时 |
 | `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法 |
 
-工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）。
+全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`。值不合法时退出码 2。
+
+工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）；`--p.` 开头的参数不会被当作全局选项。
+
+### `--dry-run` 的输出
+
+校验照常进行，通过后在 stdout 输出规范写法、原始名、目标 server（HTTP 只写 scheme 与主机）和最终参数；已解析的凭证值打码。不发起调用，退出码 0。`deny` 命中仍然退出码 5；危险工具缺少 `--yes` 时不报错，而是多一行 `requires: --yes (destructive tool)`。`-o json` 时输出同样字段的 JSON 对象（`dryRun`、`tool`、`rawName`、`server`、`transport`、`args`，可选 `requires`）。
+
+```console
+$ via gh issue_write --owner acme --repo api --title "T" --dry-run
+dry run: nothing was sent
+tool: gh issue:write
+raw name: issue_write
+server: gh (http https://api.example.com)
+args:
+  {
+    "owner": "acme",
+    "repo": "api",
+    "title": "T"
+  }
+```
 
 ## 工具引用的写法
 
@@ -84,7 +128,7 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 - **原始名作为别名**：原始 MCP 工具名始终可用，`via linear create_issue` 等价于 `via linear issue:create`。拆分规则调整时，旧写法不会失效。
 - **输入宽松**：大小写不敏感，`-` 与 `_` 等价；provider 和资源接受唯一前缀。
 - **歧义与缺失**：有歧义时不执行，列出候选；找不到时给出至多 3 个 did you mean。
-- **输出严格**：所有输出一律使用规范写法；输入使用了别名或前缀时，在 stderr 元信息行中打印规范写法。
+- **输出严格**：所有输出一律使用规范写法；输入使用了别名或前缀时，在 stderr 元信息行中打印规范写法。调用的元信息行本来就以规范写法开头；浏览视图和 `-h` 没有耗时等字段，只在 stderr 输出一行 `· <规范写法>`（如 `via G ISS` 输出 `· gh issue`），输入已是规范写法时不输出。
 
 ## 典型会话
 
