@@ -41,7 +41,7 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 | `via more <游标>` | 续读被截断的结果 |
 | `via batch` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出 |
 | `via servers [--why <provider>]` | 列出 server、来源文件、传输方式、鉴权状态、域的判定依据 |
-| `via auth login\|status\|logout <provider>` | 鉴权管理（[auth.md](auth.md)） |
+| `via auth login\|status\|logout <provider>` | 鉴权管理；`login --manual` 用于无头环境（[auth.md](auth.md)） |
 | `via trust [路径]` | 信任项目级配置（[security.md](security.md)） |
 | `via sync [provider]` | 强制刷新工具目录缓存 |
 | `via doctor` | 检查连接与鉴权，检测各框架挂载的 MCP 并输出关闭提示 |

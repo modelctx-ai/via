@@ -31,19 +31,20 @@
 对一组真实 server（github、playwright、linear、notion 等）计算并持续跟踪：
 
 - **原生注入成本**：框架挂载这些 server 时每轮注入的 schema token；
-- **via 成本**：`via prompt` 说明 + 完成一组典型任务时发现与调用产生的 token。
+- **via 成本**：`via prompt` 说明 + 完成一组典型任务时发现与调用产生的 token；
+- **同类 CLI 成本**：用 [mcp2cli](https://github.com/knowsuchagency/mcp2cli) 的 skill 加 `--list`/`--search` 完成同一组任务的 token，作为平铺命名、不去噪输出的对照。
 
 这是项目的核心指标，结果随版本记录。
 
 ## agent 评测
 
-同一组任务分别让 agent 用原生 MCP 和用 via 完成，比较：
+同一组任务分别让 agent 用原生 MCP、mcp2cli 和 via 完成，比较：
 
 - 总 token；
 - 任务成功率；
 - 工具调用轮数与错误调用次数。
 
-这是验证「MCP 做提供方、CLI 做消费方」这一判断的关键证据，也是 0.1 → 0.2 的门槛（[路线图](../roadmap.md)）。0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测应以 HTTP server 为主，避免启动延迟干扰结论。
+这是验证「MCP 做提供方、CLI 做消费方」这一判断的关键证据，也是 0.1 → 0.2 的门槛（[路线图](../roadmap.md)）。与 mcp2cli 的对比单独验证 via 自己的设计：`resource:verb` 拆分、分域浏览和紧凑渲染相对于平铺的原始工具名和原样 JSON，是否减少了错误调用和发现轮数。拆分出错时模型可能更难找到工具，这一项要单独统计。0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测应以 HTTP server 为主，避免启动延迟干扰结论。
 
 ## 性能目标
 
