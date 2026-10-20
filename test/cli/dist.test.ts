@@ -232,6 +232,26 @@ describe('built dist/via.js', () => {
       }
     });
 
+    // Making a `require` costs URL parsing and package.json lookups. Only chunks that mention
+    // `require` (the esbuild runtime shim, CommonJS dependencies) get one; the rest do not
+    // (scripts/lib/strip-require.ts).
+    it('creates a require only in chunks that use one', () => {
+      const all = readdirSync(dirname(bin)).filter((f) => f.endsWith('.js'));
+      const withBanner = all.filter((f) => readFileSync(join(dirname(bin), f), 'utf8').includes('__viaCreateRequire'));
+      expect(withBanner.length).toBeGreaterThan(0);
+      expect(withBanner.length).toBeLessThan(all.length / 5);
+      for (const f of all) {
+        const text = readFileSync(join(dirname(bin), f), 'utf8');
+        const rest = text.replace(/^#!.*\n/, '').replace("import { createRequire as __viaCreateRequire } from 'node:module';\nconst require = __viaCreateRequire(import.meta.url);\n", '');
+        if (!withBanner.includes(f)) expect(rest, f).not.toMatch(/\brequire\b/);
+      }
+      for (const args of [[], ['find', 'x']]) {
+        const { files } = loads(args);
+        expect(files.filter((f) => withBanner.includes(f)).length, `via ${args.join(' ')}`).toBeLessThanOrEqual(2);
+      }
+      expect(readFileSync(bin, 'utf8').startsWith('#!/usr/bin/env node\n')).toBe(true);
+    });
+
     it('a browse command with nothing configured loads neither the MCP SDK nor ajv', () => {
       for (const args of [[], ['find', 'issue']]) {
         const { libraries, files } = loads(args);

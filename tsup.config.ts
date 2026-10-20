@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defineConfig } from 'tsup';
 import { lazyBuiltins } from './scripts/lib/lazy-builtins';
+import { stripUnusedRequire } from './scripts/lib/strip-require';
 
 // ESM bundle with code splitting: `via.js` is the thin entry, the command runner and everything
 // behind it are separate chunks loaded by dynamic import(), so `--version` and `-h` never parse
@@ -44,7 +45,7 @@ function parseId(): string {
   return `${read('package.json')}+yaml-${read('node_modules/yaml/package.json')}`;
 }
 
-export default defineConfig({
+export default defineConfig((flags) => ({
   entry: { via: 'src/cli/main.ts' },
   format: ['esm'],
   target: 'node20',
@@ -60,8 +61,12 @@ export default defineConfig({
   esbuildPlugins: [lazyBuiltins()],
   // Keep `node:` prefixes so the plugin above sees the import before tsup turns it into an external.
   removeNodeProtocol: false,
-  // CommonJS packages in the bundle (ajv, cross-spawn, ...) call require() for Node built-ins.
+  // CommonJS packages in the bundle (ajv, cross-spawn, ...) call require() for Node built-ins. The
+  // banner goes on every chunk; the step after the build removes it from those that never use it.
   banner: {
     js: "#!/usr/bin/env node\nimport { createRequire as __viaCreateRequire } from 'node:module';\nconst require = __viaCreateRequire(import.meta.url);",
   },
-});
+  onSuccess: async () => {
+    stripUnusedRequire(flags.outDir ?? 'dist');
+  },
+}));
