@@ -5,12 +5,13 @@ import { join } from 'node:path';
 import type { Catalog, McpTool, ProviderCatalog, ProviderStatus } from '../catalog';
 import type { McpClient } from '../client';
 import type { OAuthStore } from '../client/oauth/store';
-import type { ToolArgsError } from './args';
+import type { SchemaCompiler, ToolArgsError } from './args';
 import { pathContext, userCacheDir } from '../config/paths';
 import type { CredentialResolver, LoadedConfig, ServerConfig } from '../config';
 import { createRedactor } from '../render/redact';
 import { formatError, type ErrorInfo } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
+import type { Backend, Listing } from './backend';
 import type { CatalogCache } from './catalog-cache';
 import type { ProviderEntry, ProviderTable } from './directory';
 import type { CliEnv } from './env';
@@ -20,11 +21,18 @@ import type { GlobalOptions } from './options';
 /** Per-server ceiling when listing many servers at once, so one slow server cannot stall `via`. */
 export const BROWSE_TIMEOUT_MS = 10_000;
 
-/** A fetched `tools/list` and where it came from. */
-export interface Listing {
-  tools: McpTool[];
-  fetchedAt: number;
-  fromCache: boolean;
+export type { Listing };
+
+/**
+ * Whether servers are reached from this process instead of through the daemon: `VIA_NO_DAEMON` set
+ * to anything but empty/`0`/`false` (daemon.md, "无 daemon 模式"). The injected environment wins;
+ * the real one is consulted too so a test run can switch the daemon off for every sandbox at once.
+ * Windows has no daemon before 0.3.
+ */
+export function daemonDisabled(io: Pick<CliEnv, 'env' | 'platform'>): boolean {
+  if (io.platform === 'win32') return true;
+  const value = io.env.VIA_NO_DAEMON ?? process.env.VIA_NO_DAEMON;
+  return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false';
 }
 
 export interface LoadedProviders {
@@ -38,8 +46,9 @@ export class App {
   private loaded?: LoadedConfig;
   private resolverInstance?: CredentialResolver;
   private resolverLoading?: Promise<CredentialResolver>;
-  private clientInstance?: McpClient;
-  private clientLoading?: Promise<McpClient>;
+  private backendInstance?: Promise<Backend>;
+  private backendReady?: Backend;
+  private socketClient?: import('../daemon/client').DaemonClient;
   private tableInstance?: ProviderTable;
   private cacheInstance?: CatalogCache;
   private oauthStoreInstance?: OAuthStore;
@@ -100,22 +109,97 @@ export class App {
     return this.resolverLoading;
   }
 
-  /** Every credential value resolved in this run. */
+  /** Every credential value resolved in this process (none when the daemon holds them). */
   secrets(): readonly string[] {
     return this.resolverInstance?.resolvedValues() ?? [];
   }
 
+  /**
+   * The connection to MCP servers: the daemon when it can be used, else this process (`daemonDisabled`,
+   * or after the daemon failed; daemon.md). Everything that reaches a server goes through here.
+   */
+  backend(): Promise<Backend> {
+    this.backendInstance ??= this.createBackend().then((backend) => (this.backendReady = backend));
+    return this.backendInstance;
+  }
+
+  /** The upstream client of the commands: the same object as `backend()`, typed as the raw client. */
   async client(): Promise<McpClient> {
-    // Cached as a promise: concurrent callers (doctor, sync) must share one client, or `close` misses the others.
-    this.clientLoading ??= (async () => {
-      const config = await this.config({ allowErrors: true });
-      const { InProcessClient } = await import('../client');
-      // The OAuth store is only set up when some server needs it.
-      const oauthStore = config.servers.some((s) => s.auth.type === 'oauth') ? await this.oauthStore() : undefined;
-      this.clientInstance = new InProcessClient(config.servers, await this.resolver(), { now: this.io.now, ...(oauthStore ? { oauthStore } : {}) });
-      return this.clientInstance;
-    })();
-    return this.clientLoading;
+    return this.backend();
+  }
+
+  private async createBackend(): Promise<Backend> {
+    const config = await this.config({ allowErrors: true });
+    const inProcess = async (): Promise<Backend> => {
+      const { InProcessBackend } = await import('./backend');
+      return InProcessBackend.create({
+        servers: config.servers,
+        resolver: await this.resolver(),
+        cache: await this.cache(),
+        env: this.io.env,
+        cacheDir: this.cacheDir,
+        now: this.io.now,
+        ...(config.servers.some((s) => s.auth.type === 'oauth') ? { oauthStore: await this.oauthStore() } : {}),
+      });
+    };
+    if (daemonDisabled(this.io)) return inProcess();
+    const [{ DaemonBackend }, { FallbackBackend }, { FileCursorStore }] = await Promise.all([
+      import('../daemon/backend'),
+      import('./backend'),
+      import('../render/cursor-file'),
+    ]);
+    const client = await this.daemonClient(config.daemon.idleTimeout);
+    const primary = new DaemonBackend({
+      client,
+      servers: config.servers,
+      cwd: this.io.cwd,
+      env: this.io.env,
+      serverIdleTimeoutSec: config.daemon.serverIdleTimeout,
+    });
+    return new FallbackBackend(primary, inProcess, (message) => this.err(message), () => new FileCursorStore(join(this.cacheDir, 'cursors'), { now: this.io.now }));
+  }
+
+  /**
+   * Cursor store for `via more`, which needs neither configuration nor catalog: a daemon that is
+   * already running (it is never started for this), then the cursor files.
+   */
+  async moreCursors(): Promise<import('../render/cursor').CursorStore> {
+    const { FileCursorStore } = await import('../render/cursor-file');
+    const files = (): import('../render/cursor').CursorStore => new FileCursorStore(join(this.cacheDir, 'cursors'), { now: this.io.now });
+    if (daemonDisabled(this.io)) return files();
+    const [{ DaemonCursorStore }, { CompositeCursorStore }] = await Promise.all([import('../daemon/backend'), import('./backend')]);
+    return new CompositeCursorStore(new DaemonCursorStore(await this.daemonClient(), false), files);
+  }
+
+  /**
+   * A client for the daemon's socket that never needs the configuration (`via more`, `via daemon …`).
+   * `idleTimeoutSec` only matters when it is used to start a daemon.
+   */
+  async daemonClient(idleTimeoutSec = 0): Promise<import('../daemon/client').DaemonClient> {
+    if (!this.socketClient) {
+      const [{ DaemonClient }, { daemonPaths }, { VERSION }] = await Promise.all([import('../daemon/client'), import('../daemon/paths'), import('./help')]);
+      this.socketClient = new DaemonClient({
+        paths: daemonPaths(pathContext({ home: this.io.home, env: this.io.env, platform: this.io.platform })),
+        version: VERSION,
+        command: this.io.daemonCommand,
+        env: this.io.env,
+        home: this.io.home,
+        idleTimeoutSec,
+      });
+    }
+    return this.socketClient;
+  }
+
+  /** Schema compiler for argument validation: in the daemon when there is one, else ajv here. */
+  compile: SchemaCompiler = async (schema, label) => {
+    const backend = await this.backend();
+    return (backend.compiler() ?? (await import('./args/validate')).compileSchema)(schema, label);
+  };
+
+  /** `redact` for text that is about to be printed after the sync paths could not know the daemon's secrets. */
+  async redactText(text: string): Promise<string> {
+    const backend = this.backendReady;
+    return backend ? backend.redact(text) : this.redact(text);
   }
 
   /** Where OAuth logins are kept: keychain, else a file in the data directory (auth.md). */
@@ -144,7 +228,8 @@ export class App {
   }
 
   async close(): Promise<void> {
-    await this.clientInstance?.close().catch(() => undefined);
+    await this.backendReady?.close().catch(() => undefined);
+    this.socketClient?.close();
   }
 
   // Tool lists --------------------------------------------------------------------------
@@ -156,41 +241,14 @@ export class App {
   }
 
   /**
-   * Resolve the credentials of a server (in memory) so a missing one fails before any network
-   * call, and so redaction knows the values even when the tool list comes from the cache.
-   */
-  async prime(server: ServerConfig, timeoutMs: number): Promise<void> {
-    const { resolveConnection, mapError } = await import('../client');
-    try {
-      const resolver = await this.resolver();
-      await resolveConnection(server, resolver, this.io.env as NodeJS.ProcessEnv);
-      if (server.auth.type === 'oauth') {
-        // A saved login must exist (no network); its tokens join the redaction list.
-        const { createCallProvider } = await import('../client/oauth');
-        await createCallProvider(server, await this.oauthStore(), { track: (value) => resolver.track?.(value), now: this.io.now }).requireLogin();
-      }
-    } catch (error) {
-      throw mapError(error, { server, phase: 'connect', timeoutMs, redact: this.redact });
-    }
-  }
-
-  /**
-   * The tools of one server: from the disk cache when fresh, else from the server (and then
-   * cached). `refresh` skips the cache read. Throws ClientError.
+   * The tools of one server: from the cache when fresh, else from the server (and then cached).
+   * `refresh` skips the cache read. Throws ClientError.
    */
   async listing(entry: ProviderEntry, options: { refresh?: boolean; many?: boolean } = {}): Promise<Listing> {
     const { server } = entry;
     if (!server.trusted) throw (await import('../client')).untrustedServer(server);
     const timeoutMs = this.listTimeoutMs(server, options.many ?? false);
-    await this.prime(server, timeoutMs);
-    if (!options.refresh) {
-      const cache = await this.cache();
-      const hit = cache.read(server);
-      if (hit) return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true };
-    }
-    const tools = await (await this.client()).listTools(server.name, { timeoutMs });
-    (await this.cache()).write(server, tools);
-    return { tools, fetchedAt: this.io.now(), fromCache: false };
+    return (await this.backend()).listing(server, { timeoutMs, refresh: options.refresh ?? false });
   }
 
   /** Fetch several providers in parallel; failures become statuses instead of aborting. */
@@ -227,7 +285,7 @@ export class App {
   /** Print the failure and return its exit code. */
   async report(error: unknown): Promise<number> {
     const info = await toErrorInfo(error);
-    this.err(formatError(info, this.options.format, this.redact));
+    this.err(await this.redactText(formatError(info, this.options.format, this.redact)));
     return info.code;
   }
 }

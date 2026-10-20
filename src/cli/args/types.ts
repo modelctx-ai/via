@@ -1,4 +1,5 @@
 // Public types of the argument parser (arguments.md). Re-exported from ./index.ts.
+import type { SchemaCompiler } from './validate';
 
 /** Which tool is being called, for usage lines and messages. */
 export interface ToolArgsContext {
@@ -21,6 +22,8 @@ export interface ParseToolArgsOptions {
   validate: boolean;
   /** Replaces resolved credential values in messages with `***`. */
   redact?: (s: string) => string;
+  /** Schema compiler; default: ajv in this process. The daemon backend validates in the daemon instead. */
+  compile?: SchemaCompiler;
 }
 
 export interface ParsedToolArgs {

@@ -40,7 +40,7 @@ via/
 │  ├─ catalog/      # 名称拆分、分域、索引、搜索、浏览视图、缓存
 │  ├─ client/       # MCP 会话、鉴权、OAuth
 │  ├─ render/       # 输出流水线：清理、形状判断、表格、截断、游标
-│  ├─ daemon/       # socket 服务、生命周期、并发控制
+│  ├─ daemon/       # socket 服务（server）、会话与目录（sessions）、CLI 侧连接与拉起（client、backend）、路径与安全检查（paths）、协议帧（wire）
 │  └─ protocol.ts   # CLI 与 daemon 之间的消息类型
 ├─ data/
 │  ├─ frameworks/   # 各框架的配置路径、解析方式、关闭提示
@@ -56,9 +56,16 @@ via/
 └─ docs/
 ```
 
-`protocol.ts` 定义的消息类型（草案见 [daemon.md](../spec/daemon.md#cli-与-daemon-的协议)）由 CLI、daemon 和进程内模式共用，这是用 TypeScript 的一个好处：两端不会出现序列化格式不一致。
+`protocol.ts` 定义的消息类型（见 [daemon.md](../spec/daemon.md#cli-与-daemon-的协议)）由 CLI、daemon 和进程内模式共用，这是用 TypeScript 的一个好处：两端不会出现序列化格式不一致。
 
 规则类内容放在 `data/` 下，打包时内联，用户配置可覆盖；大部分迭代只需改数据，不必改代码（格式见 [数据文件](data-files.md)）。
+
+### CLI 到 MCP server 的一个入口：Backend
+
+所有会碰 MCP server 的命令（`call`、`batch`、`auth`、`doctor`、`sync`、浏览与 `find`）都经 `App.backend()`（`src/cli/backend.ts` 的 `Backend` 接口，`App.client()` 返回同一个对象）：
+
+- `listing(server, { timeoutMs, refresh })`：工具列表（缓存、凭证检查在后端内完成）；`callTool(...)`、`compiler()`（参数校验用的 schema 编译器，daemon 模式下由 daemon 校验）、`cursors()`（游标存放处）、`redact(text)`、`secrets()`。
+- `InProcessBackend`（进程内模式）、`DaemonBackend`（`src/daemon/backend.ts`，每个操作一个协议请求）和包住前者的 `FallbackBackend`（daemon 不可用时按 [daemon.md](../spec/daemon.md#生命周期) 回退）。新命令只用 `App` 的 `backend()`、`listing()`、`client()`、`compile`、`redactText()`，不要自己创建 `InProcessClient`，否则会绕过 daemon。
 
 ## 模块与规范的对应
 

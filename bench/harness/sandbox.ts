@@ -36,6 +36,8 @@ export function createSandbox(servers: Readonly<Record<string, string>>): Sandbo
       XDG_CACHE_HOME: join(home, '.cache'),
       XDG_DATA_HOME: join(home, '.local', 'share'),
       NO_COLOR: '1',
+      // The benchmark counts tokens against HTTP replays: no background process outliving its sandbox.
+      VIA_NO_DAEMON: '1',
     },
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };

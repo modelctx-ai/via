@@ -98,3 +98,5 @@ $ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 ma
 | 经热 daemon 调用的额外开销 | < 15 ms |
 | 1,000 个工具上的 `find` | < 30 ms |
 | daemon 常驻内存 | < 80 MB（不含 stdio 子进程） |
+
+0.2 的实测（Linux，Node 22，一个 stdio server）：热 daemon 上一次请求的往返约 0.3 ms（`status`、`validate`）到 1 ms（`list`、`call`），连接加握手约 2–6 ms，一次调用（`list`、两次校验、`call`）合计远低于 15 ms 的目标；daemon 空闲时约 58 MB，建立一个会话并加载 MCP SDK 与 ajv 后约 79–86 MB，在 80 MB 目标附近，尚未优化。CLI 自身的冷启动（约 130 ms 加载命令、配置与目录）与是否使用 daemon 无关。
