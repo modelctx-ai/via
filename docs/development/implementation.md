@@ -51,7 +51,7 @@ via/
 │  ├─ columns.json  # 表格选列规则
 │  └─ schema/       # 上述数据文件的 JSON Schema
 ├─ scripts/         # 词典生成（npm run lexicon）、拆分结果差异检查（npm run split-diff）、token 基准
-├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；模拟 MCP server、框架配置样例（待补）
+├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；`mcp/`：模拟 MCP server（stdio 与 Streamable HTTP）；框架配置样例（待补）
 └─ docs/
 ```
 

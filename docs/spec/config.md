@@ -75,6 +75,13 @@ domains:
 | `budget` | 全部 | 覆盖输出预算 |
 | `noise` | 全部 | 追加的噪声字段名或通配 |
 
+### stdio 子进程的环境
+
+子进程不继承 via 的全部环境变量，避免 shell 里其他 server 的令牌泄给每个子进程。环境由两部分合并而成，后者覆盖前者：
+
+1. 基础环境：`PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`TERM`、`TMPDIR`、`LANG`、`LANGUAGE`、`TZ`、`LC_*`、`XDG_*`、代理与证书变量（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`，不分大小写，以及 `NODE_EXTRA_CA_CERTS`、`SSL_CERT_FILE`、`SSL_CERT_DIR`、`REQUESTS_CA_BUNDLE`）；Windows 上改用 `SYSTEMROOT`、`APPDATA`、`USERPROFILE` 等系统变量；
+2. 该 server 的 `env`（凭证引用解析后的值）。
+
 ## 凭证引用
 
 配置里只写引用，不写明文：
