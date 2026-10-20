@@ -1,8 +1,10 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { builtinModules } from 'node:module';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, startFixtureServer } from './helpers';
 
 // The shipped CLI is what users run: build it exactly as `npm run build` does (into a scratch
 // directory inside the repo, so its external dependencies still resolve) and run the real binary.
@@ -21,6 +23,27 @@ function via(args: string[]) {
     timeout: 20_000,
   });
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+/** Like `via`, for commands that talk to a server running in this process. */
+function viaAsync(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [bin, ...args], {
+      cwd: home,
+      env: { PATH: process.env.PATH, HOME: home, GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1' },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (c: Buffer) => (stdout += c.toString('utf8')));
+    child.stderr.on('data', (c: Buffer) => (stderr += c.toString('utf8')));
+    child.on('error', reject);
+    child.on('close', (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+function writeUserConfig(yaml: string): void {
+  mkdirSync(join(home, '.config', 'via'), { recursive: true });
+  writeFileSync(join(home, '.config', 'via', 'config.yaml'), yaml);
 }
 
 /** Packages (below node_modules) and bundle files a run loads, from the module-load tracer. */
@@ -84,6 +107,58 @@ describe('built dist/via.js', () => {
     expect(via(['more', 'ffff']).code).toBe(3);
     expect(via(['batch']).code).toBe(2);
     expect(via(['-o', 'xml']).code).toBe(2);
+  });
+
+  // Whatever the build bundles or leaves external, the shipped file must still talk MCP: the SDK,
+  // ajv (argument validation) and the stdio transport all load on demand from the built chunks.
+  it('calls a tool over Streamable HTTP and over stdio', async () => {
+    const srv = await startFixtureServer({ token: FAKE_TOKEN });
+    try {
+      writeUserConfig(`${ghConfig(srv.url)}  job:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(CLI_STDIO_SERVER)}]\n`);
+      const http = await viaAsync(['gh', 'issue:read', '--owner', 'acme', '--repo', 'api', '--issue-number', '3', '--method', 'get']);
+      expect(http).toMatchObject({ code: 0, stdout: 'number: 3\ntitle: Support OAuth DCR\nstate: open\n' });
+      const invalid = await viaAsync(['gh', 'issue:read', '--owner', 'acme']);
+      expect(invalid.code).toBe(2);
+      const stdio = await viaAsync(['job', 'run_job']);
+      expect(stdio).toMatchObject({ code: 0, stdout: 'job done\n' });
+      expect(stdio.stderr).toContain('progress: 1/2 halfway');
+    } finally {
+      await srv.close();
+      rmSync(join(home, '.config'), { recursive: true, force: true });
+    }
+  });
+
+  // Bundled CommonJS packages lose their named exports when imported dynamically from a chunk, so
+  // every format a config can be written in is read through the built file.
+  it('reads configuration written as YAML, JSON, JSONC and TOML', () => {
+    const write = (path: string, text: string) => {
+      mkdirSync(dirname(join(home, path)), { recursive: true });
+      writeFileSync(join(home, path), text);
+    };
+    write('.config/via/config.yaml', 'servers:\n  from-yaml:\n    url: http://127.0.0.1:9/mcp\n');
+    write('.cursor/mcp.json', '{"mcpServers":{"from-json":{"url":"http://127.0.0.1:9/mcp"}}}');
+    write('.config/Code/User/mcp.json', '// comment\n{"servers":{"from-jsonc":{"type":"http","url":"http://127.0.0.1:9/mcp"},},}');
+    write('.codex/config.toml', '[mcp_servers.from-toml]\nurl = "http://127.0.0.1:9/mcp"\n');
+    try {
+      const r = via(['servers']);
+      expect(r.code).toBe(0);
+      for (const name of ['from-yaml', 'from-json', 'from-jsonc', 'from-toml']) expect(r.stdout).toContain(name);
+    } finally {
+      for (const d of ['.config', '.cursor', '.codex']) rmSync(join(home, d), { recursive: true, force: true });
+    }
+  });
+
+  // Everything but the native keychain binding is bundled: the build must not import a package
+  // from node_modules (each one is hundreds of files to resolve at startup, see bench:perf).
+  it('bundles its dependencies and leaves only the native keychain binding external', () => {
+    const external = new Set<string>();
+    for (const file of readdirSync(dirname(bin)).filter((f) => f.endsWith('.js'))) {
+      // Comments quote import examples; only code counts.
+      const text = readFileSync(join(dirname(bin), file), 'utf8').split('\n').filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join('\n');
+      for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\()\s*["']([@A-Za-z][\w@/.:-]*)["']/g)) external.add(m[1]!);
+    }
+    const builtin = new Set(builtinModules.flatMap((m) => [m, `node:${m}`]));
+    expect([...external].filter((spec) => !builtin.has(spec)).sort()).toEqual(['@napi-rs/keyring']);
   });
 
   // Cold start is a core metric (implementation.md, "启动速度"): what a command does not need, it
