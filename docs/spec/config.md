@@ -6,7 +6,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 
 后者覆盖前者：
 
-1. **框架配置（只读）**：每次加载时读取，不做快照，框架那边改了这边自动生效。默认探测的框架与路径由 `data/frameworks/` 描述（[数据文件](../development/data-files.md#frameworks)），包括 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Windsurf。具体路径实现时按各框架当前版本核对。
+1. **框架配置（只读）**：每次加载时读取，不做快照，框架那边改了这边自动生效。默认探测的框架与路径由 `data/frameworks/` 描述（[数据文件](../development/data-files.md#frameworks)），按探测顺序为 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Devin Desktop、Windsurf、Gemini CLI、Antigravity、GitHub Copilot CLI、Amp。路径与字段按各框架官方文档核对，条目的 `verifiedAt` 和 `sources` 记录核对日期与依据。
 2. **用户配置**：`~/.config/via/config.yaml`（遵循 `XDG_CONFIG_HOME`，macOS 上同样如此；Windows 为 `%APPDATA%\via\config.yaml`）。补充凭证、覆盖定义、新增 server。
 3. **项目配置**：当前目录向上查找的第一个 `.via.yaml`。其中的 stdio 命令和 HTTP 端点首次使用需 `via trust`（[security.md](security.md#项目级配置的信任)）。
 4. **命令行参数**。
@@ -75,7 +75,7 @@ domains:
 | --- | --- | --- |
 | `command`、`args`、`env`、`cwd` | stdio | 进程启动参数；`env` 的值可以是凭证引用 |
 | `url`、`headers` | HTTP | Streamable HTTP 端点；`headers` 的值可以是凭证引用 |
-| `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md) |
+| `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md)；`oauth` 只适用于 HTTP，可写成 `{ oauth: { scopes: [...], clientId: … } }` |
 | `alias` | 全部 | provider 名；默认取 server 名 |
 | `domain` | 全部 | 指定域，跳过推断 |
 | `rename` | 全部 | 单个工具的规范写法覆盖，如 `{ list_my_issues: "issue:list-mine" }` |
@@ -104,10 +104,10 @@ domains:
 | URL | `url`、`serverUrl`、`httpUrl` |
 | 请求头 | `headers`，或 Codex 的 `http_headers`；Codex 的 `env_http_headers`（头名 → 环境变量名）转成 `env:` 引用 |
 | 鉴权 | Codex 的 `bearer_token_env_var` 转成 `auth: { bearer: "env:NAME" }` |
-| 环境变量 | `env`；Codex 的 `env_vars`（要透传的变量名列表）转成 `env:` 引用 |
-| 变量引用 | `env`、`headers` 的值整体为 `${NAME}` 或 `${env:NAME}` 时转成 `env:NAME`；其他位置或夹在文本中的 `${…}`（如 `${workspaceFolder}`）via 不展开，原样保留并给出告警 |
+| 环境变量 | `env`；Codex 的 `env_vars`（要透传的变量名列表，元素可以是名称或 `{ name, source }`，`source = "remote"` 的项告警并忽略）转成 `env:` 引用 |
+| 变量引用 | `env`、`headers` 的值整体为 `${NAME}` 或 `${env:NAME}` 时转成 `env:NAME`；框架的数据文件声明 `dollarVariables`（Gemini CLI）时，整体为 `$NAME` 也转成 `env:NAME`；其他位置或夹在文本中的 `${…}`（如 `${workspaceFolder}`）via 不展开，原样保留并给出告警 |
 
-框架自己的开关（`disabled`、`enabled`）不继承：在框架里关掉一个 server 正是迁移到 via 的步骤（[集成](../guides/agent-integration.md)），via 里的 `disabled` 只由 via 自己的配置决定。框架配置里的辅助命令（如 `headersHelper`）既不执行也不继承。
+框架自己的开关（`disabled`、`enabled`）不继承：在框架里关掉一个 server 正是迁移到 via 的步骤（[集成](../guides/agent-integration.md)），via 里的 `disabled` 只由 via 自己的配置决定。框架配置里的辅助命令（如 `headersHelper`、Codex 的 `http_headers_helper`）既不执行也不继承。
 
 ## 校验与诊断
 

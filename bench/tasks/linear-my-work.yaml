@@ -1,0 +1,40 @@
+id: linear-my-work
+title: Review my work and close one issue
+goal: >
+  List the Linear issues assigned to me that are in progress, read the most urgent one, and mark
+  it done.
+servers: [linear]
+
+native:
+  rounds:
+    - - server: linear
+        tool: list_my_issues
+        args: { state: In Progress, limit: 10 }
+    - - server: linear
+        tool: get_issue
+        args: { id: PLT-300 }
+    - - server: linear
+        tool: update_issue
+        args: { id: PLT-300, state: Done }
+
+calls:
+  - { server: linear, tool: list_my_issues, resultFile: recordings/linear-my-work/list_my_issues.json }
+  - { server: linear, tool: get_issue, resultFile: recordings/linear-my-work/get_issue.json }
+  - { server: linear, tool: update_issue, resultFile: recordings/linear-my-work/update_issue.json }
+
+via:
+  - run: via linear
+  - run: via linear my-issue
+  - run: via linear my-issue:list --state "In Progress" --limit 10
+  - run: via linear issue
+  - run: via linear issue:get --id PLT-300
+  - run: via linear issue:update --id PLT-300 --state Done
+
+mcp2cli:
+  - run: mcp2cli @linear --list
+  - run: mcp2cli @linear list-my-issues --help
+  - run: mcp2cli @linear list-my-issues --state "In Progress" --limit 10
+  - run: mcp2cli @linear get-issue --help
+  - run: mcp2cli @linear get-issue --id PLT-300
+  - run: mcp2cli @linear update-issue --help
+  - run: mcp2cli @linear update-issue --id PLT-300 --state Done

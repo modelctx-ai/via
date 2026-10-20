@@ -8,10 +8,13 @@
 
 ### Changed
 
+- 规范补充（随 OAuth 实现）：auth.md 补全 OAuth 的发现、注册、回调、存储（含文件退路与 `VIA_OAUTH_STORE`）、刷新、状态与登出，以及调用时「需要登录」的行为；cli.md 的 `via auth` 说明；security.md、daemon.md 中 OAuth token 的脱敏与 daemon 持有的状态。`auth: oauth` 的 server 不再提示改用 bearer。
 - 项目名与命令名由占位名 `mx` 改为 `via`，npm 包名 `@modelctx/via`；配置路径、项目配置文件、socket、环境变量前缀随之改名（ADR 0009）。
 - 规范补充（随首个实现，不改变既有设计决策）：naming.md 明确逐词单数化并加入不规则复数；discovery.md 补全启发式打分的细节（递减计分、`minScore`、双域判定）、浏览视图的排序与截断、签名上限、安全标记和搜索排序的并列规则；output.md 补全表格选列、一行数组、元信息行格式、游标续读、脱敏顺序和错误文本清理；data-files.md 增加 `columns.json`、`singularIrregular`、`minScore`、`stopwords` 以及词典与差异检查的命令。
 - 规范补充（随 config / client 实现）：config.md 的 `sources` 列表语义、框架写法规范化（`type`/`transport`、`serverUrl`、Codex 的 `*_env_var` 等）、合并细节、校验与诊断、stdio 子进程的基础环境；data-files.md 的框架条目新增 `platforms`、`notes`，`verifiedAt` 可为 `null`；auth.md 明确 403 退出码 4、0.1 暂不支持 OAuth、stdio 的 stderr 不转发；output.md 补全传输与上游错误的格式。
 - 规范补充（随 CLI 实现）：cli.md 补充各内置子命令的细节、配置错误时的行为与 `--dry-run` 输出格式；arguments.md 明确默认方言 2020-12、usage 折行规则、新增几类报错说法与错误顺序、危险操作拒绝与 progress 行的格式；discovery.md 补充进程内模式的目录缓存；agent-integration.md 补充 `via doctor` 的各节、token 估算、明文判定规则与退出码。
+- 规范补充（随框架数据文件核对）：框架条目新增 `sources`、`configs[].dollarVariables`，`verifiedAt` 改为 `YYYY-MM-DD`；config.md 的规范化表补充 Codex `env_vars` 的 `{ name, source }` 写法与 `$NAME` 变量；显式指定的框架只要其配置文件之一存在，就不再为其余缺失的备选文件告警。无规范写法（动词表、分类表）受影响。
+- 规范补充（随 daemon 实现，docs/spec/daemon.md 为准）：协议改为围绕「server 定义 + 请求」组织，CLI 在每个请求里带上配置里的 server 定义（只含凭证引用）、工作目录和 `envStamp`，daemon 不读配置；去掉 `ls`、`find`、`describe`、`more`、`sync` 请求（目录由 CLI 从原始工具列表计算，续读与刷新用 `cursor-*`、`list`），新增 `list`、`validate`、`redact`、`cursor-put`、`cursor-get`、`shutdown`、`stale` 应答，`hello` 带令牌。补充启动锁与陈旧 socket 清理、版本不一致时先释放 socket、回退的边界（可能已执行的非只读调用不重放，退出码 6）、`env:` 在 daemon 自己的环境里解析并以摘要探测差异、凭证 10 分钟过期、独占 server 请求结束即停、空闲退出的含义、`list_changed` 的合并与失败处理、游标随 daemon 退出失效。socket 安全因 Node 无法取得 `SO_PEERCRED`，改为目录与 socket 权限、CLI 侧属主检查和握手令牌（peer uid 校验留作后续）。cli.md 补充 `via daemon status|stop|run` 的输出与退出码。
 - client 把上游 `InvalidParams`（-32602）映射为退出码 1，并提示 schema 与 server 行为不一致。
 - 安全：项目级配置的信任范围从 stdio 命令扩大到 HTTP 端点。项目级文件设置或覆盖 `url`、`headers` 时同样需要 `via trust`，避免仓库把 server 指向别处，从而拿到用户为它配置的凭证（security.md）。
 - 构建：纯 JS 依赖（MCP SDK、ajv、yaml、smol-toml、jsonc-parser、string-width 等）打进分块，不再作为外部包在运行时逐文件解析，只有原生的 `@napi-rs/keyring` 保持外部。浏览类命令（`via`、`via find`）的冷启动各快约 50 ms（8 个 provider 的缓存目录，见 bench/results/perf-0.1.md）。CommonJS 依赖经动态 `import()` 只有 `default`，配置解析因此兼容两种形态。
@@ -23,9 +26,13 @@
 
 ### Added
 
+- OAuth（auth.md）：`via auth login|status|logout`。PKCE 授权码流程，按 MCP 授权规范发现受保护资源与授权服务器（RFC 9728 / 8414）、动态客户端注册（RFC 7591）、`resource` 参数（RFC 8707）；回调监听 `127.0.0.1` 的随机端口并校验 `state` 与 `Host`，`--manual` 在无头环境打印授权 URL、从终端读取粘贴的重定向 URL；平台打开命令只是尽力而为（SSH 会话或无显示时不尝试，打开失败不报错、不等待）。登录存入系统钥匙串（服务名 `via`，账户名 `oauth:<server 定义的哈希>`），不可用时退回用户数据目录下 0600 的文件，`VIA_OAUTH_STORE=file|keychain|auto` 可固定；调用前和收到 401 时用 refresh token 静默刷新（同进程串行，多进程轮换冲突时改用已刷新的 token），登录失效时退出码 4 并提示 `via auth login`，调用过程永远不会启动浏览器或等待输入；`logout` 撤销 token（RFC 7009，尽力而为）并删除本地记录。OAuth token 计入脱敏列表（`CredentialResolver.track`）。`via servers` 的鉴权列显示登录状态，`via doctor` 对未登录的 server 给出 `next: via auth login <provider>`。MCP SDK 仍按需加载。
+- 测试夹具 `test/fixtures/mcp/oauth-server.mjs`：模拟授权服务器（元数据、动态注册、PKCE 校验、刷新与轮换、撤销）加受保护的 Streamable HTTP MCP server。
+
 - `via trust [<路径>] [--yes] [--dry-run]`、`via trust --list`、`via trust --revoke <路径>`：显示项目级文件将让 via 启动或访问什么（命令行、URL、env / header 的名字与凭证引用，不显示值），确认后按真实路径 + 解析时读到的那份字节的 SHA-256 记录信任；文件变化后需重新确认。`trust` 不再是 0.2 的保留名。
 - `cmd:` 凭证：用户配置里可用，不经 shell 执行，30 秒超时、64 KiB 上限、stdout 去首尾空白，结果按引用在解析器内存中缓存 10 分钟（失败不缓存，并发解析只运行一次）；错误信息只含程序名与原因，不含命令的 stdout / stderr；项目与框架配置里的 `cmd:` 仍在加载阶段拒绝，信任也不能放行。
 - deny 规则的审计与测试：分层并集（项目与命令行只能追加）、规范写法与原始名两种匹配、别名、`--yes` 之前拒绝、全局 / 粘性标志不影响结果。
+- token 基准（`npm run bench:tokens`，路线图门槛 1 的前半）：`bench/` 下九个任务（github、linear、notion、playwright、cloudflare，含一个跨 server 任务）、回放 MCP server `bench/replay-server.mjs`（Streamable HTTP 或 stdio；`tools/list` 取自夹具，`tools/call` 按任务里的返回值回答，其余 `isError`；任务文件格式与回放接口供之后的 agent 评测复用）和测量脚本。比较原生注入、`via`（真实运行 `dist/via.js`）和 mcp2cli（PATH 上有才运行并记录版本，说明文本取自它的 skill），核对三者发出的 `tools/call` 一致；结果记录在 `bench/results/0.1.md` 与 `0.1.json`。冒烟测试校验任务文件、回放 server 和全部 via 命令，凭证扫描覆盖 `bench/`。
 - `via batch`：从 stdin 读 JSON Lines（`{"tool":"<provider>/<resource>:<verb>","args":{…}}`），各行并发执行，同一 server 遵守其 `concurrency`，另有 `--concurrency <n>` 限制整批在途行数；结果严格按输入顺序输出，单行失败（解析、找不到、deny、危险操作、校验、上游）不影响其他行；text 输出以元信息行分隔并汇总，`-o json` 输出每行一条记录。不再属于「保留名字」的子命令。
 - 性能基准 `npm run bench:perf`（`scripts/bench-perf.ts`，需先 `npm run build`）：在隔离的 HOME 里测 `dist/via.js` 各命令的冷启动（无缓存 / 缓存冷 / 缓存热，减去 `node -e 0` 基线）、确定性合成的 1,000 个工具上目录构建、索引构建与查询的耗时、`via <provider> <tool>` 相对官方 SDK 直接调用的开销、每条命令加载的分块与包，装有 `bun` 时再测单文件可执行；结果对照 testing.md 的性能目标。合成目录生成器与模块加载追踪放在 `scripts/lib/`，`test/bench/` 与 `test/cli/dist.test.ts` 增加不依赖时间的断言（合成目录可复现、`--version` / `-h` 不加载任何包、无配置的浏览命令不加载 MCP SDK 与 ajv）。
 - 工程骨架：`@modelctx/via` 包（ESM、Node 20+，TypeScript strict），tsup 打成单个文件并内联 `data/`，vitest 测试，`typecheck` / `build` / `test` 脚本。
@@ -34,6 +41,11 @@
 - 数据文件的 JSON Schema（`data/schema/`），测试中校验。
 - `src/config/`：`loadConfig`（框架配置只读解析、用户配置 `config.yaml`、项目配置 `.via.yaml`、命令行覆盖，按 server 名逐字段合并；同名异义的框架定义记入 `conflicts`；字段校验带路径；坏文件跳过并返回诊断）。
 - `data/frameworks/`：Claude Code、Claude Desktop、Cursor、Codex、VS Code、Windsurf 的配置路径与关闭提示，附 `data/schema/framework.schema.json`。各条目尚未按实际安装的版本核对（`verifiedAt` 为 `null`）。
+- 框架数据文件按官方文档与源码核对（2026-10-20，路线图 b6），`verifiedAt` 与新增的 `sources` 记录依据：
+  - 已核对：Claude Code（补充 tool search 默认延迟加载 schema 的说明）、Claude Desktop（Linux 路径见 VS Code 官方文档）、Cursor（关闭方式改为 Customize 侧栏开关与 `agent mcp disable`）、Codex（源码确认字段；`env_vars` 元素可为 `{ name, source }`）、VS Code（关闭提示改为 Disable 与 `chat.mcp.access`）、Windsurf。
+  - Windsurf 自 2026-06-02 起更名为 Devin Desktop，MCP 配置迁到 `~/.config/devin/mcp_config.json`（Windows 为 `%APPDATA%/devin/`），项目级为 `.devin/mcp_config.json` 与 `.devin/mcp_config.local.json`；新增 `devin` 条目，`windsurf` 条目保留旧路径 `~/.codeium/windsurf/mcp_config.json`。
+  - 新增框架：`devin`、`gemini-cli`、`antigravity`、`copilot-cli`、`amp`。探测顺序为 claude-code、claude-desktop、cursor、codex、vscode、devin、windsurf、gemini-cli、antigravity、copilot-cli、amp。
+  - 未收录（官方文档不足或配置形态不适合现有规则）：opencode（`mcp` 下新旧两种形态并存）、Zed（`context_servers` 里混有扩展提供的 server）、Goose（`extensions` 里有 `cmd`/`envs`/`uri` 等专有写法与内置类型）、Cline（IDE 内的配置路径官方文档未写明）、Continue、JetBrains AI Assistant。
 - 凭证引用解析（`env:`、`file:`、`keychain:`，钥匙串懒加载）；`cmd:` 0.1 在加载阶段对项目与框架配置拒绝，用户配置中解析时提示 0.2 才支持。
 - 项目级信任存储（真实路径 + SHA-256，目录 0700、文件 0600）；未信任的项目级 server 标记 `trusted: false`。`via trust` 命令留待 0.2。
 - `src/protocol.ts`：CLI、daemon 与进程内模式共用的消息类型（Request / Response / Event / ErrorInfo / ResultMeta / 握手）。
@@ -47,6 +59,11 @@
 - 打包启用代码分块：`--version` 与 `-h` 只加载入口，MCP SDK、ajv、配置解析器都在首次需要时加载。
 - GitHub Actions CI：Node 22 / 24 上类型检查、打包、测试，并在 Node 20 上运行打包产物。
 - 测试夹具：GitHub / Linear / Notion / Cloudflare 等 `tools/list` 快照与拆分结果基线（`test/fixtures/`），`npm run split-diff` 离线检查拆分变化；渲染与浏览视图的文件快照；快照与夹具的凭证扫描。
+- daemon（`src/daemon/`，`via daemon status|stop|run`）：首次使用时由 CLI 分离拉起，之后的调用复用同一批 MCP 会话（同一个 stdio server 进程跨多次 `via` 调用）；空闲 10 分钟退出，stdio server 空闲 5 分钟停止，`exclusive` 的 server 用完即停；多个 CLI 同时启动只留下一个 daemon，陈旧 socket 自动清理，版本不一致时重启；daemon 或连接不可用时回退为进程内模式并在 stderr 提示一次；`VIA_NO_DAEMON=1` 关闭。socket 与令牌文件权限 0600，CLI 连接前检查属主与权限位。同一 server 的并发上限跨 CLI 进程生效。解析后的凭证不经过 socket，结果、进度和错误在 daemon 内先脱敏。
+- `list_changed` 实时刷新：daemon 订阅 `notifications/tools/list_changed`，合并连发的通知后重新拉取该 server 的工具列表，更新内存副本和磁盘缓存。
+- `src/cli/backend.ts`：命令访问 MCP server 的唯一入口（`App.backend()` / `App.client()`）：`InProcessBackend`、`DaemonBackend`、`FallbackBackend`；`batch`、`auth` 等不用改动就走 daemon。daemon 模式下参数校验在 daemon 里完成，CLI 进程不加载 MCP SDK 和 ajv。
+- 游标在 daemon 模式下保存在 daemon 内存（30 分钟），`via more` 先问已运行的 daemon 再看缓存目录。
+- 测试：端到端（真实分离的 daemon 进程：复用、空闲退出、陈旧 socket、版本不一致、启动竞争、跨进程并发上限、`list_changed`、回退、权限、凭证不出现在 socket 上、OAuth、冷启动不加载 SDK/ajv）与协议层测试；`mock-server` 增加 `add_tool`（触发 `list_changed`）。vitest 默认设置 `VIA_NO_DAEMON=1`，daemon 测试显式打开。
 - 初始设计文档：愿景、架构、术语表。
 - 规范：命令语法、工具名拆分、发现与分域、参数映射、输出与退出码、配置与鉴权、daemon 协议、安全模型。
 - 指南：快速上手、与 agent 框架集成、GitHub / Linear / Notion / Cloudflare / 网关类 server 示例、组合用法。

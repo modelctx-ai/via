@@ -1,0 +1,32 @@
+id: github-pr-summary
+title: Summarize a pull request
+goal: >
+  Summarize acme/api PR #482: its description, the files it changes and where review stands.
+servers: [github]
+
+# Independent reads go out as one parallel round, so native needs only two turns.
+native:
+  rounds:
+    - - { server: github, tool: pull_request_read, args: { method: get, owner: acme, repo: api, pullNumber: 482 } }
+      - { server: github, tool: pull_request_read, args: { method: get_files, owner: acme, repo: api, pullNumber: 482 } }
+      - { server: github, tool: pull_request_read, args: { method: get_reviews, owner: acme, repo: api, pullNumber: 482 } }
+
+calls:
+  - { server: github, tool: pull_request_read, args: { method: get }, resultFile: recordings/github-pr-summary/pull_request_read_get.json }
+  - { server: github, tool: pull_request_read, args: { method: get_files }, resultFile: recordings/github-pr-summary/pull_request_read_get_files.json }
+  - { server: github, tool: pull_request_read, args: { method: get_reviews }, resultFile: recordings/github-pr-summary/pull_request_read_get_reviews.json }
+
+via:
+  - run: via github
+  - run: via github pull-request
+  - run: via github pull-request:read -h
+  - run: via github pull-request:read --method get --owner acme --repo api --pull-number 482
+  - run: via github pull-request:read --method get_files --owner acme --repo api --pull-number 482
+  - run: via github pull-request:read --method get_reviews --owner acme --repo api --pull-number 482
+
+mcp2cli:
+  - run: mcp2cli @github --search pull
+  - run: mcp2cli @github pull-request-read --help
+  - run: mcp2cli @github pull-request-read --method get --owner acme --repo api --pull-number 482
+  - run: mcp2cli @github pull-request-read --method get_files --owner acme --repo api --pull-number 482
+  - run: mcp2cli @github pull-request-read --method get_reviews --owner acme --repo api --pull-number 482

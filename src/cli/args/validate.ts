@@ -14,15 +14,21 @@ interface Prepared {
   externalRefs: string[];
 }
 
-interface Compiled {
-  /** Errors of the schema with `format` ignored. */
-  check(data: unknown): ErrorObject[];
+export interface Compiled {
+  /** Errors of the schema with `format` ignored. Async when the check runs elsewhere (the daemon). */
+  check(data: unknown): ErrorObject[] | Promise<ErrorObject[]>;
   /** `format` mismatches of data that passed `check` (warnings only). */
   formats(data: unknown): Promise<ErrorObject[]>;
   warnings: string[];
 }
 
 export type CompileResult = { ok: true; compiled: Compiled } | { ok: false; reason: string; warnings: string[] };
+
+/**
+ * Turns a schema into something that can check data. The default (`compileSchema`) loads ajv in this
+ * process; the daemon backend supplies one that asks the daemon, so ajv stays out of the CLI.
+ */
+export type SchemaCompiler = (schema: JsonSchema, label: string) => Promise<CompileResult>;
 
 const cache = new WeakMap<object, Promise<CompileResult>>();
 

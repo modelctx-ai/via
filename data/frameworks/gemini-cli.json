@@ -1,0 +1,17 @@
+{
+  "id": "gemini-cli",
+  "name": "Gemini CLI",
+  "configs": [
+    { "path": ".gemini/settings.json", "format": "jsonc", "pointer": "/mcpServers", "scope": "project", "dollarVariables": true },
+    { "path": "~/.gemini/settings.json", "format": "jsonc", "pointer": "/mcpServers", "scope": "user", "dollarVariables": true }
+  ],
+  "disableHint": "运行 gemini mcp disable <名称>（加 --session 仅限本次会话），或把 server 名加入 settings.json 的 mcp.excluded",
+  "verifiedAt": "2026-10-20",
+  "sources": [
+    "https://geminicli.com/docs/tools/mcp-server/",
+    "https://geminicli.com/docs/reference/configuration/",
+    "https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/config/config.ts",
+    "https://github.com/google-gemini/gemini-cli/blob/main/packages/cli/src/config/settings.ts"
+  ],
+  "notes": "用户目录可被 GEMINI_CLI_HOME 改写，暂不处理。url 指 SSE 端点，httpUrl 指 Streamable HTTP 端点（已弃用，推荐 url 加 type）；via 只用 Streamable HTTP，只写 url 的老式 SSE 条目可能连不上。env 与 headers 中整值写成 $NAME 或 ${NAME} 时转为环境变量引用。关闭状态存放在 ~/.gemini/mcp-server-enablement.json，不读取。2026-06-18 起免费档与 Google One 用户改用 Antigravity CLI，见 antigravity 条目。"
+}

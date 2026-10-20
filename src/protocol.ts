@@ -1,32 +1,78 @@
 // Messages shared by the CLI, the daemon and the in-process client (docs/spec/daemon.md,
 // "CLI 与 daemon 的协议"). Types only, plus two tiny type guards. Credential values never appear
-// in any of these messages.
+// in any of these messages: servers travel as definitions that hold credential *references*.
+import type { McpTool } from './catalog/types';
+import type { ServerConfig } from './config/types';
+import type { CursorRecord } from './render/cursor';
 import type { ExitCode } from './render/exit-codes';
 import type { ToolResult } from './render/types';
 
 // Handshake -----------------------------------------------------------------------
 
-/** Sent by the CLI right after connecting. */
-export type Hello = { type: 'hello'; version: string; pid: number };
-export type HelloAck = { type: 'hello'; version: string; ok: boolean };
+/** Sent by the CLI right after connecting; nothing else is accepted before it. */
+export type Hello = {
+  type: 'hello';
+  version: string;
+  pid: number;
+  /** Contents of the daemon's token file (a second, filesystem-independent check next to the socket mode). */
+  token?: string;
+};
+
+/**
+ * The daemon's answer. `ok: false` closes the connection; `reason` says why: a different `version`
+ * (the daemon then drains and exits so the CLI can start a matching one), a wrong `token`, or a
+ * daemon that is already `draining`.
+ */
+export type HelloAck = {
+  type: 'hello';
+  version: string;
+  ok: boolean;
+  pid?: number;
+  reason?: 'version' | 'token' | 'draining';
+};
 
 /** Single-string tool reference, e.g. `linear/issue:create` (naming.md). */
 export type ToolRef = string;
 
 // Requests ------------------------------------------------------------------------
 
+/**
+ * Names the server a request is about. The CLI loads the configuration (project files depend on
+ * the working directory) and sends the one definition involved, so the daemon never reads config.
+ */
+export type ServerTarget = {
+  /** The definition as configured: credential references, never values. */
+  server: ServerConfig;
+  /** The CLI's working directory: base for a relative `file:` reference and default `cwd` of a stdio server. */
+  cwd: string;
+  /** Seconds an idle stdio session is kept (`daemon.serverIdleTimeout`). */
+  idleTimeout: number;
+  /** One-way digest of the caller's values for the `env:` references of this server; see `envStamp`. */
+  envStamp: string;
+};
+
 export type Request =
   | { id: string; type: 'status' }
-  | { id: string; type: 'ls'; provider?: string; resource?: string; all?: boolean }
-  | { id: string; type: 'find'; query: string; domain?: string; limit?: number }
-  | { id: string; type: 'describe'; tool: ToolRef }
-  | { id: string; type: 'call'; tool: ToolRef; args: unknown; timeoutMs?: number; confirm?: boolean; dryRun?: boolean }
-  | { id: string; type: 'more'; cursor: string }
+  /** `tools/list` of one server: daemon memory, then the disk cache, then the server. */
+  | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean } & ServerTarget)
+  /** `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. */
+  | ({ id: string; type: 'call'; rawName: string; args: Record<string, unknown>; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
+  /** Compile a JSON Schema (cached by the daemon) and check `data`; keeps ajv out of the CLI process. */
+  | { id: string; type: 'validate'; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
+  /** Replace the credential values the daemon knows with `***` in `text`. */
+  | { id: string; type: 'redact'; text: string }
+  | { id: string; type: 'cursor-put'; record: CursorRecord }
+  | { id: string; type: 'cursor-get'; cursor: string }
+  /** Finish the requests in flight, then exit (`via daemon stop`). */
+  | { id: string; type: 'shutdown' }
+  // Reserved for features that route through the daemon later; the daemon answers exit code 7.
   | { id: string; type: 'batch'; calls: { tool: ToolRef; args: unknown }[] }
-  | { id: string; type: 'auth'; action: 'login' | 'status' | 'logout'; provider: string }
-  | { id: string; type: 'sync'; provider?: string };
+  | { id: string; type: 'auth'; action: 'login' | 'status' | 'logout'; provider: string };
 
 export type RequestType = Request['type'];
+
+/** A request as the caller writes it; the connection assigns `id`. */
+export type RequestBody = Request extends infer R ? (R extends unknown ? Omit<R, 'id'> : never) : never;
 
 // Responses -----------------------------------------------------------------------
 
@@ -55,6 +101,60 @@ export type ErrorInfo = {
 export type Response =
   | { id: string; type: 'result'; ok: true; result: unknown; meta: ResultMeta }
   | { id: string; type: 'result'; ok: false; error: ErrorInfo };
+
+/**
+ * The request was not run because the daemon's environment differs from the caller's for a variable
+ * a credential reference points at. The caller restarts the daemon and asks again.
+ */
+export type Stale = { id: string; type: 'stale'; reason: 'environment' };
+
+/** Everything the daemon may write after the handshake. */
+export type Message = Response | Event | Stale;
+
+// Payloads ------------------------------------------------------------------------
+
+/** `result` of `list`. */
+export type ListResult = { tools: McpTool[]; fetchedAt: number; fromCache: boolean };
+
+/** `result` of `validate`. `ok: false` means the schema cannot be compiled. */
+export type ValidateResult =
+  | { ok: true; warnings: string[]; errors: unknown[]; formats: unknown[] }
+  | { ok: false; reason: string; warnings: string[] };
+
+/** `result` of `cursor-get`. */
+export type CursorGetResult = { record: CursorRecord | null };
+
+/** `result` of `status`. Names and counters only: no URLs, arguments or credentials. */
+export type DaemonStatus = {
+  pid: number;
+  version: string;
+  socket: string;
+  startedAt: number;
+  uptimeMs: number;
+  idleTimeoutMs: number;
+  /** Milliseconds until the daemon exits if nothing happens; absent while busy. */
+  idleExitInMs?: number;
+  requests: number;
+  cursors: number;
+  rssBytes: number;
+  sessions: SessionStatus[];
+};
+
+export type SessionStatus = {
+  /** Key under `servers`. */
+  server: string;
+  provider: string;
+  transport: 'stdio' | 'http';
+  connected: boolean;
+  /** Process id of the stdio child, when running. */
+  pid?: number;
+  /** Tools in the daemon's copy of the catalog. */
+  tools?: number;
+  calls: number;
+  /** Requests running right now. */
+  active: number;
+  lastUsedAgoMs: number;
+};
 
 // Raw MCP results -----------------------------------------------------------------
 

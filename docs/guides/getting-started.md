@@ -19,9 +19,9 @@ servers   9 ok · 1 needs auth (linear)
 
 frameworks still injecting MCP schemas:
   claude-code   6 servers · ~41k tokens/turn
-    hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用
+    hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用；默认已用 tool search 延迟加载 schema，设 ENABLE_TOOL_SEARCH=false 才会全量注入
   cursor        3 servers · ~12k tokens/turn
-    hint: Settings → MCP，关闭对应 server 的开关
+    hint: 侧栏 Customize 中找到对应 server，关闭开关；命令行用 agent mcp disable <名称>
 
 secrets: exa 的 EXA_API_KEY 在 ~/.cursor/mcp.json 中为明文
 ```
@@ -31,7 +31,9 @@ secrets: exa 的 EXA_API_KEY 在 ~/.cursor/mcp.json 中为明文
 框架通过 OAuth 拿到的 token 存在框架私有的位置，via 不读取，需要自己授权一次：
 
 ```bash
-via auth login linear
+via auth login linear            # 先在配置里写 auth: oauth；打开浏览器完成授权
+via auth login linear --manual   # SSH、容器等没有浏览器的环境：打印授权 URL，把落地页的完整 URL 粘贴回来
+via auth status                  # 各 server 的登录状态与过期时间
 ```
 
 需要 API key 的 server，在 `~/.config/via/config.yaml` 里写凭证引用（[配置](../spec/config.md)）：

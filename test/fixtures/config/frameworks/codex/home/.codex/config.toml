@@ -1,0 +1,7 @@
+[mcp_servers.cdx-env]
+command = "cdx"
+env_vars = ["PLAIN_VAR", { name = "LOCAL_VAR", source = "local" }, { name = "BARE_OBJECT" }, { name = "REMOTE_VAR", source = "remote" }]
+
+[mcp_servers.cdx-bad]
+command = "cdx"
+env_vars = [42, { source = "local" }]

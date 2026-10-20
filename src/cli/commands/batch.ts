@@ -249,13 +249,14 @@ class LineRunner {
       io: NO_FILES,
       validate: !app.options.noValidate,
       redact: app.redact,
+      compile: app.compile,
     });
   }
 }
 
 async function failure(app: App, error: unknown): Promise<CallOutcome> {
   const info: ErrorInfo = await toErrorInfo(error);
-  return { exitCode: info.code, stdout: '', stderr: formatError(info, app.options.format, app.redact), warnings: [], error: info };
+  return { exitCode: info.code, stdout: '', stderr: await app.redactText(formatError(info, app.options.format, app.redact)), warnings: [], error: info };
 }
 
 /** The `-o json` rendering of a result is JSON text; an empty result is `null`. */

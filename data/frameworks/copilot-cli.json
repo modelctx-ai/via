@@ -1,0 +1,16 @@
+{
+  "id": "copilot-cli",
+  "name": "GitHub Copilot CLI",
+  "configs": [
+    { "path": ".mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
+    { "path": ".github/mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
+    { "path": "~/.copilot/mcp-config.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
+  ],
+  "disableHint": "在会话中运行 /mcp disable <名称>",
+  "verifiedAt": "2026-10-20",
+  "sources": [
+    "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers",
+    "https://code.visualstudio.com/docs/agents/reference/mcp-configuration"
+  ],
+  "notes": "用户目录可被 COPILOT_HOME 改写，暂不处理。项目级文件从工作目录向上查到仓库根；.mcp.json 与 claude-code 条目是同一文件，先登记者读取，同一文件不会读两次。项目级文件也可以省略 mcpServers 外层、直接以 server 名为键，这种写法暂不读取。.vscode/mcp.json 不被 Copilot CLI 读取。type 为 local（或 stdio）、http、sse。"
+}

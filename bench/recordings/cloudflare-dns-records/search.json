@@ -1,0 +1,56 @@
+[
+  {
+    "method": "GET",
+    "path": "/zones",
+    "summary": "List Zones",
+    "parameters": [
+      "name",
+      "status",
+      "account.id",
+      "page",
+      "per_page"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/zones/{zone_id}/dns_records",
+    "summary": "List DNS Records",
+    "parameters": [
+      "zone_id",
+      "type",
+      "name",
+      "content",
+      "proxied",
+      "page",
+      "per_page",
+      "order",
+      "direction"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/zones/{zone_id}/dns_records",
+    "summary": "Create DNS Record",
+    "parameters": [
+      "zone_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/zones/{zone_id}/dns_records/{dns_record_id}",
+    "summary": "DNS Record Details",
+    "parameters": [
+      "zone_id",
+      "dns_record_id"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/zones/{zone_id}/dns_records/{dns_record_id}",
+    "summary": "Patch DNS Record",
+    "parameters": [
+      "zone_id",
+      "dns_record_id"
+    ]
+  }
+]

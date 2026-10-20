@@ -18,9 +18,9 @@ servers   9 ok · 1 needs auth (linear)
 
 frameworks still injecting MCP schemas:
   claude-code   6 servers · ~41k tokens/turn
-    hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用
+    hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用；默认已用 tool search 延迟加载 schema，设 ENABLE_TOOL_SEARCH=false 才会全量注入
   cursor        3 servers · ~12k tokens/turn
-    hint: Settings → MCP，关闭对应 server 的开关
+    hint: 侧栏 Customize 中找到对应 server，关闭开关；命令行用 agent mcp disable <名称>
 
 secrets:
   exa: EXA_API_KEY in ~/.cursor/mcp.json is plaintext

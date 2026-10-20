@@ -135,16 +135,7 @@ describe('via prompt', () => {
   });
 });
 
-describe('built-ins reserved for 0.2', () => {
-  it.each([['auth', 'login', 'gh'], ['daemon', 'status']])('via %s explains itself with exit 2', async (...argv) => {
-    const sb = makeSandbox();
-    const r = await sb.via(argv);
-    expect(r.code).toBe(2);
-    expect(r.stdout).toBe('');
-    expect(r.stderr).toMatch(/^error: via \w+ .* is not available until 0\.2\n/);
-    expect(r.stderr).toMatch(/next: /);
-  });
-
+describe('built-in names', () => {
   it('a server may not take a built-in name; it is skipped with a note in via servers', async () => {
     const { srv, sb } = await setup();
     sb.userConfig(`${ghConfig(srv.url)}  find:\n    url: ${srv.url}\n`);

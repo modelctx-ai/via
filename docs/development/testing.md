@@ -35,13 +35,48 @@
 
 ## token 基准
 
-对一组真实 server（github、playwright、linear、notion 等）计算并持续跟踪：
+对一组 server（github、linear、notion、playwright、cloudflare，共 167 个工具）和九个典型任务，计算并持续跟踪：
 
-- **原生注入成本**：框架挂载这些 server 时每轮注入的 schema token；
-- **via 成本**：`via prompt` 说明 + 完成一组典型任务时发现与调用产生的 token；
-- **同类 CLI 成本**：用 [mcp2cli](https://github.com/knowsuchagency/mcp2cli) 的 skill 加 `--list`/`--search` 完成同一组任务的 token，作为平铺命名、不去噪输出的对照。
+- **原生注入成本**：框架挂载这些 server 时，每轮注入的工具定义（名称、描述、`inputSchema`，按 `mcp__<server>__<工具>` 的命名序列化）乘以任务需要的轮数，加上模型写出的调用和未渲染的原始结果；
+- **via 成本**：`via prompt` 说明（一次）加任务的命令序列：命令文本，以及它打印到 stdout 和 stderr 的全部内容；
+- **同类 CLI 成本**：用 [mcp2cli](https://github.com/knowsuchagency/mcp2cli) 的 skill（一次）加 `--list`/`--search`、`--help` 和调用完成同一组任务，作为平铺命名、不去噪输出的对照。
 
 这是项目的核心指标，结果随版本记录。
+
+### 怎么跑
+
+```console
+$ npm run build
+$ npm run bench:tokens                                            # 打印表格
+$ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 markdown 与 JSON
+```
+
+全程离线、可复现：任务在 `bench/tasks/`，返回值是 `bench/recordings/` 里的合成数据，由回放 MCP server（`bench/replay-server.mjs`，Streamable HTTP）提供；via 与 mcp2cli 在临时 HOME 里运行，配置只含这些回放 server，不读开发者自己的框架配置。任务文件格式、回放 server 的接口和新增任务的方法见 [bench/README.md](../../bench/README.md)；回放 server 与任务文件也是下面 agent 评测的共用基础。
+
+### 方法
+
+- **via 一列是真实运行**：脚本跑的是打包后的 `dist/via.js`，命令序列是人按「合理的 agent 路径」写的（从 `via <provider>` 或 `via find` 开始，签名足够时不加 `-h`）。mcp2cli 同理，工具不超过 25 个的 server 用 `--list`，更大的用 `--search`，每条要用的命令先看 `--help`。
+- **做同样的事**：每个任务有一份原生调用序列和一份回放用的返回值。测量时核对回放 server 的调用日志，via 与 mcp2cli 发出的 `tools/call` 必须与原生的工具名、参数完全一致，否则报错。
+- **原生一列也经过回放 server**：用官方 SDK 的 client 取 `tools/list` 和 `tools/call`，不手算。
+- **token 估算**：4 字节约 1 token，与 `via doctor` 用的是同一个常量（`BYTES_PER_TOKEN`）。可复现起见，元信息行的耗时、端口、沙箱路径归一为常量。可选的精确计数（调用 token 计数接口）0.1 没有做，留给 agent 评测。
+- **mcp2cli 是可选的一列**：PATH 上有 `mcp2cli` 才运行，并记录版本；没有就在输出里说明已跳过，不伪造数字。说明文本取自它自带的 skill（`bench/vendor/mcp2cli/`，MIT）。
+
+### 结果随版本记录
+
+每个版本把结果写到 `bench/results/<版本>.md`（含逐任务、逐命令明细和文末的局限说明）和同名 `.json`。0.1 的结果见 [bench/results/0.1.md](../../bench/results/0.1.md)，摘要：
+
+| | native | via | mcp2cli |
+| --- | ---: | ---: | ---: |
+| 九个任务合计（token，估算） | 382,379 | 14,210 | 59,834 |
+| 相对 native | 100% | 4% | 16% |
+| 去掉 native 的工具注入后 | 15,813 | 14,210 | 59,834 |
+
+读这些数字时要注意（完整说明在结果文件里）：
+
+- 节省几乎全部来自**不注入工具定义**：native 总量的 96% 是每轮重复的注入。把注入去掉（相当于框架对工具定义做了延迟加载），native 只剩调用和原始结果，与 via 的整个会话（含说明和发现）在同一量级。在这类框架上，via 的价值要看成功率和发现轮数，不能靠 token 总量证明。文本型结果（源码、页面快照）via 原样输出，没有节省。
+- 夹具是部分合成的：工具名取自真实 server，但描述和参数已精简，native 的注入成本是**偏低**估计；`tools/call` 的返回值按常见 API 形状合成，via 在结果侧的节省取决于 server 的 JSON 有多冗余。
+- 命令序列是脚本，不是模型的实际行为，所以这里没有成功率、错误调用和发现轮数；这些由 agent 评测验证。
+- 4 字节约 1 token 只是量级估计，比较的是比例，不是计费。
 
 ## agent 评测
 
@@ -63,6 +98,8 @@
 | 经热 daemon 调用的额外开销 | < 15 ms |
 | 1,000 个工具上的 `find` | < 30 ms |
 | daemon 常驻内存 | < 80 MB（不含 stdio 子进程） |
+
+0.2 的实测（Linux，Node 22，一个 stdio server）：热 daemon 上一次请求的往返约 0.3 ms（`status`、`validate`）到 1 ms（`list`、`call`），连接加握手约 2–6 ms，一次调用（`list`、两次校验、`call`）合计远低于 15 ms 的目标；daemon 空闲时约 58 MB，建立一个会话并加载 MCP SDK 与 ajv 后约 79–86 MB，在 80 MB 目标附近，尚未优化。CLI 自身的冷启动（约 130 ms 加载命令、配置与目录）与是否使用 daemon 无关。
 
 ### 性能基准
 

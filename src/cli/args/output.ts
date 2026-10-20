@@ -1,7 +1,7 @@
 // Output validation (arguments.md, "输出校验"): outputSchema vs structuredContent, warnings only.
 import type { McpTool } from '../../catalog/types';
 import { type Segment, segmentsOf } from './report';
-import { compileSchema } from './validate';
+import { compileSchema, type SchemaCompiler } from './validate';
 
 const MAX_WARNINGS = 3;
 
@@ -9,12 +9,12 @@ const MAX_WARNINGS = 3;
  * Check `structuredContent` against `outputSchema`. Returns warning lines (without the
  * `warning: ` prefix); never throws. Values are not quoted: results may contain secrets.
  */
-export async function validateOutput(tool: McpTool, structured: unknown): Promise<string[]> {
+export async function validateOutput(tool: McpTool, structured: unknown, compile: SchemaCompiler = compileSchema): Promise<string[]> {
   try {
     if (!tool.outputSchema || structured === undefined) return [];
-    const result = await compileSchema(tool.outputSchema, `${tool.name} outputSchema`);
+    const result = await compile(tool.outputSchema, `${tool.name} outputSchema`);
     if (!result.ok) return [];
-    const errors = result.compiled.check(structured);
+    const errors = await result.compiled.check(structured);
     if (errors.length === 0) return [];
     const lines: string[] = [];
     for (const e of errors) {

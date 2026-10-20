@@ -1,0 +1,19 @@
+{
+  "id": "devin",
+  "name": "Devin Desktop",
+  "configs": [
+    { "path": ".devin/mcp_config.local.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
+    { "path": ".devin/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
+    { "path": "~/.config/devin/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["linux", "darwin"] },
+    { "path": "%APPDATA%/devin/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["win32"] }
+  ],
+  "disableHint": "命令行用 devin mcp disable <名称>，或在 mcp_config.json 对应条目中设置 \"disabled\": true；桌面端在 Cascade 面板的 MCPs 区域关闭开关",
+  "verifiedAt": "2026-10-20",
+  "sources": [
+    "https://docs.devin.ai/cli/extensibility/mcp/configuration",
+    "https://docs.devin.ai/cli/reference/configuration/global-vs-local",
+    "https://docs.devin.ai/desktop/cascade/mcp",
+    "https://docs.devin.ai/desktop/changelog"
+  ],
+  "notes": "Windsurf 自 2026-06-02 起更名为 Devin Desktop，桌面端与 Devin 命令行共用这些文件；旧的 ~/.codeium/windsurf/mcp_config.json 见 windsurf 条目。优先级为 .devin/mcp_config.local.json（个人，不入库）> .devin/mcp_config.json > 用户级文件；同一作用域内，数据文件里靠前的优先。XDG_CONFIG_HOME 暂不处理。v3000.3 之前的版本把 server 放在 config.json 的 mcpServers 下，新版本启动时自动迁移，不读取。disabled 与 oauth* 字段不继承。"
+}

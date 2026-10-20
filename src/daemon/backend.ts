@@ -1,0 +1,201 @@
+// The CLI's daemon backend: every operation that touches an MCP server becomes a request on the
+// socket (daemon.md). Parsing and rendering stay in the CLI; this file only translates between the
+// `Backend` interface and protocol messages. It imports no MCP SDK and no ajv.
+import type { Backend, Listing, ListingOptions } from '../cli/backend';
+import type { Compiled, CompileResult, SchemaCompiler } from '../cli/args/validate';
+import type { McpTool } from '../catalog/types';
+import { ClientError, type CallOptions, type ListOptions } from '../client';
+import type { ServerConfig } from '../config/types';
+import type { CursorGetResult, ErrorInfo, Event, ListResult, RequestBody, Response, ServerTarget, ToolCallResult, ValidateResult } from '../protocol';
+import type { CursorRecord, CursorStore } from '../render/cursor';
+import { ExitCode } from '../render/exit-codes';
+import { DaemonStale, DaemonUnavailable, type DaemonClient } from './client';
+import { envStamp } from './target';
+
+export interface DaemonBackendOptions {
+  client: DaemonClient;
+  /** Every configured server; requests name one by key or provider. */
+  servers: readonly ServerConfig[];
+  cwd: string;
+  /** The CLI's environment, only for `envStamp` digests. */
+  env: Readonly<Record<string, string | undefined>>;
+  /** `daemon.serverIdleTimeout`, seconds. */
+  serverIdleTimeoutSec: number;
+}
+
+/** Slack on top of a request's own timeout before the CLI gives up on a daemon that stopped answering. */
+const DEADLINE_SLACK_MS = 30_000;
+
+export class DaemonBackend implements Backend {
+  readonly mode = 'daemon';
+
+  constructor(private readonly options: DaemonBackendOptions) {}
+
+  async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {
+    const response = await this.send({ type: 'list', ...this.target(server), timeoutMs, ...(refresh ? { refresh: true } : {}) }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS });
+    return unwrap<ListResult>(response);
+  }
+
+  async listTools(server: string, options: ListOptions = {}): Promise<McpTool[]> {
+    const config = this.find(server);
+    const listing = await this.listing(config, { timeoutMs: options.timeoutMs ?? config.timeout * 1000, refresh: true });
+    return listing.tools;
+  }
+
+  async callTool(server: string, rawName: string, args: Record<string, unknown> = {}, options: CallOptions = {}): Promise<ToolCallResult> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    const response = await this.send(
+      {
+        type: 'call',
+        ...this.target(config),
+        rawName,
+        args,
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+        ...(options.retry ? { retry: true } : {}),
+        ...(options.onProgress ? { progress: true } : {}),
+      },
+      {
+        deadlineMs: timeoutMs * (options.retry ? 2 : 1) + DEADLINE_SLACK_MS,
+        onEvent: (event) => {
+          if (event.event === 'progress' && options.onProgress) options.onProgress(event.data as Parameters<NonNullable<CallOptions['onProgress']>>[0]);
+        },
+      },
+    );
+    return unwrap<ToolCallResult>(response);
+  }
+
+  /**
+   * Validation in the daemon, which keeps compiled schemas. Any trouble reaching it falls back to
+   * ajv in this process: validation has no side effects, so nothing is lost but the time it costs.
+   */
+  compiler(): SchemaCompiler {
+    return async (schema, label): Promise<CompileResult> => {
+      const local = async (): Promise<CompileResult> => (await import('../cli/args/validate')).compileSchema(schema, label);
+      let first: ValidateResult;
+      try {
+        first = unwrap<ValidateResult>(await this.send({ type: 'validate', schema, label, compileOnly: true }, { deadlineMs: 10_000, spawn: true }));
+      } catch (error) {
+        if (error instanceof DaemonUnavailable) return local();
+        throw error;
+      }
+      if (!first.ok) return { ok: false, reason: first.reason, warnings: first.warnings };
+      let formats: unknown[] = [];
+      const compiled: Compiled = {
+        warnings: first.warnings,
+        check: async (data) => {
+          try {
+            const result = unwrap<ValidateResult>(await this.send({ type: 'validate', schema, label, data }, { deadlineMs: 10_000 }));
+            if (!result.ok) return [];
+            formats = result.formats;
+            return result.errors as Awaited<ReturnType<Compiled['check']>>;
+          } catch (error) {
+            if (!(error instanceof DaemonUnavailable)) throw error;
+            const fallback = await local();
+            if (!fallback.ok) return [];
+            const errors = await fallback.compiled.check(data);
+            if (errors.length === 0) formats = await fallback.compiled.formats(data);
+            return errors;
+          }
+        },
+        formats: async () => formats as Awaited<ReturnType<Compiled['formats']>>,
+      };
+      return { ok: true, compiled };
+    };
+  }
+
+  cursors(): CursorStore {
+    return new DaemonCursorStore(this.options.client, true);
+  }
+
+  /** Only asks a daemon that is already there: without one nothing could have been redacted. */
+  async redact(text: string): Promise<string> {
+    if (text === '') return text;
+    try {
+      const conn = await this.options.client.connection({ spawn: false });
+      if (!conn) return text;
+      const response = await conn.request({ type: 'redact', text }, { deadlineMs: 5000 });
+      return response.ok ? (response.result as string) : text;
+    } catch {
+      return text;
+    }
+  }
+
+  secrets(): readonly string[] {
+    return [];
+  }
+
+  async close(): Promise<void> {
+    this.options.client.close();
+  }
+
+  // Internals ---------------------------------------------------------------------------
+
+  /** The configured server a name or provider refers to, as `InProcessClient` resolves it. */
+  private find(key: string): ServerConfig {
+    const visible = this.options.servers.filter((s) => !s.disabled);
+    const found = visible.find((s) => s.name === key) ?? visible.find((s) => s.provider === key);
+    if (found) return found;
+    throw new ClientError({
+      exitCode: ExitCode.NotFound,
+      message: `no such server: ${key}`,
+      next: 'via servers',
+      ...(visible.length > 0 ? { candidates: visible.map((s) => s.provider).filter((p) => p.includes(key) || key.includes(p)).slice(0, 5) } : {}),
+    });
+  }
+
+  private target(server: ServerConfig): ServerTarget {
+    return { server, cwd: this.options.cwd, idleTimeout: this.options.serverIdleTimeoutSec, envStamp: envStamp(server, this.options.env) };
+  }
+
+  /**
+   * Send one request, starting the daemon when needed. A daemon that says its environment differs
+   * is restarted once; if it still disagrees the daemon is of no use to this run.
+   */
+  private async send(body: RequestBody, options: { onEvent?: (event: Event) => void; deadlineMs?: number; spawn?: boolean } = {}): Promise<Response> {
+    const { client } = this.options;
+    const attempt = async (): Promise<Response> => {
+      const conn = await client.connection({ spawn: options.spawn ?? true });
+      if (!conn) throw new DaemonUnavailable('the via daemon is not running');
+      return conn.request(body, { ...(options.onEvent ? { onEvent: options.onEvent } : {}), ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {}) });
+    };
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!(error instanceof DaemonStale)) throw error;
+    }
+    await client.restart();
+    try {
+      return await attempt();
+    } catch (error) {
+      if (error instanceof DaemonStale) throw new DaemonUnavailable('the via daemon keeps a different environment from this shell');
+      throw error;
+    }
+  }
+}
+
+function unwrap<T>(response: Response): T {
+  if (response.ok) return response.result as T;
+  throw new ClientError(response.error as ErrorInfo);
+}
+
+/** Cursors kept by the daemon (output.md, "游标"). `spawn` allows starting a daemon to put one. */
+export class DaemonCursorStore implements CursorStore {
+  constructor(
+    private readonly client: DaemonClient,
+    private readonly spawn: boolean,
+  ) {}
+
+  async put(record: CursorRecord): Promise<string> {
+    const conn = await this.client.connection({ spawn: this.spawn });
+    if (!conn) throw new DaemonUnavailable('the via daemon is not running');
+    return unwrap<string>(await conn.request({ type: 'cursor-put', record }, { deadlineMs: 10_000 }));
+  }
+
+  async get(id: string): Promise<CursorRecord | undefined> {
+    const conn = await this.client.connection({ spawn: false });
+    if (!conn) return undefined;
+    const { record } = unwrap<CursorGetResult>(await conn.request({ type: 'cursor-get', cursor: id }, { deadlineMs: 10_000 }));
+    return record ?? undefined;
+  }
+}

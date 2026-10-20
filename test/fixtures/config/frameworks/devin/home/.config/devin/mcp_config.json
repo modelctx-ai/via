@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "dev-remote": { "url": "https://dev.example.invalid/sse", "transport": "sse", "headers": { "X-Team": "platform" }, "oauthClientId": "fake-client" },
+    "dev-off": { "command": "dev-off", "disabled": true },
+    "dev-layered": { "command": "dev-user" }
+  }
+}

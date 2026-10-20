@@ -5,7 +5,6 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { CatalogTool, ProviderCatalog } from '../../catalog';
 import { ClientError } from '../../client';
-import { FileCursorStore } from '../../render/cursor-file';
 import { formatError, type ErrorInfo } from '../../render/errors';
 import { ExitCode } from '../../render/exit-codes';
 import { FileMediaSink } from '../../render/media';
@@ -57,7 +56,7 @@ export async function callTool(app: App, initial: ToolTarget, argv: readonly str
     {
       target: initial,
       parseArgs: (tool) =>
-        parseToolArgs(argv, tool.def, argsContext(tool), { io: argsIo(app), validate: !app.options.noValidate, redact: app.redact }),
+        parseToolArgs(argv, tool.def, argsContext(tool), { io: argsIo(app), validate: !app.options.noValidate, redact: app.redact, compile: app.compile }),
     },
     { progress: (text) => app.err(text), warning: (text) => app.err(text) },
   );
@@ -115,7 +114,7 @@ export async function executeCall(app: App, request: CallRequest, sink: CallSink
     return await attemptCall(app, request, sink, warnings);
   } catch (error) {
     const info = await toErrorInfo(error);
-    return { exitCode: info.code, stdout: '', stderr: formatError(info, app.options.format, app.redact), warnings, error: info };
+    return { exitCode: info.code, stdout: '', stderr: await app.redactText(formatError(info, app.options.format, app.redact)), warnings, error: info };
   }
 }
 
@@ -142,7 +141,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   }
   const { tool } = target;
   for (const warning of parsed.warnings) {
-    const redacted = app.redact(warning);
+    const redacted = await app.redactText(warning);
     warnings.push(redacted);
     sink.warning(`warning: ${redacted}\n`);
   }
@@ -150,7 +149,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   // 2. Dry run: what would be sent, nothing else.
   const needsConfirm = tool.destructive && server.confirm !== 'never' && !options.yes;
   if (options.dryRun) {
-    return { exitCode: ExitCode.Ok, stdout: app.redact(renderDryRun(app, target, parsed.args, needsConfirm)), stderr: '', warnings };
+    return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, parsed.args, needsConfirm)), stderr: '', warnings };
   }
 
   // 3. Dangerous tools need --yes (the deny check already happened during resolution).
@@ -173,7 +172,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
     // The server rejected the arguments at the protocol level: same report as an `isError` result.
     if (error instanceof ClientError && error.exitCode === ExitCode.ToolError) {
       const info: ErrorInfo = { code: ExitCode.ToolError, message: error.message, next: `via ${tool.ref} -h` };
-      const text = formatError(info, options.format, app.redact);
+      const text = await app.redactText(formatError(info, options.format, app.redact));
       return { exitCode: ExitCode.ToolError, stdout: '', stderr: addDisagreeHint(text, options.format, error.message), warnings, error: info };
     }
     throw error;
@@ -183,7 +182,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   // 5. Render.
   const outputWarnings: string[] = [];
   if (tool.def.outputSchema && result.structuredContent !== undefined && !result.isError) {
-    outputWarnings.push(...(await validateOutput(tool.def, result.structuredContent)).map((w) => app.redact(w)));
+    outputWarnings.push(...(await validateOutput(tool.def, result.structuredContent, app.compile)).map((w) => app.redact(w)));
   }
   warnings.push(...outputWarnings);
   const rendered = await renderToolResult(
@@ -200,7 +199,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
       ref: tool.ref,
       elapsedMs,
       media: new FileMediaSink(join(app.cacheDir, 'media')),
-      cursors: new FileCursorStore(join(app.cacheDir, 'cursors'), { now: app.io.now }),
+      cursors: (await app.backend()).cursors(),
       now: app.io.now,
       flags: [...(parsed.validated ? [] : ['unvalidated']), ...(request.flags ?? [])],
       warnings: outputWarnings,

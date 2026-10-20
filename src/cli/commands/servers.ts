@@ -1,41 +1,25 @@
 // `via servers [--why <provider>]`: where each server comes from, how it connects, whether its
 // credentials resolve, and why a provider landed in its domain (cli.md, discovery.md).
 import { renderDomainWhy } from '../../catalog';
-import { formatDiagnostic, isCredentialRef, parseCredentialRef, type ServerConfig } from '../../config';
+import { formatDiagnostic, type ServerConfig } from '../../config';
 import { shellWord } from '../../render/shell';
 import { alignRows } from '../../render/width';
 import { ExitCode } from '../../render/exit-codes';
 import type { App } from '../app';
+import { authState } from '../auth-state';
 import { buildProviderTable } from '../directory';
 import { parseLocal } from '../options';
 import { openProvider } from './provider';
 
-/** Credential references a server uses; references only, never values. */
-function credentialRefs(server: ServerConfig): string[] {
-  const refs: string[] = [];
-  const { auth, transport } = server;
-  if (auth.type === 'bearer') refs.push(auth.bearer);
-  if (auth.type === 'headers') refs.push(...Object.values(auth.headers));
-  refs.push(...Object.values(transport.type === 'stdio' ? transport.env : transport.headers));
-  return [...new Set(refs.filter(isCredentialRef))];
-}
-
+/** The auth column: the method, and whether it would work (references only, never values). */
 async function authStatus(app: App, server: ServerConfig): Promise<string> {
-  const kind = server.auth.type;
-  if (kind === 'oauth') return 'oauth (not supported in 0.1)';
-  const missing: string[] = [];
-  for (const ref of credentialRefs(server)) {
-    // `cmd:` is not run here: `via servers` connects to nothing, and a credential helper may be slow
-    // or ask for a fingerprint. It runs when the server is used and in `via doctor`.
-    if (parseCredentialRef(ref).kind === 'cmd') continue;
-    try {
-      await (await app.resolver()).resolve(ref, server.origin);
-    } catch {
-      missing.push(ref);
-    }
+  const state = await authState(app, server);
+  if (state.method === 'oauth') {
+    const { summarizeLogin } = await import('../../client/oauth');
+    if (state.storeError) return `oauth (cannot read saved logins: ${state.storeError})`;
+    return `oauth (${summarizeLogin(state.login!, app.io.now())})`;
   }
-  const label = kind === 'none' ? (credentialRefs(server).length > 0 ? 'env' : 'none') : kind;
-  return missing.length > 0 ? `${label} (missing ${missing.join(', ')})` : label;
+  return state.missing.length > 0 ? `${state.method} (missing ${state.missing.join(', ')})` : state.method;
 }
 
 function shorten(path: string, home: string): string {

@@ -10,10 +10,12 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 | agent 读取配置文件拿到凭证 | 配置只存引用；推荐 `keychain:`；`via doctor` 对明文值告警 |
 | 误调用破坏性工具 | `destructiveHint` 工具需要 `--yes`；`deny` 正则规则，deny 优先 |
 | 不可信仓库里的项目配置 | 项目级配置中的 stdio 命令和 HTTP 端点首次使用前需 `via trust`；`cmd:` 凭证引用只允许出现在用户配置中，信任也不能放行 |
-| 其他本地用户访问 daemon | socket 权限 0600，并校验对端 uid |
+| 其他本地用户访问 daemon | socket 权限 0600、目录 0700，CLI 连接前检查属主与权限位，握手需要 0600 令牌文件里的随机令牌（Node 取不到 `SO_PEERCRED`，用这三项代替对端 uid 校验，见 [daemon.md](daemon.md#socket-安全)） |
 | 工具返回内容里夹带指令（提示注入） | via 只做格式化，不解释内容；元信息使用固定的 `·` 前缀行，避免与工具内容混淆；`via prompt` 生成的说明提醒 agent 把工具输出当作数据 |
 | 缓存中的敏感结果 | 游标与媒体文件存放在权限为 0700 的用户缓存目录，按 TTL 清理 |
-| 读取其他客户端的 token | 不读取；OAuth 由 via 自己完成并存入钥匙串 |
+| 读取其他客户端的 token | 不读取；OAuth 由 via 自己完成并存入钥匙串（不可用时退回 0600 的私有文件，[auth.md](auth.md#存储)） |
+| OAuth token 出现在输出里 | access token、refresh token、ID token 与客户端 secret 一律计入脱敏列表；授权 URL 只含 `state` 与 PKCE challenge，不含秘密；回调监听只绑 `127.0.0.1` 并校验 `Host` 与 `state`；调用过程永远不会启动授权 |
+| 授权被发往仓库指定的地址 | `via auth login` 对未信任的项目级 server 退出码 5 |
 
 ## 项目级配置的信任
 

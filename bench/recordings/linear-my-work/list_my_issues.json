@@ -1,0 +1,173 @@
+{
+  "issues": [
+    {
+      "id": "5f3e0c1a-0300-4a2b-9c1d-0e7b6a5d4c3b",
+      "identifier": "PLT-300",
+      "title": "Rate limiter fails closed when Redis is down",
+      "description": "Rate limiter fails closed when Redis is down.\n\nSeen in production on the EU cluster; see the linked incident for logs.",
+      "priority": {
+        "value": 2,
+        "name": "High"
+      },
+      "url": "https://linear.app/acme/issue/PLT-300/rate-limiter-fails-closed-when-redis-is-down",
+      "status": "In Progress",
+      "assignee": "jdoe",
+      "assigneeId": "u-7c1d2e3f",
+      "labels": [
+        "Bug"
+      ],
+      "team": "Platform",
+      "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+      "createdAt": "2026-09-21T09:30:00.000Z",
+      "updatedAt": "2026-09-28T07:45:00.000Z"
+    },
+    {
+      "id": "5f3e0c1a-0304-4a2b-9c1d-0e7b6a5d4c3b",
+      "identifier": "PLT-304",
+      "title": "Migrate billing webhooks to the new queue",
+      "description": "Migrate billing webhooks to the new queue.\n\nSeen in production on the EU cluster; see the linked incident for logs.",
+      "priority": {
+        "value": 3,
+        "name": "Medium"
+      },
+      "url": "https://linear.app/acme/issue/PLT-304/migrate-billing-webhooks-to-the-new-queue",
+      "status": "In Progress",
+      "assignee": "jdoe",
+      "assigneeId": "u-7c1d2e3f",
+      "labels": [
+        "Bug"
+      ],
+      "team": "Platform",
+      "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+      "createdAt": "2026-09-21T09:30:00.000Z",
+      "updatedAt": "2026-09-28T07:45:00.000Z"
+    },
+    {
+      "id": "5f3e0c1a-0308-4a2b-9c1d-0e7b6a5d4c3b",
+      "identifier": "PLT-308",
+      "title": "Add tenant id to request logs",
+      "description": "Add tenant id to request logs.\n\nSeen in production on the EU cluster; see the linked incident for logs.",
+      "priority": {
+        "value": 3,
+        "name": "Medium"
+      },
+      "url": "https://linear.app/acme/issue/PLT-308/add-tenant-id-to-request-logs",
+      "status": "In Progress",
+      "assignee": "jdoe",
+      "assigneeId": "u-7c1d2e3f",
+      "labels": [
+        "Bug"
+      ],
+      "team": "Platform",
+      "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+      "createdAt": "2026-09-21T09:30:00.000Z",
+      "updatedAt": "2026-09-28T07:45:00.000Z"
+    },
+    {
+      "id": "5f3e0c1a-0312-4a2b-9c1d-0e7b6a5d4c3b",
+      "identifier": "PLT-312",
+      "title": "Flaky integration test: orders-bulk-export",
+      "description": "Flaky integration test: orders-bulk-export.\n\nSeen in production on the EU cluster; see the linked incident for logs.",
+      "priority": {
+        "value": 4,
+        "name": "Low"
+      },
+      "url": "https://linear.app/acme/issue/PLT-312/flaky-integration-test-orders-bulk-export",
+      "status": "In Progress",
+      "assignee": "jdoe",
+      "assigneeId": "u-7c1d2e3f",
+      "labels": [
+        "Bug"
+      ],
+      "team": "Platform",
+      "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+      "createdAt": "2026-09-21T09:30:00.000Z",
+      "updatedAt": "2026-09-28T07:45:00.000Z"
+    },
+    {
+      "id": "5f3e0c1a-0316-4a2b-9c1d-0e7b6a5d4c3b",
+      "identifier": "PLT-316",
+      "title": "Document the retry policy for webhooks",
+      "description": "Document the retry policy for webhooks.\n\nSeen in production on the EU cluster; see the linked incident for logs.",
+      "priority": {
+        "value": 4,
+        "name": "Low"
+      },
+      "url": "https://linear.app/acme/issue/PLT-316/document-the-retry-policy-for-webhooks",
+      "status": "In Progress",
+      "assignee": "jdoe",
+      "assigneeId": "u-7c1d2e3f",
+      "labels": [
+        "Bug"
+      ],
+      "team": "Platform",
+      "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+      "createdAt": "2026-09-21T09:30:00.000Z",
+      "updatedAt": "2026-09-28T07:45:00.000Z"
+    },
+    {
+      "id": "5f3e0c1a-0320-4a2b-9c1d-0e7b6a5d4c3b",
+      "identifier": "PLT-320",
+      "title": "Upgrade Node.js runtime to 22 LTS",
+      "description": "Upgrade Node.js runtime to 22 LTS.\n\nSeen in production on the EU cluster; see the linked incident for logs.",
+      "priority": {
+        "value": 3,
+        "name": "Medium"
+      },
+      "url": "https://linear.app/acme/issue/PLT-320/upgrade-node-js-runtime-to-22-lts",
+      "status": "In Progress",
+      "assignee": "jdoe",
+      "assigneeId": "u-7c1d2e3f",
+      "labels": [
+        "Bug"
+      ],
+      "team": "Platform",
+      "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+      "createdAt": "2026-09-21T09:30:00.000Z",
+      "updatedAt": "2026-09-28T07:45:00.000Z"
+    },
+    {
+      "id": "5f3e0c1a-0324-4a2b-9c1d-0e7b6a5d4c3b",
+      "identifier": "PLT-324",
+      "title": "Remove deprecated /v1/orders endpoints",
+      "description": "Remove deprecated /v1/orders endpoints.\n\nSeen in production on the EU cluster; see the linked incident for logs.",
+      "priority": {
+        "value": 4,
+        "name": "Low"
+      },
+      "url": "https://linear.app/acme/issue/PLT-324/remove-deprecated-v1-orders-endpoints",
+      "status": "In Progress",
+      "assignee": "jdoe",
+      "assigneeId": "u-7c1d2e3f",
+      "labels": [
+        "Bug"
+      ],
+      "team": "Platform",
+      "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+      "createdAt": "2026-09-21T09:30:00.000Z",
+      "updatedAt": "2026-09-28T07:45:00.000Z"
+    },
+    {
+      "id": "5f3e0c1a-0328-4a2b-9c1d-0e7b6a5d4c3b",
+      "identifier": "PLT-328",
+      "title": "Investigate p99 latency regression on /v2/search",
+      "description": "Investigate p99 latency regression on /v2/search.\n\nSeen in production on the EU cluster; see the linked incident for logs.",
+      "priority": {
+        "value": 2,
+        "name": "High"
+      },
+      "url": "https://linear.app/acme/issue/PLT-328/investigate-p99-latency-regression-on-v2-search",
+      "status": "In Progress",
+      "assignee": "jdoe",
+      "assigneeId": "u-7c1d2e3f",
+      "labels": [
+        "Bug"
+      ],
+      "team": "Platform",
+      "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+      "createdAt": "2026-09-21T09:30:00.000Z",
+      "updatedAt": "2026-09-28T07:45:00.000Z"
+    }
+  ],
+  "hasNextPage": false
+}

@@ -80,6 +80,10 @@ export interface RunOptions {
   /** Pretend a person sits at a terminal and types this at the next question (`via trust`); the questions are collected in `CliResult.asked`. */
   answer?: string;
   now?: number;
+  /** Answers the prompt of a manual OAuth login; sees what has been printed so far. Default: the first line of `stdin`. */
+  readLine?: (printed: { stdout: string; stderr: string }) => Promise<string | undefined>;
+  /** Stands in for the browser; the default opens nothing. */
+  openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }>;
 }
 
 export interface Sandbox {
@@ -133,18 +137,21 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
       const asked: string[] = [];
       let combined = '';
       const code = await run(argv, {
-        interactive: options.answer !== undefined,
+        interactive: options.answer !== undefined || options.readLine !== undefined,
         ask: async (question) => {
           asked.push(question);
-          return options.answer ?? '';
+          if (options.readLine) return (await options.readLine({ stdout, stderr })) ?? '';
+          return options.answer ?? options.stdin?.split('\n')[0] ?? '';
         },
-        env: { PATH: process.env.PATH, ...env, ...options.env },
+        // OAuth logins go to files in the sandbox, never to the real keychain.
+        env: { PATH: process.env.PATH, VIA_OAUTH_STORE: 'file', ...env, ...options.env },
         cwd: options.cwd ?? project,
         home,
         platform: 'linux',
         stdout: { write: (s) => void ((stdout += s), (combined += s)) },
         stderr: { write: (s) => void ((stderr += s), (combined += s)) },
         readStdin: async () => options.stdin ?? '',
+        openUrl: options.openUrl ?? (async () => ({ opened: false, reason: 'tests do not open browsers' })),
         now: () => options.now ?? 1_800_000_000_000,
       });
       return { code, stdout, stderr, asked, combined };

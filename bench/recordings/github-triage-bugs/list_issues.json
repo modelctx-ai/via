@@ -1,0 +1,577 @@
+{
+  "issues": [
+    {
+      "id": 2100000214,
+      "node_id": "I_kwDOA214",
+      "number": 214,
+      "title": "Rate limiter returns 500 when Redis is unreachable",
+      "body": "Rate limiter returns 500 when Redis is unreachable.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "mira-okafor",
+        "id": 1011,
+        "node_id": "U_kgDO1011x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1011?v=4",
+        "html_url": "https://github.com/mira-okafor",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        },
+        {
+          "id": 5310,
+          "node_id": "LA_kwDOregression",
+          "name": "regression",
+          "color": "d73a4a",
+          "default": false,
+          "description": "Issues labeled regression"
+        }
+      ],
+      "assignees": [
+        {
+          "login": "priya-nair",
+          "id": 1421,
+          "node_id": "U_kgDO1421x",
+          "avatar_url": "https://avatars.githubusercontent.com/u/1421?v=4",
+          "html_url": "https://github.com/priya-nair",
+          "type": "User",
+          "site_admin": false
+        }
+      ],
+      "milestone": null,
+      "comments": 4,
+      "author_association": "MEMBER",
+      "created_at": "2026-05-20T09:17:00Z",
+      "updated_at": "2026-09-18T09:32:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/214",
+      "url": "https://api.github.com/repos/acme/api/issues/214",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 0,
+        "+1": 0,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000223,
+      "node_id": "I_kwDOA223",
+      "number": 223,
+      "title": "Pagination cursor repeats the last item on page boundaries",
+      "body": "Pagination cursor repeats the last item on page boundaries.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "dlindqvist",
+        "id": 1147,
+        "node_id": "U_kgDO1147x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1147?v=4",
+        "html_url": "https://github.com/dlindqvist",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        },
+        {
+          "id": 5372,
+          "node_id": "LA_kwDOneeds-triage",
+          "name": "needs-triage",
+          "color": "d73a4a",
+          "default": false,
+          "description": "Issues labeled needs-triage"
+        }
+      ],
+      "assignees": [],
+      "milestone": null,
+      "comments": 6,
+      "author_association": "CONTRIBUTOR",
+      "created_at": "2026-06-03T09:40:00Z",
+      "updated_at": "2026-09-17T09:31:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/223",
+      "url": "https://api.github.com/repos/acme/api/issues/223",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 1,
+        "+1": 1,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000232,
+      "node_id": "I_kwDOA232",
+      "number": 232,
+      "title": "POST /v2/orders accepts negative quantities",
+      "body": "POST /v2/orders accepts negative quantities.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "tomasz-w",
+        "id": 1282,
+        "node_id": "U_kgDO1282x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1282?v=4",
+        "html_url": "https://github.com/tomasz-w",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        }
+      ],
+      "assignees": [],
+      "milestone": null,
+      "comments": 6,
+      "author_association": "MEMBER",
+      "created_at": "2026-06-14T09:54:00Z",
+      "updated_at": "2026-09-16T09:04:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/232",
+      "url": "https://api.github.com/repos/acme/api/issues/232",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 2,
+        "+1": 2,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000241,
+      "node_id": "I_kwDOA241",
+      "number": 241,
+      "title": "Webhook retries are not exponential after the third attempt",
+      "body": "Webhook retries are not exponential after the third attempt.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "priya-nair",
+        "id": 1421,
+        "node_id": "U_kgDO1421x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1421?v=4",
+        "html_url": "https://github.com/priya-nair",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        },
+        {
+          "id": 5310,
+          "node_id": "LA_kwDOregression",
+          "name": "regression",
+          "color": "d73a4a",
+          "default": false,
+          "description": "Issues labeled regression"
+        }
+      ],
+      "assignees": [],
+      "milestone": null,
+      "comments": 6,
+      "author_association": "CONTRIBUTOR",
+      "created_at": "2026-07-25T09:12:00Z",
+      "updated_at": "2026-09-15T09:11:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/241",
+      "url": "https://api.github.com/repos/acme/api/issues/241",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 0,
+        "+1": 0,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000250,
+      "node_id": "I_kwDOA250",
+      "number": 250,
+      "title": "OpenAPI spec lists /health twice",
+      "body": "OpenAPI spec lists /health twice.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "jdoe-acme",
+        "id": 1557,
+        "node_id": "U_kgDO1557x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1557?v=4",
+        "html_url": "https://github.com/jdoe-acme",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        }
+      ],
+      "assignees": [],
+      "milestone": null,
+      "comments": 6,
+      "author_association": "MEMBER",
+      "created_at": "2026-07-08T09:03:00Z",
+      "updated_at": "2026-09-14T09:23:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/250",
+      "url": "https://api.github.com/repos/acme/api/issues/250",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 1,
+        "+1": 1,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000259,
+      "node_id": "I_kwDOA259",
+      "number": 259,
+      "title": "Timeout on bulk export when the account has more than 10k rows",
+      "body": "Timeout on bulk export when the account has more than 10k rows.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "sam-reyes",
+        "id": 1694,
+        "node_id": "U_kgDO1694x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1694?v=4",
+        "html_url": "https://github.com/sam-reyes",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        },
+        {
+          "id": 5372,
+          "node_id": "LA_kwDOneeds-triage",
+          "name": "needs-triage",
+          "color": "d73a4a",
+          "default": false,
+          "description": "Issues labeled needs-triage"
+        }
+      ],
+      "assignees": [
+        {
+          "login": "mira-okafor",
+          "id": 1011,
+          "node_id": "U_kgDO1011x",
+          "avatar_url": "https://avatars.githubusercontent.com/u/1011?v=4",
+          "html_url": "https://github.com/mira-okafor",
+          "type": "User",
+          "site_admin": false
+        }
+      ],
+      "milestone": null,
+      "comments": 0,
+      "author_association": "CONTRIBUTOR",
+      "created_at": "2026-07-19T09:04:00Z",
+      "updated_at": "2026-09-13T09:40:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/259",
+      "url": "https://api.github.com/repos/acme/api/issues/259",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 2,
+        "+1": 2,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000268,
+      "node_id": "I_kwDOA268",
+      "number": 268,
+      "title": "Auth middleware ignores the X-Forwarded-Proto header",
+      "body": "Auth middleware ignores the X-Forwarded-Proto header.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "hannah-b",
+        "id": 1830,
+        "node_id": "U_kgDO1830x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1830?v=4",
+        "html_url": "https://github.com/hannah-b",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        },
+        {
+          "id": 5310,
+          "node_id": "LA_kwDOregression",
+          "name": "regression",
+          "color": "d73a4a",
+          "default": false,
+          "description": "Issues labeled regression"
+        }
+      ],
+      "assignees": [],
+      "milestone": null,
+      "comments": 6,
+      "author_association": "MEMBER",
+      "created_at": "2026-08-02T09:48:00Z",
+      "updated_at": "2026-09-12T09:44:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/268",
+      "url": "https://api.github.com/repos/acme/api/issues/268",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 0,
+        "+1": 0,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000277,
+      "node_id": "I_kwDOA277",
+      "number": 277,
+      "title": "Duplicate idempotency keys are accepted across tenants",
+      "body": "Duplicate idempotency keys are accepted across tenants.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "ccheng",
+        "id": 1965,
+        "node_id": "U_kgDO1965x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1965?v=4",
+        "html_url": "https://github.com/ccheng",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        }
+      ],
+      "assignees": [],
+      "milestone": null,
+      "comments": 0,
+      "author_association": "CONTRIBUTOR",
+      "created_at": "2026-08-13T09:37:00Z",
+      "updated_at": "2026-09-11T09:29:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/277",
+      "url": "https://api.github.com/repos/acme/api/issues/277",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 1,
+        "+1": 1,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000286,
+      "node_id": "I_kwDOA286",
+      "number": 286,
+      "title": "Memory grows steadily under long-lived SSE connections",
+      "body": "Memory grows steadily under long-lived SSE connections.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "mira-okafor",
+        "id": 1011,
+        "node_id": "U_kgDO1011x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1011?v=4",
+        "html_url": "https://github.com/mira-okafor",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        }
+      ],
+      "assignees": [],
+      "milestone": null,
+      "comments": 1,
+      "author_association": "MEMBER",
+      "created_at": "2026-08-24T09:53:00Z",
+      "updated_at": "2026-09-10T09:04:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/286",
+      "url": "https://api.github.com/repos/acme/api/issues/286",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 2,
+        "+1": 2,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    },
+    {
+      "id": 2100000295,
+      "node_id": "I_kwDOA295",
+      "number": 295,
+      "title": "CORS preflight fails for PATCH requests behind the CDN",
+      "body": "CORS preflight fails for PATCH requests behind the CDN.\n\n**Steps to reproduce**\n1. Deploy the API with the default configuration.\n2. Send the request described in the title from a client in eu-west-1.\n3. Observe the response and the server logs.\n\n**Expected**\nThe request succeeds or fails with a documented 4xx error.\n\n**Actual**\nThe service responds with an error that is hard to correlate with the cause.",
+      "state": "open",
+      "locked": false,
+      "user": {
+        "login": "dlindqvist",
+        "id": 1147,
+        "node_id": "U_kgDO1147x",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1147?v=4",
+        "html_url": "https://github.com/dlindqvist",
+        "type": "User",
+        "site_admin": false
+      },
+      "labels": [
+        {
+          "id": 5093,
+          "node_id": "LA_kwDObug",
+          "name": "bug",
+          "color": "d73a4a",
+          "default": true,
+          "description": "Issues labeled bug"
+        },
+        {
+          "id": 5310,
+          "node_id": "LA_kwDOregression",
+          "name": "regression",
+          "color": "d73a4a",
+          "default": false,
+          "description": "Issues labeled regression"
+        },
+        {
+          "id": 5372,
+          "node_id": "LA_kwDOneeds-triage",
+          "name": "needs-triage",
+          "color": "d73a4a",
+          "default": false,
+          "description": "Issues labeled needs-triage"
+        }
+      ],
+      "assignees": [],
+      "milestone": null,
+      "comments": 5,
+      "author_association": "CONTRIBUTOR",
+      "created_at": "2026-09-07T09:08:00Z",
+      "updated_at": "2026-09-09T09:01:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/acme/api/issues/295",
+      "url": "https://api.github.com/repos/acme/api/issues/295",
+      "repository_url": "https://api.github.com/repos/acme/api",
+      "reactions": {
+        "total_count": 0,
+        "+1": 0,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0
+      }
+    }
+  ],
+  "totalCount": 23,
+  "pageInfo": {
+    "hasNextPage": true,
+    "hasPreviousPage": false,
+    "startCursor": "Y3Vyc29yOnYyOpHOgQ",
+    "endCursor": "Y3Vyc29yOnYyOpHOgR"
+  }
+}

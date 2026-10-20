@@ -1,0 +1,65 @@
+### Ran Playwright code
+```js
+await page.goto('https://docs.acme.test/');
+```
+
+### Page state
+- Page URL: https://docs.acme.test/
+- Page Title: Acme Docs
+- Page Snapshot:
+```yaml
+- generic [ref=e1]:
+- banner [ref=e2]:
+  - link "Acme Docs" [ref=e3] [cursor=pointer]:
+    - /url: /
+  - navigation [ref=e4]:
+    - link "Guides" [ref=e5] [cursor=pointer]:
+      - /url: /guides
+    - link "API reference" [ref=e6] [cursor=pointer]:
+      - /url: /reference
+    - link "Changelog" [ref=e7] [cursor=pointer]:
+      - /url: /changelog
+  - searchbox "Search docs" [ref=e8]
+  - complementary [ref=e20]:
+    - heading "Getting started" [level=3] [ref=e21]
+    - list [ref=e22]:
+      - listitem [ref=e23]:
+        - link "Installation" [ref=e24] [cursor=pointer]:
+          - /url: /guides/install
+      - listitem [ref=e25]:
+        - link "Authentication" [ref=e26] [cursor=pointer]:
+          - /url: /guides/auth
+      - listitem [ref=e27]:
+        - link "Pagination" [ref=e28] [cursor=pointer]:
+          - /url: /guides/pagination
+      - listitem [ref=e29]:
+        - link "Rate limits" [ref=e30] [cursor=pointer]:
+          - /url: /guides/rate-limits
+      - listitem [ref=e31]:
+        - link "Webhooks" [ref=e32] [cursor=pointer]:
+          - /url: /guides/webhooks
+      - listitem [ref=e33]:
+        - link "Errors" [ref=e34] [cursor=pointer]:
+          - /url: /guides/errors
+  - main [ref=e40]:
+    - heading "Build on the Acme platform" [level=1] [ref=e41]
+    - paragraph [ref=e42]: Guides, references and examples for the Acme REST API.
+    - generic [ref=e43]:
+      - link "Quickstart" [ref=e44] [cursor=pointer]:
+        - /url: /guides/quickstart
+      - link "Browse the API reference" [ref=e45] [cursor=pointer]:
+        - /url: /reference
+    - heading "Popular topics" [level=2] [ref=e46]
+    - list [ref=e47]:
+      - listitem [ref=e48]: Authenticate with API keys
+      - listitem [ref=e49]: Paginate large result sets
+      - listitem [ref=e50]: Handle rate limits and retries
+      - listitem [ref=e51]: Verify webhook signatures
+  - contentinfo [ref=e60]:
+    - link "Status" [ref=e61] [cursor=pointer]:
+      - /url: https://status.acme.test
+    - link "Terms" [ref=e62] [cursor=pointer]:
+      - /url: /terms
+    - link "Privacy" [ref=e63] [cursor=pointer]:
+      - /url: /privacy
+```
