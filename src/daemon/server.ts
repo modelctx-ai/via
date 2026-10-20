@@ -24,7 +24,7 @@ import type {
   Stale,
   ValidateResult,
 } from '../protocol';
-import { MemoryCursorStore, type CursorRecord } from '../render/cursor';
+import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/pipeline';
 import type { DaemonPaths } from './paths';
@@ -45,6 +45,8 @@ export interface DaemonOptions {
   now?: () => number;
   /** How often to check that the socket file is still ours; an unreachable daemon exits. */
   watchMs?: number;
+  /** Where cursors are stored; default: `cursors/` in the user cache directory (same as in-process mode). */
+  cursorDir?: string;
 }
 
 type State = 'new' | 'running' | 'draining' | 'stopped';
@@ -80,13 +82,15 @@ export class DaemonServer {
   private socketIno?: number;
   private token = '';
   private sessions!: SessionManager;
-  private readonly cursors: MemoryCursorStore;
+  /** Cursors live in the user cache directory (like in-process mode), so they outlive the daemon. */
+  private readonly cursors: FileCursorStore;
   private readonly schemas = new Map<string, JsonSchema>();
   private readonly now: () => number;
 
   constructor(private readonly options: DaemonOptions) {
     this.now = options.now ?? Date.now;
-    this.cursors = new MemoryCursorStore({ now: this.now });
+    const cacheCtx = pathContext({ home: options.home, env: options.env, platform: options.platform });
+    this.cursors = new FileCursorStore(options.cursorDir ?? join(userCacheDir(cacheCtx), 'cursors'), { now: this.now });
     this.closed = new Promise((resolve) => (this.resolveClosed = resolve));
   }
 
@@ -356,7 +360,7 @@ export class DaemonServer {
   private async handle(conn: Connection, request: Request): Promise<unknown> {
     switch (request.type) {
       case 'status':
-        return this.status();
+        return await this.status();
       case 'list': {
         if (this.stale(request)) return STALE;
         const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true });
@@ -433,7 +437,7 @@ export class DaemonServer {
 
   // Status ------------------------------------------------------------------------------
 
-  private status(): DaemonStatus {
+  private async status(): Promise<DaemonStatus> {
     const now = this.now();
     // Asking for the status is itself a request on a connection: when nothing else is going on, the
     // daemon would be idle (and start counting) the moment this reply is out.
@@ -448,7 +452,7 @@ export class DaemonServer {
       idleTimeoutMs: this.options.idleTimeoutMs,
       ...idleExit,
       requests: this.requests,
-      cursors: this.cursors.size,
+      cursors: await this.cursors.count(),
       rssBytes: process.memoryUsage.rss(),
       sessions: this.sessions.status(),
     };

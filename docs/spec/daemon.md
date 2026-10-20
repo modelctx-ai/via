@@ -27,7 +27,7 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 - MCP 会话：stdio 子进程、HTTP 的 session id、OAuth 会话（登录与登出由 CLI 完成，daemon 在下一次请求时读到存储里的新状态，见 [auth.md](auth.md#oauth)）。
 - 工具目录的内存副本（同时持久化到磁盘缓存，写入的是与进程内模式相同的 `catalog/` 文件，两种模式共享），以及 `list_changed` 订阅：收到 `notifications/tools/list_changed` 后 50 毫秒内（合并连发的通知）重新 `tools/list`，同时替换内存副本和磁盘缓存，所以下一次浏览、`find` 或调用就能看到变化；刷新失败时丢弃副本与磁盘缓存，下一次请求重新向 server 拉取。内存副本的有效期与磁盘缓存相同（24 小时）。stdio server 因空闲被停止后订阅随之结束，之后只靠 TTL。
 - 凭证解析结果与 OAuth token 刷新。
-- 截断结果的游标（内存，30 分钟）。daemon 退出（空闲 10 分钟）后游标随之失效，`via more` 报告过期（退出码 3）；进程内模式的游标仍在缓存目录里。`via more` 先问已经在运行的 daemon（不会为它拉起新的），再看缓存目录。
+- 截断结果的游标。daemon 与进程内模式一样把游标写入用户缓存目录（`cursors/`，目录 0700、文件 0600，内容已脱敏，TTL 30 分钟，按文件修改时间清理），所以 daemon 空闲退出（10 分钟）不会让游标提前失效；只有 TTL 到期或 id 不存在才报告过期（退出码 3）。`via more` 先问已经在运行的 daemon（不会为它拉起新的），再看缓存目录。
 - 编译好的 JSON Schema（见下「校验」）。
 
 ## CLI 与 daemon 的协议
@@ -87,7 +87,7 @@ type ErrorInfo = {
 | `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样 |
 | `validate` | 编译 JSON Schema（按内容缓存）并校验 `data`，返回 ajv 的错误与 `format` 警告；`compileOnly` 只编译。这样 CLI 进程不加载 ajv |
 | `redact` | 把文本里 daemon 已知的凭证值换成 `***`；CLI 在打印可能回显用户输入的文本（错误、`--dry-run`、校验警告）前用它补上本地没有的脱敏。只在已有连接时发，不为它拉起 daemon |
-| `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录 |
+| `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录；记录落在用户缓存目录，不随 daemon 退出而丢失 |
 | `status` | 返回 pid、版本、socket、运行时间、距空闲退出的时间、请求数、游标数、内存和各会话（server 名、传输、是否连接、子进程 pid、目录中的工具数、调用数、空闲时间）。不含 URL、参数和任何凭证 |
 | `shutdown` | 先停止监听、删除 socket，应答，处理完在途请求后退出 |
 

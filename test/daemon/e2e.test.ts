@@ -294,7 +294,7 @@ describe('exclusive servers', () => {
 });
 
 describe('cursors', () => {
-  it('keeps truncated results in the daemon, not on disk', async () => {
+  it('keeps truncated results readable after the daemon has exited', async () => {
     const srv = await startFixtureServer({ token: FAKE_TOKEN });
     useCleanup(() => srv.close());
     const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: FAKE_TOKEN });
@@ -302,15 +302,19 @@ describe('cursors', () => {
     expect(first.code).toBe(0);
     const cursor = /next: via more ([0-9a-f]+)/.exec(first.stderr)?.[1];
     expect(cursor).toBeDefined();
-    expect(existsSync(join(d.sb.cacheDir, 'cursors'))).toBe(false);
+    expect(existsSync(join(d.sb.cacheDir, 'cursors', `${cursor!}.json`))).toBe(true);
 
     const more = await d.via(['more', cursor!]);
     expect(more.code).toBe(0);
     expect(more.stdout).toContain('Pull request number');
     expect(first.stdout).not.toBe(more.stdout);
 
+    // The daemon's idle exit must not expire the cursor: the files are in the cache directory.
     await d.stop();
-    const gone = await d.via(['more', cursor!]);
+    const after = await d.via(['more', cursor!]);
+    expect(after.code).toBe(0);
+    expect(after.stdout).toBe(more.stdout);
+    const gone = await d.via(['more', 'ffff']);
     expect(gone.code).toBe(3);
   });
 });

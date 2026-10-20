@@ -1,6 +1,6 @@
 // The daemon in this process (no spawned child): protocol behavior, framing, validation, cursors,
 // lifecycle timers and the session rules, driven over a real unix socket.
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -349,6 +349,41 @@ describe('cursors', () => {
     expect(await conn.request({ type: 'cursor-get', cursor: put.result })).toMatchObject({ result: { record } });
     expect(await conn.request({ type: 'cursor-get', cursor: 'ffff' })).toMatchObject({ result: { record: null } });
     expect(((await conn.request({ type: 'status' })) as { result: { cursors: number } }).result.cursors).toBe(1);
+  });
+});
+
+describe('cursors across daemon exit', () => {
+  const record: CursorRecord = { ref: 'gh issue:list', header: ['h'], lines: ['a', 'b'], offset: 1, shownBytes: 4, totalBytes: 8, budget: 8, hiddenColumns: 0, createdAt: Date.now() };
+
+  it('keeps a cursor readable after the daemon that stored it has exited (same TTL, private files)', async () => {
+    const first = await startDaemon();
+    const conn = await first.connect();
+    const put = (await conn.request({ type: 'cursor-put', record })) as { result: string };
+    conn.close();
+    await first.daemon.stop();
+    // A fresh daemon of the same user (same cache directory) still knows the cursor.
+    const root = mkdtempSync(join(tmpdir(), 'via-dp2-'));
+    const ctx = pathContext({ home: first.home, env: { XDG_RUNTIME_DIR: root }, platform: 'linux' });
+    const second = new DaemonServer({ paths: daemonPaths(ctx), version: VERSION, idleTimeoutMs: 60_000, env: { PATH: process.env.PATH ?? '' }, home: first.home, platform: 'linux' });
+    expect(await second.start()).toBe('started');
+    cleanups.push(async () => {
+      await second.stop();
+      rmSync(root, { recursive: true, force: true });
+    });
+    const result = await DaemonConnection.connect(daemonPaths(ctx), VERSION);
+    if (!('conn' in result)) throw new Error(`refused: ${result.refused}`);
+    const got = (await result.conn.request({ type: 'cursor-get', cursor: put.result })) as { result: { record: CursorRecord | null } };
+    result.conn.close();
+    expect(got.result.record).toMatchObject({ ref: record.ref, lines: record.lines });
+  });
+
+  it('writes cursor files into the private user cache directory', async () => {
+    const h = await startDaemon();
+    const conn = await h.connect();
+    const put = (await conn.request({ type: 'cursor-put', record })) as { result: string };
+    const dir = join(h.home, '.cache', 'via', 'cursors');
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    expect(statSync(join(dir, `${put.result}.json`)).mode & 0o777).toBe(0o600);
   });
 });
 
