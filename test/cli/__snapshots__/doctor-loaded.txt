@@ -1,0 +1,17 @@
+servers   2 ok · 1 needs auth (docs) · 1 untrusted (local)
+  local: untrusted
+    next: via trust <tmp>/project/.mcp.json
+  docs: needs auth
+    next: via auth login docs
+
+frameworks still injecting MCP schemas:
+  claude-code   1 server · size unknown
+    hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用
+  cursor        2 servers · ~8k tokens/turn
+    hint: Settings → MCP，关闭对应 server 的开关
+
+secrets:
+  exa: EXA_API_KEY in ~/.cursor/mcp.json is plaintext
+    next: set servers.exa.env.EXA_API_KEY to an env:, file: or keychain: reference in your via config
+  gw: auth.bearer in ~/.config/via/config.yaml is plaintext
+    next: set servers.gw.auth.bearer to an env:, file: or keychain: reference in your via config

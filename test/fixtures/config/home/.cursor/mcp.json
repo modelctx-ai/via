@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "exa": {
+      "command": "npx",
+      "args": ["-y", "exa-mcp-server@latest"],
+      "env": { "EXA_API_KEY": "${env:EXA_KEY}" }
+    },
+    "context7": {
+      "url": "https://mcp.context7.example.invalid/mcp",
+      "headers": { "CONTEXT7_API_KEY": "fake-plaintext-header-value" }
+    },
+    "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] }
+  }
+}

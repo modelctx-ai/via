@@ -1,0 +1,13 @@
+{
+  "id": "vscode",
+  "name": "VS Code",
+  "configs": [
+    { "path": ".vscode/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "project" },
+    { "path": "~/.config/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["linux"] },
+    { "path": "~/Library/Application Support/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["darwin"] },
+    { "path": "%APPDATA%/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["win32"] }
+  ],
+  "disableHint": "运行命令 MCP: List Servers，选中 server 后停止或禁用；或在 Chat 的工具选择器中取消勾选",
+  "verifiedAt": null,
+  "notes": "只读取 mcp.json；旧版 settings.json 中的 mcp.servers 不读取。Insiders 与其他用户配置档（profile）的路径不同，暂不探测。"
+}

@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "local-tool": { "type": "stdio", "command": "./scripts/tool-server.sh", "args": ["--stdio"] },
+    "exa": { "type": "stdio", "command": "npx", "args": ["-y", "exa-mcp-server@project"], "env": { "EXA_API_KEY": "${EXA_KEY}" } }
+  }
+}

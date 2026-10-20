@@ -1,0 +1,18 @@
+{
+  "numStartups": 12,
+  "mcpServers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "Authorization": "Bearer ${GITHUB_PAT}" }
+    },
+    "exa": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "exa-mcp-server"],
+      "env": { "EXA_API_KEY": "${EXA_KEY}" }
+    },
+    "legacy": { "type": "sse", "url": "https://legacy.example.invalid/sse" },
+    "broken": { "type": "websocket", "url": "wss://broken.example.invalid" }
+  }
+}

@@ -1,0 +1,3 @@
+[mcp_servers.codex-proj]
+command = "python3"
+args = ["-m", "codex_proj"]

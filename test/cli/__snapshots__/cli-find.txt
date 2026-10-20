@@ -1,0 +1,3 @@
+gh issue:read   owner, repo, issue-number, method  Get issue details [read-only]
+gh issue:write  owner, repo, title, [body]         Create or update an issue
+gh issue:list   owner, repo, [state], [per-page]   List issues [read-only]

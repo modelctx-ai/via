@@ -1,0 +1,5 @@
+servers   2 ok
+
+frameworks: no MCP servers found in framework configs
+
+secrets: no plaintext credentials found

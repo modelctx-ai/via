@@ -1,0 +1,5 @@
+{
+  "servers": {
+    "vscode-proj": { "type": "stdio", "command": "node", "args": ["./vscode-server.js"] }
+  }
+}

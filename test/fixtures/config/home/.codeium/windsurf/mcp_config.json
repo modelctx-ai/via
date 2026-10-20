@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "cloudflare": { "serverUrl": "https://mcp.cloudflare.example.invalid/mcp" },
+    "puppeteer": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-puppeteer"] }
+  }
+}
