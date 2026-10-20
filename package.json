@@ -22,7 +22,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lexicon": "tsup scripts/build-lexicon.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/build-lexicon.js test/fixtures/tools --out data/domain-lexicon.json",
-    "split-diff": "tsup scripts/split-diff.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-diff.js test/fixtures/tools test/fixtures/other"
+    "bench:perf": "tsup scripts/bench-perf.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-perf.js",
+    "split-diff":"tsup scripts/split-diff.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-diff.js test/fixtures/tools test/fixtures/other"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

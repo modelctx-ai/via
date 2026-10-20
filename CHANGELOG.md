@@ -17,6 +17,7 @@
 
 ### Added
 
+- 性能基准 `npm run bench:perf`（`scripts/bench-perf.ts`，需先 `npm run build`）：在隔离的 HOME 里测 `dist/via.js` 各命令的冷启动（无缓存 / 缓存冷 / 缓存热，减去 `node -e 0` 基线）、确定性合成的 1,000 个工具上目录构建、索引构建与查询的耗时、`via <provider> <tool>` 相对官方 SDK 直接调用的开销、每条命令加载的分块与包，装有 `bun` 时再测单文件可执行；结果对照 testing.md 的性能目标。合成目录生成器与模块加载追踪放在 `scripts/lib/`，`test/bench/` 与 `test/cli/dist.test.ts` 增加不依赖时间的断言（合成目录可复现、`--version` / `-h` 不加载任何包、无配置的浏览命令不加载 MCP SDK 与 ajv）。
 - 工程骨架：`@modelctx/via` 包（ESM、Node 20+，TypeScript strict），tsup 打成单个文件并内联 `data/`，vitest 测试，`typecheck` / `build` / `test` 脚本。
 - `src/catalog/`：工具名拆分（切词、去 provider 词、找动作、复合动词、逐词单数化、叶子工具、`resource:verb` 冲突退回叶子、`rename` 覆盖、`deny` 过滤）；分域（配置 → 内置分类表 → 启发式打分 → `other`，按资源拆分，`--why` 的依据）；`SearchIndex`（规范写法三级匹配 + BM25）；工具引用解析与 did you mean；`via`、`via <provider>`、`via <provider> <resource>`、`via find` 的浏览视图。规则放在 `data/verbs.json`、`data/domains.json`、`data/domain-lexicon.json`（`npm run lexicon` 生成）。
 - `src/render/`：输出流水线（选数据源、清理噪声、形状判断、表格与 CJK 双宽对齐、单元格与预算截断、游标、媒体落盘、脱敏）、元信息行、`next:` 提示与错误格式、退出码常量。游标存储与媒体落盘在接口之后，0.1 的实现写入用户缓存目录（权限 0700）。规则放在 `data/noise.json`、`data/columns.json`。
