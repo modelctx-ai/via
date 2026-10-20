@@ -181,7 +181,10 @@ describe('falling back to in-process mode', () => {
 
   it('does not repeat a call that may already have run when the connection breaks', async () => {
     const d = await daemonSandbox(config());
-    await d.via(['mock', 'pid']);
+    // Killing the daemon leaves its stdio server running (on Windows nothing ends a child with its
+    // parent) with the project as its working directory; teardown must end it before the sandbox
+    // directory can go, so record it here rather than hoping `status()` saw it.
+    d.track(Number((await d.via(['mock', 'pid'])).stdout.trim()));
     const pid = (await d.status())!.pid;
     // `slow` is not marked read-only: if the daemon dies mid-call the CLI must not run it again.
     const running = d.via(['mock', 'slow', '--ms', '3000']);
