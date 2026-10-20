@@ -16,11 +16,12 @@ export const TOOLS = [
   { name: 'max_busy', description: 'Highest number of overlapping busy calls so far', inputSchema: object() },
   { name: 'crash_once', description: 'Exits the first time (marker file in MOCK_MARKER), answers afterwards', inputSchema: object() },
   { name: 'pid', description: 'Process id of the server', inputSchema: object() },
+  { name: 'add_tool', description: 'Adds a tool to the list and sends notifications/tools/list_changed', inputSchema: object() },
 ];
 
 /** Shared counters (the HTTP fixture builds one Server per request, so state lives outside). */
 export function createState() {
-  return { active: 0, maxActive: 0 };
+  return { active: 0, maxActive: 0, extra: [] };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,13 +31,14 @@ const text = (value) => ({ content: [{ type: 'text', text: String(value) }] });
  * @param {{ pageSize?: number, state?: ReturnType<typeof createState> }} [options]
  */
 export function createMockServer({ pageSize = 0, state = createState() } = {}) {
-  const server = new Server({ name: 'mock', version: '0.0.0' }, { capabilities: { tools: {} } });
+  const server = new Server({ name: 'mock', version: '0.0.0' }, { capabilities: { tools: { listChanged: true } } });
 
   server.setRequestHandler(ListToolsRequestSchema, async (request) => {
-    if (!pageSize) return { tools: TOOLS };
+    const all = [...TOOLS, ...state.extra];
+    if (!pageSize) return { tools: all };
     const start = request.params?.cursor ? Number(request.params.cursor) : 0;
     const end = start + pageSize;
-    return { tools: TOOLS.slice(start, end), ...(end < TOOLS.length ? { nextCursor: String(end) } : {}) };
+    return { tools: all.slice(start, end), ...(end < all.length ? { nextCursor: String(end) } : {}) };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -75,6 +77,12 @@ export function createMockServer({ pageSize = 0, state = createState() } = {}) {
       }
       case 'pid':
         return text(process.pid);
+      case 'add_tool': {
+        const name = `extra_${state.extra.length + 1}`;
+        state.extra.push({ name, description: 'Added at runtime', inputSchema: object() });
+        await server.sendToolListChanged();
+        return text(name);
+      }
       default:
         throw new Error(`unknown tool: ${name}`);
     }

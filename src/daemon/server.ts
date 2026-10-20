@@ -433,6 +433,10 @@ export class DaemonServer {
 
   private status(): DaemonStatus {
     const now = this.now();
+    // Asking for the status is itself a request on a connection: when nothing else is going on, the
+    // daemon would be idle (and start counting) the moment this reply is out.
+    const alone = this.inflight === 1 && this.connections.size === 1;
+    const idleExit = this.options.idleTimeoutMs <= 0 ? {} : alone ? { idleExitInMs: this.options.idleTimeoutMs } : this.idleDeadline !== undefined ? { idleExitInMs: Math.max(0, this.idleDeadline - now) } : {};
     return {
       pid: process.pid,
       version: this.options.version,
@@ -440,7 +444,7 @@ export class DaemonServer {
       startedAt: this.startedAt,
       uptimeMs: now - this.startedAt,
       idleTimeoutMs: this.options.idleTimeoutMs,
-      ...(this.idleDeadline !== undefined ? { idleExitInMs: Math.max(0, this.idleDeadline - now) } : {}),
+      ...idleExit,
       requests: this.requests,
       cursors: this.cursors.size,
       rssBytes: process.memoryUsage.rss(),
