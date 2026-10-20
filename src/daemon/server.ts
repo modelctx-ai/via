@@ -27,7 +27,7 @@ import type {
 } from '../protocol';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
-import { sanitizeText } from '../render/pipeline';
+import { sanitizeText } from '../render/sanitize';
 import { redactValue } from '../render/redact';
 import { endpointOf, type DaemonPaths } from './paths';
 import { CREDENTIAL_TTL_MS, ExpiringResolver, SessionManager } from './sessions';
@@ -385,7 +385,12 @@ export class DaemonServer {
       case 'list': {
         if (this.stale(request)) return STALE;
         const onWarning = (message: string): void => this.sendWarning(conn, request.id, message);
-        const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true, onWarning });
+        const result: ListResult = await this.sessions.list(request, {
+          timeoutMs: request.timeoutMs,
+          refresh: request.refresh === true,
+          onWarning,
+          ...(typeof request.have === 'number' ? { have: request.have } : {}),
+        });
         return result;
       }
       case 'call': {

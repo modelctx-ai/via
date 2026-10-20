@@ -226,7 +226,7 @@ class LineRunner {
     if (!opened) {
       opened = (async () => {
         const listing = await this.app.listing(entry);
-        return { entry, listing, views: await this.app.providerViews(entry, listing.tools) };
+        return { entry, listing, views: await this.app.providerViews(entry, listing) };
       })();
       this.providers.set(entry.name, opened);
     }

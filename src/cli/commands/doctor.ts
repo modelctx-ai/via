@@ -1,7 +1,7 @@
 // `via doctor`: probe every server live, then hand the results to the renderer.
 import { BUNDLED_FRAMEWORKS, CredentialError, type ServerConfig } from '../../config';
 import { shellWord } from '../../render/shell';
-import { ClientError } from '../../client';
+import { ClientError } from '../../client/errors';
 import type { App } from '../app';
 import { buildProviderTable, statusOf } from '../directory';
 import { renderDoctor, type ServerProbe } from '../doctor';

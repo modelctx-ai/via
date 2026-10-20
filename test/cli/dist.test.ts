@@ -70,6 +70,23 @@ function loads(args: string[]): { packages: string[]; files: string[]; libraries
   return { packages: [...packages].sort(), files: bundle.map((p) => p.slice(p.lastIndexOf('/') + 1)), libraries: [...libraries].sort() };
 }
 
+/** The Node-internal modules a run loaded (`process.moduleLoadList`), from the preload in scripts/lib/builtin-trace.cjs. */
+function internalModules(args: string[]): string[] {
+  const trace = join(dir, 'builtins.txt');
+  rmSync(trace, { force: true });
+  const result = spawnSync(process.execPath, ['--require', join(root, 'scripts', 'lib', 'builtin-trace.cjs'), bin, ...args], {
+    encoding: 'utf8',
+    cwd: home,
+    env: { PATH: process.env.PATH, HOME: home, GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1', VIA_BUILTIN_TRACE: trace },
+    timeout: 20_000,
+  });
+  expect(result.status).toBe(0);
+  return readFileSync(trace, 'utf8')
+    .split('\n')
+    .filter((l) => l.startsWith('NativeModule '))
+    .map((l) => l.slice('NativeModule '.length));
+}
+
 beforeAll(() => {
   mkdirSync(join(root, '.build'), { recursive: true });
   dir = mkdtempSync(join(root, '.build', 'dist-'));
@@ -190,6 +207,61 @@ describe('built dist/via.js', () => {
         expect(files.filter((f) => /^(run|app)-/.test(f))).toEqual([]);
         expect(files).toContain('via.js');
       }
+    });
+
+    // Each of these costs milliseconds to initialise and none is needed to print a table: `net` and
+    // `tty` come with process.stdout / isatty, `crypto` with createHash, `internal/fs/promises` and
+    // the stream classes with the ES module facade of `fs` (scripts/lib/lazy-builtins.ts).
+    it('no command that prints a view initialises crypto, net, tty or the fs promises and stream classes', async () => {
+      // A warm catalog: list once while the server is up, then browse from the disk cache.
+      const srv = await startFixtureServer({ token: FAKE_TOKEN });
+      try {
+        writeUserConfig(ghConfig(srv.url));
+        expect((await viaAsync(['sync'])).code).toBe(0);
+      } finally {
+        await srv.close();
+      }
+      try {
+        const forbidden = ['crypto', 'net', 'tty', 'stream', 'fs/promises', 'internal/fs/promises', 'internal/fs/streams', 'readline', 'child_process'];
+        for (const args of [['--version'], ['-h'], [], ['find', 'issue'], ['gh'], ['gh', 'issue'], ['servers']]) {
+          expect(internalModules(args).filter((m) => forbidden.includes(m)), `via ${args.join(' ')}`).toEqual([]);
+        }
+      } finally {
+        rmSync(join(home, '.config'), { recursive: true, force: true });
+        rmSync(join(home, '.cache'), { recursive: true, force: true });
+      }
+    });
+
+    // The browse commands name what they need in one module (src/cli/browse-deps.ts) so it is one
+    // import, not six in a row; a command that never lists tools must not load any of it.
+    it('`via daemon status` loads neither the catalog, the configuration nor the backends', () => {
+      const { files } = loads(['daemon', 'status']);
+      const dir = dirname(bin);
+      for (const f of files) {
+        const text = readFileSync(join(dir, f), 'utf8');
+        expect(text, f).not.toMatch(/^\/\/ src\/(catalog\/|config\/(load|layer|merge|normalize|parse|credentials)\.ts)/m);
+        expect(text, f).not.toMatch(/^\/\/ src\/cli\/(backend|view-cache|catalog-cache|directory)\.ts/m);
+      }
+    });
+
+    // Making a `require` costs URL parsing and package.json lookups. Only chunks that mention
+    // `require` (the esbuild runtime shim, CommonJS dependencies) get one; the rest do not
+    // (scripts/lib/strip-require.ts).
+    it('creates a require only in chunks that use one', () => {
+      const all = readdirSync(dirname(bin)).filter((f) => f.endsWith('.js'));
+      const withBanner = all.filter((f) => readFileSync(join(dirname(bin), f), 'utf8').includes('__viaCreateRequire'));
+      expect(withBanner.length).toBeGreaterThan(0);
+      expect(withBanner.length).toBeLessThan(all.length / 5);
+      for (const f of all) {
+        const text = readFileSync(join(dirname(bin), f), 'utf8');
+        const rest = text.replace(/^#!.*\n/, '').replace("import { createRequire as __viaCreateRequire } from 'node:module';\nconst require = __viaCreateRequire(import.meta.url);\n", '');
+        if (!withBanner.includes(f)) expect(rest, f).not.toMatch(/\brequire\b/);
+      }
+      for (const args of [[], ['find', 'x']]) {
+        const { files } = loads(args);
+        expect(files.filter((f) => withBanner.includes(f)).length, `via ${args.join(' ')}`).toBeLessThanOrEqual(2);
+      }
+      expect(readFileSync(bin, 'utf8').startsWith('#!/usr/bin/env node\n')).toBe(true);
     });
 
     it('a browse command with nothing configured loads neither the MCP SDK nor ajv', () => {

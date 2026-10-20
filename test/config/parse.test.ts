@@ -12,6 +12,16 @@ describe('parseConfigText', () => {
     await expect(parseConfigText('{"a": 1,}', 'json')).rejects.toBeInstanceOf(ParseFailure);
   });
 
+  it('reads valid strict JSON natively, with the same result as the JSONC parser', async () => {
+    const text = JSON.stringify({ mcpServers: { a: { command: 'npx', args: ['-y', 'x'], env: { K: 'v' } }, b: { url: 'http://x/mcp', n: [1, -0.5, 1e21, null, true] } }, '': 1 });
+    expect(await parseConfigText(text, 'json')).toEqual(await parseConfigText(text, 'jsonc'));
+    // A "__proto__" key is data, not a prototype assignment.
+    const parsed = (await parseConfigText('{"__proto__": {"polluted": true}, "b": 1}', 'json')) as Record<string, unknown>;
+    expect(Object.keys(parsed)).toEqual(['__proto__', 'b']);
+    expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+    expect((parsed as { polluted?: boolean }).polluted).toBeUndefined();
+  });
+
   it('parses JSONC with comments and trailing commas', async () => {
     expect(await parseConfigText('{ // c\n /* d */ "a": [1,], }', 'jsonc')).toEqual({ a: [1] });
   });

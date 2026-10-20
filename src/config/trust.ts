@@ -5,9 +5,9 @@
 // plus the SHA-256 of its content, kept in the user data directory; a changed file is untrusted again.
 // The `via trust` command (src/cli/commands/trust.ts) is built on `recordTrustHash`; this module has no CLI.
 
-import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { sha256Hex } from '../sha256';
 import { normalizeWindowsPath, pathModule } from './paths';
 
 export interface TrustRecord {
@@ -30,7 +30,7 @@ export function trustStorePath(dataDir: string): string {
 }
 
 export function hashContent(content: string | Uint8Array): string {
-  return createHash('sha256').update(content).digest('hex');
+  return sha256Hex(content);
 }
 
 /**

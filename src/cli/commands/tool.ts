@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { decodeText } from '../../platform/text';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { CatalogTool, ProviderCatalog } from '../../catalog';
-import { ClientError } from '../../client';
+import { ClientError } from '../../client/errors';
 import { formatError, type ErrorInfo } from '../../render/errors';
 import { ExitCode } from '../../render/exit-codes';
 import { FileMediaSink } from '../../render/media';
@@ -219,7 +219,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
 
 /** The same tool in a refreshed list, or undefined when the server no longer has it. */
 async function refreshedTarget(app: App, old: ToolTarget, listing: Listing): Promise<ToolTarget | undefined> {
-  const views = await app.providerViews(old.entry, listing.tools);
+  const views = await app.providerViews(old.entry, listing);
   const tool = views.visible.tools.find((t) => t.rawName === old.tool.rawName);
   return tool ? { entry: old.entry, listing, views, tool } : undefined;
 }

@@ -14,11 +14,12 @@ export function extractParams(schema: JsonSchema | undefined): ParamInfo[] {
   const requiredSet = new Set(schema?.required ?? []);
   const names = [...Object.keys(props), ...[...requiredSet].filter((n) => !(n in props))];
 
+  const kebabs = names.map(kebab);
   const kebabCount = new Map<string, number>();
-  for (const n of names) kebabCount.set(kebab(n), (kebabCount.get(kebab(n)) ?? 0) + 1);
+  for (const k of kebabs) kebabCount.set(k, (kebabCount.get(k) ?? 0) + 1);
 
-  const all = names.map((name): ParamInfo => {
-    const k = kebab(name);
+  const all = names.map((name, i): ParamInfo => {
+    const k = kebabs[i]!;
     return { name, arg: (kebabCount.get(k) ?? 0) > 1 ? name : k, required: requiredSet.has(name) };
   });
   return [...all.filter((p) => p.required), ...all.filter((p) => !p.required)];

@@ -5,7 +5,7 @@ import { CredentialError, type ServerConfig } from '../config/types';
 import type { ErrorInfo } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { shellWord } from '../render/shell';
-import { sanitizeText } from '../render/pipeline';
+import { sanitizeText } from '../render/sanitize';
 
 export class ClientError extends Error implements ErrorInfo {
   readonly exitCode: ErrorInfo['exitCode'];

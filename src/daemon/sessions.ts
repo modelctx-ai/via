@@ -61,8 +61,17 @@ interface Entry {
   original: ServerConfig;
   server: ServerConfig;
   session: McpSession;
+  /**
+   * The list, held in memory only when the disk cache cannot hold it. Normally the cache file is the
+   * copy (this daemon wrote it, in-process runs share it): a few hundred tools are megabytes of
+   * parsed objects that nobody reads until a CLI asks without `have`.
+   */
   tools?: McpTool[];
+  /** When the list was fetched; set while the daemon has a fresh copy, in memory or on disk. */
   fetchedAt?: number;
+  /** Number of tools in that list, when known (for `status`). */
+  toolCount?: number;
+  /** What the server declared at `initialize`, once known. */
   features?: ServerFeatures;
   calls: number;
   active: number;
@@ -110,7 +119,10 @@ export class SessionManager {
   // Operations --------------------------------------------------------------------------
 
   /** `tools/list`: this daemon's copy while it is fresh, else the disk cache, else the server. */
-  async list(target: ServerTarget, options: { timeoutMs: number; refresh: boolean; onWarning?: (message: string) => void }): Promise<ListResult> {
+  async list(
+    target: ServerTarget,
+    options: { timeoutMs: number; refresh: boolean; have?: number; onWarning?: (message: string) => void },
+  ): Promise<ListResult> {
     const server = await this.admit(target);
     await this.prime(server, options.timeoutMs);
     const entry = this.entryFor(target, server);
@@ -118,16 +130,25 @@ export class SessionManager {
     try {
       if (!options.refresh) {
         const now = this.options.now();
-        if (entry.tools && entry.fetchedAt !== undefined && now - entry.fetchedAt <= CATALOG_TTL_MS) {
-          return { tools: entry.tools, fetchedAt: entry.fetchedAt, fromCache: true, ...(entry.features ? { features: entry.features } : {}) };
+        if (entry.fetchedAt !== undefined && now - entry.fetchedAt <= CATALOG_TTL_MS) {
+          const features = entry.features ? { features: entry.features } : {};
+          if (options.have === entry.fetchedAt) return { unchanged: true, fetchedAt: entry.fetchedAt, fromCache: true, ...features };
+          if (entry.tools) return { tools: entry.tools, fetchedAt: entry.fetchedAt, fromCache: true, ...features };
         }
+        // The copy on disk: the one this daemon wrote, or an in-process run's.
         const hit = this.cache.read(entry.original);
         if (hit) {
-          entry.tools = hit.tools;
           entry.fetchedAt = hit.fetchedAt;
           if (hit.features) entry.features = hit.features;
-          return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true, ...(hit.features ? { features: hit.features } : {}) };
+          const features = entry.features ? { features: entry.features } : {};
+          if (options.have === hit.fetchedAt) return { unchanged: true, fetchedAt: hit.fetchedAt, fromCache: true, ...features };
+          const tools = hit.tools;
+          entry.toolCount = tools.length;
+          return { tools, fetchedAt: hit.fetchedAt, fromCache: true, ...features };
         }
+        // Nothing usable: ask the server (below). Forget what pointed at a copy that is gone.
+        delete entry.tools;
+        delete entry.fetchedAt;
       }
       const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs, ...(options.onWarning ? { onWarning: options.onWarning } : {}) });
       this.store(entry, tools);
@@ -195,7 +216,8 @@ export class SessionManager {
       };
       const pid = e.session.pid;
       if (pid !== undefined) status.pid = pid;
-      if (e.tools) status.tools = e.tools.length;
+      const count = e.toolCount ?? e.tools?.length ?? (e.fetchedAt !== undefined ? this.cache.read(e.original)?.tools.length : undefined);
+      if (count !== undefined) status.tools = count;
       return status;
     });
   }
@@ -338,10 +360,13 @@ export class SessionManager {
   }
 
   private store(entry: Entry, tools: McpTool[]): void {
-    entry.tools = tools;
     entry.fetchedAt = this.options.now();
+    entry.toolCount = tools.length;
     entry.features = entry.session.features() ?? entry.features;
-    this.cache.write(entry.original, tools, entry.features);
+    // Keep the list in memory only if it could not be written to disk.
+    const written = this.cache.write(entry.original, tools, { fetchedAt: entry.fetchedAt, ...(entry.features ? { features: entry.features } : {}) });
+    if (written === undefined) entry.tools = tools;
+    else delete entry.tools;
   }
 
   // list_changed ------------------------------------------------------------------------
@@ -369,6 +394,7 @@ export class SessionManager {
       // The copy is known to be out of date and cannot be renewed now: forget it so the next list asks the server.
       delete entry.tools;
       delete entry.fetchedAt;
+      delete entry.toolCount;
       this.cache.clear(entry.original);
     } finally {
       entry.refreshing = false;

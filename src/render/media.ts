@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../sha256';
 import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -46,7 +46,7 @@ export class FileMediaSink implements MediaSink {
     } catch {
       // best effort
     }
-    const hash = createHash('sha256').update(media.data).digest('hex').slice(0, 12);
+    const hash = sha256Hex(media.data).slice(0, 12);
     const path = join(this.dir, `${hash}.${extensionFor(media.mimeType)}`);
     writeFileSync(path, Buffer.from(media.data, 'base64'), { mode: 0o600 });
     return path;
@@ -61,7 +61,7 @@ export class MemoryMediaSink implements MediaSink {
 
   save(media: MediaFile): string {
     this.saved.push(media);
-    const hash = createHash('sha256').update(media.data).digest('hex').slice(0, 12);
+    const hash = sha256Hex(media.data).slice(0, 12);
     return `${this.dir}/${hash}.${extensionFor(media.mimeType)}`;
   }
 }

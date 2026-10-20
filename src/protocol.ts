@@ -53,8 +53,12 @@ export type ServerTarget = {
 
 export type Request =
   | { id: string; type: 'status' }
-  /** `tools/list` of one server: daemon memory, then the disk cache, then the server. */
-  | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean } & ServerTarget)
+  /**
+   * `tools/list` of one server: daemon memory, then the disk cache, then the server. `have` is the
+   * `fetchedAt` of a list the caller already holds (or a build made from it): when the daemon's
+   * list is that one it answers without the tools (`unchanged`). Ignored with `refresh`.
+   */
+  | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   /** `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. */
   | ({ id: string; type: 'call'; rawName: string; args: Record<string, unknown>; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
   /** `resources/list` plus `resources/templates/list` of one server. Never cached. */
@@ -129,8 +133,14 @@ export type Message = Response | Event | Stale;
 /** What a server declared at `initialize` that via can use besides tools (discovery.md, "浏览视图"). */
 export type ServerFeatures = { resources: boolean; prompts: boolean };
 
-/** `result` of `list`. `features` is absent when it is not known (a cache written before it was recorded). */
-export type ListResult = { tools: McpTool[]; fetchedAt: number; fromCache: boolean; features?: ServerFeatures };
+/**
+ * `result` of `list`. `features` is absent when it is not known (a cache written before it was
+ * recorded). `unchanged` replaces `tools` when the request's `have` is the `fetchedAt` of the list
+ * the daemon would have sent; the credentials and trust checks ran all the same.
+ */
+export type ListResult = ListedTools | ListUnchanged;
+export type ListedTools = { tools: McpTool[]; fetchedAt: number; fromCache: boolean; features?: ServerFeatures };
+export type ListUnchanged = { unchanged: true; fetchedAt: number; fromCache: true; features?: ServerFeatures };
 
 /** `result` of `validate`. `ok: false` means the schema cannot be compiled. */
 export type ValidateResult =

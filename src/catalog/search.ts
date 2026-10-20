@@ -39,11 +39,20 @@ export interface SearchOptions {
 export interface SearchIndexOptions {
   /** Query expansion with `data/synonyms.json`; `false` turns it off (the lexical baseline). Default: the bundled data. */
   synonyms?: Synonyms | false;
+  /** The `docTerms` of tools whose terms are already known (a prebuilt catalog, view-cache.ts). */
+  precomputed?: { get(tool: CatalogTool): DocTerms | undefined };
+}
+
+/** What the index keeps per tool besides the tool itself: weighted term frequencies and their sum. */
+export interface DocTerms {
+  /** Sum of the weights. */
+  length: number;
+  /** `[term, weight, term, weight, ...]`, each term once. */
+  pairs: ReadonlyArray<string | number>;
 }
 
 interface Doc {
   tool: CatalogTool;
-  tf: Map<string, number>;
   length: number;
   forms: string[];
   domains: ProviderCatalog['domain']['domains'];
@@ -53,34 +62,63 @@ function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/** Words of one or more non-space characters other than `/` and `_`, separated by single spaces. */
+const ALREADY_NORMAL = /^(?:[^\s/_]+(?: [^\s/_]+)*)?$/;
+
 /** Lower-case, `/` becomes a space, `_` becomes `-`, whitespace collapsed. */
-function normalizeQuery(s: string): string {
+export function normalizeQuery(s: string): string {
+  // Canonical tool names (lower-case kebab, one space between provider and name) are already normal.
+  if (ALREADY_NORMAL.test(s) && s === s.toLowerCase()) return s;
   return s.toLowerCase().replace(/\//g, ' ').replace(/_/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+/** Lower-case words of `text` in index form: singular, and without stop words when asked. */
+function termsOf(text: string, ignoreStopwords: boolean, rules: CatalogRules): string[] {
+  const out: string[] = [];
+  for (const w of tokenize(text)) {
+    if (ignoreStopwords && (w.length < 2 || rules.domains.stopwords.has(w))) continue;
+    out.push(singularize(w, rules.split));
+  }
+  return out;
+}
+
+/** The terms a tool is indexed under: provider, name and raw name (weight 4), parameter names (2), description (1). */
+export function docTerms(tool: CatalogTool, rules: CatalogRules = defaultCatalogRules()): DocTerms {
+  const tf = new Map<string, number>();
+  let length = 0;
+  const bump = (terms: string[], weight: number) => {
+    for (const t of terms) {
+      tf.set(t, (tf.get(t) ?? 0) + weight);
+      length += weight;
+    }
+  };
+  bump(termsOf(`${tool.provider} ${tool.name} ${tool.rawName}`, false, rules), FIELD_WEIGHT.name);
+  bump(termsOf(tool.params.map((p) => p.name).join(' '), false, rules), FIELD_WEIGHT.param);
+  bump(termsOf(tool.description, true, rules), FIELD_WEIGHT.description);
+  return { length, pairs: [...tf].flat() };
 }
 
 /** Inverted index over a catalog: provider, resource, verb, raw name, description, parameter names. */
 export class SearchIndex {
   private readonly docs: Doc[] = [];
-  private readonly postings = new Map<string, Array<[docId: number, tf: number]>>();
+  /** term -> `[docId, tf, docId, tf, ...]`, in doc order (flat: one array per term, not one per posting). */
+  private readonly postings = new Map<string, number[]>();
   private avgLength = 1;
   private readonly rules: CatalogRules;
   private readonly synonymsOption: Synonyms | false | undefined;
   private compiledSynonyms?: Synonyms;
 
+  /**
+   * `options.precomputed` holds the `docTerms` of tools whose terms are already known (a cached
+   * build); the others are computed here. Either way the index is the same.
+   */
   constructor(catalog: Catalog, rules: CatalogRules = defaultCatalogRules(), options: SearchIndexOptions = {}) {
     this.rules = rules;
     this.synonymsOption = options.synonyms;
     for (const provider of catalog.providers) {
-      for (const tool of provider.tools) this.add(tool, provider);
+      for (const tool of provider.tools) this.add(tool, provider, options.precomputed?.get(tool));
     }
     this.avgLength = this.docs.length === 0 ? 1 : this.docs.reduce((n, d) => n + d.length, 0) / this.docs.length;
-    this.docs.forEach((doc, id) => {
-      for (const [term, tf] of doc.tf) {
-        const list = this.postings.get(term) ?? [];
-        list.push([id, tf]);
-        this.postings.set(term, list);
-      }
-    });
   }
 
   get size(): number {
@@ -88,28 +126,19 @@ export class SearchIndex {
   }
 
   private terms(text: string, ignoreStopwords: boolean): string[] {
-    const out: string[] = [];
-    for (const w of tokenize(text)) {
-      if (ignoreStopwords && (w.length < 2 || this.rules.domains.stopwords.has(w))) continue;
-      out.push(singularize(w, this.rules.split));
-    }
-    return out;
+    return termsOf(text, ignoreStopwords, this.rules);
   }
 
-  private add(tool: CatalogTool, provider: ProviderCatalog): void {
-    const tf = new Map<string, number>();
-    let length = 0;
-    const bump = (terms: string[], weight: number) => {
-      for (const t of terms) {
-        tf.set(t, (tf.get(t) ?? 0) + weight);
-        length += weight;
-      }
-    };
-    bump(this.terms(`${tool.provider} ${tool.name} ${tool.rawName}`, false), FIELD_WEIGHT.name);
-    bump(this.terms(tool.params.map((p) => p.name).join(' '), false), FIELD_WEIGHT.param);
-    bump(this.terms(tool.description, true), FIELD_WEIGHT.description);
-    const forms = [tool.ref, tool.name].map(normalizeQuery);
-    this.docs.push({ tool, tf, length, forms, domains: provider.domain.domains });
+  private add(tool: CatalogTool, provider: ProviderCatalog, known: DocTerms | undefined): void {
+    const { length, pairs } = known ?? docTerms(tool, this.rules);
+    const id = this.docs.length;
+    this.docs.push({ tool, length, forms: [normalizeQuery(tool.ref), normalizeQuery(tool.name)], domains: provider.domain.domains });
+    for (let i = 0; i < pairs.length; i += 2) {
+      const term = pairs[i] as string;
+      const list = this.postings.get(term);
+      if (list) list.push(id, pairs[i + 1] as number);
+      else this.postings.set(term, [id, pairs[i + 1] as number]);
+    }
   }
 
   private inDomain(doc: Doc, domain: string): boolean {
@@ -179,7 +208,7 @@ export class SearchIndex {
   }
 
   private idf(term: string): number {
-    const df = this.postings.get(term)?.length ?? 0;
+    const df = (this.postings.get(term)?.length ?? 0) / 2;
     return Math.log(1 + (this.docs.length - df + 0.5) / (df + 0.5));
   }
 
@@ -188,7 +217,9 @@ export class SearchIndex {
     const list = this.postings.get(term);
     if (!list) return;
     const idf = Math.min(this.idf(term), idfCap);
-    for (const [id, tf] of list) {
+    for (let i = 0; i < list.length; i += 2) {
+      const id = list[i]!;
+      const tf = list[i + 1]!;
       const len = this.docs[id]!.length;
       const norm = tf * (K1 + 1) / (tf + K1 * (1 - B + (B * len) / this.avgLength));
       into.set(id, (into.get(id) ?? 0) + scale * idf * norm);

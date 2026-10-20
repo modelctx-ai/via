@@ -17,14 +17,14 @@ export async function findCommand(app: App, argv: readonly string[]): Promise<nu
   }
   const query = positionals.join(' ');
   const { entries } = await app.table();
-  const { catalog, failures } = await app.loadProviders(entries);
+  const { catalog, terms, failures } = await app.loadProviders(entries);
 
   // Optional embedding retrieval (ADR 0011): off unless the user config enables it, and then loaded
   // on demand. Any failure leaves the lexical ranking and a meta line.
   const semanticConfig = (await app.config()).search?.semantic;
   const semantic = semanticConfig && query.trim() !== '' ? await (await import('../semantic')).semanticFind(app, semanticConfig, catalog, query) : undefined;
 
-  const hits = new SearchIndex(catalog).search(query, {
+  const hits = new SearchIndex(catalog, undefined, { precomputed: terms }).search(query, {
     limit,
     ...(typeof flags.domain === 'string' ? { domain: normalizeInput(flags.domain) } : {}),
     ...(semantic?.scores ? { semantic: semantic.scores } : {}),

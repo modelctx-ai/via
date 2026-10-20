@@ -7,7 +7,7 @@ export const FEATURES: ReadonlyArray<readonly [name: string, marker: RegExp]> = 
   ['ajv', /KeywordCxt/],
   ['yaml', /YAMLParseError/],
   ['smol-toml', /TomlError/],
-  ['jsonc-parser', /printParseErrorCode/],
+  ['jsonc-parser', /createScanner/],
 ];
 
 /** The libraries whose code is in `text`. */

@@ -3,15 +3,16 @@
 // runner, which is imported only when needed (implementation.md, "启动速度").
 import * as nodeModule from 'node:module';
 import { HELP, VERSION } from './help';
+import { stdoutWriter } from './stdio';
 
 const argv = process.argv.slice(2);
 const first = argv[0];
 
 let code = 0;
 if (first === '--version' || first === '-V') {
-  process.stdout.write(`${VERSION}\n`);
+  stdoutWriter().write(`${VERSION}\n`);
 } else if (first === '-h' || first === '--help') {
-  process.stdout.write(HELP);
+  stdoutWriter().write(HELP);
 } else {
   try {
     // Node 22+: cache compiled code between runs. Bun exposes the function as a stub; it has its own

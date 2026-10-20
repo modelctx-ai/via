@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseId, rulesId } from './lib/build-ids';
 import { binaryName, hostTarget, keyringStub, lockedKeyring, matchesIntegrity, TARGETS, targetByName, type BinTarget } from './lib/bin-targets';
 
 /** The slice of the Bun API used here (the repo does not depend on bun-types). */
@@ -84,6 +85,8 @@ async function build(target: BinTarget, outDir: string, bytecode: boolean): Prom
     minify: true,
     sourcemap: 'none',
     bytecode,
+    // The same identifiers as the npm build (tsup.config.ts): they key the prebuilt-catalog and the config parse caches.
+    define: { __VIA_RULES_ID__: JSON.stringify(rulesId()), __VIA_PARSE_ID__: JSON.stringify(parseId()) },
     // Only the Bun runtime of the executable matters; a .env or bunfig.toml in the current directory
     // must not change how via reads its environment.
     compile: { target: target.bun, outfile, autoloadDotenv: false, autoloadBunfig: false },

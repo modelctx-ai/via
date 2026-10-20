@@ -33,7 +33,8 @@ export function rootEntries(
 ): RootEntry[] {
   return providers.map((p) => ({
     provider: p.provider,
-    toolCount: p.tools.length,
+    // A catalog restored from the cache knows its size without restoring its tools.
+    toolCount: (p as { toolCount?: number }).toolCount ?? p.tools.length,
     status: statuses[p.provider] ?? 'ok',
     domain: p.domain,
   }));

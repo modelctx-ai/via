@@ -4,6 +4,7 @@
 // Error messages never quote the input: a parse error excerpt could contain a credential.
 
 import type { ConfigFormat } from './frameworks';
+import type { ParseCache } from './parse-cache';
 
 export class ParseFailure extends Error {
   constructor(message: string) {
@@ -27,11 +28,27 @@ function interop<T extends object>(mod: T): T {
   return (mod as { default?: T }).default ?? mod;
 }
 
-export async function parseConfigText(text: string, format: ConfigFormat): Promise<unknown> {
+export interface ParseOptions {
+  /** Where parsed YAML is kept (parse-cache.ts); other formats are never cached. */
+  cache?: ParseCache;
+  /** SHA-256 of the file's bytes, the cache key. Called only when there is a cache and the file is YAML. */
+  key?: () => string;
+}
+
+export async function parseConfigText(text: string, format: ConfigFormat, options: ParseOptions = {}): Promise<unknown> {
   const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   switch (format) {
     case 'json':
     case 'jsonc': {
+      // Valid strict JSON (nearly every framework config, and most "JSONC" ones) needs no parser
+      // library: JSON.parse is native, it means the same in both formats, and it stores a
+      // "__proto__" key as an own property instead of assigning it. Anything it rejects (comments,
+      // trailing commas, a syntax error) goes through jsonc-parser, which also words the error.
+      try {
+        return JSON.parse(source) as unknown;
+      } catch {
+        // fall through
+      }
       const jsonc = interop(await import('jsonc-parser'));
       const errors: import('jsonc-parser').ParseError[] = [];
       const options = format === 'json' ? { allowTrailingComma: false, disallowComments: true } : { allowTrailingComma: true, disallowComments: false };
@@ -51,11 +68,18 @@ export async function parseConfigText(text: string, format: ConfigFormat): Promi
       }
     }
     case 'yaml': {
+      const key = options.cache && options.key ? options.key() : undefined;
+      if (key !== undefined) {
+        const hit = options.cache!.get(key, source);
+        if (hit) return hit.value;
+      }
       const yaml = interop(await import('yaml'));
       const doc = yaml.parseDocument(source, { prettyErrors: false });
       const first = doc.errors[0];
       if (first) throw new ParseFailure(`invalid YAML: ${first.code} at ${lineCol(source, first.pos[0])}`);
-      return doc.toJS({ maxAliasCount: 100 }) as unknown;
+      const value = doc.toJS({ maxAliasCount: 100 }) as unknown;
+      if (key !== undefined) options.cache!.put(key, source, doc.contents, value, yaml);
+      return value;
     }
   }
 }

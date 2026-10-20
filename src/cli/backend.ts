@@ -17,9 +17,15 @@ import type { CatalogCache } from './catalog-cache';
 
 /** A fetched `tools/list` and where it came from. */
 export interface Listing {
-  tools: McpTool[];
+  /** For a list read from the disk cache this parses on first access, not before. */
+  readonly tools: McpTool[];
   fetchedAt: number;
   fromCache: boolean;
+  /**
+   * Length of the text of the cache file the list is (or was just written to), when there is one.
+   * Together with `fetchedAt` it identifies the content without parsing it (view-cache.ts).
+   */
+  rawBytes?: number;
   /** Resources and prompts the server declared; absent when not known (an older cache entry). */
   features?: ServerFeatures;
 }
@@ -29,6 +35,12 @@ export interface ListingOptions {
   timeoutMs: number;
   /** Skip the cache and ask the server (`via sync`, `via doctor`). */
   refresh?: boolean;
+  /**
+   * The `fetchedAt` of a list the caller holds a build of (view-cache.ts). A backend that has to
+   * move the tools between processes may then leave them out when its list is that one; the
+   * returned listing is the same either way.
+   */
+  have?: number;
 }
 
 /**
@@ -79,24 +91,31 @@ export interface InProcessBackendOptions {
 export class InProcessBackend implements Backend {
   readonly mode = 'in-process';
 
-  private constructor(
-    private readonly options: InProcessBackendOptions,
-    private readonly client: McpClient,
-  ) {}
+  private clientLoading?: Promise<McpClient>;
+  private loaded?: McpClient;
+
+  private constructor(private readonly options: InProcessBackendOptions) {}
 
   static async create(options: InProcessBackendOptions): Promise<InProcessBackend> {
-    const { InProcessClient } = await import('../client');
-    return new InProcessBackend(options, new InProcessClient(options.servers, options.resolver, {
-        now: options.now,
-        ...(options.oauthStore ? { oauthStore: options.oauthStore } : {}),
-        ...(options.onWarning ? { onWarning: options.onWarning } : {}),
-        ...(options.roots ? { roots: options.roots } : {}),
-      }),
-    );
+    return new InProcessBackend(options);
+  }
+
+  /** The client that talks to servers, made on first use: browsing a cached catalog never needs it. */
+  private client(): Promise<McpClient> {
+    this.clientLoading ??= import('../client').then(({ InProcessClient }) => {
+      const { servers, resolver, now, oauthStore, onWarning, roots } = this.options;
+      return (this.loaded = new InProcessClient(servers, resolver, {
+        now,
+        ...(oauthStore ? { oauthStore } : {}),
+        ...(onWarning ? { onWarning } : {}),
+        ...(roots ? { roots } : {}),
+      }));
+    });
+    return this.clientLoading;
   }
 
   async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {
-    const { resolveConnection, mapError } = await import('../client');
+    const [{ resolveConnection }, { mapError }] = await Promise.all([import('../client/credentials'), import('../client/errors')]);
     const { resolver, cache, env, now } = this.options;
     // Resolve the credentials first: a missing one fails before any network call, and redaction
     // knows the values even when the tool list comes from the cache (discovery.md, "缓存").
@@ -112,27 +131,40 @@ export class InProcessBackend implements Backend {
     }
     if (!refresh) {
       const hit = cache.read(server);
-      if (hit) return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true, ...(hit.features ? { features: hit.features } : {}) };
+      if (hit) {
+        return {
+          fetchedAt: hit.fetchedAt,
+          fromCache: true,
+          rawBytes: hit.rawBytes,
+          ...(hit.features ? { features: hit.features } : {}),
+          get tools(): McpTool[] {
+            return hit.tools;
+          },
+        };
+      }
     }
-    const tools = await this.client.listTools(server.name, { timeoutMs });
-    const features = this.client.features(server.name);
-    cache.write(server, tools, features);
-    return { tools, fetchedAt: now(), fromCache: false, ...(features ? { features } : {}) };
+    const client = await this.client();
+    const tools = await client.listTools(server.name, { timeoutMs });
+    const features = client.features(server.name);
+    const fetchedAt = now();
+    const rawBytes = cache.write(server, tools, { fetchedAt, ...(features ? { features } : {}) });
+    return { tools, fetchedAt, fromCache: false, ...(rawBytes !== undefined ? { rawBytes } : {}), ...(features ? { features } : {}) };
   }
 
-  listTools: McpClient['listTools'] = (server, options) => this.client.listTools(server, options);
+  listTools: McpClient['listTools'] = async (server, options) => (await this.client()).listTools(server, options);
 
-  callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult> {
-    return this.client.callTool(server, rawName, args, options);
+  async callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult> {
+    return (await this.client()).callTool(server, rawName, args, options);
   }
 
-  listResources: McpClient['listResources'] = (server, options) => this.client.listResources(server, options);
-  readResource: McpClient['readResource'] = (server, uri, options) => this.client.readResource(server, uri, options);
-  listPrompts: McpClient['listPrompts'] = (server, options) => this.client.listPrompts(server, options);
-  getPrompt: McpClient['getPrompt'] = (server, name, args, options) => this.client.getPrompt(server, name, args, options);
+  listResources: McpClient['listResources'] = async (server, options) => (await this.client()).listResources(server, options);
+  readResource: McpClient['readResource'] = async (server, uri, options) => (await this.client()).readResource(server, uri, options);
+  listPrompts: McpClient['listPrompts'] = async (server, options) => (await this.client()).listPrompts(server, options);
+  getPrompt: McpClient['getPrompt'] = async (server, name, args, options) => (await this.client()).getPrompt(server, name, args, options);
 
   features(server: string): ServerFeatures | undefined {
-    return this.client.features(server);
+    // No client yet means no session, so nothing has been declared.
+    return this.loaded?.features(server);
   }
 
   compiler(): undefined {
@@ -155,8 +187,9 @@ export class InProcessBackend implements Backend {
     return this.options.resolver.resolvedValues();
   }
 
-  close(): Promise<void> {
-    return this.client.close();
+  async close(): Promise<void> {
+    // Nothing to close when no server was ever contacted.
+    if (this.clientLoading) await (await this.clientLoading).close();
   }
 }
 
@@ -203,7 +236,7 @@ export class FallbackBackend implements Backend {
       if (!(error instanceof Error && error.name === 'DaemonUnavailable')) throw error;
       const sent = (error as Error & { sent?: boolean }).sent === true;
       if (sent && !options.idempotent) {
-        const { ClientError } = await import('../client');
+        const { ClientError } = await import('../client/errors');
         throw new ClientError({
           exitCode: ExitCode.Upstream,
           message: `lost the connection to the via daemon while ${options.what}; it may or may not have run`,

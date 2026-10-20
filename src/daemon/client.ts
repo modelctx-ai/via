@@ -1,7 +1,6 @@
 // The CLI's side of the socket: connect and handshake, start the daemon when there is none, and
 // multiplex requests over one connection. Imports nothing heavy (no MCP SDK, no ajv): a request that
 // goes through the daemon must not pay for them in the CLI process (implementation.md, "启动速度").
-import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, truncateSync } from 'node:fs';
 import { createConnection, type Socket } from 'node:net';
 import type { Event, Hello, HelloAck, RequestBody, Response, Stale } from '../protocol';
@@ -230,6 +229,21 @@ export interface DaemonClientOptions {
   readyTimeoutMs?: number;
 }
 
+/**
+ * V8 and malloc settings for a daemon run by Node on Linux, where it sits for minutes holding a few
+ * sessions: a young generation capped at 2 MiB per semi-space (the default lets it grow to 16 MiB
+ * after the burst of allocation that loading the MCP SDK and the first requests cause, and V8 keeps
+ * the pages), and at most two malloc arenas (glibc otherwise keeps one per thread). Together they take
+ * roughly 5-10 MiB off the resident size once a session is up. Scavenges get a little more frequent
+ * during a request that allocates a lot; large results go to the large-object space either way.
+ * Other runtimes (Bun, a compiled binary) do not get Node's flags.
+ */
+export function daemonRuntime(command: string): { flags: string[]; env: NodeJS.ProcessEnv } {
+  const isNode = command === process.execPath && process.release.name === 'node' && process.versions.bun === undefined;
+  if (!isNode) return { flags: [], env: {} };
+  return { flags: ['--max-semi-space-size=2'], env: process.platform === 'linux' ? { MALLOC_ARENA_MAX: '2' } : {} };
+}
+
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Keep the log of a failed start short: it is only read back for an error message. */
@@ -294,7 +308,7 @@ export class DaemonClient {
     if (first.refused === 'token') throw new DaemonUnavailable('the via daemon refused the handshake (token mismatch)');
     if (!spawnIfAbsent) return undefined;
     // No daemon, or one of another version that is draining and has already released the socket.
-    const child = this.spawnDaemon();
+    const child = await this.spawnDaemon();
     const deadline = Date.now() + this.readyTimeoutMs();
     let attempt = 0;
     for (;;) {
@@ -309,7 +323,9 @@ export class DaemonClient {
     }
   }
 
-  private spawnDaemon(): { failure(): string | undefined; tail(): string } {
+  private async spawnDaemon(): Promise<{ failure(): string | undefined; tail(): string }> {
+    // Loaded here: only a command that has to start the daemon needs child_process (and its ~3 ms).
+    const { spawn } = await import('node:child_process');
     const { paths, command, env, home, idleTimeoutSec } = this.options;
     mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
     let logFd: number | undefined;
@@ -322,8 +338,10 @@ export class DaemonClient {
     const childEnv: NodeJS.ProcessEnv = {};
     for (const [name, value] of Object.entries(env)) if (value !== undefined) childEnv[name] = value;
     childEnv.HOME ??= home;
+    const runtime = daemonRuntime(command.command);
+    for (const [name, value] of Object.entries(runtime.env)) childEnv[name] ??= value;
     // A derived pipe has no name to pass: the daemon computes the same default paths from its environment.
-    const args = [...command.args, 'daemon', 'run', ...(paths.derived ? [] : ['--socket', paths.socket]), '--idle-timeout', String(idleTimeoutSec)];
+    const args = [...runtime.flags, ...command.args, 'daemon', 'run', ...(paths.derived ? [] : ['--socket', paths.socket]), '--idle-timeout', String(idleTimeoutSec)];
     let failure: string | undefined;
     const child = spawn(command.command, args, {
       detached: true,
