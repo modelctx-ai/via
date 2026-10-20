@@ -69,6 +69,8 @@ export interface CliResult {
   stderr: string;
   /** Questions put to the person (only with `RunOptions.answer`). */
   asked: string[];
+  /** Both streams in the order they were written, as a terminal (or `2>&1`) would show them. */
+  combined: string;
 }
 
 export interface RunOptions {
@@ -129,6 +131,7 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
       let stdout = '';
       let stderr = '';
       const asked: string[] = [];
+      let combined = '';
       const code = await run(argv, {
         interactive: options.answer !== undefined,
         ask: async (question) => {
@@ -139,12 +142,12 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
         cwd: options.cwd ?? project,
         home,
         platform: 'linux',
-        stdout: { write: (s) => void (stdout += s) },
-        stderr: { write: (s) => void (stderr += s) },
+        stdout: { write: (s) => void ((stdout += s), (combined += s)) },
+        stderr: { write: (s) => void ((stderr += s), (combined += s)) },
         readStdin: async () => options.stdin ?? '',
         now: () => options.now ?? 1_800_000_000_000,
       });
-      return { code, stdout, stderr, asked };
+      return { code, stdout, stderr, asked, combined };
     },
   };
 }

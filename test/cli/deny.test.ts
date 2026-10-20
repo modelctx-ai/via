@@ -69,6 +69,19 @@ describe('deny matching on a call', () => {
     expect(r.stderr).not.toContain('--yes');
   });
 
+  it('via batch refuses a denied tool on its line (exit 5) and still runs the others', async () => {
+    const { srv, sb } = await setup('deny: ["^gh/file:delete$"]\n');
+    const stdin = [
+      JSON.stringify({ tool: 'gh/file:delete', args: { owner: 'a', repo: 'b', path: 'x' } }),
+      JSON.stringify({ tool: 'gh/issue:read', args: { owner: 'acme', repo: 'api', issue_number: 3, method: 'get' } }),
+    ].join('\n');
+    const r = await sb.via(['batch', '--yes'], { stdin });
+    expect(r.code).toBe(5);
+    expect(r.combined).toContain('is denied by the deny rule');
+    expect(r.stdout).toContain('Support OAuth DCR');
+    expect(srv.state.calls.map((c) => c.name)).toEqual(['issue_read']);
+  });
+
   it('other tools stay available', async () => {
     const { sb } = await setup('deny: ["^gh/file:delete$"]\n');
     const r = await sb.via(['gh', 'issue:read', '--owner', 'acme', '--repo', 'api', '--issue-number', '3', '--method', 'get']);
