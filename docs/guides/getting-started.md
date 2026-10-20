@@ -31,7 +31,9 @@ secrets: exa 的 EXA_API_KEY 在 ~/.cursor/mcp.json 中为明文
 框架通过 OAuth 拿到的 token 存在框架私有的位置，via 不读取，需要自己授权一次：
 
 ```bash
-via auth login linear
+via auth login linear            # 先在配置里写 auth: oauth；打开浏览器完成授权
+via auth login linear --manual   # SSH、容器等没有浏览器的环境：打印授权 URL，把落地页的完整 URL 粘贴回来
+via auth status                  # 各 server 的登录状态与过期时间
 ```
 
 需要 API key 的 server，在 `~/.config/via/config.yaml` 里写凭证引用（[配置](../spec/config.md)）：

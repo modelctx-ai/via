@@ -1,7 +1,7 @@
 // How a server's authentication stands, for `via servers` and `via auth status` (auth.md). Reads
 // credential references and the OAuth store; contacts no server and shows no secret.
 import type { LoginStatus } from '../client/oauth';
-import { isCredentialRef, type ServerConfig } from '../config';
+import { isCredentialRef, parseCredentialRef, type ServerConfig } from '../config';
 import type { App } from './app';
 
 /** Credential references a server uses; references only, never values. */
@@ -44,6 +44,9 @@ export async function authState(app: App, server: ServerConfig): Promise<AuthSta
   }
   const missing: string[] = [];
   for (const ref of credentialRefs(server)) {
+    // `cmd:` is not run here: `via servers` connects to nothing, and a credential helper may be slow
+    // or ask for a fingerprint. It runs when the server is used and in `via doctor`.
+    if (parseCredentialRef(ref).kind === 'cmd') continue;
     try {
       await (await app.resolver()).resolve(ref, server.origin);
     } catch {

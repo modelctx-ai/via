@@ -59,7 +59,7 @@
   next: via auth login linear
   ```
 
-- 凭证缺失（如环境变量未设置、钥匙串无条目）时不发起调用，直接说明缺哪一项、可以用哪种写法补上，退出码 4。
+- 凭证缺失（如环境变量未设置、钥匙串无条目、`cmd:` 命令失败）时不发起调用，直接说明缺哪一项、可以用哪种写法补上，退出码 4。`cmd:` 失败时只说明程序名与原因（退出状态、超时、输出为空等），不显示命令的任何输出（[config.md](config.md#凭证引用)）。
 - 需要登录：`auth: oauth` 的 server 没有登录记录时不发起任何网络请求，退出码 4，输出上面的两行；登录已失效（refresh token 被拒绝或不存在且 access token 已过期）时第一行写作 `linear requires auth (the saved login expired)`。调用过程永远不会弹出浏览器，也不会等待终端输入：登录只发生在 `via auth login`。
 - 目录缓存命中时，OAuth server 仍然要求有登录记录（与 bearer 缺凭证时一致），不读取过期时间，不发请求。
 - 配置为 `auth: none` 的 HTTP server 收到 401 时，`next:` 仍是 `via auth login <provider>`；该命令会说明需要把 `servers.<name>.auth` 设为 `oauth`（或 bearer）。

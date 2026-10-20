@@ -68,6 +68,8 @@ export interface ServerConfig {
    * args, env, cwd; HTTP url, headers) has not been confirmed with `via trust` (security.md).
    */
   trusted: boolean;
+  /** Every project-scoped file that shapes the transport, trusted or not (`via trust` lists them); absolute paths. */
+  launchPaths?: string[];
   /** Project-scoped files that still need `via trust` (when `trusted` is false); absolute paths. */
   untrustedPaths?: string[];
   /** Set when framework configs define this name differently; lists the ignored sources. */

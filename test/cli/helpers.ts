@@ -67,12 +67,18 @@ export interface CliResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** Questions put to the person (only with `RunOptions.answer`). */
+  asked: string[];
+  /** Both streams in the order they were written, as a terminal (or `2>&1`) would show them. */
+  combined: string;
 }
 
 export interface RunOptions {
   env?: Record<string, string | undefined>;
   cwd?: string;
   stdin?: string;
+  /** Pretend a person sits at a terminal and types this at the next question (`via trust`); the questions are collected in `CliResult.asked`. */
+  answer?: string;
   now?: number;
   /** Answers the prompt of a manual OAuth login; sees what has been printed so far. Default: the first line of `stdin`. */
   readLine?: (printed: { stdout: string; stderr: string }) => Promise<string | undefined>;
@@ -128,20 +134,27 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
     via: async (argv, options = {}) => {
       let stdout = '';
       let stderr = '';
+      const asked: string[] = [];
+      let combined = '';
       const code = await run(argv, {
+        interactive: options.answer !== undefined || options.readLine !== undefined,
+        ask: async (question) => {
+          asked.push(question);
+          if (options.readLine) return (await options.readLine({ stdout, stderr })) ?? '';
+          return options.answer ?? options.stdin?.split('\n')[0] ?? '';
+        },
         // OAuth logins go to files in the sandbox, never to the real keychain.
         env: { PATH: process.env.PATH, VIA_OAUTH_STORE: 'file', ...env, ...options.env },
         cwd: options.cwd ?? project,
         home,
         platform: 'linux',
-        stdout: { write: (s) => void (stdout += s) },
-        stderr: { write: (s) => void (stderr += s) },
+        stdout: { write: (s) => void ((stdout += s), (combined += s)) },
+        stderr: { write: (s) => void ((stderr += s), (combined += s)) },
         readStdin: async () => options.stdin ?? '',
-        readLine: async () => (options.readLine ? options.readLine({ stdout, stderr }) : options.stdin?.split('\n')[0]),
         openUrl: options.openUrl ?? (async () => ({ opened: false, reason: 'tests do not open browsers' })),
         now: () => options.now ?? 1_800_000_000_000,
       });
-      return { code, stdout, stderr };
+      return { code, stdout, stderr, asked, combined };
     },
   };
 }

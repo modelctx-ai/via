@@ -4,6 +4,7 @@
 import { CredentialError, type ServerConfig } from '../config/types';
 import type { ErrorInfo } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
+import { shellWord } from '../render/shell';
 import { sanitizeText } from '../render/pipeline';
 
 export class ClientError extends Error implements ErrorInfo {
@@ -64,12 +65,13 @@ export function notFoundServer(name: string, known: readonly string[]): ClientEr
 }
 
 export function untrustedServer(server: ServerConfig): ClientError {
-  const path = server.untrustedPaths?.[0] ?? server.origin.path;
+  const paths = server.untrustedPaths ?? (server.origin.path ? [server.origin.path] : []);
+  const path = paths[0];
   const what = server.transport.type === 'stdio' ? 'its command was not started' : 'no request was sent';
   return new ClientError({
     exitCode: ExitCode.Denied,
-    message: `${server.provider} is defined in an untrusted project config${path ? ` (${path})` : ''}; ${what}`,
-    next: path ? `via trust ${path}` : 'via trust',
+    message: `${server.provider} is defined in an untrusted project config${paths.length > 0 ? ` (${paths.join(', ')})` : ''}; ${what}`,
+    next: path && paths.length === 1 ? `via trust ${shellWord(path)}` : 'via trust',
   });
 }
 

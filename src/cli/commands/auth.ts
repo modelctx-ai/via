@@ -71,10 +71,8 @@ async function login(app: App, argv: readonly string[]): Promise<number> {
     showUrl: (url) => app.out(`${url}\n`),
     note: (text) => app.err(`· ${text}\n`),
     openUrl: (url) => (app.io.openUrl ? app.io.openUrl(url) : openBrowser(url, app.io.env, app.io.platform)),
-    readLine: (prompt) => {
-      app.err(prompt);
-      return app.io.readLine();
-    },
+    // The question is printed on stderr by `ask`; end of input is an empty answer.
+    readLine: (prompt) => app.io.ask(prompt),
   };
   let result: Awaited<ReturnType<typeof performLogin>>;
   try {

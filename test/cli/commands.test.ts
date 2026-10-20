@@ -136,20 +136,13 @@ describe('via prompt', () => {
 });
 
 describe('built-ins reserved for 0.2', () => {
-  it.each([['batch'], ['trust'], ['daemon', 'status']])('via %s explains itself with exit 2', async (...argv) => {
+  it.each([['daemon', 'status']])('via %s explains itself with exit 2', async (...argv) => {
     const sb = makeSandbox();
     const r = await sb.via(argv);
     expect(r.code).toBe(2);
     expect(r.stdout).toBe('');
     expect(r.stderr).toMatch(/^error: via \w+ .* is not available until 0\.2\n/);
     expect(r.stderr).toMatch(/next: /);
-  });
-
-  it('via trust says how the trust store works', async () => {
-    const sb = makeSandbox();
-    const r = await sb.via(['trust']);
-    expect(r.stderr).toContain('SHA-256');
-    expect(r.stderr).toContain('trust.json');
   });
 
   it('a server may not take a built-in name; it is skipped with a note in via servers', async () => {

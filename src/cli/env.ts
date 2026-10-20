@@ -1,7 +1,7 @@
 // Everything the runner needs from the outside world, injectable so tests never touch the real
 // process, home directory or terminal.
 import { homedir } from 'node:os';
-import { createInterface } from 'node:readline';
+import { isatty } from 'node:tty';
 
 export interface Writer {
   write(chunk: string): unknown;
@@ -16,8 +16,10 @@ export interface CliEnv {
   stderr: Writer;
   /** Reads all of stdin (for `--args -` and `--body -`). */
   readStdin: () => Promise<string>;
-  /** Reads one line from stdin, undefined at end of input (`via auth login --manual`). */
-  readLine: () => Promise<string | undefined>;
+  /** True when a person can answer a question: stdin and stderr are both terminals. */
+  interactive: boolean;
+  /** Ask a question on stderr and return the first line typed in reply (`via trust`). */
+  ask: (question: string) => Promise<string>;
   /** Opens a URL in a browser; the default uses the platform opener (`via auth login`). */
   openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }>;
   now: () => number;
@@ -29,15 +31,16 @@ async function readProcessStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function readProcessLine(): Promise<string | undefined> {
-  const rl = createInterface({ input: process.stdin });
-  return new Promise((resolve) => {
-    rl.once('line', (line) => {
-      resolve(line); // before close(): its 'close' event would otherwise answer "end of input" first
-      rl.close();
-    });
-    rl.once('close', () => resolve(undefined));
-  });
+async function askOnTerminal(question: string): Promise<string> {
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    // At end of input readline closes without answering; that counts as an empty answer.
+    const closed = new Promise<string>((resolve) => rl.once('close', () => resolve('')));
+    return await Promise.race([rl.question(question), closed]);
+  } finally {
+    rl.close();
+  }
 }
 
 export function makeEnv(overrides: Partial<CliEnv> = {}): CliEnv {
@@ -49,7 +52,8 @@ export function makeEnv(overrides: Partial<CliEnv> = {}): CliEnv {
     stdout: process.stdout,
     stderr: process.stderr,
     readStdin: readProcessStdin,
-    readLine: readProcessLine,
+    interactive: isatty(0) && isatty(2),
+    ask: askOnTerminal,
     now: Date.now,
     ...overrides,
   };

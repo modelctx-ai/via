@@ -2,6 +2,7 @@
 // credentials resolve, and why a provider landed in its domain (cli.md, discovery.md).
 import { renderDomainWhy } from '../../catalog';
 import { formatDiagnostic, type ServerConfig } from '../../config';
+import { shellWord } from '../../render/shell';
 import { alignRows } from '../../render/width';
 import { ExitCode } from '../../render/exit-codes';
 import type { App } from '../app';
@@ -51,8 +52,8 @@ export async function serversCommand(app: App, argv: readonly string[]): Promise
     const notes: string[] = [];
     if (server.disabled) notes.push('disabled');
     if (!server.trusted) {
-      const path = server.untrustedPaths?.[0];
-      notes.push(path ? `untrusted (via trust ${path})` : 'untrusted');
+      const paths = server.untrustedPaths ?? [];
+      notes.push(paths.length === 1 ? `untrusted (via trust ${shellWord(paths[0]!)})` : 'untrusted (via trust)');
     }
     if (server.conflicts && server.conflicts.length > 0) {
       notes.push(`conflict: ignored ${server.conflicts.map((c) => c.framework ?? c.path ?? c.scope).join(', ')}`);

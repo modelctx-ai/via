@@ -119,6 +119,8 @@ async function readManual(io: LoginIO, provider: string): Promise<AuthorizationR
     if (line === undefined) break;
     const parsed = parseRedirect(line);
     if (parsed) return parsed;
+    // An empty answer is end of input: asking again would only get the same.
+    if (line.trim() === '') break;
     if (attempt < MANUAL_ATTEMPTS) io.note('that does not contain a code or an error; paste the full URL of the page the browser ended up on');
   }
   throw new LoginFailedError(`${provider}: no redirect URL with an authorization code was given`, 4, `via auth login ${provider} --manual`);

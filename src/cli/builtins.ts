@@ -1,11 +1,11 @@
 // Built-in subcommand names (cli.md). Kept free of imports so the router can use it cheaply;
 // a test checks the list against RESERVED_COMMANDS in the catalog.
 
-/** Built-ins that work in 0.1. */
-export const ACTIVE_COMMANDS = ['find', 'call', 'more', 'servers', 'sync', 'doctor', 'prompt', 'auth'] as const;
+/** Built-ins that work (0.1, plus `batch`, `trust` and `auth` from 0.2). */
+export const ACTIVE_COMMANDS = ['find', 'call', 'more', 'batch', 'servers', 'sync', 'doctor', 'prompt', 'trust', 'auth'] as const;
 
 /** Reserved for 0.2: the name is taken, the command prints an explanation. */
-export const FUTURE_COMMANDS = ['batch', 'trust', 'daemon'] as const;
+export const FUTURE_COMMANDS = ['daemon'] as const;
 
 export type ActiveCommand = (typeof ACTIVE_COMMANDS)[number];
 export type FutureCommand = (typeof FUTURE_COMMANDS)[number];

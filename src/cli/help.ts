@@ -12,10 +12,11 @@ usage:
   via <provider> <resource>:<verb> -h        usage of a tool
   via <provider> <resource>:<verb> [args]    call a tool
   via find <query> [--domain <d>] [-n 10]    search tools across providers
+  via batch [--concurrency <n>]              JSON Lines on stdin: concurrent calls, results in input order
 
 commands:
-  find call more servers sync doctor prompt auth
-  batch trust daemon (not available until 0.2)
+  find call more batch servers sync doctor prompt trust auth
+  daemon (not available until 0.2)
 
 options:
   -o text|json|raw  --full  --all  --yes  --dry-run  --no-validate  --timeout <seconds>  -h
@@ -32,8 +33,8 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   sync: 'usage: via sync [<provider>]',
   doctor: 'usage: via doctor',
   prompt: 'usage: via prompt [--out <file>]',
-  batch: 'usage: via batch (not available until 0.2)',
+  batch: 'usage: via batch [--concurrency <n>]  (JSON Lines on stdin: {"tool":"<provider>/<resource>:<verb>","args":{…}})',
   auth: 'usage: via auth login <provider> [--manual] | via auth status [<provider>] | via auth logout <provider>',
-  trust: 'usage: via trust [<path>] (not available until 0.2)',
+  trust: 'usage: via trust [<path>] [--dry-run] [--yes] | via trust --list | via trust --revoke <path>',
   daemon: 'usage: via daemon status|stop|run (not available until 0.2)',
 };

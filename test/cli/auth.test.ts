@@ -114,7 +114,7 @@ describe('via auth login', () => {
     });
     expect(r.code).toBe(0);
     expect(opened).toBe(0);
-    expect(r.stderr).toContain('paste the redirect URL: ');
+    expect(r.asked).toEqual(['paste the redirect URL: ']);
     expect(r.stderr).not.toContain('waiting for the authorization on');
     expect(r.stdout).toMatch(/^https?:\/\/.*\/authorize\?/);
     expect(r.stdout).toContain('logged in: linear');
