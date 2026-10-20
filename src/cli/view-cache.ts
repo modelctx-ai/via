@@ -92,14 +92,31 @@ export class ViewCache {
     return join(this.dir, `${cacheKey(server)}.view.json`);
   }
 
+  /** Files already read in this run, so `peek` and `read` of one provider parse its file once. */
+  private readonly loaded = new Map<string, { inputs: string; data: ViewFile | undefined }>();
+
   private load(server: ServerConfig, input: ProviderInput): ViewFile | undefined {
+    const file = this.file(server);
+    const inputs = inputsHash(input);
+    const known = this.loaded.get(file);
+    if (known && known.inputs === inputs) return known.data;
+    let data: ViewFile | undefined;
     try {
-      const data = JSON.parse(readFileSync(this.file(server), 'utf8')) as Partial<ViewFile> | null;
-      if (!data || data.v !== VIEW_VERSION || data.fp !== this.fingerprint || typeof data.at !== 'number' || data.inputs !== inputsHash(input)) return undefined;
-      return data as ViewFile;
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<ViewFile> | null;
+      if (parsed && parsed.v === VIEW_VERSION && parsed.fp === this.fingerprint && typeof parsed.at === 'number' && parsed.inputs === inputs) data = parsed as ViewFile;
     } catch {
-      return undefined;
+      data = undefined;
     }
+    this.loaded.set(file, { inputs, data });
+    return data;
+  }
+
+  /**
+   * The `fetchedAt` of the cached build for these inputs, if there is one: the list it was made
+   * from. A caller that can ask its source "has the list changed since" asks about this one.
+   */
+  peek(server: ServerConfig, input: ProviderInput): number | undefined {
+    return this.load(server, input)?.at;
   }
 
   /** The cached build of this provider for this listing, or undefined. */
@@ -147,6 +164,7 @@ export class ViewCache {
       };
       writeFileSync(tmp, JSON.stringify(content), { mode: 0o600 });
       renameSync(tmp, file);
+      this.loaded.delete(file);
     } catch {
       // ignore
     }

@@ -106,7 +106,7 @@ export class SessionManager {
   // Operations --------------------------------------------------------------------------
 
   /** `tools/list`: this daemon's copy while it is fresh, else the disk cache, else the server. */
-  async list(target: ServerTarget, options: { timeoutMs: number; refresh: boolean }): Promise<ListResult> {
+  async list(target: ServerTarget, options: { timeoutMs: number; refresh: boolean; have?: number }): Promise<ListResult> {
     const server = await this.admit(target);
     await this.prime(server, options.timeoutMs);
     const entry = this.entryFor(target, server);
@@ -115,12 +115,14 @@ export class SessionManager {
       if (!options.refresh) {
         const now = this.options.now();
         if (entry.tools && entry.fetchedAt !== undefined && now - entry.fetchedAt <= CATALOG_TTL_MS) {
+          if (options.have === entry.fetchedAt) return { unchanged: true, fetchedAt: entry.fetchedAt, fromCache: true };
           return { tools: entry.tools, fetchedAt: entry.fetchedAt, fromCache: true };
         }
         const hit = this.cache.read(entry.original);
         if (hit) {
           entry.tools = hit.tools;
           entry.fetchedAt = hit.fetchedAt;
+          if (options.have === hit.fetchedAt) return { unchanged: true, fetchedAt: hit.fetchedAt, fromCache: true };
           return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true };
         }
       }

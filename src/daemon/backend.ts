@@ -7,6 +7,7 @@ import type { McpTool } from '../catalog/types';
 import { ClientError } from '../client/errors';
 import type { CallOptions, ListOptions } from '../client/session';
 import type { ServerConfig } from '../config/types';
+import type { CatalogCache } from '../cli/catalog-cache';
 import type { CursorGetResult, ErrorInfo, Event, ListResult, RequestBody, Response, ServerTarget, ToolCallResult, ValidateResult } from '../protocol';
 import type { CursorRecord, CursorStore } from '../render/cursor';
 import { ExitCode } from '../render/exit-codes';
@@ -22,6 +23,11 @@ export interface DaemonBackendOptions {
   env: Readonly<Record<string, string | undefined>>;
   /** `daemon.serverIdleTimeout`, seconds. */
   serverIdleTimeoutSec: number;
+  /**
+   * The disk cache the daemon writes too. When the daemon answers a `have` with "unchanged", the
+   * tools (if anyone asks for them) are read from the file instead of coming over the socket.
+   */
+  cache?: CatalogCache;
 }
 
 /** Slack on top of a request's own timeout before the CLI gives up on a daemon that stopped answering. */
@@ -32,9 +38,32 @@ export class DaemonBackend implements Backend {
 
   constructor(private readonly options: DaemonBackendOptions) {}
 
-  async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {
-    const response = await this.send({ type: 'list', ...this.target(server), timeoutMs, ...(refresh ? { refresh: true } : {}) }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS });
-    return unwrap<ListResult>(response);
+  async listing(server: ServerConfig, { timeoutMs, refresh, have }: ListingOptions): Promise<Listing> {
+    // Say which list we already have a build of, if the cache file that would supply its tools is there.
+    const disk = !refresh && have !== undefined ? this.options.cache?.read(server) : undefined;
+    const known = disk !== undefined && disk.fetchedAt === have ? have : undefined;
+    const response = await this.send(
+      { type: 'list', ...this.target(server), timeoutMs, ...(refresh ? { refresh: true } : {}), ...(known !== undefined ? { have: known } : {}) },
+      { deadlineMs: timeoutMs + DEADLINE_SLACK_MS },
+    );
+    const result = unwrap<ListResult>(response);
+    if (!('unchanged' in result)) {
+      // The daemon wrote its cache file before answering: its length identifies this list for the
+      // prebuilt-catalog cache, as it does for a list read from the file here.
+      const written = this.options.cache?.read(server);
+      return written && written.fetchedAt === result.fetchedAt ? { ...result, rawBytes: written.rawBytes } : result;
+    }
+    // The daemon's list is the one in the cache file we just read (the daemon wrote it): the tools,
+    // if anyone asks for them, are parsed from there instead of coming over the socket.
+    if (!disk || disk.fetchedAt !== result.fetchedAt) return this.listing(server, { timeoutMs, refresh: true });
+    return {
+      fetchedAt: disk.fetchedAt,
+      fromCache: true,
+      rawBytes: disk.rawBytes,
+      get tools() {
+        return disk.tools;
+      },
+    };
   }
 
   async listTools(server: string, options: ListOptions = {}): Promise<McpTool[]> {

@@ -12,7 +12,7 @@ import { DaemonServer, type DaemonOptions } from '../../src/daemon/server';
 import { ExpiringResolver } from '../../src/daemon/sessions';
 import { effectiveServer, envStamp, sessionKey } from '../../src/daemon/target';
 import { encode, LineDecoder, MAX_LINE_BYTES } from '../../src/daemon/wire';
-import type { ListResult, ServerTarget, ToolCallResult } from '../../src/protocol';
+import type { ListedTools, ServerTarget, ToolCallResult } from '../../src/protocol';
 import type { CursorRecord } from '../../src/render/cursor';
 import { TOOLS } from '../fixtures/mcp/mock-server.mjs';
 import { FakeResolver, httpServer, stdioServer } from '../helpers/client';
@@ -217,13 +217,62 @@ describe('catalog', () => {
     const h = await startDaemon();
     const conn = await h.connect();
     const t = target(stdioServer());
-    const first = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListResult };
+    const first = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
     expect(first.result).toMatchObject({ fromCache: false });
     expect(first.result.tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
-    const second = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListResult };
+    const second = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
     expect(second.result).toMatchObject({ fromCache: true, fetchedAt: first.result.fetchedAt });
-    const forced = (await conn.request({ type: 'list', ...t, timeoutMs: 5000, refresh: true })) as { result: ListResult };
+    const forced = (await conn.request({ type: 'list', ...t, timeoutMs: 5000, refresh: true })) as { result: ListedTools };
     expect(forced.result.fromCache).toBe(false);
+  });
+
+  describe('`have`: the caller already holds a build of this list', () => {
+    const list = async (conn: DaemonConnection, t: ServerTarget, extra: { have?: number; refresh?: boolean } = {}) =>
+      (await conn.request({ type: 'list', ...t, timeoutMs: 5000, ...extra })) as { ok: boolean; result: ListedTools | { unchanged: true; fetchedAt: number; fromCache: true }; error?: { exitCode: number } };
+
+    it('leaves the tools out when the daemon\'s list is the one the caller has, and sends them otherwise', async () => {
+      const h = await startDaemon();
+      const conn = await h.connect();
+      const t = target(stdioServer());
+      const first = await list(conn, t);
+      const at = first.result.fetchedAt;
+      const same = await list(conn, t, { have: at });
+      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true });
+      const other = await list(conn, t, { have: at - 1 });
+      expect(other.result).toMatchObject({ fetchedAt: at, fromCache: true });
+      expect((other.result as ListedTools).tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
+    });
+
+    it('answers from the disk cache the same way, for a daemon that has not listed the server itself', async () => {
+      const h = await startDaemon();
+      const server = stdioServer();
+      const { CatalogCache } = await import('../../src/cli/catalog-cache');
+      new CatalogCache(join(h.home, '.cache', 'via', 'catalog')).write(server, TOOLS as never, Date.now());
+      const conn = await h.connect();
+      const t = target(server);
+      const full = await list(conn, t);
+      expect(full.result).toMatchObject({ fromCache: true });
+      const again = await list(conn, t, { have: full.result.fetchedAt });
+      expect(again.result).toMatchObject({ unchanged: true });
+    });
+
+    it('ignores `have` when asked to refresh: a refresh always brings the new list', async () => {
+      const h = await startDaemon();
+      const conn = await h.connect();
+      const t = target(stdioServer());
+      const first = await list(conn, t);
+      const forced = await list(conn, t, { have: first.result.fetchedAt, refresh: true });
+      expect(forced.result).toMatchObject({ fromCache: false });
+      expect((forced.result as ListedTools).tools.length).toBe(TOOLS.length);
+    });
+
+    it('still resolves credentials first: a missing one is exit code 4 whatever the caller has', async () => {
+      const h = await startDaemon();
+      const conn = await h.connect();
+      const t = target(stdioServer({ env: { MOCK_SECRET: 'env:NOT_SET_ANYWHERE' } }));
+      const response = await list(conn, t, { have: 12345 });
+      expect(response).toMatchObject({ ok: false, error: { exitCode: 4 } });
+    });
   });
 
   it('writes the disk cache the in-process mode reads', async () => {
@@ -244,10 +293,10 @@ describe('catalog', () => {
     await conn.request({ type: 'list', ...t, timeoutMs: 5000 });
     await conn.request({ type: 'call', ...t, rawName: 'add_tool', args: {} });
     await waitFor(async () => {
-      const r = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListResult };
+      const r = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
       return r.result.tools.some((x) => x.name === 'extra_1');
     }, 3000, 'the refreshed catalog');
-    const again = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListResult };
+    const again = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
     expect(again.result.fromCache).toBe(true);
     const { CatalogCache } = await import('../../src/cli/catalog-cache');
     expect(new CatalogCache(join(h.home, '.cache', 'via', 'catalog')).read(server)?.tools.some((x) => x.name === 'extra_1')).toBe(true);
@@ -260,7 +309,7 @@ describe('catalog', () => {
     await conn.request({ type: 'list', ...t, timeoutMs: 5000 });
     for (let i = 0; i < 3; i += 1) await conn.request({ type: 'call', ...t, rawName: 'add_tool', args: {} });
     await waitFor(async () => {
-      const r = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListResult };
+      const r = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
       return r.result.tools.length === TOOLS.length + 3;
     }, 3000, 'all three tools');
   });
@@ -446,7 +495,7 @@ describe('http servers', () => {
     const h = await startDaemon();
     const conn = await h.connect();
     const t = target(httpServer(srv.url));
-    const list = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListResult };
+    const list = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
     expect(list.result.tools).toHaveLength(TOOLS.length);
     const echo = (await conn.request({ type: 'call', ...t, rawName: 'echo', args: { message: 'x' } })) as { result: ToolCallResult };
     expect(echo.result.content?.[0]).toMatchObject({ text: 'echo: x' });

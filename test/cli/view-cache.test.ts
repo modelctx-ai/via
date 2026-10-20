@@ -181,15 +181,17 @@ describe('ViewCache invalidation', () => {
   });
 
   it('ignores a file that is corrupt, from another layout, or not a snapshot of this list', () => {
-    const { cache, dir } = primed();
+    const { dir } = primed();
+    // A fresh instance per check: one instance reads each file once per run.
+    const cache = (): ViewCache => new ViewCache(dir, 'fp-1');
     const file = join(dir, `${cacheKey(server)}.view.json`);
     const good = readFileSync(file, 'utf8');
     for (const bad of ['{not json', '[]', 'null', JSON.stringify({ ...JSON.parse(good), v: 99 }), JSON.stringify({ ...JSON.parse(good), head: { n: tools.length } }), JSON.stringify({ ...JSON.parse(good), head: null }), JSON.stringify({ ...JSON.parse(good), body: 7 })]) {
       writeFileSync(file, bad);
-      expect(cache.read(server, base, listing), bad.slice(0, 30)).toBeUndefined();
+      expect(cache().read(server, base, listing), bad.slice(0, 30)).toBeUndefined();
     }
     writeFileSync(file, good);
-    expect(cache.read(server, base, listing)).toBeDefined();
+    expect(cache().read(server, base, listing)).toBeDefined();
   });
 
   it('is cleared with the raw list of the server', () => {

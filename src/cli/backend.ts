@@ -33,6 +33,12 @@ export interface ListingOptions {
   timeoutMs: number;
   /** Skip the cache and ask the server (`via sync`, `via doctor`). */
   refresh?: boolean;
+  /**
+   * The `fetchedAt` of a list the caller holds a build of (view-cache.ts). A backend that has to
+   * move the tools between processes may then leave them out when its list is that one; the
+   * returned listing is the same either way.
+   */
+  have?: number;
 }
 
 /**

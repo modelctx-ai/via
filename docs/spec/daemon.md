@@ -32,7 +32,7 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 
 ## CLI 与 daemon 的协议
 
-socket 上的 JSON Lines，一行一个消息（单条上限 256 MB）。参数解析和输出渲染在 CLI 侧完成，daemon 只返回结构化结果，这样渲染逻辑只有一份，进程内模式也能复用同一组类型（`src/protocol.ts`，以它为准）。目录的拆分、分域、索引都由 CLI 从原始 `tools/list` 结果计算，daemon 只提供原始列表，因此没有 `ls`、`find`、`describe` 请求。
+socket 上的 JSON Lines，一行一个消息（单条上限 256 MB）。参数解析和输出渲染在 CLI 侧完成，daemon 只返回结构化结果，这样渲染逻辑只有一份，进程内模式也能复用同一组类型（`src/protocol.ts`，以它为准）。目录的拆分、分域、索引都由 CLI 从原始 `tools/list` 结果计算（计算结果由 CLI 存成磁盘上的预构建缓存，见 [discovery.md](discovery.md#预构建缓存)），daemon 只提供原始列表，因此没有 `ls`、`find`、`describe` 请求。
 
 握手：CLI 连接后先发 `hello`，其他消息在握手前一律断开连接。
 
@@ -53,7 +53,7 @@ type ServerTarget = {
 
 type Request =
   | { id; type: "status" }
-  | ({ id; type: "list"; timeoutMs: number; refresh?: boolean } & ServerTarget)
+  | ({ id; type: "list"; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   | ({ id; type: "call"; rawName: string; args: object; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
   | { id; type: "validate"; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
   | { id; type: "redact"; text: string }
@@ -83,7 +83,7 @@ type ErrorInfo = {
 
 | 请求 | 行为 |
 | --- | --- |
-| `list` | 返回 `{ tools, fetchedAt, fromCache }`。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5 |
+| `list` | 返回 `{ tools, fetchedAt, fromCache }`。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5。`have` 是 CLI 手里已有预构建目录的那份列表的 `fetchedAt`：daemon 的列表恰好是这一份时，应答为 `{ unchanged: true, fetchedAt, fromCache: true }`，不带 `tools`（凭证与信任检查照常先做；带 `refresh` 时忽略 `have`）。CLI 只在磁盘缓存里的列表也是这一份时才带 `have`，收到 `unchanged` 后需要工具时从那个缓存文件读，所以浏览类命令不必让 daemon 把整份列表再传一遍 |
 | `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样 |
 | `validate` | 编译 JSON Schema（按内容缓存）并校验 `data`，返回 ajv 的错误与 `format` 警告；`compileOnly` 只编译。这样 CLI 进程不加载 ajv |
 | `redact` | 把文本里 daemon 已知的凭证值换成 `***`；CLI 在打印可能回显用户输入的文本（错误、`--dry-run`、校验警告）前用它补上本地没有的脱敏。只在已有连接时发，不为它拉起 daemon |

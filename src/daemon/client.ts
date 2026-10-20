@@ -1,7 +1,6 @@
 // The CLI's side of the socket: connect and handshake, start the daemon when there is none, and
 // multiplex requests over one connection. Imports nothing heavy (no MCP SDK, no ajv): a request that
 // goes through the daemon must not pay for them in the CLI process (implementation.md, "启动速度").
-import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, truncateSync } from 'node:fs';
 import { createConnection, type Socket } from 'node:net';
 import type { Event, Hello, HelloAck, RequestBody, Response, Stale } from '../protocol';
@@ -285,7 +284,7 @@ export class DaemonClient {
     if (first.refused === 'token') throw new DaemonUnavailable('the via daemon refused the handshake (token mismatch)');
     if (!spawnIfAbsent) return undefined;
     // No daemon, or one of another version that is draining and has already released the socket.
-    const child = this.spawnDaemon();
+    const child = await this.spawnDaemon();
     const deadline = Date.now() + (this.options.readyTimeoutMs ?? 2000);
     let attempt = 0;
     for (;;) {
@@ -300,7 +299,9 @@ export class DaemonClient {
     }
   }
 
-  private spawnDaemon(): { failure(): string | undefined; tail(): string } {
+  private async spawnDaemon(): Promise<{ failure(): string | undefined; tail(): string }> {
+    // Loaded here: only a command that has to start the daemon needs child_process (and its ~3 ms).
+    const { spawn } = await import('node:child_process');
     const { paths, command, env, home, idleTimeoutSec } = this.options;
     mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
     let logFd: number | undefined;

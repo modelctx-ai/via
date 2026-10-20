@@ -159,6 +159,7 @@ export class App {
       cwd: this.io.cwd,
       env: this.io.env,
       serverIdleTimeoutSec: config.daemon.serverIdleTimeout,
+      cache: await this.cache(),
     });
     return new FallbackBackend(primary, inProcess, (message) => this.err(message), () => new FileCursorStore(join(this.cacheDir, 'cursors'), { now: this.io.now }));
   }
@@ -257,11 +258,11 @@ export class App {
    * The tools of one server: from the cache when fresh, else from the server (and then cached).
    * `refresh` skips the cache read. Throws ClientError.
    */
-  async listing(entry: ProviderEntry, options: { refresh?: boolean; many?: boolean } = {}): Promise<Listing> {
+  async listing(entry: ProviderEntry, options: { refresh?: boolean; many?: boolean; have?: number } = {}): Promise<Listing> {
     const { server } = entry;
-    if (!server.trusted) throw (await import('../client')).untrustedServer(server);
+    if (!server.trusted) throw (await import('../client/errors')).untrustedServer(server);
     const timeoutMs = this.listTimeoutMs(server, options.many ?? false);
-    return (await this.backend()).listing(server, { timeoutMs, refresh: options.refresh ?? false });
+    return (await this.backend()).listing(server, { timeoutMs, refresh: options.refresh ?? false, ...(options.have !== undefined ? { have: options.have } : {}) });
   }
 
   /** Fetch several providers in parallel; failures become statuses instead of aborting. */
@@ -270,10 +271,14 @@ export class App {
     const [{ buildCatalog }, { providerInput, statusOf }, views] = await Promise.all([import('../catalog'), import('./directory'), this.viewCache()]);
     const statuses: Record<string, ProviderStatus> = {};
     const failures: LoadedProviders['failures'] = [];
+    // The build inputs do not depend on the tool list, so they are known before it is fetched; the
+    // build we already have tells which list to ask the backend about (it may then skip sending it).
+    const early = entries.map((entry) => providerInput(entry, [], config, true));
     const results = await Promise.all(
-      entries.map(async (entry) => {
+      entries.map(async (entry, i) => {
         try {
-          return { entry, listing: await this.listing(entry, { refresh: options.refresh ?? false, many: true }) };
+          const have = options.refresh ? undefined : views.peek(entry.server, early[i]!);
+          return { entry, listing: await this.listing(entry, { refresh: options.refresh ?? false, many: true, ...(have !== undefined ? { have } : {}) }) };
         } catch (error) {
           statuses[entry.name] = statusOf(error);
           failures.push({ entry, error });
@@ -281,7 +286,8 @@ export class App {
         }
       }),
     );
-    const inputs = results.map((r) => providerInput(r.entry, r.listing?.tools ?? [], config, true));
+    // A listing that is a cache file read parses its tools only if somebody asks.
+    const inputs = results.map((r, i) => (r.listing ? { ...early[i]!, get tools() { return r.listing!.tools; } } : early[i]!));
     // Providers whose build is in the cache are restored; the rest are built here and then kept.
     const byName = new Map(results.map((r) => [r.entry.name, r]));
     const written = new Map<CatalogTool, DocTerms>();

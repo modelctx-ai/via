@@ -53,8 +53,12 @@ export type ServerTarget = {
 
 export type Request =
   | { id: string; type: 'status' }
-  /** `tools/list` of one server: daemon memory, then the disk cache, then the server. */
-  | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean } & ServerTarget)
+  /**
+   * `tools/list` of one server: daemon memory, then the disk cache, then the server. `have` is the
+   * `fetchedAt` of a list the caller already holds (or a build made from it): when the daemon's
+   * list is that one it answers without the tools (`unchanged`). Ignored with `refresh`.
+   */
+  | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   /** `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. */
   | ({ id: string; type: 'call'; rawName: string; args: Record<string, unknown>; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
   /** Compile a JSON Schema (cached by the daemon) and check `data`; keeps ajv out of the CLI process. */
@@ -113,8 +117,13 @@ export type Message = Response | Event | Stale;
 
 // Payloads ------------------------------------------------------------------------
 
-/** `result` of `list`. */
-export type ListResult = { tools: McpTool[]; fetchedAt: number; fromCache: boolean };
+/**
+ * `result` of `list`. `unchanged` replaces `tools` when the request's `have` is the `fetchedAt` of
+ * the list the daemon would have sent; the credentials and trust checks ran all the same.
+ */
+export type ListResult = ListedTools | ListUnchanged;
+export type ListedTools = { tools: McpTool[]; fetchedAt: number; fromCache: boolean };
+export type ListUnchanged = { unchanged: true; fetchedAt: number; fromCache: true };
 
 /** `result` of `validate`. `ok: false` means the schema cannot be compiled. */
 export type ValidateResult =

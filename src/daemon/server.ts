@@ -359,7 +359,7 @@ export class DaemonServer {
         return this.status();
       case 'list': {
         if (this.stale(request)) return STALE;
-        const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true });
+        const result: ListResult = await this.sessions.list(request, { timeoutMs: request.timeoutMs, refresh: request.refresh === true, ...(typeof request.have === 'number' ? { have: request.have } : {}) });
         return result;
       }
       case 'call': {
