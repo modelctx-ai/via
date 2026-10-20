@@ -1,0 +1,14 @@
+servers   none configured
+
+frameworks: no MCP servers found in framework configs
+
+secrets: no plaintext credentials found
+
+config:
+  error: ~/.config/via/config.yaml: deny[0]: invalid regular expression "("; the rule was ignored
+  error: /work/.via.yaml: servers.x.env.K: cmd: credential references are only allowed in the user config; this server definition was ignored
+    next: define the server in the user config, or use an env:, file: or keychain: reference
+  warning: ~/.config/via/config.yaml: servers.github.timout: unknown field
+  warning: provider name "find" collides with a built-in subcommand; set "alias" in the server config
+    next: set servers.find.alias in your via config
+  warning: provider "exa" is defined more than once; the first definition is used

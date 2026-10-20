@@ -1,0 +1,9 @@
+servers   10 ok
+
+frameworks still injecting MCP schemas:
+  claude-code   6 servers · ~11k tokens/turn
+    hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用
+  cursor        3 servers · ~5.8k tokens/turn
+    hint: Settings → MCP，关闭对应 server 的开关
+
+secrets: no plaintext credentials found
