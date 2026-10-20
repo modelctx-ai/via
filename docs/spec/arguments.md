@@ -2,6 +2,8 @@
 
 工具的 `inputSchema` 在运行时映射成命令行参数，不生成代码（[ADR 0008](../adr/0008-dynamic-dispatch-no-codegen.md)）；本地先做 JSON Schema 校验，不合法的调用不会发到上游。
 
+`via prompts <provider> <名称>` 的参数（MCP prompt 的参数是一组具名字符串）也走这套解析：via 把 `arguments` 转成只有 `string` 属性的 object schema（`required: true` 的进必填，`additionalProperties: false`），所以映射、`-h`、校验与报错都与工具一致，只是没有危险操作确认和 `outputSchema` 校验（[cli.md](cli.md#mcp-资源与-prompt-命令)）。
+
 ## 映射规则
 
 | schema 类型 | 命令行写法 | 说明 |

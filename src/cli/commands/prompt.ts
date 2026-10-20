@@ -10,7 +10,9 @@ import { renderPrompt } from '../prompt';
 
 export async function promptCommand(app: App, argv: readonly string[]): Promise<number> {
   const { flags, positionals } = parseLocal('prompt', argv, [{ name: 'out', value: true }]);
-  if (positionals.length > 0) throw fail(ExitCode.Usage, 'usage: via prompt [--out <file>]', 'via prompt -h');
+  if (positionals.length > 0) {
+    throw fail(ExitCode.Usage, 'usage: via prompt [--out <file>]', 'via prompt -h', ['to list the prompts of a server: via prompts <provider>']);
+  }
   const config = await app.config();
   const { entries } = await app.table();
   const { catalog } = await app.loadProviders(entries);

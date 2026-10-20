@@ -84,7 +84,7 @@ export interface DaemonSandbox {
   /** The text it prints when no daemon runs. */
   idleSocketText: string;
   /** Run `via` with the daemon enabled and the bundled CLI as the program to start it. */
-  via(argv: string[], options?: { env?: Record<string, string | undefined>; daemonCommand?: { command: string; args: string[] }; openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }> }): Promise<CliResult>;
+  via(argv: string[], options?: { env?: Record<string, string | undefined>; cwd?: string; daemonCommand?: { command: string; args: string[] }; openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }> }): Promise<CliResult>;
   /** `via daemon status -o json`, or undefined when no daemon runs. */
   status(): Promise<DaemonStatus | undefined>;
   /** Stop the daemon and wait until its process is gone. */
@@ -136,7 +136,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
     let combined = '';
     const code = await run(argv, {
       env: { ...sandboxEnv, ...options.env },
-      cwd: sb.project,
+      cwd: options.cwd ?? sb.project,
       home: sb.home,
       platform,
       stdout: { write: (s) => void ((stdout += s), (combined += s)) },

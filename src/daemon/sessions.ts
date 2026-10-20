@@ -7,7 +7,7 @@ import type { McpTool } from '../catalog/types';
 import { CATALOG_TTL_MS, CatalogCache } from '../cli/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ListResult, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
+import type { GetPromptResult, ListResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor, redactValue } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
@@ -63,6 +63,7 @@ interface Entry {
   session: McpSession;
   tools?: McpTool[];
   fetchedAt?: number;
+  features?: ServerFeatures;
   calls: number;
   active: number;
   lastUsed: number;
@@ -115,18 +116,19 @@ export class SessionManager {
       if (!options.refresh) {
         const now = this.options.now();
         if (entry.tools && entry.fetchedAt !== undefined && now - entry.fetchedAt <= CATALOG_TTL_MS) {
-          return { tools: entry.tools, fetchedAt: entry.fetchedAt, fromCache: true };
+          return { tools: entry.tools, fetchedAt: entry.fetchedAt, fromCache: true, ...(entry.features ? { features: entry.features } : {}) };
         }
         const hit = this.cache.read(entry.original);
         if (hit) {
           entry.tools = hit.tools;
           entry.fetchedAt = hit.fetchedAt;
-          return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true };
+          if (hit.features) entry.features = hit.features;
+          return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true, ...(hit.features ? { features: hit.features } : {}) };
         }
       }
       const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs });
       this.store(entry, tools);
-      return { tools, fetchedAt: entry.fetchedAt!, fromCache: false };
+      return { tools, fetchedAt: entry.fetchedAt!, fromCache: false, ...(entry.features ? { features: entry.features } : {}) };
     } finally {
       this.end(entry);
     }
@@ -154,6 +156,26 @@ export class SessionManager {
     } finally {
       this.end(entry);
     }
+  }
+
+  /** `resources/list` and `resources/templates/list`, redacted. */
+  resources(target: ServerTarget, options: { timeoutMs: number }): Promise<ResourceListing> {
+    return this.ask(target, (session) => session.listResources(options));
+  }
+
+  /** `resources/read`, redacted. */
+  readResource(target: ServerTarget, uri: string, options: { timeoutMs: number }): Promise<ReadResourceResult> {
+    return this.ask(target, (session) => session.readResource(uri, options));
+  }
+
+  /** `prompts/list`, redacted. */
+  prompts(target: ServerTarget, options: { timeoutMs: number }): Promise<McpPrompt[]> {
+    return this.ask(target, (session) => session.listPrompts(options));
+  }
+
+  /** `prompts/get`, redacted. */
+  getPrompt(target: ServerTarget, name: string, args: Record<string, string>, options: { timeoutMs: number }): Promise<GetPromptResult> {
+    return this.ask(target, (session) => session.getPrompt(name, args, options));
   }
 
   status(): SessionStatus[] {
@@ -190,6 +212,20 @@ export class SessionManager {
 
   // Internals ---------------------------------------------------------------------------
 
+  /** One request on the server's session; what comes back has resolved credentials replaced by `***`. */
+  private async ask<T>(target: ServerTarget, op: (session: McpSession) => Promise<T>): Promise<T> {
+    const server = await this.admit(target);
+    const entry = this.entryFor(target, server);
+    this.begin(entry);
+    try {
+      const result = await op(entry.session);
+      const values = this.options.resolver.resolvedValues();
+      return values.length === 0 ? result : (redactValue(result, createRedactor(values)) as T);
+    } finally {
+      this.end(entry);
+    }
+  }
+
   /** Untrusted project servers are refused before anything is resolved, spawned or sent (security.md). */
   private async admit(target: ServerTarget): Promise<ServerConfig> {
     if (this.closing) throw new ClientError({ exitCode: ExitCode.Upstream, message: 'the via daemon is shutting down', next: 'rerun the command' });
@@ -200,7 +236,7 @@ export class SessionManager {
       const { createOAuthStore } = await import('../client/oauth');
       this.oauthStore = createOAuthStore({ home: this.options.home, env: this.options.env, platform: this.options.platform });
     }
-    return effectiveServer(target.server, target.cwd);
+    return effectiveServer(target.server, target.cwd, this.options.home);
   }
 
   /** Resolve the credentials first: a missing one fails before any network call (auth.md). */
@@ -242,7 +278,13 @@ export class SessionManager {
       refreshAgain: false,
       retired: false,
     };
-    entry.session = new McpSession(server, this.options.resolver, { onToolsChanged: () => this.toolsChanged(entry), now: this.options.now, ...(this.oauthStore ? { oauthStore: this.oauthStore } : {}) });
+    // `server.roots` is already absolute here (`effectiveServer`), so no base directory is needed.
+    entry.session = new McpSession(server, this.options.resolver, {
+      onToolsChanged: () => this.toolsChanged(entry),
+      now: this.options.now,
+      ...(this.oauthStore ? { oauthStore: this.oauthStore } : {}),
+      roots: { cwd: target.cwd, home: this.options.home },
+    });
     this.entries.set(key, entry);
     this.byName.set(server.name, key);
     return entry;
@@ -296,7 +338,8 @@ export class SessionManager {
   private store(entry: Entry, tools: McpTool[]): void {
     entry.tools = tools;
     entry.fetchedAt = this.options.now();
-    this.cache.write(entry.original, tools);
+    entry.features = entry.session.features() ?? entry.features;
+    this.cache.write(entry.original, tools, entry.features);
   }
 
   // list_changed ------------------------------------------------------------------------

@@ -325,6 +325,17 @@ function finalize(
   };
   if (d.domain !== undefined) server.domain = d.domain;
   if (d.budget !== undefined) server.budget = d.budget;
+  if (d.roots !== undefined && d.roots.length > 0) {
+    server.roots = [...d.roots];
+    if (transport.type === 'http') {
+      diagnostics.push({
+        level: 'warning',
+        code: 'roots-remote',
+        message: `servers.${name}.roots: local directories are sent to the remote server ${name} when it asks for its roots`,
+        server: name,
+      });
+    }
+  }
   if (conflicts && conflicts.length > 0) server.conflicts = conflicts;
   if (acc.launch.size > 0) server.launchPaths = [...acc.launch.keys()];
   if (untrustedPaths) server.untrustedPaths = untrustedPaths;

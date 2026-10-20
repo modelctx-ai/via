@@ -483,6 +483,31 @@ describe('merging', () => {
     });
   });
 
+  it('keeps roots as written, replaces them layer by layer, and warns for an HTTP server', async () => {
+    const tree = makeTree({
+      'home/.config/via/config.yaml': 'servers:\n  fs: { command: fs-server, roots: [".", "/a"] }\n  remote: { url: "https://r.invalid", roots: ["."] }\n  plain: { command: p }\n  empty: { command: e, roots: [] }\n',
+    });
+    const config = await tree.load();
+    expect(server(config, 'fs').roots).toEqual(['.', '/a']);
+    expect(server(config, 'plain')).not.toHaveProperty('roots');
+    expect(server(config, 'empty')).not.toHaveProperty('roots');
+    const warning = config.diagnostics.find((d) => d.code === 'roots-remote');
+    expect(warning).toMatchObject({ level: 'warning', server: 'remote', message: 'servers.remote.roots: local directories are sent to the remote server remote when it asks for its roots' });
+    expect(config.diagnostics.filter((d) => d.code === 'roots-remote')).toHaveLength(1);
+  });
+
+  it('treats roots a project file adds as something to trust, and roots it removes as harmless', async () => {
+    const user = 'servers:\n  fs: { command: fs-server, roots: ["/a"] }\n  other: { command: o }\n';
+    const widened = makeTree({ 'home/.config/via/config.yaml': user, 'project/.via.yaml': 'servers:\n  other:\n    roots: ["~"]\n' });
+    const w = await widened.load();
+    expect(server(w, 'other')).toMatchObject({ roots: ['~'], trusted: false });
+    expect(server(w, 'fs').trusted).toBe(true);
+    const narrowed = makeTree({ 'home/.config/via/config.yaml': user, 'project/.via.yaml': 'servers:\n  fs:\n    roots: []\n' });
+    const n = await narrowed.load();
+    expect(server(n, 'fs')).toMatchObject({ trusted: true });
+    expect(server(n, 'fs')).not.toHaveProperty('roots');
+  });
+
   it('a server named __proto__ is just a name', async () => {
     const tree = makeTree({ 'home/.config/via/config.yaml': 'servers:\n  "__proto__": { url: "https://p.invalid" }\n  ok: { url: "https://o.invalid" }\n' });
     expect((await tree.load()).servers.map((s) => s.name)).toEqual(['ok']);

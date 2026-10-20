@@ -27,7 +27,15 @@
 
 ### Added
 
-- Windows 支持（路线图 c4；daemon.md「Windows」、security.md「Windows 上的子进程」「Windows 上的文件权限」、ADR 0010）：
+- MCP resources、prompts 与 roots（ADR 0010，roadmap c3；open-questions 里的对应条目已移除）：
+  - 新内置子命令 `via resources <provider>`（资源与资源模板）、`via read <provider> <uri>`、`via prompts <provider> [<名称> [参数]]`。`resources`、`read`、`prompts` 成为保留字，与之重名的 provider 需要 `alias`；`prompt` 与 `prompts` 是两个命令，`via prompt <provider>` 会提示后者。URI 是普通位置参数，不进工具语法（冒号）；不适用 `deny`、`--yes`、`--dry-run`（协议上只读）。订阅、补全、sampling 不在范围内。
+  - 输出走现有渲染流水线（预算、游标、媒体落盘、脱敏、`-o text|json|raw`），元信息行名称为 `resources <p>`、`read <p>`、`prompts <p> <名称>`；一次读取返回多个内容时每个前加 `# <uri>`。prompt 的参数转成字符串 schema，复用工具的参数解析、`-h`、校验与报错。server 没有声明相应能力退出码 3（不发请求），URI 不存在退出码 3，server 拒绝 prompt 参数退出码 1。
+  - `via <provider>` 在 server 声明了 resources 或 prompts 时多一行 `also: via resources <p> · via prompts <p>`；能力随 `tools/list` 缓存（缓存文件新增可选的 `features`，旧文件照常读取）。`via prompt` 的说明文本不变，不增加 token。
+  - 配置 `servers.<name>.roots`（路径或 `file://` URI）：声明 `roots` 能力并回应 `roots/list`。**默认不声明**；`listChanged` 为 `false`；相对路径相对运行 `via` 的当前目录，`~` 展开；daemon 里换算成绝对 URI 后参与会话键，所以相对 roots 不会跨目录共用会话。项目级配置设置非空 `roots` 需要 `via trust`（`via trust` 列出），`[]` 不需要；给 HTTP server 配 `roots` 有告警（`roots-remote`）。
+  - 协议：新增 `resources-list`、`resource-read`、`prompts-list`、`prompt-get` 请求（结果在 daemon 内脱敏，回退时作为无副作用请求重做），`list` 的结果带 `features`；会话键加入 `roots`。
+  - 测试夹具 `test/fixtures/mcp/cli-server.mjs` 增加可选的 resources（文本、JSON、二进制、多内容、长文本、模板、两页列表）、prompts 与读取 roots 的工具 `list_roots`。
+
+- Windows 支持（路线图 c4；daemon.md「Windows」、security.md「Windows 上的子进程」「Windows 上的文件权限」、ADR 0011）：
   - daemon 在 Windows 上启用（不再始终用进程内模式；`VIA_NO_DAEMON=1` 照常有效）。默认管道名为 `\\.\pipe\via-<用户名>-<令牌摘要>`，摘要取自 daemon 每次启动生成、写在 `%LOCALAPPDATA%\via\Cache\via.token` 的令牌，因此名字无法被预先占位；握手令牌校验与 POSIX 一致，启动锁、陈旧令牌清理、令牌文件被删后自行退出。`via daemon status` 在 daemon 未运行时显示 `\\.\pipe\via-<用户名>-*`。peer 身份（对端 SID）与文件 ACL 不校验，残留风险写入规范。
   - `command: npx` 一类 `.cmd` / `.bat` 垫片可用：命令名由 via 按 `PATH` 与 `PATHEXT` 解析（不找当前目录），`.exe` 直接启动，批处理文件的参数含 `"`、`%`、换行、NUL 时拒绝启动。`cmd:` 凭证命令在 Windows 上同样解析，`.cmd` / `.bat` 经 `cmd.exe /d /v:off /s /c` 启动、每个词加双引号；`cmd:` 的分词在 Windows 上采用 C 运行时规则，`cmd:C:\Tools\op.exe …` 和带引号的路径可直接写。
   - 路径：用户配置 `%APPDATA%\via\config.yaml`，数据与缓存 `%LOCALAPPDATA%\via\{Data,Cache}`；环境变量名不分大小写（`%AppData%`、`env:Path`）；`~\`、`%NAME%` 展开；信任记录按规范化后的真实路径记录、不区分大小写，去掉 `\\?\` 前缀；已加载的框架配置文件按路径身份去重。`via` 的提示里 Windows 路径按 cmd.exe 与 PowerShell 都认的双引号规则加引号。

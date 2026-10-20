@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import type { CallOptions, McpClient } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ToolCallResult } from '../protocol';
+import type { ServerFeatures, ToolCallResult } from '../protocol';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor } from '../render/redact';
@@ -20,6 +20,8 @@ export interface Listing {
   tools: McpTool[];
   fetchedAt: number;
   fromCache: boolean;
+  /** Resources and prompts the server declared; absent when not known (an older cache entry). */
+  features?: ServerFeatures;
 }
 
 export interface ListingOptions {
@@ -62,6 +64,8 @@ export interface InProcessBackendOptions {
   now: () => number;
   /** Where OAuth logins live; only given when some server uses OAuth. */
   oauthStore?: OAuthStore;
+  /** Working directory and home of this run, for the `roots` of servers (config.md). */
+  roots?: { cwd: string; home: string };
 }
 
 /**
@@ -78,7 +82,12 @@ export class InProcessBackend implements Backend {
 
   static async create(options: InProcessBackendOptions): Promise<InProcessBackend> {
     const { InProcessClient } = await import('../client');
-    return new InProcessBackend(options, new InProcessClient(options.servers, options.resolver, { now: options.now, ...(options.oauthStore ? { oauthStore: options.oauthStore } : {}) }));
+    return new InProcessBackend(options, new InProcessClient(options.servers, options.resolver, {
+        now: options.now,
+        ...(options.oauthStore ? { oauthStore: options.oauthStore } : {}),
+        ...(options.roots ? { roots: options.roots } : {}),
+      }),
+    );
   }
 
   async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {
@@ -98,17 +107,27 @@ export class InProcessBackend implements Backend {
     }
     if (!refresh) {
       const hit = cache.read(server);
-      if (hit) return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true };
+      if (hit) return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true, ...(hit.features ? { features: hit.features } : {}) };
     }
     const tools = await this.client.listTools(server.name, { timeoutMs });
-    cache.write(server, tools);
-    return { tools, fetchedAt: now(), fromCache: false };
+    const features = this.client.features(server.name);
+    cache.write(server, tools, features);
+    return { tools, fetchedAt: now(), fromCache: false, ...(features ? { features } : {}) };
   }
 
   listTools: McpClient['listTools'] = (server, options) => this.client.listTools(server, options);
 
   callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult> {
     return this.client.callTool(server, rawName, args, options);
+  }
+
+  listResources: McpClient['listResources'] = (server, options) => this.client.listResources(server, options);
+  readResource: McpClient['readResource'] = (server, uri, options) => this.client.readResource(server, uri, options);
+  listPrompts: McpClient['listPrompts'] = (server, options) => this.client.listPrompts(server, options);
+  getPrompt: McpClient['getPrompt'] = (server, name, args, options) => this.client.getPrompt(server, name, args, options);
+
+  features(server: string): ServerFeatures | undefined {
+    return this.client.features(server);
   }
 
   compiler(): undefined {
@@ -198,6 +217,23 @@ export class FallbackBackend implements Backend {
 
   callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult> {
     return this.run((b) => b.callTool(server, rawName, args, options), { idempotent: options?.retry === true, what: `calling ${rawName}` });
+  }
+
+  // Lists, reads and prompt fetches change nothing on the server, so a request that may have reached the daemon is repeated.
+  listResources: McpClient['listResources'] = (server, options) =>
+    this.run((b) => b.listResources(server, options), { idempotent: true, what: `listing the resources of ${server}` });
+
+  readResource: McpClient['readResource'] = (server, uri, options) =>
+    this.run((b) => b.readResource(server, uri, options), { idempotent: true, what: `reading a resource of ${server}` });
+
+  listPrompts: McpClient['listPrompts'] = (server, options) =>
+    this.run((b) => b.listPrompts(server, options), { idempotent: true, what: `listing the prompts of ${server}` });
+
+  getPrompt: McpClient['getPrompt'] = (server, name, args, options) =>
+    this.run((b) => b.getPrompt(server, name, args, options), { idempotent: true, what: `getting a prompt of ${server}` });
+
+  features(server: string): ServerFeatures | undefined {
+    return this.current.features(server);
   }
 
   compiler(): SchemaCompiler | undefined {
