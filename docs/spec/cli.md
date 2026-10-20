@@ -39,7 +39,7 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 | `via find <查询> [--domain <域>] [-n 10]` | 跨 provider 搜索工具，每条结果带参数签名 |
 | `via call <provider>/<resource>:<verb> --args '{…}'` | 显式调用，参数为 JSON、`@文件` 或 `-`（stdin），供脚本使用 |
 | `via more <游标>` | 续读被截断的结果 |
-| `via batch` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出 |
+| `via batch [--concurrency <n>]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出（[见下](#via-batch)） |
 | `via servers [--why <provider>]` | 列出 server、来源文件、传输方式、鉴权状态、域的判定依据 |
 | `via auth login\|status\|logout <provider>` | 鉴权管理；`login --manual` 用于无头环境（[auth.md](auth.md)） |
 | `via trust [路径]` | 信任项目级配置（[security.md](security.md)） |
@@ -50,7 +50,7 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 
 内置子命令名是保留字，大小写不敏感，不接受前缀。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警，该 server 在改名前不出现在任何视图里。
 
-0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`auth`、`trust`、`daemon` 先保留名字，执行时退出码为 2，说明 `… is not available until 0.2`（[路线图](../roadmap.md)）。
+0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`auth`、`trust`、`daemon` 先保留名字，执行时退出码为 2，说明 `… is not available until 0.2`（[路线图](../roadmap.md)）。`batch` 自 0.2 起可用。
 
 各命令的细节：
 
@@ -74,7 +74,11 @@ next: via doctor
 
 因为无效的 `deny` 规则意味着本应隐藏的工具会可见，这里宁可停下，也不带着缺失的规则继续运行（[config.md](config.md#校验与诊断)）。
 
-### via batch 输入格式
+### via batch
+
+`via batch` 从 stdin 读 JSON Lines，每个非空行是一次调用，并发执行，结果按输入顺序输出。每一行走与 `via call` 完全相同的路径（解析、`deny`、危险操作确认、本地校验与一次 schema 刷新、调用、只读重试、渲染），没有绕过任何检查的入口。
+
+#### 输入格式
 
 每行一个 JSON 对象：
 
@@ -82,9 +86,74 @@ next: via doctor
 {"tool": "linear/issue:get", "args": {"id": "ENG-123"}}
 ```
 
-- 结果按输入顺序输出，每条结果之间以元信息行分隔；`-o json` 时每行一个 JSON 结果（JSONL）。
-- 单条失败不影响其他条目，整体退出码取所有条目中最大的非零值。
-- 并发上限遵循各 server 的 `concurrency` 配置。
+- `tool`（必填）：单字符串形式的工具引用 `<provider>/<resource>:<verb>`，解析规则与 `via call` 相同（唯一前缀、大小写与 `-`/`_` 宽松、原始名可用）。
+- `args`（可选，默认 `{}`）：参数对象，键是 schema 里的参数原名，值直接是 JSON。它与 `--args '{…}'` 走同一条路径：做补齐与本地校验，但没有 `@文件`、`-`、`--flag` 这类命令行写法，字符串 `"@a.md"` 或 `"-"` 原样传给上游。校验报错仍用命令行写法指出参数（`--repo  required`），`-o json` 的 `details` 带 JSON Pointer。
+- 其他字段一律报错，避免 `arg` 这类拼写错误被静默忽略。
+- 空行（只含空白）跳过，但仍占行号；识别 `\r\n` 与开头的 BOM。**行号**是该行在输入中的位置，用于定位错误。
+- 一行无法解析（不是合法 JSON、不是对象、缺 `tool`、有未知字段、`args` 不是对象、`tool` 不含 `/`）时，该行失败，退出码 2，其余行照常执行。JSON 语法错误只报位置和出错字符，不回显该行内容。
+- 没有任何非空行（含空输入）时，不执行任何调用，退出码 2：`error: no calls on stdin`。空输入多半是管道出了问题，静默成功会让 agent 误以为事情已经做完。
+
+#### 执行
+
+- 各行并发执行。同一 server 上的并发不超过它的 `concurrency`（[config.md](config.md#serversname)），超出的排队；另有全局上限 `--concurrency <n>`（默认 16，正整数），限制同时在途的行数，无论它们属于哪些 server。
+- 单条失败（解析、找不到、`deny`、危险操作、校验、上游、传输、超时）只影响该行，不中止其他行。
+- 每个 provider 的工具列表在整批中只取一次；校验失败后「缓存超过 5 分钟则刷新一次」的规则（[arguments.md](arguments.md#schema-不可靠时)）也是每个 provider 整批一次，而不是每行一次。
+- 全局选项对整批生效：`--yes` 确认所有危险工具；`--dry-run` 对每一行只打印将要发出的调用（格式见 [`--dry-run` 的输出](#--dry-run-的输出)），不发起调用；`--no-validate`、`--timeout`、`--full`、`-o` 同理。没有 `--yes` 时，危险工具所在的行以退出码 5 失败，其余行不受影响，`next:` 写 `rerun only this line with: via batch --yes`，因为重跑整批会让已成功的行再执行一遍。
+- 批量不是事务：没有回滚，也不保证幂等。已发出的写入调用不会因为后面的行失败而撤销。
+
+#### 输出（text，默认）
+
+结果按输入顺序输出；第 N 行的结果在前面所有行都已输出后立即输出，不等整批结束。每行的输出与单次调用一致，次序固定：该行的 `progress:` 与 `warning:` 行（stderr），数据（stdout），元信息行或错误（stderr）。因此各行的数据之间由元信息行分隔：
+
+```console
+$ printf '%s\n' \
+    '{"tool":"gh/issue:read","args":{"owner":"acme","repo":"api","issue_number":1,"method":"get"}}' \
+    '{"tool":"gh/issue:rea"}' \
+    '{"tool":"gh/echo-text","args":{"message":"after"}}' | via batch
+number: 1
+title: Support OAuth DCR
+state: open
+· gh issue:read · 318ms · 47 bytes · line 1
+error: line 2: no such tool: issue:rea
+did you mean: gh issue:read
+next: via gh issue:read -h
+echo: after
+· gh echo-text · 52ms · 12 bytes · line 3
+· batch · 3 calls · 2 ok · 1 failed · 401ms
+```
+
+- 成功行的元信息行与单次调用相同，在标记位置多一个 `line N`（排在 `unvalidated` 之后、`next:` 之前）。
+- 失败行没有数据；错误报告与单次调用相同（原因、补充行、`next:`），只是原因行写成 `error: line N: …`。
+- 最后一行 `· batch · N calls · K ok [· M failed] · <耗时>` 汇总整批，写 stderr。
+- 元信息行在 stderr，所以只捕获 stdout 时各行的数据无法按行拆开；需要程序化处理时用 `-o json`。
+- `-o raw` 的框架与 text 相同，每行的数据是上游原始内容。
+
+#### 输出（`-o json`）
+
+stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应、顺序一致：
+
+```json
+{"line":1,"tool":"gh/issue:read","ok":true,"exitCode":0,"elapsedMs":318,"result":{"number":1,"title":"Support OAuth DCR","state":"open"}}
+{"line":2,"ok":false,"exitCode":3,"error":{"code":3,"message":"no such tool: nothing-like-it","next":"via find gh nothing-like-it"}}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `line` | 输入中的行号 |
+| `tool` | 规范的单字符串写法；该行在解析出工具之前就失败时省略 |
+| `ok` / `exitCode` | 该行是否成功，以及该行的退出码（[退出码](output.md#退出码)） |
+| `elapsedMs` | 上游调用耗时，仅调用返回时有 |
+| `result` | 成功时清理后的结果，与单次 `-o json` 的 stdout 是同一个值（没有内容时为 `null`；`--dry-run` 时是 dry-run 对象） |
+| `error` | 失败时的 `{code, message, next?, details?}`，与单次 `-o json` 的 stderr 里 `error` 对象相同 |
+| `truncated`、`next` | 结果超过输出预算时：没有 `result`，`truncated` 为 `true`，`next` 是 `via more <游标>`；加 `--full` 则不截断。被截断的 JSON 不是合法 JSON，所以不会把半截结果塞进记录 |
+| `warnings` | 警告（如 `outputSchema` 不匹配），有才出现 |
+| `unvalidated` | 以 `--no-validate` 跳过校验时为 `true` |
+
+`-o json` 时错误和警告都在记录里，不再写 stderr；stderr 只有 `progress:` 行和最后的汇总行。
+
+#### 退出码
+
+整体退出码取各行退出码中**数值最大**的（全部成功为 0），与 `via sync`、`via doctor` 一致。例如一行被 `deny`（5）、一行上游错误（1）时整体为 5。需要逐行判断时看每一行的退出码（`-o json` 的 `exitCode`，或 text 下的错误行）。批量本身的失败——配置有 error 级诊断、选项非法、没有输入——退出码为 2，且不执行任何调用。
 
 ## 全局选项
 
