@@ -10,16 +10,20 @@ import type { CatalogTool } from './types';
  */
 export const MAX_DENY_INPUT_LENGTH = 256;
 
+type DenyTarget = Pick<CatalogTool, 'provider' | 'rawName' | 'singleRef' | 'defaultSingleRef'>;
+
 /** The spellings of a tool that a rule is matched against. */
-export function denyForms(tool: Pick<CatalogTool, 'provider' | 'rawName' | 'singleRef'>): string[] {
-  return [tool.singleRef, `${tool.provider}/${tool.rawName}`];
+export function denyForms(tool: DenyTarget): string[] {
+  const forms = [tool.singleRef, `${tool.provider}/${tool.rawName}`];
+  if (!forms.includes(tool.defaultSingleRef)) forms.push(tool.defaultSingleRef);
+  return forms;
 }
 
 /**
  * Why the tool is denied, as text for an error message, or undefined when no rule applies.
  * `g` / `y` flags make `RegExp#test` stateful; they are dropped so every test starts from 0.
  */
-export function findDenyRule(tool: Pick<CatalogTool, 'provider' | 'rawName' | 'singleRef'>, rules: readonly RegExp[]): string | undefined {
+export function findDenyRule(tool: DenyTarget, rules: readonly RegExp[]): string | undefined {
   if (rules.length === 0) return undefined;
   const forms = denyForms(tool);
   if (forms.some((f) => f.length > MAX_DENY_INPUT_LENGTH)) {

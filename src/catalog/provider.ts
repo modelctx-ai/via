@@ -41,6 +41,8 @@ interface Draft {
   /** Leaf name to fall back to when a `resource:verb` conflict demotes the tool. */
   fallbackLeaf: string;
   renamed: boolean;
+  /** The name part the split rules give, before `rename` and conflict handling (deny rules match it too). */
+  defaultName: string;
 }
 
 function parseRename(value: string): { resource: string; verb: string } | { leaf: string } {
@@ -65,6 +67,7 @@ function toCatalogTool(provider: string, d: Draft): CatalogTool {
     name,
     ref: `${provider} ${name}`,
     singleRef: `${provider}/${name}`,
+    defaultSingleRef: `${provider}/${d.defaultName}`,
     description: d.def.description ?? d.def.title ?? '',
     params: paramsOf(d.def),
     readOnly: d.def.annotations?.readOnlyHint === true,
@@ -85,17 +88,18 @@ export function buildProviderCatalog(
   const providerNames = [input.provider, ...(input.aliases ?? [])];
 
   const drafts: Draft[] = input.tools.map((def) => {
+    const s = splitToolName(def.name, { providerNames }, rules.split);
+    const defaultName = s.kind === 'resource' ? `${s.resource}:${s.verb}` : s.leafName;
     const renamed = input.rename?.[def.name];
     if (renamed !== undefined) {
       const r = parseRename(renamed);
       return 'leaf' in r
-        ? { def, resource: null, verb: null, leafName: r.leaf, fallbackLeaf: r.leaf, renamed: true }
-        : { def, resource: r.resource, verb: r.verb, leafName: '', fallbackLeaf: kebab(def.name), renamed: true };
+        ? { def, resource: null, verb: null, leafName: r.leaf, fallbackLeaf: r.leaf, renamed: true, defaultName }
+        : { def, resource: r.resource, verb: r.verb, leafName: '', fallbackLeaf: kebab(def.name), renamed: true, defaultName };
     }
-    const s = splitToolName(def.name, { providerNames }, rules.split);
     return s.kind === 'resource'
-      ? { def, resource: s.resource, verb: s.verb, leafName: '', fallbackLeaf: s.leafName, renamed: false }
-      : { def, resource: null, verb: null, leafName: s.leafName, fallbackLeaf: s.leafName, renamed: false };
+      ? { def, resource: s.resource, verb: s.verb, leafName: '', fallbackLeaf: s.leafName, renamed: false, defaultName }
+      : { def, resource: null, verb: null, leafName: s.leafName, fallbackLeaf: s.leafName, renamed: false, defaultName };
   });
 
   // Rule 6: two tools with the same `resource:verb` both fall back to leaf tools.
