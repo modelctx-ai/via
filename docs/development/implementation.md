@@ -7,7 +7,7 @@
 | 用途 | 包 |
 | --- | --- |
 | MCP client（stdio、Streamable HTTP、OAuth） | `@modelcontextprotocol/sdk`（官方 SDK，client 端自带 OAuth 流程支持） |
-| 固定子命令解析 | `commander`；工具参数由 schema 驱动的自定义解析器处理 |
+| 固定子命令解析 | 全局选项可以出现在任何位置（包括工具参数之间），0.1 用 `cli/options.ts` 里的小解析器先取走它们，不引入 `commander`；工具参数由 schema 驱动的自定义解析器处理 |
 | schema 校验 | `ajv` |
 | 配置解析 | `yaml`、`smol-toml`、`jsonc-parser`（部分框架配置带注释） |
 | 钥匙串 | `@napi-rs/keyring` |
@@ -23,8 +23,8 @@
 
 冷启动比原生二进制慢，是选择 TypeScript 的主要代价。应对措施：
 
-- 打包成单个文件，减少模块解析开销；
-- 按子命令懒加载：走 daemon 的请求不加载 MCP SDK 和 ajv，只做参数解析、socket 通信和渲染；
+- tsup 打包并开启代码分块：`dist/via.js` 只是极薄的入口，`--version` 与 `-h` 只加载它和一个很小的文本分块；其余命令经动态 `import()` 按需加载，各子命令只加载自己用到的分块；
+- 按子命令懒加载：走 daemon 的请求不加载 MCP SDK 和 ajv，只做参数解析、socket 通信和渲染；进程内模式下 MCP SDK 在首次建立连接时才加载，命中目录缓存的浏览命令不会加载它；`via more` 不加载配置和目录；
 - Node 22 及以上调用 `module.enableCompileCache()`；
 - 热路径交给常驻 daemon，CLI 尽量薄。
 
@@ -51,7 +51,7 @@ via/
 │  ├─ columns.json  # 表格选列规则
 │  └─ schema/       # 上述数据文件的 JSON Schema
 ├─ scripts/         # 词典生成（npm run lexicon）、拆分结果差异检查（npm run split-diff）、token 基准
-├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；模拟 MCP server、框架配置样例（待补）
+├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；`mcp/`：模拟 MCP server（stdio 与 Streamable HTTP）；`config/`：每个框架的配置样例与 via 用户/项目配置
 └─ docs/
 ```
 

@@ -1,0 +1,11 @@
+{
+  "id": "codex",
+  "name": "Codex",
+  "configs": [
+    { "path": ".codex/config.toml", "format": "toml", "pointer": "/mcp_servers", "scope": "project" },
+    { "path": "~/.codex/config.toml", "format": "toml", "pointer": "/mcp_servers", "scope": "user" }
+  ],
+  "disableHint": "在 config.toml 的 [mcp_servers.<名称>] 中设置 enabled = false，或用 codex mcp remove <名称>",
+  "verifiedAt": null,
+  "notes": "用户配置目录可被 CODEX_HOME 改写，暂不处理；项目级 .codex/config.toml 需要较新版本的 Codex。"
+}

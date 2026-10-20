@@ -1,0 +1,68 @@
+import type { McpTool } from '../catalog/types';
+import type { CredentialResolver, ServerConfig } from '../config/types';
+import type { ToolCallResult } from '../protocol';
+import { notFoundServer } from './errors';
+import { McpSession, type CallOptions, type ListOptions } from './session';
+
+/**
+ * What the CLI needs from "something that talks to MCP servers". The in-process client implements it
+ * now; the daemon's socket client will implement the same interface (daemon.md). Failures are thrown
+ * as `ClientError`, which carries a protocol `ErrorInfo`.
+ */
+export interface McpClient {
+  listTools(server: string, options?: ListOptions): Promise<McpTool[]>;
+  callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult>;
+  close(): Promise<void>;
+}
+
+/**
+ * Direct connections from the current process (`VIA_NO_DAEMON=1`, CI, daemon fallback). Sessions are
+ * created on first use and kept until `close()`, so repeated calls within one run reuse them.
+ * Credentials are resolved right before each connection and stay in memory.
+ */
+export class InProcessClient implements McpClient {
+  private readonly sessions = new Map<string, McpSession>();
+
+  constructor(
+    private readonly servers: readonly ServerConfig[],
+    private readonly resolver: CredentialResolver,
+  ) {}
+
+  /** `server` is the config key (`ServerConfig.name`) or the provider name. */
+  async listTools(server: string, options?: ListOptions): Promise<McpTool[]> {
+    return this.session(server).listTools(options);
+  }
+
+  async callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult> {
+    return this.session(server).callTool(rawName, args, options);
+  }
+
+  /** Close every session and kill stdio children. */
+  async close(): Promise<void> {
+    const sessions = [...this.sessions.values()];
+    this.sessions.clear();
+    await Promise.all(sessions.map((s) => s.close()));
+  }
+
+  private session(key: string): McpSession {
+    const config = this.find(key);
+    let session = this.sessions.get(config.name);
+    if (!session) {
+      session = new McpSession(config, this.resolver);
+      this.sessions.set(config.name, session);
+    }
+    return session;
+  }
+
+  /** Disabled servers are hidden from via (config.md), so they are "not found" like unknown ones. */
+  private find(key: string): ServerConfig {
+    const visible = this.servers.filter((s) => !s.disabled);
+    const found = visible.find((s) => s.name === key) ?? visible.find((s) => s.provider === key);
+    if (found) return found;
+    const near = visible
+      .map((s) => s.provider)
+      .filter((p) => p.includes(key) || key.includes(p))
+      .slice(0, 5);
+    throw notFoundServer(key, near);
+  }
+}

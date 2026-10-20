@@ -48,5 +48,13 @@ jobs:
         with:
           node-version: 20
       - run: node --version
-      - run: node dist/via.js --version
-      - run: node dist/via.js
+      # 空的 HOME 与工作目录，避免读到 runner 上的配置；doctor 会加载配置解析等懒加载的 chunk。
+      - name: run bundle
+        run: |
+          export HOME="$RUNNER_TEMP/home" XDG_CONFIG_HOME="$RUNNER_TEMP/home/.config" XDG_CACHE_HOME="$RUNNER_TEMP/home/.cache"
+          mkdir -p "$HOME" "$RUNNER_TEMP/work"
+          cd "$RUNNER_TEMP/work"
+          via="$GITHUB_WORKSPACE/dist/via.js"
+          node "$via" --version
+          node "$via"
+          node "$via" doctor

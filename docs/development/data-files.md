@@ -122,28 +122,34 @@ npm run lexicon    # 等价于对 test/fixtures/tools/ 运行 scripts/build-lexi
 
 ## frameworks
 
-`data/frameworks/<id>.json`，每个 agent 框架一个文件，描述如何只读解析它的 MCP 配置，以及如何关闭注入。供[配置](../spec/config.md)与 [`via doctor`](../guides/agent-integration.md) 使用。
+`data/frameworks/<id>.json`，每个 agent 框架一个文件，描述如何只读解析它的 MCP 配置，以及如何关闭注入。供[配置](../spec/config.md)与 [`via doctor`](../guides/agent-integration.md) 使用。Schema 为 `data/schema/framework.schema.json`；新增文件后还要在 `src/config/frameworks.ts` 的注册表中登记，注册表的顺序即 `sources: auto` 的探测顺序（决定同名冲突时谁优先）。
 
 ```json
 {
-  "id": "claude-code",
-  "name": "Claude Code",
+  "id": "vscode",
+  "name": "VS Code",
   "configs": [
-    { "path": "~/.claude.json", "format": "json", "pointer": "/mcpServers", "scope": "user" },
-    { "path": ".mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" }
+    { "path": ".vscode/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "project" },
+    { "path": "~/.config/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["linux"] },
+    { "path": "%APPDATA%/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["win32"] }
   ],
-  "disableHint": "启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用",
-  "verifiedAt": "2026-10"
+  "disableHint": "运行命令 MCP: List Servers，选中 server 后停止或禁用",
+  "verifiedAt": null,
+  "notes": "只读取 mcp.json；旧版 settings.json 中的 mcp.servers 不读取。"
 }
 ```
 
 | 字段 | 说明 |
 | --- | --- |
-| `configs[].path` | 配置文件路径；`~` 为用户目录，相对路径为项目目录 |
+| `configs[].path` | 配置文件路径；`~` 为用户目录，`%NAME%` 为环境变量（变量未设置时跳过该条）；`scope` 为 `project` 时必须是相对路径，从当前目录向上查找，取最近的一份 |
 | `configs[].format` | `json`、`jsonc`、`toml`、`yaml` |
-| `configs[].pointer` | server 映射在文件中的位置（JSON Pointer），如 Codex 为 `/mcp_servers`，VS Code 为 `/servers` |
+| `configs[].pointer` | server 映射在文件中的位置（JSON Pointer），如 Codex 为 `/mcp_servers`，VS Code 为 `/servers`；目标不存在时视为没有 server，不算错误 |
 | `configs[].scope` | `user` 或 `project`；`project` 级的 stdio 命令受[信任规则](../spec/security.md#项目级配置的信任)约束 |
+| `configs[].platforms` | 可选，`linux`、`darwin`、`win32` 的子集；缺省表示所有平台。同一框架在不同系统上路径不同时，写成多条 |
 | `disableHint` | `via doctor` 显示的关闭方法 |
-| `verifiedAt` | 最近一次按该框架实际版本核对的时间 |
+| `verifiedAt` | 最近一次按该框架实际安装版本核对的时间（`YYYY-MM`）；从未核对过时为 `null`，表示条目依据文档编写 |
+| `notes` | 可选，已知的缺口，如暂不读取的位置 |
+
+同一框架的多个配置文件中，`project` 级覆盖 `user` 级（整条 server 定义替换，不做字段合并），这不算冲突。各框架 server 条目的写法差异（`type`/`transport`、`url`/`serverUrl`、Codex 的 `bearer_token_env_var` 等）由统一的规范化代码处理，不放在数据文件里；见 [config.md](../spec/config.md#框架配置的规范化)。
 
 各框架的路径和字段名会随版本变化，新增或更新条目时必须按实际版本核对并更新 `verifiedAt`。

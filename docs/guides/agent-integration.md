@@ -8,11 +8,13 @@ MCP schema 注入上下文发生在框架内部，via 管不到。只要框架�
 
 ## via doctor：检测与关闭提示
 
-`via doctor` 扫描已探测到的框架配置，列出每个框架挂载了哪些 server，并估算这些 schema 每轮占用的 token（按 `tools/list` 结果的序列化长度近似计算），然后给出关闭方法：
+`via doctor` 扫描已探测到的框架配置，列出每个框架挂载了哪些 server，并估算这些 schema 每轮占用的 token，然后给出关闭方法：
 
 ```console
 $ via doctor
 servers   9 ok · 1 needs auth (linear)
+  linear: needs auth
+    next: via auth login linear
 
 frameworks still injecting MCP schemas:
   claude-code   6 servers · ~41k tokens/turn
@@ -20,8 +22,27 @@ frameworks still injecting MCP schemas:
   cursor        3 servers · ~12k tokens/turn
     hint: Settings → MCP，关闭对应 server 的开关
 
-secrets: exa 的 EXA_API_KEY 在 ~/.cursor/mcp.json 中为明文
+secrets:
+  exa: EXA_API_KEY in ~/.cursor/mcp.json is plaintext
+    next: set servers.exa.env.EXA_API_KEY to an env:, file: or keychain: reference in your via config
 ```
+
+输出分四节，节间空一行：
+
+- **servers**：按状态计数（`ok`、`needs auth`、`failed`、`untrusted`、`disabled`），非 ok 的状态列出 provider 名；需要鉴权、连接失败、未信任的 server 各占一行并附 `next:`（OAuth server 为 `via auth login <provider>`，未信任的项目级文件为 `via trust <路径>`，凭证缺失时用凭证解析给出的提示）。
+- **frameworks still injecting MCP schemas**：按框架归并，数据来自 server 定义所在的框架配置（`origin.framework`），以及 `conflicts` 里被忽略的其他框架定义（同名 server 在多个框架里各被注入一次）。框架里可能已经关掉的 server 无从得知，所以按「仍在注入」估算。每个框架一行：server 数与 token 估算，下一行是 `data/frameworks/` 中的 `disableHint`。
+- **secrets**：明文凭证告警，见下。
+- **config**：配置诊断（`error`、`warning`，不含 `info`；明文凭证的告警并入 secrets，不重复）和目录告警（与内置子命令重名、重复的 provider），仅在有内容时出现。
+
+**token 估算**：把 `tools/list` 结果序列化后的字节数按 **4 字节 ≈ 1 token** 折算（英文 JSON 的粗略比例），框架下所有 server 求和；`≥ 1000` 时写成 `~12k`（小于 10k 保留一位小数）。这是量级估计，不是计费数字；没有探测到字节数的 server 不计入，全部缺失时写 `size unknown`。
+
+**明文凭证的判定**：值不是凭证引用（`env:`、`file:`、`keychain:`、`cmd:`）且非空，并且——
+- `auth.bearer`、`auth.headers` 的值：一律算；
+- stdio 的 `env`、HTTP 的 `headers`：键名包含 `KEY`、`TOKEN`、`SECRET`、`PASSWORD`/`PASSWD`、`AUTH`、`CREDENTIAL`（不分大小写）之一时算。
+
+告警只写 server 名、键名和文件，**不写值**。`auth` 的文件来自加载诊断，是写下它的那份配置；`env`、`headers` 的文件是 server 定义所在的文件（`origin`），覆盖层补写的明文会算到定义文件上。
+
+**退出码**：全部可用时为 0；否则取下列各项中最大的一个（含义沿用 [output.md](../spec/output.md#退出码)）：有 server 连接失败 6，有 server 等待 `via trust` 5，有 server 需要鉴权 4，配置有 `error` 级诊断 2。明文凭证、仍在注入的框架、`warning` 级诊断只提示，不改变退出码。
 
 各框架的提示文案放在 `data/frameworks/` 中（每个框架一个条目：配置路径、解析方式、关闭方法），随版本更新，不写死在代码里。框架升级导致提示失效时，只需更新数据文件（格式见 [数据文件](../development/data-files.md#frameworks)）。
 
@@ -41,6 +62,8 @@ All external tools are available through the `via` CLI. Do not guess tool names.
 Providers: code (github, sentry) · search (exa, context7) · browser (playwright)
            project (linear) · other (aster)
 ```
+
+域摘要按 `via` 根视图的域顺序（分类表顺序、配置里自定义的域、`other`）逐域列出 provider，不分域的少量 provider 也一样；分在多个域下的 provider 在每个域各出现一次，并以 `名称[资源]` 注明相关资源（如 `workspace[mail]`）；超过 80 列时折行，续行与第一项对齐。没有任何 provider 时写 `Providers: none configured yet (run via doctor)`。
 
 域摘要只有几十个 token，却能让 agent 一开始就知道去哪个方向找，提高首次命中率，减少 `find` 的往返次数。
 

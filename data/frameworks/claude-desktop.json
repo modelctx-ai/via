@@ -1,0 +1,12 @@
+{
+  "id": "claude-desktop",
+  "name": "Claude Desktop",
+  "configs": [
+    { "path": "~/Library/Application Support/Claude/claude_desktop_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["darwin"] },
+    { "path": "%APPDATA%/Claude/claude_desktop_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["win32"] },
+    { "path": "~/.config/Claude/claude_desktop_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["linux"] }
+  ],
+  "disableHint": "Settings → Developer → Edit Config，从 mcpServers 中移除对应 server 后重启；或在 Settings → Connectors 中关闭",
+  "verifiedAt": null,
+  "notes": "Linux 没有官方发行版，路径沿用社区打包的约定。远程 server 通过 Connectors 添加，不在这个文件里。"
+}

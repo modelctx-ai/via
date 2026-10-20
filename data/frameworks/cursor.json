@@ -1,0 +1,10 @@
+{
+  "id": "cursor",
+  "name": "Cursor",
+  "configs": [
+    { "path": ".cursor/mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
+    { "path": "~/.cursor/mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
+  ],
+  "disableHint": "Settings → MCP，关闭对应 server 的开关",
+  "verifiedAt": null
+}
