@@ -225,6 +225,21 @@ export interface DaemonClientOptions {
   readyTimeoutMs?: number;
 }
 
+/**
+ * V8 and malloc settings for a daemon run by Node on Linux, where it sits for minutes holding a few
+ * sessions: a young generation capped at 2 MiB per semi-space (the default lets it grow to 16 MiB
+ * after the burst of allocation that loading the MCP SDK and the first requests cause, and V8 keeps
+ * the pages), and at most two malloc arenas (glibc otherwise keeps one per thread). Together they take
+ * roughly 5-10 MiB off the resident size once a session is up. Scavenges get a little more frequent
+ * during a request that allocates a lot; large results go to the large-object space either way.
+ * Other runtimes (Bun, a compiled binary) do not get Node's flags.
+ */
+export function daemonRuntime(command: string): { flags: string[]; env: NodeJS.ProcessEnv } {
+  const isNode = command === process.execPath && process.release.name === 'node' && process.versions.bun === undefined;
+  if (!isNode) return { flags: [], env: {} };
+  return { flags: ['--max-semi-space-size=2'], env: process.platform === 'linux' ? { MALLOC_ARENA_MAX: '2' } : {} };
+}
+
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Keep the log of a failed start short: it is only read back for an error message. */
@@ -314,7 +329,9 @@ export class DaemonClient {
     const childEnv: NodeJS.ProcessEnv = {};
     for (const [name, value] of Object.entries(env)) if (value !== undefined) childEnv[name] = value;
     childEnv.HOME ??= home;
-    const args = [...command.args, 'daemon', 'run', '--socket', paths.socket, '--idle-timeout', String(idleTimeoutSec)];
+    const runtime = daemonRuntime(command.command);
+    for (const [name, value] of Object.entries(runtime.env)) childEnv[name] ??= value;
+    const args = [...runtime.flags, ...command.args, 'daemon', 'run', '--socket', paths.socket, '--idle-timeout', String(idleTimeoutSec)];
     let failure: string | undefined;
     const child = spawn(command.command, args, {
       detached: true,

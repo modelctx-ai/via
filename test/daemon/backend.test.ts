@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CatalogCache } from '../../src/cli/catalog-cache';
 import { DaemonBackend } from '../../src/daemon/backend';
-import type { DaemonClient } from '../../src/daemon/client';
+import { daemonRuntime, type DaemonClient } from '../../src/daemon/client';
 import type { ListResult, RequestBody } from '../../src/protocol';
 import { httpServer } from '../helpers/client';
 import { loadTools } from '../helpers/fixtures';
@@ -80,5 +80,15 @@ describe('DaemonBackend.listing with `have`', () => {
     await backend.listing(server, { timeoutMs: 1000, refresh: true, have: T0 });
     expect(requests.map((r) => r.have)).toEqual([undefined]);
     expect(requests[0]!.refresh).toBe(true);
+  });
+});
+
+describe('the runtime a daemon is started with', () => {
+  it('caps the young generation and the malloc arenas for Node, and leaves other runtimes alone', () => {
+    const node = daemonRuntime(process.execPath);
+    expect(node.flags).toEqual(['--max-semi-space-size=2']);
+    expect(node.env).toEqual(process.platform === 'linux' ? { MALLOC_ARENA_MAX: '2' } : {});
+    expect(daemonRuntime('/usr/local/bin/via')).toEqual({ flags: [], env: {} });
+    expect(daemonRuntime('bun')).toEqual({ flags: [], env: {} });
   });
 });

@@ -5,7 +5,7 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 ## 生命周期
 
 1. CLI 检查 socket：Linux 为 `$XDG_RUNTIME_DIR/via.sock`（未设置时退回用户缓存目录），macOS 为用户缓存目录下的 `via.sock`，Windows 为 named pipe `\\.\pipe\via-<用户名>`（路径可以算出，Windows 本身 0.3 才支持，0.2 在 Windows 上始终用进程内模式）。同目录下还有 `via.sock.lock`（启动锁）、`via.sock.token`（握手令牌）、`via.sock.log`（分离启动的 daemon 的 stderr，只在启动失败时读来拼错误信息，超过 64 KB 在下次启动时清空）。
-2. 不存在则以 `via daemon run` 分离启动（`--socket`、`--idle-timeout` 由 CLI 传入），最多等待 2 秒就绪，然后转发请求。启动出错（可执行文件不存在、进程立即退出）时不必等满 2 秒，直接回退。
+2. 不存在则以 `via daemon run` 分离启动（`--socket`、`--idle-timeout` 由 CLI 传入），最多等待 2 秒就绪，然后转发请求。运行时是 Node 时，CLI 另给它 `--max-semi-space-size=2`（Node 文档列出的 V8 选项；新生代上限 2 MiB，默认会在加载 MCP SDK 的那一阵分配后涨到 16 MiB 并一直留着），Linux 上再设 `MALLOC_ARENA_MAX=2`（glibc 默认每个线程一个 arena）；两者合计让建立会话之后的常驻内存少 5 到 10 MiB。Bun 或编译出的单文件可执行不收到 Node 的选项。启动出错（可执行文件不存在、进程立即退出）时不必等满 2 秒，直接回退。
 3. 握手时交换版本；CLI 与 daemon 版本不一致时，daemon 回复 `ok: false, reason: "version"`，**先停止监听并删除 socket**，处理完在途请求后退出，由本次 CLI 重新拉起一个版本一致的 daemon（旧 daemon 与新 daemon 因此可以短暂并存）。
 4. daemon 空闲 10 分钟退出（没有连接、没有在途请求）；单个 stdio server 空闲 5 分钟停止子进程（均可配置，见 [config.md](config.md)）。HTTP 会话不因空闲关闭（它们不占本机进程，保留下来才能继续订阅 `list_changed`），随 daemon 退出而结束。socket 文件被删除或被别的 daemon 替换后，旧 daemon 在几秒内自行退出，避免出现无法连上的常驻进程。
 5. daemon 异常（拉起失败、握手被拒、连接中断）时，CLI 回退为进程内模式完成本次调用，并在 stderr 提示一次（`warning: <原因>; continuing without the daemon (VIA_NO_DAEMON=1 silences this)`）。回退只对**没有副作用**的请求自动发生：列目录、校验、以及只读工具（`readOnlyHint`）的调用。其他调用若在请求已经写出之后连接中断，它可能已经执行，via 不重放，而是以退出码 6 报告 `lost the connection to the via daemon while calling …; it may or may not have run`，`next: via daemon status`。请求写出之前的失败（拉起失败、连不上）则对所有请求都回退。
@@ -25,7 +25,7 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 ## daemon 持有的状态
 
 - MCP 会话：stdio 子进程、HTTP 的 session id、OAuth 会话（登录与登出由 CLI 完成，daemon 在下一次请求时读到存储里的新状态，见 [auth.md](auth.md#oauth)）。
-- 工具目录的内存副本（同时持久化到磁盘缓存，写入的是与进程内模式相同的 `catalog/` 文件，两种模式共享），以及 `list_changed` 订阅：收到 `notifications/tools/list_changed` 后 50 毫秒内（合并连发的通知）重新 `tools/list`，同时替换内存副本和磁盘缓存，所以下一次浏览、`find` 或调用就能看到变化；刷新失败时丢弃副本与磁盘缓存，下一次请求重新向 server 拉取。内存副本的有效期与磁盘缓存相同（24 小时）。stdio server 因空闲被停止后订阅随之结束，之后只靠 TTL。
+- 工具目录的副本，以及 `list_changed` 订阅：副本就是磁盘缓存（与进程内模式相同的 `catalog/` 文件，两种模式共享）；daemon 在内存里只记下它的 `fetchedAt` 和工具个数，不留解析后的工具对象（几百个工具是几 MB），有人不带 `have` 来要列表时才从文件读出来发送；只有磁盘写不进去时才把列表留在内存里。订阅：收到 `notifications/tools/list_changed` 后 50 毫秒内（合并连发的通知）重新 `tools/list`，同时替换内存副本和磁盘缓存，所以下一次浏览、`find` 或调用就能看到变化；刷新失败时丢弃副本与磁盘缓存，下一次请求重新向 server 拉取。内存副本的有效期与磁盘缓存相同（24 小时）。stdio server 因空闲被停止后订阅随之结束，之后只靠 TTL。
 - 凭证解析结果与 OAuth token 刷新。
 - 截断结果的游标（内存，30 分钟）。daemon 退出（空闲 10 分钟）后游标随之失效，`via more` 报告过期（退出码 3）；进程内模式的游标仍在缓存目录里。`via more` 先问已经在运行的 daemon（不会为它拉起新的），再看缓存目录。
 - 编译好的 JSON Schema（见下「校验」）。

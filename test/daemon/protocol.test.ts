@@ -1,6 +1,6 @@
 // The daemon in this process (no spawned child): protocol behavior, framing, validation, cursors,
 // lifecycle timers and the session rules, driven over a real unix socket.
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -272,6 +272,48 @@ describe('catalog', () => {
       const t = target(stdioServer({ env: { MOCK_SECRET: 'env:NOT_SET_ANYWHERE' } }));
       const response = await list(conn, t, { have: 12345 });
       expect(response).toMatchObject({ ok: false, error: { exitCode: 4 } });
+    });
+  });
+
+  describe('memory', () => {
+    type Entries = Map<string, { tools?: unknown[]; toolCount?: number }>;
+    const entriesOf = (h: Harness): Entries => (h.daemon as unknown as { sessions: { entries: Entries } }).sessions.entries;
+
+    it('does not keep a parsed list when the cache file holds it, and still answers and counts', async () => {
+      const h = await startDaemon();
+      const conn = await h.connect();
+      const t = target(stdioServer());
+      const first = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
+      const [entry] = [...entriesOf(h).values()];
+      expect(entry!.tools).toBeUndefined();
+      expect(entry!.toolCount).toBe(TOOLS.length);
+      const again = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
+      expect(again.result).toMatchObject({ fromCache: true, fetchedAt: first.result.fetchedAt });
+      expect(again.result.tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
+      expect(h.daemon['sessions'].status()[0]).toMatchObject({ tools: TOOLS.length });
+    });
+
+    it('keeps it in memory when it cannot be written to disk', async () => {
+      const h = await startDaemon();
+      mkdirSync(h.home, { recursive: true });
+      writeFileSync(join(h.home, '.cache'), 'a file where the cache directory should be');
+      const conn = await h.connect();
+      const t = target(stdioServer());
+      const first = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
+      expect([...entriesOf(h).values()][0]!.tools).toHaveLength(TOOLS.length);
+      const again = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
+      expect(again.result).toMatchObject({ fromCache: true, fetchedAt: first.result.fetchedAt });
+    });
+
+    it('asks the server again if the cache file it relied on is gone', async () => {
+      const h = await startDaemon();
+      const conn = await h.connect();
+      const t = target(stdioServer());
+      await conn.request({ type: 'list', ...t, timeoutMs: 5000 });
+      rmSync(join(h.home, '.cache'), { recursive: true, force: true });
+      const again = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
+      expect(again.result.fromCache).toBe(false);
+      expect(again.result.tools).toHaveLength(TOOLS.length);
     });
   });
 
