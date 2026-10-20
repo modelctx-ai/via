@@ -59,7 +59,7 @@ export interface NativeMeasure {
 }
 
 /** Text of a result as the model receives it: text blocks verbatim, anything else as JSON. */
-function resultText(content: ReadonlyArray<Record<string, unknown>>): string {
+export function resultText(content: ReadonlyArray<Record<string, unknown>>): string {
   return content.map((block) => (block.type === 'text' ? String(block.text) : JSON.stringify(block))).join('\n');
 }
 

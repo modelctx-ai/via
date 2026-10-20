@@ -1,0 +1,29 @@
+{
+  "id": "5f3e0c1a-0328-4a2b-9c1d-0e7b6a5d4c3b",
+  "identifier": "PLT-328",
+  "title": "Investigate p99 latency regression on /v2/search",
+  "description": "The p99 of /v2/search doubled after the index rebuild.\n\nAcceptance:\n- find the regression\n- add a latency budget alert\n\nRelated: acme/api#295.",
+  "priority": {
+    "value": 2,
+    "name": "High"
+  },
+  "url": "https://linear.app/acme/issue/PLT-328/investigate-p99-latency-regression-on-v2-search",
+  "status": "In Progress",
+  "assignee": "jdoe",
+  "assigneeId": "u-7c1d2e3f",
+  "labels": [
+    "Bug"
+  ],
+  "team": "Platform",
+  "teamId": "a1b2c3d4-0000-4000-8000-000000000000",
+  "createdAt": "2026-09-21T09:30:00.000Z",
+  "updatedAt": "2026-09-28T07:45:00.000Z",
+  "comments": [
+    {
+      "id": "c-2",
+      "user": "mira-okafor",
+      "body": "Reproduced on staging with the large tenant.",
+      "createdAt": "2026-09-26T08:10:00.000Z"
+    }
+  ]
+}

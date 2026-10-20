@@ -30,3 +30,15 @@ mcp2cli:
   - run: mcp2cli @github pull-request-read --method get --owner acme --repo api --pull-number 482
   - run: mcp2cli @github pull-request-read --method get_files --owner acme --repo api --pull-number 482
   - run: mcp2cli @github pull-request-read --method get_reviews --owner acme --repo api --pull-number 482
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+success:
+  require:
+    - { server: github, tool: pull_request_read, args: { method: get, owner: acme, repo: api, pullNumber: 482 } }
+    - { server: github, tool: pull_request_read, args: { method: get_files, owner: acme, repo: api, pullNumber: 482 } }
+    - { server: github, tool: pull_request_read, args: { method: get_reviews, owner: acme, repo: api, pullNumber: 482 } }
+  # Facts only the three reads contain: the title, a changed file, the review state.
+  answer:
+    - per-tenant
+    - [config/limits, limits.ts, tenant.ts]
+    - [changes requested, changes_requested]

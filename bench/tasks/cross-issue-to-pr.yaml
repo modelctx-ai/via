@@ -18,7 +18,7 @@ native:
         args: { issueId: PLT-300, body: "Fix is in review: https://github.com/acme/api/pull/487" }
 
 calls:
-  - { server: linear, tool: get_issue, resultFile: recordings/cross-issue-to-pr/get_issue.json }
+  - { server: linear, tool: get_issue, args: { id: PLT-300 }, resultFile: recordings/cross-issue-to-pr/get_issue.json }
   - { server: github, tool: search_pull_requests, resultFile: recordings/cross-issue-to-pr/search_pull_requests.json }
   - { server: linear, tool: create_comment, resultFile: recordings/cross-issue-to-pr/create_comment.json }
 
@@ -41,3 +41,15 @@ mcp2cli:
   - run: mcp2cli @linear create-comment --help
   - run: >-
       mcp2cli @linear create-comment --issue-id PLT-300 --body "Fix is in review: https://github.com/acme/api/pull/487"
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+# Three PRs match the search; only 487 fixes PLT-300, so only its number may reach the comment.
+success:
+  require:
+    - { server: linear, tool: get_issue, args: { id: PLT-300 } }
+    - server: linear
+      tool: create_comment
+      args: { issueId: { $oneOf: [PLT-300, 5f3e0c1a-0300-4a2b-9c1d-0e7b6a5d4c3b] }, body: { $regex: '\b487\b' } }
+      max: 1
+  forbid:
+    - { server: linear, tool: create_comment, args: { body: { $regex: '\b(482|455)\b' } } }

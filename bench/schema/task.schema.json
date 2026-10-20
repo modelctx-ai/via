@@ -23,9 +23,41 @@
     },
     "calls": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/cannedCall" } },
     "via": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/step" } },
-    "mcp2cli": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/step" } }
+    "mcp2cli": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/step" } },
+    "success": { "$ref": "#/definitions/success" }
   },
   "definitions": {
+    "criterion": {
+      "type": "object",
+      "required": ["server", "tool"],
+      "additionalProperties": false,
+      "properties": {
+        "server": { "$ref": "#/definitions/name" },
+        "tool": { "type": "string", "minLength": 1 },
+        "args": { "$ref": "#/definitions/args" },
+        "max": { "type": "integer", "minimum": 1 },
+        "note": { "type": "string" }
+      }
+    },
+    "success": {
+      "type": "object",
+      "required": ["require"],
+      "additionalProperties": false,
+      "properties": {
+        "require": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/criterion" } },
+        "forbid": { "type": "array", "items": { "$ref": "#/definitions/criterion" } },
+        "answer": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+            ]
+          }
+        }
+      }
+    },
     "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
     "args": { "type": "object" },
     "nativeCall": {

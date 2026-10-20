@@ -19,8 +19,12 @@ native:
 
 calls:
   - { server: linear, tool: list_my_issues, resultFile: recordings/linear-my-work/list_my_issues.json }
-  - { server: linear, tool: get_issue, resultFile: recordings/linear-my-work/get_issue.json }
-  - { server: linear, tool: update_issue, resultFile: recordings/linear-my-work/update_issue.json }
+  # Two issues tie for "most urgent" (priority High); either one is a valid pick. The canned
+  # results are keyed by id, so reading or updating any other issue fails like it would for real.
+  - { server: linear, tool: get_issue, args: { id: PLT-300 }, resultFile: recordings/linear-my-work/get_issue.json }
+  - { server: linear, tool: get_issue, args: { id: PLT-328 }, resultFile: recordings/linear-my-work/get_issue_PLT-328.json }
+  - { server: linear, tool: update_issue, args: { id: PLT-300 }, resultFile: recordings/linear-my-work/update_issue.json }
+  - { server: linear, tool: update_issue, args: { id: PLT-328 }, resultFile: recordings/linear-my-work/update_issue_PLT-328.json }
 
 via:
   - run: via linear
@@ -38,3 +42,16 @@ mcp2cli:
   - run: mcp2cli @linear get-issue --id PLT-300
   - run: mcp2cli @linear update-issue --help
   - run: mcp2cli @linear update-issue --id PLT-300 --state Done
+
+# Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
+# PLT-300 and PLT-328 are both High; either is a correct pick.
+success:
+  require:
+    - { server: linear, tool: list_my_issues, args: { state: { $regex: progress } } }
+    - { server: linear, tool: get_issue, args: { id: { $oneOf: [PLT-300, PLT-328] } } }
+    - server: linear
+      tool: update_issue
+      args: { id: { $oneOf: [PLT-300, PLT-328] }, state: { $regex: done } }
+      max: 1
+  forbid:
+    - { server: linear, tool: update_issue, args: { id: { $not: { $oneOf: [PLT-300, PLT-328] } } } }

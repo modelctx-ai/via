@@ -12,8 +12,8 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { loadSuite } from '../bench/harness/load';
-import { spawnExec } from '../bench/harness/exec';
-import { measureSuite, type RunnerFactory } from '../bench/harness/measure';
+import { measureSuite } from '../bench/harness/measure';
+import { makeRunners, probeMcp2cli, viaVersion } from '../bench/harness/runners';
 import { formatConsole, formatJson, formatMarkdown, type ReportMeta } from '../bench/harness/report';
 
 interface Options {
@@ -46,20 +46,6 @@ function parseArgs(argv: string[]): Options {
   return options;
 }
 
-const BASE_ENV = { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' };
-
-/** `mcp2cli --version` → the version, or the reason it cannot run. */
-async function probeMcp2cli(bin: string): Promise<{ version: string } | { skipped: string }> {
-  try {
-    const result = await spawnExec(bin, [], { cwd: process.cwd(), env: BASE_ENV, timeoutMs: 30_000 })(['--version']);
-    const match = /(\d+\.\d+\.\d+\S*)/.exec(result.stdout + result.stderr);
-    if (result.code === 0 && match) return { version: match[1]! };
-    return { skipped: `\`${bin} --version\` failed (exit ${result.code})` };
-  } catch {
-    return { skipped: `\`${bin}\` not found on PATH (install: uv tool install mcp2cli==<version in bench/suite.yaml>)` };
-  }
-}
-
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
   const root = process.cwd();
@@ -85,24 +71,7 @@ async function main(): Promise<number> {
     }
   }
 
-  const runners: RunnerFactory = (sandbox) => ({
-    via: spawnExec(process.execPath, [viaBin], { cwd: sandbox.project, env: sandbox.env }),
-    ...(mcp2cli
-      ? {
-          mcp2cli: {
-            exec: spawnExec(mcp2cli.bin, [], { cwd: sandbox.project, env: sandbox.env }),
-            version: mcp2cli.version,
-            prepare: async (urls) => {
-              const run = spawnExec(mcp2cli!.bin, [], { cwd: sandbox.project, env: sandbox.env });
-              for (const [name, url] of Object.entries(urls)) {
-                const result = await run(['bake', 'create', name, '--mcp', url]);
-                if (result.code !== 0) throw new Error(`mcp2cli bake create ${name} failed: ${result.stderr || result.stdout}`);
-              }
-            },
-          },
-        }
-      : {}),
-  });
+  const runners = makeRunners({ viaBin, ...(mcp2cli ? { mcp2cli } : {}) });
 
   const measure = await measureSuite({ loaded, runners, log: (line) => process.stderr.write(`${line}\n`),
     ...(options.show
@@ -110,7 +79,7 @@ async function main(): Promise<number> {
       : {}),
   });
 
-  const version = (await spawnExec(process.execPath, [viaBin], { cwd: root, env: BASE_ENV })(['--version'])).stdout.trim();
+  const version = await viaVersion(viaBin, root);
   const meta: ReportMeta = {
     via: version,
     node: process.version,
