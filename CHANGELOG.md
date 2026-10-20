@@ -35,7 +35,7 @@
   - 协议：新增 `resources-list`、`resource-read`、`prompts-list`、`prompt-get` 请求（结果在 daemon 内脱敏，回退时作为无副作用请求重做），`list` 的结果带 `features`；会话键加入 `roots`。
   - 测试夹具 `test/fixtures/mcp/cli-server.mjs` 增加可选的 resources（文本、JSON、二进制、多内容、长文本、模板、两页列表）、prompts 与读取 roots 的工具 `list_roots`。
 
-- Windows 支持（路线图 c4；daemon.md「Windows」、security.md「Windows 上的子进程」「Windows 上的文件权限」、ADR 0011）：
+- Windows 支持（路线图 c4；daemon.md「Windows」、security.md「Windows 上的子进程」「Windows 上的文件权限」、ADR 0012）：
   - daemon 在 Windows 上启用（不再始终用进程内模式；`VIA_NO_DAEMON=1` 照常有效）。默认管道名为 `\\.\pipe\via-<用户名>-<令牌摘要>`，摘要取自 daemon 每次启动生成、写在 `%LOCALAPPDATA%\via\Cache\via.token` 的令牌，因此名字无法被预先占位；握手令牌校验与 POSIX 一致，启动锁、陈旧令牌清理、令牌文件被删后自行退出。`via daemon status` 在 daemon 未运行时显示 `\\.\pipe\via-<用户名>-*`。peer 身份（对端 SID）与文件 ACL 不校验，残留风险写入规范。
   - `command: npx` 一类 `.cmd` / `.bat` 垫片可用：命令名由 via 按 `PATH` 与 `PATHEXT` 解析（不找当前目录），`.exe` 直接启动，批处理文件的参数含 `"`、`%`、换行、NUL 时拒绝启动。`cmd:` 凭证命令在 Windows 上同样解析，`.cmd` / `.bat` 经 `cmd.exe /d /v:off /s /c` 启动、每个词加双引号；`cmd:` 的分词在 Windows 上采用 C 运行时规则，`cmd:C:\Tools\op.exe …` 和带引号的路径可直接写。
   - 路径：用户配置 `%APPDATA%\via\config.yaml`，数据与缓存 `%LOCALAPPDATA%\via\{Data,Cache}`；环境变量名不分大小写（`%AppData%`、`env:Path`）；`~\`、`%NAME%` 展开；信任记录按规范化后的真实路径记录、不区分大小写，去掉 `\\?\` 前缀；已加载的框架配置文件按路径身份去重。`via` 的提示里 Windows 路径按 cmd.exe 与 PowerShell 都认的双引号规则加引号。

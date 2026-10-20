@@ -16,7 +16,7 @@
 | [0008](0008-dynamic-dispatch-no-codegen.md) | 运行时动态分发，不生成代码 | 已接受 |
 | [0009](0009-project-name-via.md) | 项目名与命令名为 via | 已接受 |
 | [0010](0010-mcp-resources-prompts-and-roots.md) | 提供 MCP resources、prompts 与 roots，且不进入工具语法 | 已接受 |
-| [0011](0011-windows-pipe-name-and-batch-files.md) | Windows：管道名由令牌派生，批处理文件拒绝而不转义 | 已接受 |
+| [0012](0012-windows-pipe-name-and-batch-files.md) | Windows：管道名由令牌派生，批处理文件拒绝而不转义 | 已接受 |
 
 ## 流程
 
