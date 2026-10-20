@@ -48,3 +48,4 @@ flowchart LR
 - 0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测时应以 HTTP server 为主，避免启动延迟干扰结论。
 - 0.1 的游标保存在用户缓存目录。
 - 0.1 中 OAuth 型 server 可以先用 bearer（如 Linear API key）验证链路。
+- 0.3 的 Bun 单文件可执行（c1）已实现（`npm run build:bin`，发布流程见 `.github/workflows/release.yml`）：Linux 上完整验证，其余平台的交叉编译产物在 CI 的 Linux/macOS 冒烟之外尚未在目标机器上验证，见[实现说明](development/implementation.md#单文件可执行)与[开放问题](open-questions.md)。

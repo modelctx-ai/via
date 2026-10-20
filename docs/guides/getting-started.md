@@ -6,8 +6,27 @@
 
 ```bash
 npm install -g @modelctx/via
-# 或下载单文件可执行版本（不需要 Node.js）
 ```
+
+没有 Node.js 的机器（容器、CI 镜像）可以改用单文件可执行版本：从发布页下载与平台对应的 `via-<系统>-<架构>` 文件，用同一页的 `SHA256SUMS` 校验，放到 `PATH` 里即可，不需要其他依赖。
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS      # macOS 上用 shasum -a 256 -c
+chmod +x via-linux-x64 && mv via-linux-x64 ~/.local/bin/via
+via --version
+```
+
+| 文件 | 平台 |
+| --- | --- |
+| `via-linux-x64`、`via-linux-arm64` | Linux（glibc）；x64 版本要求 CPU 支持 AVX2 |
+| `via-linux-x64-musl`、`via-linux-arm64-musl` | Alpine 等 musl 发行版 |
+| `via-darwin-arm64`、`via-darwin-x64` | macOS |
+| `via-windows-x64.exe` | Windows（随 Windows 支持一起完善，目前只验证过能构建，没有 daemon；见[路线图](../roadmap.md)） |
+
+- 行为与 npm 版本一致（配置、daemon、OAuth、钥匙串），冷启动更快；文件约 65–95 MiB，因为里面带着完整的 Bun 运行时。
+- macOS 上经浏览器下载的文件带有隔离属性，首次运行会被 Gatekeeper 拦下（发布的文件没有 Apple 公证）：用 `curl -L -o` 下载，或执行 `xattr -d com.apple.quarantine via`。
+- 钥匙串模块在文件里；加载不了时（例如 Linux 服务器上没有 Secret Service）`keychain:` 引用会报错并提示改用 `env:` 或 `file:`，OAuth 登录自动退回私有文件。
+- 自己构建：`bun` 装好之后 `npm run build:bin`，产物在 `dist/bin/`（[实现说明](../development/implementation.md#单文件可执行)）。
 
 ## 2. 检查现有配置
 

@@ -32,6 +32,7 @@
 
 - Node 22、24 上执行 `npm ci`、`npm run typecheck`、`npm run build`、`npm test`（含快照、拆分基线、词典是否最新、凭证扫描）；
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
+- 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。
 
 ## token 基准
 
@@ -173,6 +174,6 @@ npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调�
 - **调用开销（无 daemon）**：对本地 Streamable HTTP 模拟 server，比较 `via <provider> <tool>` 端到端与官方 SDK client 直接调用（进程内与整进程两个口径）。
 - **热 daemon**：同一个 server 加一个 stdio server，另起 `via daemon run`，测 `via` 经热 daemon 调用的耗时，对照无 daemon 的 `via` 与复用连接的 SDK 调用（目标里的「额外开销」取前者减后者），并读 `via daemon status` 的 RSS：刚启动、建立一个 HTTP 会话后、再建立一个 stdio 会话后、多次调用后。脚本结束时执行 `via daemon stop`，不留下 daemon。
 - **模块加载**：用 `scripts/lib/load-trace.mjs`（`node --import` 的加载钩子）记录每条命令加载了哪些打包分块和 `node_modules` 包；`--version` 与 `-h` 不得加载任何包，命中缓存的浏览命令不得加载 MCP SDK 和 ajv，违反时脚本以非零退出码结束。`test/cli/dist.test.ts` 对同样的约束做了不依赖时间的断言。
-- **Bun**：已安装 `bun` 时，另测 `bun build --compile` 的单文件可执行与 `bun dist/via.js` 的冷启动，用来回答[运行时与分发](../open-questions.md)这个开放问题；未安装则跳过并说明。
+- **Bun**：已安装 `bun` 时，另测 `bun dist/via.js`、不带标志的 `bun build --compile`、逐个加 `--bytecode` 与 `--splitting` 的版本以及 `npm run build:bin` 的产物的冷启动（第 6 节；`--only-bun` 只跑这一节），第 5 节再加上产物经热 daemon 与无 daemon 的整进程调用，用来回答[运行时与分发](../open-questions.md)这个开放问题；未安装则跳过并说明。结果见 [perf-0.3](../../bench/results/perf-0.3.md)。
 
 性能数字不进 vitest 断言（CI 机器噪声太大）；测试只覆盖确定性的部分：合成目录的生成、`find` 在其上的结果、加载约束。0.1 的实测结果、环境和校准建议记录在 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)。

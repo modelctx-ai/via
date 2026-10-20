@@ -8,6 +8,7 @@
 
 ### Changed
 
+- 规范补充（随单文件可执行，不改变既有设计决策）：daemon.md 写明拉起的是当前程序自身（脚本为 `<运行时> <入口脚本> daemon run`，可执行文件为 `<该文件> daemon run`）；config.md 补充钥匙串模块加载失败时 `keychain:` 的表现与 `NAPI_RS_NATIVE_LIBRARY_PATH`；security.md 新增「单文件可执行」一节（不读取当前目录的 `.env` 与 `bunfig.toml`、钥匙串模块的来源、校验和）。无规范写法（动词表、分类表）受影响。
 - 规范补充（随 OAuth 实现）：auth.md 补全 OAuth 的发现、注册、回调、存储（含文件退路与 `VIA_OAUTH_STORE`）、刷新、状态与登出，以及调用时「需要登录」的行为；cli.md 的 `via auth` 说明；security.md、daemon.md 中 OAuth token 的脱敏与 daemon 持有的状态。`auth: oauth` 的 server 不再提示改用 bearer。
 - 项目名与命令名由占位名 `mx` 改为 `via`，npm 包名 `@modelctx/via`；配置路径、项目配置文件、socket、环境变量前缀随之改名（ADR 0009）。
 - 规范补充（随首个实现，不改变既有设计决策）：naming.md 明确逐词单数化并加入不规则复数；discovery.md 补全启发式打分的细节（递减计分、`minScore`、双域判定）、浏览视图的排序与截断、签名上限、安全标记和搜索排序的并列规则；output.md 补全表格选列、一行数组、元信息行格式、游标续读、脱敏顺序和错误文本清理；data-files.md 增加 `columns.json`、`singularIrregular`、`minScore`、`stopwords` 以及词典与差异检查的命令。
@@ -25,6 +26,10 @@
 - 内部：`commands/tool.ts` 抽出 `executeCall`，`via <provider> …`、`via call`、`via batch` 共用同一条「校验 → dry-run / 确认 → 调用 → 渲染」路径；它返回结果（stdout、stderr、退出码、结构化的元信息与错误）而不直接写输出，也只通过 `app.client()` 触达上游，后端（进程内或 daemon）对它透明。渲染流水线的返回值附带元信息与结构化错误。
 
 ### Added
+
+- 单文件可执行（路线图 c1，`npm run build:bin`）：`scripts/build-bin.ts` 用 Bun 从 `src/` 编译出 `dist/bin/via-<系统>-<架构>[-musl][.exe]`（默认本机平台；`--all` 或 `--target a,b` 交叉编译 linux-x64/arm64、linux-x64/arm64-musl、darwin-x64/arm64、windows-x64），每个文件带 `.sha256`。构建参数是实测选出来的：`--bytecode` 去掉每次启动对整包 JS 的解析（`--version` 约 66 → 20 ms，对比 `node dist/via.js`；0.1 里不带标志的 `bun build --compile` 比 Node 还慢，原因在此，而不是 85 MiB 的体积），`--splitting` 保持 `--version`/`-h` 不加载命令运行器与库，关闭 `.env` 与 `bunfig.toml` 的自动加载（默认会读当前目录的，见 security.md）。`@napi-rs/keyring` 经 Bun 插件替换为目标平台的 `.node` 文件并内嵌（非本机平台的包从 npm 下载并校验 `package-lock.json` 的完整性），每个产物只带自己平台的模块；加载失败时 `keychain:` 报「native keychain module is not available」并提示改用 `env:`/`file:`，`NAPI_RS_NATIVE_LIBRARY_PATH` 可指定 `.node`。`via daemon run` 拉起的是可执行文件自身（`src/runtime.ts` 的 `selfCommand()`）；Bun 下不调用 `module.enableCompileCache()`。`dist/bin` 不进 npm 包。
+- 测试：`test/cli/bin.test.ts`（装有 `bun` 时构建本机产物并跑冒烟集，否则跳过；`VIA_REQUIRE_BUN=1` 时缺少 Bun 即失败）、`test/runtime.test.ts`、`test/bin-targets.test.ts`。CI 增加 `binary` 任务（Ubuntu、macOS，固定 Bun 1.4.2）；新增 `release.yml`（仅 `v*` 标签与手动触发）构建全部目标、生成 `SHA256SUMS` 并上传到 Release。
+- 性能基准：`npm run bench:perf` 的 Bun 一节比较 `bun dist/via.js`、不带标志的编译、逐个加标志的编译与 `build:bin` 产物，第 5 节增加产物经热 daemon 的整进程调用；`--only-bun` 只跑 Bun 一节。结果记录在 `bench/results/perf-0.3.md`。
 
 - OAuth（auth.md）：`via auth login|status|logout`。PKCE 授权码流程，按 MCP 授权规范发现受保护资源与授权服务器（RFC 9728 / 8414）、动态客户端注册（RFC 7591）、`resource` 参数（RFC 8707）；回调监听 `127.0.0.1` 的随机端口并校验 `state` 与 `Host`，`--manual` 在无头环境打印授权 URL、从终端读取粘贴的重定向 URL；平台打开命令只是尽力而为（SSH 会话或无显示时不尝试，打开失败不报错、不等待）。登录存入系统钥匙串（服务名 `via`，账户名 `oauth:<server 定义的哈希>`），不可用时退回用户数据目录下 0600 的文件，`VIA_OAUTH_STORE=file|keychain|auto` 可固定；调用前和收到 401 时用 refresh token 静默刷新（同进程串行，多进程轮换冲突时改用已刷新的 token），登录失效时退出码 4 并提示 `via auth login`，调用过程永远不会启动浏览器或等待输入；`logout` 撤销 token（RFC 7009，尽力而为）并删除本地记录。OAuth token 计入脱敏列表（`CredentialResolver.track`）。`via servers` 的鉴权列显示登录状态，`via doctor` 对未登录的 server 给出 `next: via auth login <provider>`。MCP SDK 仍按需加载。
 - 测试夹具 `test/fixtures/mcp/oauth-server.mjs`：模拟授权服务器（元数据、动态注册、PKCE 校验、刷新与轮换、撤销）加受保护的 Streamable HTTP MCP server。
