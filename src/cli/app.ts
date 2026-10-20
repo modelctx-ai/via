@@ -8,7 +8,7 @@ import type { OAuthStore } from '../client/oauth/store';
 import type { SchemaCompiler, ToolArgsError } from './args';
 import { pathContext, userCacheDir } from '../config/paths';
 import type { CredentialResolver, LoadedConfig, ServerConfig } from '../config';
-import { createRedactor } from '../render/redact';
+import { lazyRedactor, redactValue, type Redactor } from '../render/redact';
 import { formatError, type ErrorInfo } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
 import type { Backend, Listing } from './backend';
@@ -66,11 +66,11 @@ export class App {
     if (text !== '') this.io.stderr.write(text);
   }
 
-  /** Replaces every credential value resolved so far with `***`. */
-  redact = (text: string): string => {
-    const values = this.resolverInstance?.resolvedValues() ?? [];
-    return values.length === 0 ? text : createRedactor(values)(text);
-  };
+  /**
+   * Replaces the credential values resolved so far with `***`. Call it on content (a value the user
+   * typed, text from a server); use `.scan` on text composed here (`Redactor`, output.md "脱敏").
+   */
+  readonly redact: Redactor = lazyRedactor(() => this.resolverInstance?.resolvedValues() ?? []);
 
   // Paths -------------------------------------------------------------------------------
 
@@ -128,7 +128,7 @@ export class App {
 
   private async createBackend(): Promise<Backend> {
     const config = await this.config({ allowErrors: true });
-    const onWarning = (message: string): void => this.err(`warning: ${this.redact(message)}\n`);
+    const onWarning = (message: string): void => this.err(`warning: ${this.redact.scan(message)}\n`);
     const inProcess = async (): Promise<Backend> => {
       const { InProcessBackend } = await import('./backend');
       return InProcessBackend.create({
@@ -198,10 +198,20 @@ export class App {
     return (backend.compiler() ?? (await import('./args/validate')).compileSchema)(schema, label);
   };
 
-  /** `redact` for text that is about to be printed after the sync paths could not know the daemon's secrets. */
+  /**
+   * Text the CLI composed, scanned for the credentials the daemon knows and this process does not
+   * (long ones only: `Redactor.scan`). Content that was echoed into it is redacted as a value first.
+   */
   async redactText(text: string): Promise<string> {
     const backend = this.backendReady;
-    return backend ? backend.redact(text) : this.redact(text);
+    return backend ? backend.redact(text) : this.redact.scan(text);
+  }
+
+  /** Content the CLI echoes, such as the arguments of a dry run: every string value redacted, the shape kept. */
+  async redactValue<T>(value: T): Promise<T> {
+    const local = redactValue(value, this.redact) as T;
+    const backend = this.backendReady;
+    return backend ? backend.redactValue(local) : local;
   }
 
   /** Where OAuth logins are kept: keychain, else a file in the data directory (auth.md). */

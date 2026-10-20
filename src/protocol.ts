@@ -67,8 +67,12 @@ export type Request =
   | ({ id: string; type: 'prompt-get'; name: string; args: Record<string, string>; timeoutMs: number } & ServerTarget)
   /** Compile a JSON Schema (cached by the daemon) and check `data`; keeps ajv out of the CLI process. */
   | { id: string; type: 'validate'; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
-  /** Replace the credential values the daemon knows with `***` in `text`. */
+  /**
+   * Replace the credential values the daemon knows with `***`. `text` is composed by the CLI (only
+   * long values are looked for); `value` is content the CLI echoes (any JSON, every string redacted).
+   */
   | { id: string; type: 'redact'; text: string }
+  | { id: string; type: 'redact'; value: unknown }
   | { id: string; type: 'cursor-put'; record: CursorRecord }
   | { id: string; type: 'cursor-get'; cursor: string }
   /** Finish the requests in flight, then exit (`via daemon stop`). */

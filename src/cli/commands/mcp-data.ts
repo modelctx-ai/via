@@ -8,6 +8,7 @@ import { notFoundError } from '../../render/errors';
 import { ExitCode } from '../../render/exit-codes';
 import { FileMediaSink } from '../../render/media';
 import { renderOptions, renderToolResult } from '../../render/pipeline';
+import { redactProtocol } from '../../render/redact';
 import { defaultNoise } from '../../render/rules';
 import type { ToolResult } from '../../render/types';
 import { formatToolHelp, parseToolArgs } from '../args';
@@ -25,7 +26,16 @@ async function open(app: App, command: string, typed: string): Promise<{ entry: 
   return { entry, timeoutMs: app.options.timeoutMs ?? entry.server.timeout * 1000 };
 }
 
-/** Render `result` as a tool result is rendered and print it; the exit code of the command. */
+/**
+ * A raw MCP result with this process's credentials replaced field by field, keeping the protocol's own
+ * fields (`role`, `mimeType`, …) intact. The daemon has done the same for the credentials it holds.
+ */
+const safe = <T>(app: App, value: T): T => redactProtocol(value, app.redact) as T;
+
+/**
+ * Render `result` (built from a result that went through `safe`) as a tool result is rendered and
+ * print it; the exit code of the command.
+ */
 async function print(app: App, entry: ProviderEntry, ref: string, started: number, result: ToolResult): Promise<number> {
   const config = await app.config();
   const { server } = entry;
@@ -38,6 +48,7 @@ async function print(app: App, entry: ProviderEntry, ref: string, started: numbe
       cellWidth: config.output.cellWidth,
       noise: defaultNoise(server.noise),
       secrets: app.secrets(),
+      redacted: true,
     }),
     { ref, elapsedMs: app.io.now() - started, media: new FileMediaSink(join(app.cacheDir, 'media')), cursors: (await app.backend()).cursors(), now: app.io.now },
   );
@@ -58,7 +69,7 @@ export async function resourcesCommand(app: App, argv: readonly string[]): Promi
   const { entry, timeoutMs } = await open(app, 'resources', argv[0]!);
   const started = app.io.now();
   const listing = await (await app.backend()).listResources(entry.server.name, { timeoutMs });
-  return print(app, entry, `resources ${entry.name}`, started, resourceListing(listing, entry.name, app.options.format));
+  return print(app, entry, `resources ${entry.name}`, started, resourceListing(safe(app, listing), entry.name, app.options.format));
 }
 
 /** `via read <provider> <uri>` */
@@ -68,7 +79,7 @@ export async function readCommand(app: App, argv: readonly string[]): Promise<nu
   const { entry, timeoutMs } = await open(app, 'read', argv[0]!);
   const started = app.io.now();
   const result = await (await app.backend()).readResource(entry.server.name, argv[1]!, { timeoutMs });
-  return print(app, entry, `read ${entry.name}`, started, readResult(result));
+  return print(app, entry, `read ${entry.name}`, started, readResult(safe(app, result)));
 }
 
 /** `via prompts <provider>` lists; `via prompts <provider> <name> [args]` gets one. */
@@ -80,7 +91,7 @@ export async function promptsCommand(app: App, argv: readonly string[]): Promise
   const started = app.io.now();
   const prompts = await backend.listPrompts(entry.server.name, { timeoutMs });
   if (name === undefined) {
-    return print(app, entry, `prompts ${entry.name}`, started, promptListing(prompts, entry.name, app.options.format));
+    return print(app, entry, `prompts ${entry.name}`, started, promptListing(safe(app, prompts), entry.name, app.options.format));
   }
 
   const prompt = findPrompt(prompts, name, entry.name);
@@ -97,7 +108,7 @@ export async function promptsCommand(app: App, argv: readonly string[]): Promise
   // Prompt arguments are strings; with --no-validate other JSON may have slipped through.
   const args = Object.fromEntries(Object.entries(parsed.args).map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)]));
   const result = await backend.getPrompt(entry.server.name, prompt.name, args, { timeoutMs });
-  return print(app, entry, ref, started, promptResult(result, app.options.format));
+  return print(app, entry, ref, started, promptResult(safe(app, result), app.options.format));
 }
 
 /** The prompt `input` names: the name as listed, else the same name leniently written, else a unique prefix. */

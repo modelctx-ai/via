@@ -9,7 +9,7 @@ import type { CredentialResolver, ServerConfig } from '../config/types';
 import type { ServerFeatures, ToolCallResult } from '../protocol';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
-import { createRedactor } from '../render/redact';
+import { createRedactor, redactValue } from '../render/redact';
 import type { CursorRecord, CursorStore } from '../render/cursor';
 import type { SchemaCompiler } from './args/validate';
 import type { OAuthStore } from '../client/oauth/store';
@@ -47,8 +47,10 @@ export interface Backend extends McpClient {
   compiler(): SchemaCompiler | undefined;
   /** Where the full text of truncated results is kept. */
   cursors(): CursorStore;
-  /** Replace the credential values this backend has resolved with `***`. */
+  /** Text the CLI composed, scanned for the credential values this backend has resolved (long ones only; see `Redactor.scan`). */
   redact(text: string): Promise<string>;
+  /** Content the CLI echoes (dry-run arguments): every string value redacted, the shape kept. */
+  redactValue<T>(value: T): Promise<T>;
   /** Credential values known to this process, for rendering. Empty when the daemon holds them. */
   secrets(): readonly string[];
 }
@@ -142,7 +144,11 @@ export class InProcessBackend implements Backend {
   }
 
   async redact(text: string): Promise<string> {
-    return createRedactor(this.options.resolver.resolvedValues())(text);
+    return createRedactor(this.options.resolver.resolvedValues()).scan(text);
+  }
+
+  async redactValue<T>(value: T): Promise<T> {
+    return redactValue(value, createRedactor(this.options.resolver.resolvedValues())) as T;
   }
 
   secrets(): readonly string[] {
@@ -269,6 +275,12 @@ export class FallbackBackend implements Backend {
     const redacted = await this.current.redact(text);
     if (this.current !== this.primary || !this.fallback) return redacted;
     return (await this.fallback).redact(redacted);
+  }
+
+  async redactValue<T>(value: T): Promise<T> {
+    const redacted = await this.current.redactValue(value);
+    if (this.current !== this.primary || !this.fallback) return redacted;
+    return (await this.fallback).redactValue(redacted);
   }
 
   secrets(): readonly string[] {

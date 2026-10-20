@@ -2,7 +2,7 @@
 import { didYouMean } from '../../catalog/edit-distance';
 import { kebab } from '../../catalog/tokenize';
 import type { JsonSchema } from '../../catalog/types';
-import { redactValue } from '../../render/redact';
+import { scannerOf } from '../../render/redact';
 import { alignRows, truncateChars } from '../../render/width';
 import type { ErrorObject } from './validate';
 import { isPlainObject, rootFlagName, type SchemaModel } from './schema';
@@ -307,10 +307,22 @@ export function buildToolArgsError(problems: readonly Problem[], usage: string, 
     if (hit) hit.messages.push(p.message);
     else merged.push({ arg: p.arg, messages: [p.message], single: p.single ?? `${p.arg} ${p.message}` });
   }
-  const issues: ArgIssue[] = merged.map((m) => ({ arg: redact(m.arg), message: redact(m.messages.join('; ')) }));
+  // The wording is ours and the values it echoes (`got`) are redacted where they are written, so the
+  // text is only scanned for long credentials. An argument name is a key: the user may have typed anything.
+  const scan = scannerOf(redact);
+  const nameOf = (arg: string): string => (redact as { key?: (k: string) => string }).key?.(arg) ?? arg;
+  const issues: ArgIssue[] = merged.map((m) => ({ arg: nameOf(m.arg), message: scan(m.messages.join('; ')) }));
   const multi = merged.length > 1;
-  const message = multi ? `${merged.length} invalid arguments` : redact(merged[0]!.messages.length > 1 ? `${merged[0]!.arg} ${merged[0]!.messages.join('; ')}` : merged[0]!.single);
-  const details = ordered.map((p) => redactValue(p.detail, redact) as Record<string, unknown>);
+  const first = merged[0]!;
+  const message = multi
+    ? `${merged.length} invalid arguments`
+    : scan(nameOf(first.arg) !== first.arg || first.messages.length > 1 ? `${nameOf(first.arg)} ${first.messages.join('; ')}` : first.single);
+  const details = ordered.map((p) => {
+    const detail = { ...p.detail };
+    if (typeof detail.arg === 'string') detail.arg = nameOf(detail.arg);
+    if (typeof detail.path === 'string') detail.path = nameOf(detail.path);
+    return detail;
+  });
   return new ToolArgsError(message, issues, usage, multi ? `via ${ref} -h` : undefined, details);
 }
 

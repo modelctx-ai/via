@@ -65,6 +65,7 @@ type Request =
   | ({ id; type: "prompt-get"; name: string; args: Record<string, string>; timeoutMs: number } & ServerTarget)
   | { id; type: "validate"; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
   | { id; type: "redact"; text: string }
+  | { id; type: "redact"; value: unknown }
   | { id; type: "cursor-put"; record: CursorRecord }
   | { id; type: "cursor-get"; cursor: string }
   | { id; type: "shutdown" }
@@ -99,14 +100,14 @@ type ErrorInfo = {
 | `prompts-list` | 返回 `prompts/list` 分页拉全的数组。没有声明 `prompts` 能力时退出码 3，不发请求 |
 | `prompt-get` | 返回 `{ description?, messages }`（`prompts/get` 的原始结果）。参数都是字符串；server 用 `-32602` 拒绝参数时退出码 1，与工具一致 |
 | `validate` | 编译 JSON Schema（按内容缓存）并校验 `data`，返回 ajv 的错误与 `format` 警告；`compileOnly` 只编译。这样 CLI 进程不加载 ajv |
-| `redact` | 把文本里 daemon 已知的凭证值换成 `***`；CLI 在打印可能回显用户输入的文本（错误、`--dry-run`、校验警告）前用它补上本地没有的脱敏。只在已有连接时发，不为它拉起 daemon |
+| `redact` | 把 daemon 已知的凭证值换成 `***`，只在已有连接时发，不为它拉起 daemon。`text` 是 CLI 拼好的文字（错误、校验警告），只替换 8 个字符以上的凭证；`value` 是 CLI 回显的内容（`--dry-run` 的 `args`，任意 JSON），其中每个字符串里的任何长度的凭证都替换，键与结构不变（[脱敏的范围](output.md#脱敏的范围)） |
 | `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录；记录落在用户缓存目录，不随 daemon 退出而丢失 |
 | `status` | 返回 pid、版本、socket、运行时间、距空闲退出的时间、请求数、游标数、内存和各会话（server 名、传输、是否连接、子进程 pid、目录中的工具数、调用数、空闲时间）。不含 URL、参数和任何凭证 |
 | `shutdown` | 先停止监听、删除 socket，应答，处理完在途请求后退出 |
 
 约定：
 
-- `call` 的 `result` 是清理前的结构化数据（MCP content 与 structuredContent），截断与渲染在 CLI 侧做，渲染所需的游标写入 daemon。四个资源与 prompt 请求同样返回原始结果，凭证值在 daemon 内递归替换为 `***` 后才发出，也受 `envStamp` 与未信任检查约束。
+- `call` 的 `result` 是清理前的结构化数据（MCP content 与 structuredContent），截断与渲染在 CLI 侧做，渲染所需的游标写入 daemon。四个资源与 prompt 请求同样返回原始结果，凭证值在 daemon 内逐个字符串值替换为 `***` 后才发出，也受 `envStamp` 与未信任检查约束。替换保持协议结构：不改写键，也不改写内容块的 `type`、`mimeType`、`role`、`audience`、`lastModified` 和 base64 的 `data`、`blob`；`structuredContent` 与 `_meta` 不享受这些豁免（[脱敏的范围](output.md#脱敏的范围)）。
 - 协议中不得出现解析后的凭证值：server 定义里只有引用；`env:` 的差异只以摘要交换；`call` 的结果、进度和错误在 daemon 内先脱敏。CLI 在 daemon 模式下本地不解析凭证，脱敏靠 daemon 的结果和 `redact`。
 - `auth` 请求的 `login` 不经过 daemon：登录需要浏览器或终端交互，由 CLI 在自己的进程里完成并写入共用存储（[auth.md](auth.md#oauth)）；daemon 里的会话在下一次请求前读取存储，所以新的登录、登出和刷新结果无需通知。
 - 未知消息类型返回 `exitCode: 7` 的错误，不断开连接。

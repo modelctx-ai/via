@@ -28,6 +28,7 @@ import type {
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/pipeline';
+import { redactValue } from '../render/redact';
 import { endpointOf, type DaemonPaths } from './paths';
 import { CREDENTIAL_TTL_MS, ExpiringResolver, SessionManager } from './sessions';
 import { envStamp } from './target';
@@ -417,7 +418,8 @@ export class DaemonServer {
       case 'validate':
         return this.validate(request.schema, request.label, request.data, request.compileOnly === true);
       case 'redact':
-        return this.sessions.redact(String(request.text));
+        // A value is content the CLI echoes (dry-run arguments); text is something the CLI composed.
+        return 'value' in request ? redactValue(request.value, this.sessions.redact) : this.sessions.redact.scan(String(request.text));
       case 'cursor-put':
         return this.cursors.put(request.record);
       case 'cursor-get': {
@@ -438,7 +440,7 @@ export class DaemonServer {
 
   /** A `log` event for the request that caused it: the CLI prints it as a `warning:` line. */
   private sendWarning(conn: Connection, id: string, message: string): void {
-    this.send(conn, { id, type: 'event', event: 'log', data: { level: 'warning', message: this.sessions.redact(message) } } satisfies Event);
+    this.send(conn, { id, type: 'event', event: 'log', data: { level: 'warning', message: this.sessions.redact.scan(message) } } satisfies Event);
   }
 
   private stale(target: ServerTarget): boolean {

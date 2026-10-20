@@ -9,7 +9,7 @@ import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, 
 import type { CredentialResolver, ServerConfig } from '../config/types';
 import type { GetPromptResult, ListResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
-import { createRedactor, redactValue } from '../render/redact';
+import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
 import { effectiveServer, sessionKey } from './target';
 
@@ -101,11 +101,11 @@ export class SessionManager {
     this.oauthStore = options.oauthStore;
   }
 
-  /** Replaces every credential value resolved so far with `***`. */
-  redact = (text: string): string => {
-    const values = this.options.resolver.resolvedValues();
-    return values.length === 0 ? text : createRedactor(values)(text);
-  };
+  /**
+   * Replaces the credential values resolved so far with `***`: the function redacts string content
+   * (upstream text), `.scan` text composed here, `.key` object keys (see `Redactor`).
+   */
+  readonly redact: Redactor = lazyRedactor(() => this.options.resolver.resolvedValues());
 
   // Operations --------------------------------------------------------------------------
 
@@ -155,8 +155,7 @@ export class SessionManager {
         ...(options.onWarning ? { onWarning: options.onWarning } : {}),
       });
       entry.calls += 1;
-      const values = this.options.resolver.resolvedValues();
-      return values.length === 0 ? result : (redactValue(result, createRedactor(values)) as ToolCallResult);
+      return redactProtocol(result, this.redact) as ToolCallResult;
     } finally {
       this.end(entry);
     }
@@ -223,8 +222,7 @@ export class SessionManager {
     this.begin(entry);
     try {
       const result = await op(entry.session);
-      const values = this.options.resolver.resolvedValues();
-      return values.length === 0 ? result : (redactValue(result, createRedactor(values)) as T);
+      return redactProtocol(result, this.redact) as T;
     } finally {
       this.end(entry);
     }

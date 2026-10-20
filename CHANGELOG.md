@@ -109,6 +109,7 @@
 
 ### Fixed
 
+- 凭证很短或很常见（`GH_TOKEN=x`、`true`、`1`、`json`、`text`）时，脱敏会改写结构：daemon 对整份 `tools/call` 结果的所有字符串和键做子串替换，把内容块的 `type: "text"` 改成 `te***t`，CLI 随即报 `internal error: blockPieces is not a function or its return value is not iterable`；进程内模式虽不崩，也会改写 JSON 的键、`error:` / `next:` 标签、`rule` 之类的字段、资源的 `mimeType`、prompt 的 `role` 和保存下来的媒体文件路径，`-o json` 与 `via batch -o json` 的输出可能不再是合法 JSON。现在脱敏保持结构：只替换字符串值里的凭证，键、协议字段（`type`、`mimeType`、`role`、base64 的 `data`/`blob`）、数字布尔、via 自己写的文字和保存的文件路径不动；这些位置只扫描 8 个字符以上的凭证，更短的凭证（`x`、`1`）只在内容里替换（宁可让正文变成 `a *** b`，也不放过）。`structuredContent` 与 `_meta` 里的字段仍是内容，不享受协议字段的豁免。规则见 output.md「脱敏的范围」、security.md、daemon.md；daemon 的 `redact` 请求新增 `value` 形式，用于回显用户给出的参数（`--dry-run`）。
 - daemon 的游标不再随 daemon 空闲退出（10 分钟）而提前失效：daemon 与进程内模式一样把游标写入用户缓存目录（0700 目录、0600 文件、内容已脱敏、TTL 30 分钟），`via more` 在 daemon 退出后仍可续读。
 - deny 规则的 ReDoS：项目配置可以追加会灾难性回溯的正则（如 `^(a+)+$`）卡死 via。现在加载时静态检查（嵌套量词、被重复分组里重叠的候选分支、反向引用、开放量词超过 3 个、长度超过 200 字符），不通过的规则按无效规则处理：忽略并给出 error 级诊断 `unsafe-deny`，CLI 停止执行；匹配只在不超过 256 字符的写法上进行，更长的工具名按 deny 处理（config.md「deny」）。
 - deny 规则与 `rename`：按工具默认规范写法写的规则（如 `^github/file:delete$`）在用户用 `rename` 改名后不再命中，该工具重新可见。现在一条规则同时匹配当前规范写法、原始名写法和默认规范写法（命名规则对原始名的拆分结果，不含 `rename`）（config.md「deny」）。
