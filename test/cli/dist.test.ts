@@ -77,7 +77,7 @@ function internalModules(args: string[]): string[] {
   const result = spawnSync(process.execPath, ['--require', join(root, 'scripts', 'lib', 'builtin-trace.cjs'), bin, ...args], {
     encoding: 'utf8',
     cwd: home,
-    env: { PATH: process.env.PATH, HOME: home, GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1', VIA_BUILTIN_TRACE: trace },
+    env: { ...homeEnv(home), GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1', VIA_BUILTIN_TRACE: trace },
     timeout: 20_000,
   });
   expect(result.status).toBe(0);
@@ -229,6 +229,7 @@ describe('built dist/via.js', () => {
       } finally {
         rmSync(join(home, '.config'), { recursive: true, force: true });
         rmSync(join(home, '.cache'), { recursive: true, force: true });
+        rmSync(join(home, '.local'), { recursive: true, force: true }); // LOCALAPPDATA on Windows (homeEnv)
       }
     });
 
