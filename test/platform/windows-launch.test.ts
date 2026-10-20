@@ -27,7 +27,7 @@ describe.skipIf(process.platform !== 'win32')('batch files on Windows', () => {
   afterEach(async () => {
     process.env.PATH = savedPath;
     await Promise.all(clients.splice(0).map((c) => c.close()));
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   /** A launcher like npx.cmd: runs node with the server script and passes the arguments on. */
@@ -62,9 +62,11 @@ describe.skipIf(process.platform !== 'win32')('batch files on Windows', () => {
   });
 
   // The helper prints its first argument without any further expansion, so what comes back is what cmd.exe handed over.
+  // `set /p` reading from NUL leaves ERRORLEVEL 1, which would become the exit status of the whole batch file;
+  // `exit /b 0` makes the helper succeed so that a failure here means via started it wrongly.
   function printer(): string {
     const file = join(dir, 'print arg.cmd');
-    writeFileSync(file, crlf(['@echo off', 'setlocal', 'set "V=%~1"', '<nul set /p "=%V%"']));
+    writeFileSync(file, crlf(['@echo off', 'setlocal', 'set "V=%~1"', '<nul set /p "=%V%"', 'exit /b 0']));
     return file;
   }
 

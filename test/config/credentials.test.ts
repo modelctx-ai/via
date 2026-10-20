@@ -159,7 +159,7 @@ describe('keychain:', () => {
   });
 
   it('explains a missing entry', async () => {
-    const error = await failure(createCredentialResolver({ loadKeyring: keyring({}).loader }).resolve('keychain:via/github', user));
+    const error = await failure(createCredentialResolver({ platform: 'linux', loadKeyring: keyring({}).loader }).resolve('keychain:via/github', user));
     expect(error.message).toContain('service "via", account "github"');
     expect(error.next).toContain('keychain');
   });
@@ -233,11 +233,11 @@ describe('splitCommandLine', () => {
     ["a '' b", ['a', '', 'b']],
     ['$HOME ~ * | >', ['$HOME', '~', '*', '|', '>']],
   ])('%j', (text, words) => {
-    expect(splitCommandLine(text)).toEqual(words);
+    expect(splitCommandLine(text, 'linux')).toEqual(words); // the POSIX rules; Windows has its own block below
   });
 
   it.each(['', '   ', "a 'b", 'a "b', "''"])('rejects %j', (text) => {
-    expect(splitCommandLine(text)).toBeUndefined();
+    expect(splitCommandLine(text, 'linux')).toBeUndefined();
   });
 });
 

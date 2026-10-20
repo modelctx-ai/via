@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FAKE_TOKEN, makeSandbox, startFixtureServer, useCleanup } from './helpers';
 
@@ -129,7 +129,7 @@ describe('cmd: credentials', () => {
     expect(r.code).toBe(5);
     expect(runs()).toBe(0);
     const shown = await sb.via(['trust'], { env });
-    expect(shown.stdout).toContain('auth.bearer: cmd:node …');
+    expect(shown.stdout).toContain(`auth.bearer: cmd:${basename(process.execPath)} …`);
     expect(shown.stdout).not.toContain(FAKE_TOKEN);
   });
 

@@ -69,7 +69,7 @@ describe('via auth login', () => {
     const url = new URL(r.stdout.split('\n')[0]!);
     expect(url.origin).toBe(srv.issuer);
     expect(url.pathname).toBe('/authorize');
-    expect(r.stdout).toMatch(/\nlogged in: linear \(scopes: read write; access token expires in 1h; stored in .*\/oauth\/oauth-[0-9a-f]{32}\.json\)\n$/);
+    expect(r.stdout).toMatch(/\nlogged in: linear \(scopes: read write; access token expires in 1h; stored in .*[\\/]oauth[\\/]oauth-[0-9a-f]{32}\.json\)\n$/);
 
     // Dynamic registration: a public client with the loopback redirect URI.
     expect(srv.state.registrations).toHaveLength(1);

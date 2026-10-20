@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULTS, hasErrors, type ConfigDiagnostic } from '../../src/config';
 import { validateLayer } from '../../src/config/layer';
@@ -29,7 +30,7 @@ describe('search.semantic validation (config.md)', () => {
       auth: { type: 'bearer', bearer: 'env:EMB_KEY' },
       timeout: DEFAULTS.semantic.timeout,
       indexTimeout: DEFAULTS.semantic.indexTimeout,
-      origin: { scope: 'user', path: `${tree.home}/.config/via/config.yaml` },
+      origin: { scope: 'user', path: join(tree.home, '.config', 'via', 'config.yaml') },
     });
   });
 
@@ -88,7 +89,7 @@ describe('search.semantic is read from the user config only (security.md)', () =
     expect(config.search?.semantic).toBeUndefined();
     expect(codes(config.diagnostics)).toContain('warning:search-forbidden');
     expect(hasErrors(config.diagnostics)).toBe(false);
-    expect(config.diagnostics.find((d) => d.code === 'search-forbidden')?.file).toBe(`${tree.project}/.via.yaml`);
+    expect(config.diagnostics.find((d) => d.code === 'search-forbidden')?.file).toBe(join(tree.project, '.via.yaml'));
   });
 
   it('a project config cannot override or remove the user setting', async () => {

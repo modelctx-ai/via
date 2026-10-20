@@ -100,7 +100,7 @@ describe('the sample tree (one config per framework)', () => {
     ]);
     expect(hasErrors(config.diagnostics)).toBe(true);
     expect(config.servers.map((s) => s.name)).not.toContain('broken');
-    expect(formatDiagnostic(config.diagnostics.find((d) => d.server === 'broken')!)).toMatch(/home\/\.claude\.json: servers\.broken: unsupported transport "websocket"$/);
+    expect(formatDiagnostic(config.diagnostics.find((d) => d.server === 'broken')!)).toMatch(/home[\\/]\.claude\.json: servers\.broken: unsupported transport "websocket"$/);
   });
 
   it('never writes anything, framework configs included', async () => {
@@ -527,7 +527,7 @@ describe('bad input never throws', () => {
     });
     const config = await tree.load();
     expect(config.servers.map((s) => s.name)).toEqual(['good', 'b']);
-    expect(config.diagnostics.map((d) => `${d.level}:${d.code}:${d.file?.slice(tree.home.length)}`)).toEqual([
+    expect(config.diagnostics.map((d) => `${d.level}:${d.code}:${d.file?.slice(tree.home.length).replaceAll('\\', '/')}`)).toEqual([
       'warning:file-malformed:/.claude.json',
       'warning:file-malformed:/.codex/config.toml',
       'warning:file-malformed:/.config/Code/User/mcp.json',
