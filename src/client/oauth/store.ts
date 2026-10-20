@@ -11,6 +11,30 @@ import { pathContext, userDataDir, type Env, type PathContext } from '../../conf
 
 export const KEYCHAIN_SERVICE = 'via';
 
+/**
+ * Windows Credential Manager keeps at most 2560 bytes (1280 UTF-16 characters) per credential, and a
+ * record with tokens, client registration and discovery results is often longer. On Windows a
+ * longer record is split over several entries (`<account>#0`, `#1`, …) and the main entry holds
+ * this marker and the number of pieces. The marker is not JSON, so nothing mistakes it for a record.
+ */
+const CHUNK_MARKER = 'via:chunks:';
+const CHUNK_SIZE = 1000;
+const MAX_CHUNKS = 32;
+
+/** Cut `text` into pieces of at most `size` characters, never between the halves of a surrogate pair. */
+export function splitForKeychain(text: string, size = CHUNK_SIZE): string[] {
+  const pieces: string[] = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + size, text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    pieces.push(text.slice(start, end));
+    start = end;
+  }
+  return pieces;
+}
+
 export interface OAuthRecord {
   version: 1;
   /** The MCP endpoint this login is for. */
@@ -179,11 +203,58 @@ export function createOAuthStore(options: OAuthStoreOptions = {}): OAuthStore {
     return new AsyncEntry(KEYCHAIN_SERVICE, key);
   }
 
+  const chunked = ctx.platform === 'win32';
+
+  /** The stored text of `key`, reassembled when it was split; null when absent or incomplete. */
+  async function keychainRead(key: string): Promise<string | null> {
+    const main = await (await entry(key)).getPassword();
+    if (main === null || !main.startsWith(CHUNK_MARKER)) return main;
+    const count = Number(main.slice(CHUNK_MARKER.length));
+    if (!Number.isInteger(count) || count < 1 || count > MAX_CHUNKS) return null;
+    let text = '';
+    for (let i = 0; i < count; i += 1) {
+      const piece = await (await entry(`${key}#${i}`)).getPassword();
+      if (piece === null) return null;
+      text += piece;
+    }
+    return text;
+  }
+
+  /** Remove the pieces `#from`, `#from+1`, … until there is none. */
+  async function dropPieces(key: string, from: number): Promise<void> {
+    for (let i = from; i < MAX_CHUNKS; i += 1) {
+      const piece = await entry(`${key}#${i}`);
+      if ((await piece.getPassword()) === null) return;
+      await piece.deletePassword();
+    }
+  }
+
+  async function keychainWrite(key: string, text: string): Promise<void> {
+    if (!chunked) {
+      await (await entry(key)).setPassword(text);
+      return;
+    }
+    const pieces = text.length <= CHUNK_SIZE ? [] : splitForKeychain(text);
+    if (pieces.length > MAX_CHUNKS) throw new Error('the login record is too large for the keychain');
+    // Pieces first, then the entry that points at them: a reader never sees a marker without its pieces.
+    for (const [i, piece] of pieces.entries()) await (await entry(`${key}#${i}`)).setPassword(piece);
+    await (await entry(key)).setPassword(pieces.length === 0 ? text : `${CHUNK_MARKER}${pieces.length}`);
+    await dropPieces(key, pieces.length);
+  }
+
+  async function keychainDelete(key: string): Promise<boolean> {
+    const e = await entry(key);
+    const present = (await e.getPassword()) !== null;
+    if (present) await e.deletePassword();
+    if (chunked) await dropPieces(key, 0);
+    return present;
+  }
+
   return {
     async get(key) {
       if (mode !== 'file') {
         try {
-          const text = await (await entry(key)).getPassword();
+          const text = await keychainRead(key);
           const record = text ? parseRecord(text) : undefined;
           if (record) return { record, location: { kind: 'keychain' } };
         } catch (error) {
@@ -199,7 +270,7 @@ export function createOAuthStore(options: OAuthStoreOptions = {}): OAuthStore {
       let fallbackReason: string | undefined;
       if (mode !== 'file') {
         try {
-          await (await entry(key)).setPassword(JSON.stringify(record));
+          await keychainWrite(key, JSON.stringify(record));
           // A copy left by an earlier fallback is stale now.
           await rm(filePath(key), { force: true });
           return { location: { kind: 'keychain' } };
@@ -217,9 +288,7 @@ export function createOAuthStore(options: OAuthStoreOptions = {}): OAuthStore {
       let keychainError: unknown;
       if (mode !== 'file') {
         try {
-          const e = await entry(key);
-          removed = (await e.getPassword()) !== null;
-          if (removed) await e.deletePassword();
+          removed = await keychainDelete(key);
         } catch (error) {
           keychainError = error;
         }

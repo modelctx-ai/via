@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, truncateSync } from 'node:fs';
 import { createConnection, type Socket } from 'node:net';
 import type { Event, Hello, HelloAck, RequestBody, Response, Stale } from '../protocol';
-import { unsafeReason, type DaemonPaths } from './paths';
+import { endpointOf, unsafeReason, type DaemonPaths } from './paths';
 import { encode, LineDecoder, parseMessage } from './wire';
 
 /**
@@ -64,8 +64,13 @@ export class DaemonConnection {
 
   /** Connect and say hello. Resolves with a refusal instead of throwing for "no daemon" and version/token mismatches. */
   static connect(paths: DaemonPaths, version: string, timeoutMs = 1000): Promise<ConnectResult> {
+    // The token is read before connecting: a derived pipe is named after it, and without a token
+    // file there is no daemon to connect to.
+    const token = readToken(paths);
+    const endpoint = endpointOf(paths, token);
+    if (endpoint === undefined) return Promise.resolve({ refused: 'absent' });
     return new Promise((resolve, reject) => {
-      const socket = createConnection(paths.socket);
+      const socket = createConnection(endpoint);
       const decoder = new LineDecoder();
       let settled = false;
       const finish = (action: () => void): void => {
@@ -116,7 +121,7 @@ export class DaemonConnection {
       });
       socket.once('close', () => refuse({ refused: 'absent' }));
       socket.once('connect', () => {
-        const hello: Hello = { type: 'hello', version, pid: process.pid, token: readToken(paths) };
+        const hello: Hello = { type: 'hello', version, pid: process.pid, token };
         socket.write(encode(hello));
       });
     });
@@ -202,7 +207,6 @@ export class DaemonConnection {
 }
 
 function readToken(paths: DaemonPaths): string {
-  if (paths.pipe) return '';
   try {
     return readFileSync(paths.token, 'utf8');
   } catch {
@@ -313,7 +317,8 @@ export class DaemonClient {
     const childEnv: NodeJS.ProcessEnv = {};
     for (const [name, value] of Object.entries(env)) if (value !== undefined) childEnv[name] = value;
     childEnv.HOME ??= home;
-    const args = [...command.args, 'daemon', 'run', '--socket', paths.socket, '--idle-timeout', String(idleTimeoutSec)];
+    // A derived pipe has no name to pass: the daemon computes the same default paths from its environment.
+    const args = [...command.args, 'daemon', 'run', ...(paths.derived ? [] : ['--socket', paths.socket]), '--idle-timeout', String(idleTimeoutSec)];
     let failure: string | undefined;
     const child = spawn(command.command, args, {
       detached: true,

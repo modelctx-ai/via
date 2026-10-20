@@ -23,7 +23,7 @@
 - 发现：先向 server 发一次未带凭证的请求，从 `WWW-Authenticate` 取 `resource_metadata` 和 `scope`；取不到就按 RFC 9728 的 well-known 路径找受保护资源元数据，再据此找授权服务器元数据（RFC 8414，退回 OpenID Connect Discovery）。授权请求带 RFC 8707 的 `resource`。
 - 注册：授权服务器支持动态客户端注册（RFC 7591）时自动注册，客户端名为 `via`，公开客户端（`token_endpoint_auth_method: none`）；不支持时必须配置 `clientId`，否则 `login` 退出码 2 并说明。
 - 授权：PKCE（S256）授权码流程，带随机 `state`，回调时校验 `state`；授权被拒绝、`state` 不匹配、超时（默认 300 秒，`--timeout` 覆盖）都退出码 4。
-- 回调：`via auth login <provider>` 在 `127.0.0.1` 的随机端口监听 `/callback`（只接受 `Host` 为该地址的请求），同时用平台的打开命令（macOS `open`、Linux `xdg-open`、Windows `start`）打开浏览器，并总是把授权 URL 打印出来。动态注册的客户端每次登录都按本次的回调地址重新注册，因为端口是随机的；配置了 `clientId` 时需要授权服务器按 RFC 8252 接受任意端口的 loopback 回调地址。
+- 回调：`via auth login <provider>` 在 `127.0.0.1` 的随机端口监听 `/callback`（只接受 `Host` 为该地址的请求），同时用平台的打开命令（macOS `open`、Linux `xdg-open`、Windows `rundll32 url.dll,FileProtocolHandler`）打开浏览器，并总是把授权 URL 打印出来。只打开 `http://` 与 `https://` 的地址，其他 scheme（`file:`、`ms-settings:` 等）不交给系统。Windows 上不用 `cmd /c start`：授权 URL 来自授权服务器而不是用户，`cmd.exe` 会解释其中的 `|`、`^`、`(` 和 `%VAR%`；`rundll32.exe` 以完整路径（`%SystemRoot%\System32`）直接启动，URL 只是它的一个参数，没有 shell 看到它。动态注册的客户端每次登录都按本次的回调地址重新注册，因为端口是随机的；配置了 `clientId` 时需要授权服务器按 RFC 8252 接受任意端口的 loopback 回调地址。
 - 无头环境：通过 SSH 登录的 VPS、容器里，浏览器和 via 不在同一台机器，本地回调端口收不到重定向。`via auth login <provider> --manual` 只打印授权 URL，不打开浏览器、不监听回调端口；用户在任意机器上完成授权后，把落地页的完整 URL（落地页本身打不开是预期行为）粘贴回终端（从 stdin 读一行），via 从中取出 `code` 和 `state`。PKCE 与 state 校验不变。检测不到可用浏览器时（Linux 无 `DISPLAY` 与 `WAYLAND_DISPLAY`、处于 SSH 会话），不尝试打开浏览器，默认打印授权 URL 并提示可改用 `--manual`；打开命令不存在或启动失败也只是提示，不报错、不等待。
 - 输出：授权 URL 写 stdout（它是命令的数据），进度与提示写 stderr，以 `·` 开头；成功后 stdout 输出 `logged in: <provider>` 与 scope、有效期、存放位置。输出中不出现 token。
 
@@ -32,6 +32,7 @@
 - 一个 server 对应一条记录，键为 server 定义的哈希：`sha256(MCP 端点 URL, clientId, 排序后的 scopes)` 的前 32 个十六进制字符。同一个定义出现在多个来源或多个名字下共用一条记录；改了 URL、`clientId` 或 `scopes` 后需要重新登录。
 - 记录是一个 JSON 对象：access token、refresh token、过期时间、scope、动态注册得到的客户端信息、授权服务器元数据缓存。
 - 首选系统钥匙串：服务名 `via`，账户名 `oauth:<哈希>`，整条记录作为密码字段存放。钥匙串不可用（常见于没有 Secret Service 的 Linux 服务器、容器）或写入失败时，退回用户数据目录下的文件 `oauth/<哈希>.json`（目录 0700、文件 0600，原子替换），`login` 的输出说明存放位置和原因。读取时两处都查，钥匙串优先。
+- Windows：钥匙串是 Credential Manager，单条凭据最多 2560 字节（1280 个 UTF-16 字符），而整条记录（token、客户端注册、发现结果）经常更长。Windows 上超过 1000 个字符的记录拆成几条存放：主条目（账户名 `oauth:<哈希>`）的内容是 `via:chunks:<N>`，片段在 `oauth:<哈希>#0` … `#N-1`，先写片段再写主条目，更新后多余的旧片段删除，读取时缺任何一片都当作没有登录。其他平台不拆，由系统钥匙串自己的限制决定是否退回文件。回退的文件存放在用户数据目录 `%LOCALAPPDATA%\via\Data\oauth\`，Windows 没有 `0600` 这类权限位，文件的私密性来自用户目录的默认 ACL（只有该用户、SYSTEM 和管理员可读），这是比钥匙串弱的保护，所以钥匙串仍是首选。
 - `VIA_OAUTH_STORE=file|keychain|auto`（默认 `auto`）可固定存放位置：`file` 不碰钥匙串，`keychain` 在钥匙串不可用时报错而不退回文件。
 - 记录损坏或无法解析时视为未登录。已知的 token 值计入脱敏列表，任何输出里一律替换为 `***`。
 - 不读取其他客户端（Claude、Cursor 等）私有存储的 OAuth token；需要 OAuth 的 server 由 via 自己授权一次。via 也不写任何框架的配置。

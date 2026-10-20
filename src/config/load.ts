@@ -13,7 +13,8 @@ import { applyDef, canonical, newAccumulator, type Accumulator } from './merge';
 import { isPlainObject, ownEntries, type OriginedDef, type ServerDef } from './model';
 import { normalizeFrameworkEntry } from './normalize';
 import { parseConfigText, resolvePointer, ParseFailure } from './parse';
-import { expandPath, pathContext, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
+import { decodeText } from '../platform/text';
+import { expandPath, pathContext, pathIdentity, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
 import { parseCredentialRef } from './credentials';
 import { readTrustStore, trustStatus, type TrustStore } from './trust';
 import type { ConfigOrigin, ConfigScope, ServerConfig, Transport } from './types';
@@ -94,13 +95,15 @@ function isFile(path: string): boolean {
 }
 
 /** Nearest ancestor (starting at `from`) that contains `relative` as a file. */
-function findUp(relative: string, from: string, ceiling?: string): string | undefined {
+function findUp(relative: string, from: string, ceiling: string | undefined, platform: NodeJS.Platform): string | undefined {
   let dir = resolve(from);
+  const stop = ceiling === undefined ? undefined : pathIdentity(ceiling, platform);
   for (;;) {
     const candidate = join(dir, relative);
     if (isFile(candidate)) return candidate;
     const parent = dirname(dir);
-    if (parent === dir || dir === ceiling) return undefined;
+    // Case-insensitive on Windows: `c:\repo` and `C:\Repo` are the same ceiling.
+    if (parent === dir || pathIdentity(dir, platform) === stop) return undefined;
     dir = parent;
   }
 }
@@ -124,7 +127,7 @@ async function readAndParse(path: string, format: ConfigFormat, severity: 'error
     return undefined;
   }
   try {
-    return { bytes, value: await parseConfigText(bytes.toString('utf8'), format) };
+    return { bytes, value: await parseConfigText(decodeText(bytes), format) };
   } catch (error) {
     const message = error instanceof ParseFailure ? error.message : 'could not be parsed';
     diagnostics.push({ level: severity, code: 'file-malformed', message, file: path });
@@ -171,7 +174,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   const layers: Layer[] = [];
   const userPath = userConfigPath(ctx);
   const ceiling = options.projectRoot === undefined ? undefined : resolve(options.projectRoot);
-  const projectPath = findUp(PROJECT_CONFIG_NAME, cwd, ceiling);
+  const projectPath = findUp(PROJECT_CONFIG_NAME, cwd, ceiling, ctx.platform);
   for (const [scope, path] of [['user', userPath], ['project', projectPath]] as const) {
     if (path === undefined) continue;
     const read = await readAndParse(path, 'yaml', 'error', false, diagnostics);
@@ -343,8 +346,9 @@ function resolveSources(
   const out: SourceFile[][] = [];
   const claimed = new Set<string>();
   const add = (list: SourceFile[], file: SourceFile): void => {
-    if (claimed.has(file.path)) return;
-    claimed.add(file.path);
+    const identity = pathIdentity(file.path, ctx.platform);
+    if (claimed.has(identity)) return;
+    claimed.add(identity);
     list.push(file);
   };
 
@@ -358,7 +362,7 @@ function resolveSources(
       if (expanded === undefined) continue;
       let path: string | undefined;
       if (config.scope === 'user' || isAbsolute(expanded)) path = resolve(expanded);
-      else path = findUp(expanded, cwd, ceiling) ?? resolve(cwd, expanded);
+      else path = findUp(expanded, cwd, ceiling, ctx.platform) ?? resolve(cwd, expanded);
       add(list, {
         path,
         format: config.format,

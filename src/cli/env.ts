@@ -2,6 +2,7 @@
 // process, home directory or terminal.
 import { homedir } from 'node:os';
 import { isatty } from 'node:tty';
+import { decodeText } from '../platform/text';
 
 export interface Writer {
   write(chunk: string): unknown;
@@ -30,7 +31,7 @@ export interface CliEnv {
 async function readProcessStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Buffer));
-  return Buffer.concat(chunks).toString('utf8');
+  return decodeText(Buffer.concat(chunks));
 }
 
 async function askOnTerminal(question: string): Promise<string> {

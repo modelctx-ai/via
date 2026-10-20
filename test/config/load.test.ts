@@ -538,6 +538,7 @@ describe('bad input never throws', () => {
   });
 
   it('survives a directory or an unreadable file where a config should be', async () => {
+    // On Windows chmod 0o000 does not make a file unreadable; only the directory case below applies.
     const tree = makeTree({ 'home/.cursor/x': '' });
     rmSync(join(tree.home, '.cursor/x'));
     mkdirSync(join(tree.home, '.cursor/mcp.json'));
@@ -547,7 +548,7 @@ describe('bad input never throws', () => {
     writeFileSync(unreadable, '[mcp_servers.a]\ncommand = "a"\n');
     chmodSync(unreadable, 0o000);
     const config = await tree.load();
-    expect(config.servers.map((s) => s.name)).toEqual(process.getuid?.() === 0 ? ['a'] : []);
+    expect(config.servers.map((s) => s.name)).toEqual(process.getuid?.() === 0 || process.platform === 'win32' ? ['a'] : []);
     expect(config.diagnostics.every((d) => d.code === 'file-unreadable' || d.code === 'file-malformed')).toBe(true);
     expect(config.diagnostics.length).toBeGreaterThanOrEqual(1);
     chmodSync(unreadable, 0o600);

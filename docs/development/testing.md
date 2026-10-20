@@ -26,11 +26,19 @@
 - 所有快照中不得出现测试凭证值，CI 中对快照做凭证值扫描。
 - 项目级配置未信任时 stdio 命令不得执行。
 
+### 跨平台约定
+
+- 路径、环境变量、引号、`PATHEXT` 等逻辑用注入的 `platform: 'win32'` 在所有宿主上测试（`test/config/paths.test.ts`、`test/platform/`、`test/daemon/paths.test.ts`），不要求在 Windows 上才能跑；守护进程的「按令牌派生的端点」流程用手工构造的 `derived` 路径集在 unix socket 上同样跑一遍（`test/daemon/protocol.test.ts`）。
+- 只在 POSIX 上有意义的测试（模式位、`chmod 000`、符号链接、unix socket 文件、`pgrep`）用 `it.skipIf(process.platform === 'win32')`，并在注释里写明原因，不要静默跳过。
+- 需要启动 Node 夹具时用 `process.execPath` 加脚本路径，不依赖 shebang 或 `.bin` 下的可执行文件；`--import` 的路径传 `pathToFileURL(...).href`；沙箱的子进程环境用 `test/cli/helpers.ts` 的 `homeEnv` / `SYSTEM_ENV`（Windows 上的子进程需要 `SystemRoot`，用户目录来自 `USERPROFILE` / `APPDATA` 而不是 `HOME` / `XDG_*`）。
+- Windows 上的 daemon 端到端测试用各沙箱独有的 `LOCALAPPDATA` 和 `USERNAME`，使管道和令牌文件互不干扰。
+
 ### 持续集成
 
 `.github/workflows/ci.yml` 在每个 PR 和 `main` 的推送上运行：
 
 - Node 22、24 上执行 `npm ci`、`npm run typecheck`、`npm run build`、`npm test`（含快照、拆分基线、词典是否最新、凭证扫描）；
+- `windows-latest`（Node 22）上执行同样四步，再用空的用户目录运行 `dist/via.js`（`--version`、浏览、`doctor`、`daemon status`）；
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
 
 ## token 基准

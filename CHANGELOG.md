@@ -8,6 +8,7 @@
 
 ### Changed
 
+- 规范补充（随 Windows 支持）：daemon.md 的「生命周期」「无 daemon 模式」「socket 安全」按平台改写并新增「Windows」一节；config.md 的 Windows 基础环境、「Windows 上启动 stdio 命令」与 `cmd:` 分词；security.md 新增「Windows 上的子进程」「Windows 上的文件权限」，并说明信任记录的 Windows 路径规范化；auth.md 的打开命令与 Credential Manager 拆分存放。`open-questions.md` 的「Windows 支持」条目随之移除。没有动词表、分类表或命名规则的改动，规范写法不受影响。
 - 规范补充（随 OAuth 实现）：auth.md 补全 OAuth 的发现、注册、回调、存储（含文件退路与 `VIA_OAUTH_STORE`）、刷新、状态与登出，以及调用时「需要登录」的行为；cli.md 的 `via auth` 说明；security.md、daemon.md 中 OAuth token 的脱敏与 daemon 持有的状态。`auth: oauth` 的 server 不再提示改用 bearer。
 - 项目名与命令名由占位名 `mx` 改为 `via`，npm 包名 `@modelctx/via`；配置路径、项目配置文件、socket、环境变量前缀随之改名（ADR 0009）。
 - 规范补充（随首个实现，不改变既有设计决策）：naming.md 明确逐词单数化并加入不规则复数；discovery.md 补全启发式打分的细节（递减计分、`minScore`、双域判定）、浏览视图的排序与截断、签名上限、安全标记和搜索排序的并列规则；output.md 补全表格选列、一行数组、元信息行格式、游标续读、脱敏顺序和错误文本清理；data-files.md 增加 `columns.json`、`singularIrregular`、`minScore`、`stopwords` 以及词典与差异检查的命令。
@@ -25,6 +26,14 @@
 - 内部：`commands/tool.ts` 抽出 `executeCall`，`via <provider> …`、`via call`、`via batch` 共用同一条「校验 → dry-run / 确认 → 调用 → 渲染」路径；它返回结果（stdout、stderr、退出码、结构化的元信息与错误）而不直接写输出，也只通过 `app.client()` 触达上游，后端（进程内或 daemon）对它透明。渲染流水线的返回值附带元信息与结构化错误。
 
 ### Added
+
+- Windows 支持（路线图 c4；daemon.md「Windows」、security.md「Windows 上的子进程」「Windows 上的文件权限」、ADR 0010）：
+  - daemon 在 Windows 上启用（不再始终用进程内模式；`VIA_NO_DAEMON=1` 照常有效）。默认管道名为 `\\.\pipe\via-<用户名>-<令牌摘要>`，摘要取自 daemon 每次启动生成、写在 `%LOCALAPPDATA%\via\Cache\via.token` 的令牌，因此名字无法被预先占位；握手令牌校验与 POSIX 一致，启动锁、陈旧令牌清理、令牌文件被删后自行退出。`via daemon status` 在 daemon 未运行时显示 `\\.\pipe\via-<用户名>-*`。peer 身份（对端 SID）与文件 ACL 不校验，残留风险写入规范。
+  - `command: npx` 一类 `.cmd` / `.bat` 垫片可用：命令名由 via 按 `PATH` 与 `PATHEXT` 解析（不找当前目录），`.exe` 直接启动，批处理文件的参数含 `"`、`%`、换行、NUL 时拒绝启动。`cmd:` 凭证命令在 Windows 上同样解析，`.cmd` / `.bat` 经 `cmd.exe /d /v:off /s /c` 启动、每个词加双引号；`cmd:` 的分词在 Windows 上采用 C 运行时规则，`cmd:C:\Tools\op.exe …` 和带引号的路径可直接写。
+  - 路径：用户配置 `%APPDATA%\via\config.yaml`，数据与缓存 `%LOCALAPPDATA%\via\{Data,Cache}`；环境变量名不分大小写（`%AppData%`、`env:Path`）；`~\`、`%NAME%` 展开；信任记录按规范化后的真实路径记录、不区分大小写，去掉 `\\?\` 前缀；已加载的框架配置文件按路径身份去重。`via` 的提示里 Windows 路径按 cmd.exe 与 PowerShell 都认的双引号规则加引号。
+  - OAuth：打开浏览器改用 `rundll32 url.dll,FileProtocolHandler`（不再经 `cmd /c start`，授权 URL 里的 `|`、`^`、`%VAR%` 不再被 `cmd.exe` 解释），所有平台只打开 `http(s)` 地址；Credential Manager 单条凭据放不下整条登录记录，Windows 上超过 1000 个字符时拆成多条存放。
+  - 文本：配置文件、`--args @文件`、标准输入（含 `via batch`）、`file:` 凭证都识别 UTF-8 BOM 与 UTF-16 BOM；CRLF 行尾已兼容。stdio 子进程的基础环境在 Windows 上增加 `USERDOMAIN`、`COMPUTERNAME`、`ProgramFiles(x86)` 等系统变量。
+  - 测试与 CI：`.github/workflows/ci.yml` 增加 `windows-latest`（Node 22）任务（typecheck、build、test、运行打包产物）；仓库根 `.gitattributes` 固定 LF。路径、引号、`PATHEXT`、令牌派生管道名等逻辑用注入的 `platform: 'win32'` 在所有宿主上测试，只在 POSIX 有意义的测试带原因地跳过（testing.md「跨平台约定」）。
 
 - OAuth（auth.md）：`via auth login|status|logout`。PKCE 授权码流程，按 MCP 授权规范发现受保护资源与授权服务器（RFC 9728 / 8414）、动态客户端注册（RFC 7591）、`resource` 参数（RFC 8707）；回调监听 `127.0.0.1` 的随机端口并校验 `state` 与 `Host`，`--manual` 在无头环境打印授权 URL、从终端读取粘贴的重定向 URL；平台打开命令只是尽力而为（SSH 会话或无显示时不尝试，打开失败不报错、不等待）。登录存入系统钥匙串（服务名 `via`，账户名 `oauth:<server 定义的哈希>`），不可用时退回用户数据目录下 0600 的文件，`VIA_OAUTH_STORE=file|keychain|auto` 可固定；调用前和收到 401 时用 refresh token 静默刷新（同进程串行，多进程轮换冲突时改用已刷新的 token），登录失效时退出码 4 并提示 `via auth login`，调用过程永远不会启动浏览器或等待输入；`logout` 撤销 token（RFC 7009，尽力而为）并删除本地记录。OAuth token 计入脱敏列表（`CredentialResolver.track`）。`via servers` 的鉴权列显示登录状态，`via doctor` 对未登录的 server 给出 `next: via auth login <provider>`。MCP SDK 仍按需加载。
 - 测试夹具 `test/fixtures/mcp/oauth-server.mjs`：模拟授权服务器（元数据、动态注册、PKCE 校验、刷新与轮换、撤销）加受保护的 Streamable HTTP MCP server。

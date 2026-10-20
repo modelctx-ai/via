@@ -2,6 +2,7 @@
 // the call itself, and the render pipeline for the result. `executeCall` is the one call path:
 // `via <provider> …`, `via call` and `via batch` all end up here.
 import { readFile } from 'node:fs/promises';
+import { decodeText } from '../../platform/text';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { CatalogTool, ProviderCatalog } from '../../catalog';
 import { ClientError } from '../../client';
@@ -34,8 +35,8 @@ export function argsContext(tool: CatalogTool): ToolArgsContext {
 function argsIo(app: App): ToolArgsIO {
   return {
     readFile: (path) => {
-      const expanded = path === '~' || path.startsWith('~/') ? join(app.io.home, path.slice(1)) : path;
-      return readFile(isAbsolute(expanded) ? expanded : resolve(app.io.cwd, expanded), 'utf8');
+      const expanded = path === '~' || path.startsWith('~/') || path.startsWith('~\\') ? join(app.io.home, path.slice(1)) : path;
+      return readFile(isAbsolute(expanded) ? expanded : resolve(app.io.cwd, expanded)).then(decodeText);
     },
     readStdin: () => app.io.readStdin(),
   };

@@ -91,8 +91,11 @@ describe('via auth login', () => {
     const { srv, sb } = await setup();
     await login(sb, srv);
     const file = recordFile(sb);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(join(file, '..')).mode & 0o777).toBe(0o700);
+    // Windows has no mode bits; the file is protected by the profile directory's ACL (security.md).
+    if (process.platform !== 'win32') {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(join(file, '..')).mode & 0o777).toBe(0o700);
+    }
     const record = readRecord(sb);
     expect(record.tokens?.access_token).toBeTruthy();
     expect(record.expiresAt).toBe(T0 + HOUR);

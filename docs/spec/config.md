@@ -7,7 +7,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 后者覆盖前者：
 
 1. **框架配置（只读）**：每次加载时读取，不做快照，框架那边改了这边自动生效。默认探测的框架与路径由 `data/frameworks/` 描述（[数据文件](../development/data-files.md#frameworks)），按探测顺序为 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Devin Desktop、Windsurf、Gemini CLI、Antigravity、GitHub Copilot CLI、Amp。路径与字段按各框架官方文档核对，条目的 `verifiedAt` 和 `sources` 记录核对日期与依据。
-2. **用户配置**：`~/.config/via/config.yaml`（遵循 `XDG_CONFIG_HOME`，macOS 上同样如此；Windows 为 `%APPDATA%\via\config.yaml`）。补充凭证、覆盖定义、新增 server。
+2. **用户配置**：`~/.config/via/config.yaml`（遵循 `XDG_CONFIG_HOME`，macOS 上同样如此；Windows 为 `%APPDATA%\via\config.yaml`，不看 `XDG_*`）。补充凭证、覆盖定义、新增 server。
 3. **项目配置**：当前目录向上查找的第一个 `.via.yaml`。其中的 stdio 命令和 HTTP 端点首次使用需 `via trust`（[security.md](security.md#项目级配置的信任)）。
 4. **命令行参数**。
 
@@ -24,7 +24,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 `sources` 的细节：
 
 - `auto` 按 `data/frameworks/` 的注册顺序探测全部框架，文件不存在是正常情况，不产生诊断；列表里显式写出的框架或文件不存在时给出告警。
-- 列表项先按框架 id 匹配；不是 id 的按文件路径处理（必须含 `/`、`.` 或 `~`，否则按拼错的 id 告警）。相对路径相对于写下它的配置文件所在目录（命令行覆盖则相对于当前目录）。
+- 列表项先按框架 id 匹配；不是 id 的按文件路径处理（必须含 `/`、`\`、`.` 或 `~`，否则按拼错的 id 告警）。相对路径相对于写下它的配置文件所在目录（命令行覆盖则相对于当前目录）。
 - 按路径给出的文件没有 `pointer` 信息，依次尝试 `/mcpServers`、`/servers`、`/mcp_servers`，格式按扩展名判断（`.toml`、`.yaml`/`.yml`、`.jsonc`，其余按 JSON）。
 - 项目配置里列出的文件按项目级处理（stdio 命令需信任），用户配置和命令行里列出的按用户级处理。
 - 多层都写了 `sources` 时，优先级最高的一层生效，不做合并。
@@ -91,8 +91,16 @@ domains:
 
 子进程不继承 via 的全部环境变量，避免 shell 里其他 server 的令牌泄给每个子进程。环境由两部分合并而成，后者覆盖前者：
 
-1. 基础环境：`PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`TERM`、`TMPDIR`、`LANG`、`LANGUAGE`、`TZ`、`LC_*`、`XDG_*`、代理与证书变量（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`，不分大小写，以及 `NODE_EXTRA_CA_CERTS`、`SSL_CERT_FILE`、`SSL_CERT_DIR`、`REQUESTS_CA_BUNDLE`）；Windows 上改用 `SYSTEMROOT`、`APPDATA`、`USERPROFILE` 等系统变量；
+1. 基础环境：`PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`TERM`、`TMPDIR`、`LANG`、`LANGUAGE`、`TZ`、`LC_*`、`XDG_*`、代理与证书变量（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`，不分大小写，以及 `NODE_EXTRA_CA_CERTS`、`SSL_CERT_FILE`、`SSL_CERT_DIR`、`REQUESTS_CA_BUNDLE`）；Windows 上改用系统变量（名字不分大小写）：`SystemRoot`、`SystemDrive`、`WINDIR`、`COMSPEC`、`PATH`、`PATHEXT`、`APPDATA`、`LOCALAPPDATA`、`USERPROFILE`、`HOMEDRIVE`、`HOMEPATH`、`USERNAME`、`USERDOMAIN`、`COMPUTERNAME`、`TEMP`、`TMP`、`ProgramData`、`ProgramFiles`（含 `(x86)` 与 `W6432` 变体）、`CommonProgramFiles`（同）、`ALLUSERSPROFILE`、`PUBLIC`、`OS`、`NUMBER_OF_PROCESSORS`、`PROCESSOR_ARCHITECTURE` 与 `PROCESSOR_ARCHITEW6432`，以及上面的 `LC_*`、`LANG`、`TZ` 和代理证书变量；
 2. 该 server 的 `env`（凭证引用解析后的值）。
+
+### Windows 上启动 stdio 命令
+
+`command: npx`（或 `uvx`、`pnpm`、`yarn`、`az` 等）在 Windows 上是 `npx.cmd` 这样的批处理垫片，Node 自 CVE-2024-27980 的修复起拒绝不经 shell 直接启动 `.cmd` / `.bat`。via 的做法（安全理由见 [security.md](security.md#windows-上的子进程)）：
+
+- **解析**：`command` 先由 via 解析成完整路径，规则同 `cmd.exe`：带路径的（`C:\tools\srv`、`.\srv`、`tools/srv`）只在那里找（相对路径相对于该 server 的 `cwd`），不带路径的（`npx`）只在 `PATH` 的各目录里依次找，每个目录按 `PATHEXT` 的顺序补扩展名（缺省 `.COM;.EXE;.BAT;.CMD`）。**不会在当前目录里找**（`cmd.exe` 和 `CreateProcess` 会先找当前目录，那可能是一个不可信的仓库），`PATH` 里的相对条目（如 `.`）被忽略。找不到时报 `cannot run npx (ENOENT)`，与其他平台一致。
+- **启动**：`.exe` / `.com` 直接启动；`.cmd` / `.bat` 由 MCP SDK 的 `cross-spawn` 通过 `cmd.exe /d /s /c` 启动并做字符转义（via 传给它的是上一步解析出的完整路径）。其他扩展名（`.ps1`、`.js`、`.vbs` 等，即使在 `PATHEXT` 里）拒绝启动。
+- **拒绝而不是转义**：对 `.cmd` / `.bat`，若参数含双引号、`%`、换行或 NUL，这个 server 不启动，提示改用 `.exe`（例如直接写 `node` 加脚本路径）或去掉该字符。`cmd.exe` 的命令行解析无法可靠转义它们，宁可失败。
 
 ## 框架配置的规范化
 
@@ -133,7 +141,8 @@ domains:
 - `env:` 的变量未设置或为空、`file:` 的文件不存在或为空、`keychain:` 无此条目，都是凭证缺失（退出码 4），错误信息只说明缺哪一项，不含任何解析出的值。`file:` 的相对路径相对于当前目录。
 - `cmd:` 出现在项目配置或项目级、框架级配置里时，加载阶段就拒绝：该 server 的定义整条被忽略并报错（`cmd-forbidden`，[security.md](security.md#项目级配置的信任)）。`via trust` 不能放行 `cmd:`。
 - `cmd:` 的执行方式（[security.md](security.md#cmd-凭证)）：
-  - 命令行按空白分词，不经 shell。`'…'` 内按字面处理；`"…"` 内只有 `\"` 与 `\\` 是转义；引号外 `\` 转义下一个字符；不展开 `$VAR`、`~`、通配符，管道与重定向无效。命令为空或引号未闭合是无效引用（退出码 4）。
+  - 命令行按空白分词，不经 shell。`'…'` 内按字面处理；`"…"` 内只有 `\"` 与 `\\` 是转义；引号外 `\` 转义下一个字符；不展开 `$VAR`、`~`、通配符，管道与重定向无效。命令为空或引号未闭合是无效引用（退出码 4）。**Windows 上**反斜杠是路径分隔符，分词改用 C 运行时规则（与 `CommandLineToArgvW` 相同）：反斜杠按字面处理，只有紧挨着双引号的一串反斜杠才有转义含义（`2n` 个换成 `n` 个，`2n+1` 个换成 `n` 个加一个字面双引号）；`'…'` 仍按字面。所以 `cmd:C:\Tools\op.exe read x` 和 `cmd:"C:\Program Files\1Password CLI\op.exe" read x` 都能直接写。
+  - Windows 上命令名按上一节的规则解析（`PATH` + `PATHEXT`，不找当前目录）：`.exe` / `.com` 直接启动；`.cmd` / `.bat`（如 `az.cmd`、`pass.bat`）经 `cmd.exe /d /v:off /s /c` 启动，每个词都放进双引号，含 `"`、`%`、换行、NUL 的参数直接拒绝（退出码 4，错误信息只说是第几个参数、什么问题，不含参数内容）。
   - 命令继承 via 的环境变量，在当前目录运行；超时 30 秒，stdout 上限 64 KiB。
   - 命令未找到、非零退出、被信号终止、超时、stdout 为空，都是凭证缺失（退出码 4）。错误信息只说明程序名与原因，**不含命令的 stdout 与 stderr**，`next:` 提示手工运行该命令排查。
   - 结果按引用原文缓存在解析器的内存里，默认 10 分钟（失败不缓存），同一引用并发解析只运行一次。进程内模式下解析器只活到命令结束，因此每条 `cmd:` 引用每次 `via` 调用最多运行一次；daemon 持有同一个解析器，缓存随之跨调用生效，到期后下次调用重新运行。来源检查先于缓存：来源不是用户配置时每次都拒绝，缓存里的值不会交给它。

@@ -4,7 +4,7 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 
 ## 生命周期
 
-1. CLI 检查 socket：Linux 为 `$XDG_RUNTIME_DIR/via.sock`（未设置时退回用户缓存目录），macOS 为用户缓存目录下的 `via.sock`，Windows 为 named pipe `\\.\pipe\via-<用户名>`（路径可以算出，Windows 本身 0.3 才支持，0.2 在 Windows 上始终用进程内模式）。同目录下还有 `via.sock.lock`（启动锁）、`via.sock.token`（握手令牌）、`via.sock.log`（分离启动的 daemon 的 stderr，只在启动失败时读来拼错误信息，超过 64 KB 在下次启动时清空）。
+1. CLI 检查 socket：Linux 为 `$XDG_RUNTIME_DIR/via.sock`（未设置时退回用户缓存目录），macOS 为用户缓存目录下的 `via.sock`，Windows 为 named pipe（见下「Windows」，名字由握手令牌派生）。同目录下还有 `via.sock.lock`（启动锁）、`via.sock.token`（握手令牌）、`via.sock.log`（分离启动的 daemon 的 stderr，只在启动失败时读来拼错误信息，超过 64 KB 在下次启动时清空）。Windows 上没有 socket 文件，这三个文件在用户缓存目录 `%LOCALAPPDATA%\via\Cache` 下，名为 `via.lock`、`via.token`、`via-daemon.log`。
 2. 不存在则以 `via daemon run` 分离启动（`--socket`、`--idle-timeout` 由 CLI 传入），最多等待 2 秒就绪，然后转发请求。启动出错（可执行文件不存在、进程立即退出）时不必等满 2 秒，直接回退。
 3. 握手时交换版本；CLI 与 daemon 版本不一致时，daemon 回复 `ok: false, reason: "version"`，**先停止监听并删除 socket**，处理完在途请求后退出，由本次 CLI 重新拉起一个版本一致的 daemon（旧 daemon 与新 daemon 因此可以短暂并存）。
 4. daemon 空闲 10 分钟退出（没有连接、没有在途请求）；单个 stdio server 空闲 5 分钟停止子进程（均可配置，见 [config.md](config.md)）。HTTP 会话不因空闲关闭（它们不占本机进程，保留下来才能继续订阅 `list_changed`），随 daemon 退出而结束。socket 文件被删除或被别的 daemon 替换后，旧 daemon 在几秒内自行退出，避免出现无法连上的常驻进程。
@@ -12,7 +12,7 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 
 ### 启动竞争与陈旧 socket
 
-多个 CLI 可能同时发现没有 daemon 并各自拉起一个。`via daemon run` 启动时先取启动锁（`O_EXCL` 创建的 `via.sock.lock`，写入自己的 pid；持有者已退出或锁超过 10 秒视为遗留，可接管），在锁内依次：探测现有 socket 是否有 daemon 在应答（有则静默退出，请求由先到者处理）→ 删除无人应答的陈旧 socket → 绑定 → 写入令牌 → 释放锁。因此同时发起的 CLI 最终只会留下一个 daemon，陈旧 socket（上一个 daemon 被 SIGKILL 后遗留）也会被下一个启动的 daemon 清理。
+多个 CLI 可能同时发现没有 daemon 并各自拉起一个。`via daemon run` 启动时先取启动锁（`O_EXCL` 创建的 `via.sock.lock`，写入自己的 pid；持有者已退出或锁超过 10 秒视为遗留，可接管），在锁内依次：探测现有 socket 是否有 daemon 在应答（有则静默退出，请求由先到者处理）→ 删除无人应答的陈旧 socket → 写入令牌 → 绑定 → 释放锁。因此同时发起的 CLI 最终只会留下一个 daemon，陈旧 socket（上一个 daemon 被 SIGKILL 后遗留）也会被下一个启动的 daemon 清理。Windows 上同样先取锁，「探测现有 daemon」是读令牌文件、算出管道名再连接（见下）；陈旧的令牌文件（daemon 被强杀后遗留）指向一个不存在的管道，探测失败，被新 daemon 的令牌覆盖。
 
 ### 环境与工作目录
 
@@ -118,12 +118,24 @@ type ErrorInfo = {
 
 ## 无 daemon 模式
 
-设置 `VIA_NO_DAEMON=1`（任何非空且不是 `0`、`false` 的值）时在进程内直连，适用于 CI 或不允许常驻进程的沙箱；Windows 在 0.3 之前总是如此。HTTP server 基本不受影响；stdio server 每次调用都会重新拉起；游标保存在用户缓存目录。`via daemon status` 报告 `daemon: disabled (VIA_NO_DAEMON)`，不去连接 socket。
+设置 `VIA_NO_DAEMON=1`（任何非空且不是 `0`、`false` 的值）时在进程内直连，适用于 CI 或不允许常驻进程的沙箱，各平台一致。HTTP server 基本不受影响；stdio server 每次调用都会重新拉起；游标保存在用户缓存目录。`via daemon status` 报告 `daemon: disabled (VIA_NO_DAEMON)`，不去连接 socket。
 
 ## socket 安全
 
-- 目录与文件：daemon 创建的 socket 权限 0600（绑定前把 umask 设为 0177，不存在更宽的瞬间），令牌文件 0600，缓存目录回退路径下的目录 0700。内核据此拒绝其他用户 `connect`。
+- 目录与文件（POSIX；Windows 见下「Windows」）：daemon 创建的 socket 权限 0600（绑定前把 umask 设为 0177，不存在更宽的瞬间），令牌文件 0600，缓存目录回退路径下的目录 0700。内核据此拒绝其他用户 `connect`。
 - CLI 连接前检查：目录属于当前用户且其他人不可写，socket 是当前用户的 socket 且没有 group/other 权限位；否则拒绝使用并回退为进程内模式（提示 `not using the via daemon: … is accessible to other users`），避免连上别人在共享目录里预先放好的 socket。
 - 令牌：daemon 每次启动生成 32 字节随机令牌写入 `via.sock.token`（0600），`hello` 必须带上它，常量时间比较。它不依赖文件系统是否执行 socket 权限位。
 - 对端 uid：规范原本要求用 `SO_PEERCRED`（Linux）/`getpeereid`（macOS）校验对端 uid。Node 内置的 `net` 不暴露这两个接口，0.2 不为此引入原生依赖，用上面三项（所有权检查、权限位、令牌）代替；它们防的是同机其他用户。真正的 peer uid 校验作为后续项（需要原生扩展）。
 - 同一用户下的其他进程本来就能读环境和配置，这不在防护范围内（[security.md](security.md)）。
+
+## Windows
+
+Node 的 `net` 模块直接支持 named pipe，协议、握手、启动锁与 POSIX 上完全一致；差异只在三处：管道怎么命名、谁能连上、没有文件权限位可查。
+
+- **命名**：默认管道名是 `\\.\pipe\via-<用户名>-<令牌摘要>`。`<用户名>` 取 `%USERNAME%`（只留字母、数字和 `._-`，其余换成 `_`，最长 40 个字符），仅便于排查；`<令牌摘要>` 是 `SHA-256("via-pipe\0" + 令牌)` 的前 128 位（32 个十六进制字符）。令牌是 daemon 每次启动生成的 32 字节随机数，写入 `%LOCALAPPDATA%\via\Cache\via.token`。所以管道名**每次启动都不同**，且只有能读该文件的人才知道。
+- **发现**：CLI 读令牌文件、算出管道名、连接。令牌文件不存在，或指向的管道不存在（陈旧文件），都等于「没有 daemon」（`absent`），随后按常规拉起新的；新 daemon 先写令牌再监听，CLI 的重试循环（2 秒内）会读到新令牌。`--socket` 显式给出的管道名原样使用，不做派生，令牌、锁、日志文件以管道名命名（`via-<名>.token` 等），供测试和多实例使用。
+- **为什么派生**：Windows 上任何本地用户都能列出 `\\.\pipe\` 里的管道名，并在 daemon 退出后抢先创建同名管道，让下一个 CLI 把握手令牌与请求（参数）交给它。名字取决于每次启动才生成、只存在用户目录里的令牌，攻击者既无法预先占位，也无法从管道列表里得知下一个名字。管道由 libuv 以 `FILE_FLAG_FIRST_PIPE_INSTANCE` 创建，名字已被占用时 daemon 绑定失败而不是共用。
+- **谁能连**：管道使用默认安全描述符（libuv 不传自定义 ACL）：创建者、SYSTEM 和管理员可读写，Everyone 只有读取权限，其他普通用户因此写不进握手消息；这是纵深防御，不是唯一屏障（Windows 版本之间的默认值略有差异，via 不依赖它）。真正的门槛仍是握手令牌（`hello` 常量时间比较，所有平台一致），它放在用户配置文件所在的用户目录下，默认 ACL 只允许该用户、SYSTEM 与管理员读取。
+- **不做的检查**：Windows 上没有 `st_uid` 和模式位，CLI 不做 POSIX 那样的属主与权限位检查；也没有可从 Node 调用的 `GetNamedPipeClientProcessId` / 客户端 SID 校验，peer 身份校验同样留作后续（需要原生扩展）。残留风险：(1) 管理员（及 SYSTEM）本来就能读任何用户的文件和进程内存，不在防护范围；(2) 如果用户把 `%LOCALAPPDATA%` 重定向到其他用户可读的共享位置，令牌文件就暴露了，via 无法发现（不读 ACL）；(3) 令牌文件由 `0600` 创建，该模式在 Windows 上不产生任何效果，权限完全来自目录继承。
+- **清理**：daemon 退出时删除令牌文件（内容仍是自己的令牌才删）。它还每隔几秒检查令牌文件，文件被删除或换成别的 daemon 的令牌后，客户端再也找不到这个管道，daemon 自行退出。管道本身随进程消失，没有残留文件；强杀（`taskkill /f`）只会留下一个陈旧的令牌文件，下次启动覆盖。
+- **其他**：`SIGTERM` 不会发给 Windows 进程，`via daemon stop` 走 `shutdown` 请求，不依赖信号；分离启动使用 `windowsHide`，不弹控制台窗口；启动锁与令牌文件的原子替换在被杀毒软件短暂占用时会退回直接写入。

@@ -2,6 +2,7 @@
 // credentials resolve, and why a provider landed in its domain (cli.md, discovery.md).
 import { renderDomainWhy } from '../../catalog';
 import { formatDiagnostic, type ServerConfig } from '../../config';
+import { shortenHome } from '../../config/paths';
 import { shellWord } from '../../render/shell';
 import { alignRows } from '../../render/width';
 import { ExitCode } from '../../render/exit-codes';
@@ -22,9 +23,7 @@ async function authStatus(app: App, server: ServerConfig): Promise<string> {
   return state.missing.length > 0 ? `${state.method} (missing ${state.missing.join(', ')})` : state.method;
 }
 
-function shorten(path: string, home: string): string {
-  return home !== '' && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
-}
+const shorten = (path: string, home: string): string => shortenHome(path, home);
 
 function describeTransport(server: ServerConfig): string {
   const { transport } = server;

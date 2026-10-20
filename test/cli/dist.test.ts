@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { featuresOf, FEATURES } from '../../scripts/lib/chunk-features';
-import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, startFixtureServer } from './helpers';
+import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, homeEnv, startFixtureServer } from './helpers';
 
 // The shipped CLI is what users run: build it exactly as `npm run build` does (into a scratch
 // directory inside the repo, so its external dependencies still resolve) and run the real binary.
@@ -20,7 +20,7 @@ function via(args: string[]) {
   const result = spawnSync(process.execPath, [bin, ...args], {
     encoding: 'utf8',
     cwd: home,
-    env: { PATH: process.env.PATH, HOME: home, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1' },
+    env: { ...homeEnv(home), NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1' },
     timeout: 20_000,
   });
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
@@ -31,7 +31,7 @@ function viaAsync(args: string[]): Promise<{ code: number | null; stdout: string
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [bin, ...args], {
       cwd: home,
-      env: { PATH: process.env.PATH, HOME: home, GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1' },
+      env: { ...homeEnv(home), GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1' },
     });
     let stdout = '';
     let stderr = '';
@@ -54,7 +54,7 @@ function loads(args: string[]): { packages: string[]; files: string[]; libraries
   const result = spawnSync(process.execPath, ['--import', pathToFileURL(join(root, 'scripts', 'lib', 'load-trace.mjs')).href, bin, ...args], {
     encoding: 'utf8',
     cwd: home,
-    env: { PATH: process.env.PATH, HOME: home, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1', VIA_TRACE_FILE: trace },
+    env: { ...homeEnv(home), NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1', VIA_TRACE_FILE: trace },
     timeout: 20_000,
   });
   expect(result.status).toBe(0);
@@ -76,7 +76,7 @@ beforeAll(() => {
   home = join(dir, 'home');
   mkdirSync(home);
   const out = join(dir, 'out');
-  const build = spawnSync(join(root, 'node_modules', '.bin', 'tsup'), ['--out-dir', out, '--silent'], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+  const build = spawnSync(process.execPath, [join(root, 'node_modules', 'tsup', 'dist', 'cli-default.js'), '--out-dir', out, '--silent'], { cwd: root, encoding: 'utf8', timeout: 60_000 });
   if (build.status !== 0) throw new Error(`tsup failed: ${build.stderr || build.stdout}`);
   bin = join(out, 'via.js');
 }, 90_000);

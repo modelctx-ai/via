@@ -122,6 +122,49 @@ describe('OAuth store', () => {
     expect(await store.get(key)).toBeUndefined();
   });
 
+  it('splits a record over several Credential Manager entries on Windows, where one holds about 1280 characters', async () => {
+    const limited = fakeKeyring();
+    const entry = limited.AsyncEntry;
+    const writes: number[] = [];
+    // Credential Manager: a password longer than 1280 UTF-16 characters is refused.
+    limited.AsyncEntry = class extends entry {
+      override async setPassword(value: string) {
+        writes.push(value.length);
+        if (value.length > 1280) throw new Error('Attribute password is longer than platform limit of 1280 chars');
+        return super.setPassword(value);
+      }
+    };
+    const big: OAuthRecord = { ...record, tokens: { access_token: `${'a'.repeat(2500)}😀${'b'.repeat(1500)}`, token_type: 'Bearer', refresh_token: 'r'.repeat(900) } };
+    const key = oauthKey({ url: record.serverUrl });
+
+    const win = createOAuthStore({ dir: join(tmp(), 'oauth'), mode: 'keychain', platform: 'win32', loadKeyring: async () => limited });
+    expect(await win.set(key, big)).toEqual({ location: { kind: 'keychain' } });
+    expect(Math.max(...writes)).toBeLessThanOrEqual(1280);
+    expect(limited.data[key]).toMatch(/^via:chunks:\d+$/);
+    expect(Object.keys(limited.data).length).toBeGreaterThan(2);
+    expect((await win.get(key))?.record).toEqual(big);
+
+    // A shorter record afterwards leaves no stale pieces behind, and a small one stays in one entry.
+    await win.set(key, record);
+    expect(Object.keys(limited.data)).toEqual([key]);
+    expect(JSON.parse(limited.data[key]!)).toEqual(record);
+
+    await win.set(key, big);
+    expect(await win.delete(key)).toBe(true);
+    expect(limited.data).toEqual({});
+    expect(await win.get(key)).toBeUndefined();
+
+    // Elsewhere nothing is split: the platform decides what it accepts.
+    const posix = createOAuthStore({ dir: join(tmp(), 'oauth'), mode: 'keychain', platform: 'linux', loadKeyring: async () => limited });
+    await expect(posix.set(key, big)).rejects.toThrow('longer than platform limit');
+  });
+
+  it('treats a split record with a missing piece as no login', async () => {
+    const keyring = fakeKeyring({ 'oauth:k': 'via:chunks:3', 'oauth:k#0': '{"ver', 'oauth:k#1': 'sion":1' });
+    const store = createOAuthStore({ dir: join(tmp(), 'oauth'), mode: 'keychain', platform: 'win32', loadKeyring: async () => keyring });
+    expect(await store.get('oauth:k')).toBeUndefined();
+  });
+
   it('falls back to a 0600 file in a 0700 directory when the keychain does not work', async () => {
     const dir = join(tmp(), 'oauth');
     const store = createOAuthStore({ dir, mode: 'auto', loadKeyring: async () => fakeKeyring({}, 'no secret service') });
@@ -131,8 +174,11 @@ describe('OAuth store', () => {
     expect(set.fallbackReason).toBe('the system keychain is not available (no secret service)');
     const files = readdirSync(dir);
     expect(files).toEqual([`${key.replace(':', '-')}.json`]);
-    expect(statSync(join(dir, files[0]!)).mode & 0o777).toBe(0o600);
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    // Windows has no mode bits; the file sits in the user's profile and is protected by its ACL.
+    if (process.platform !== 'win32') {
+      expect(statSync(join(dir, files[0]!)).mode & 0o777).toBe(0o600);
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+    }
     expect((await store.get(key))?.record.tokens?.access_token).toBe('at-secret-value');
     expect(await store.delete(key)).toBe(true);
     expect(readdirSync(dir)).toEqual([]);
@@ -221,7 +267,21 @@ describe('browser opening', () => {
     expect(browserUnavailable({}, 'darwin')).toBeUndefined();
     expect(openerCommand('https://a/b?c=1&d=2', 'darwin')).toEqual({ command: 'open', args: ['https://a/b?c=1&d=2'] });
     expect(openerCommand('https://a/b?c=1&d=2', 'linux')).toEqual({ command: 'xdg-open', args: ['https://a/b?c=1&d=2'] });
-    expect(openerCommand('https://a/b?c=1&d=2', 'win32')).toEqual({ command: 'cmd', args: ['/c', 'start', '""', 'https://a/b?c=1^&d=2'] });
+  });
+
+  it('opens a URL on Windows without cmd.exe: the URL is an argument of rundll32 and no shell sees it', () => {
+    const hostile = 'https://a/b?c=1&d=2|calc^(%PATH%)';
+    expect(openerCommand(hostile, 'win32', { SystemRoot: 'C:\\Windows' })).toEqual({
+      command: 'C:\\Windows\\System32\\rundll32.exe',
+      args: ['url.dll,FileProtocolHandler', hostile],
+    });
+    expect(openerCommand(hostile, 'win32', {}).command).toBe('rundll32.exe');
+  });
+
+  it('opens web pages only', async () => {
+    for (const url of ['file:///C:/Windows/System32/calc.exe', 'C:\\Windows\\System32\\calc.exe', 'ms-settings:', 'javascript:alert(1)']) {
+      expect(await openBrowser(url, { DISPLAY: ':0' }, 'linux')).toEqual({ opened: false, reason: 'the URL is not an http(s) URL' });
+    }
   });
 
   it('does not hang or throw when the opener does not exist', async () => {
