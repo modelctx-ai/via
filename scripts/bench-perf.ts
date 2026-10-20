@@ -6,6 +6,9 @@
 //
 //   --runs <n>     measured runs per row (default 30)     --warmup <n>  discarded runs (default 5)
 //   --quick        10 runs, 2 warmups                      --skip-bun    do not measure Bun
+//   --only <list>  run only some sections (cold,scenarios,find,call,loads,daemon,bun)
+//   --compare <dir> a second build (say, from the previous commit) to run next to --dist/dist in the
+//                   scenarios section, alternating runs so both see the same machine load
 //   --dist <dir>   measure this build instead of dist/ (relative to the repository root)
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -18,8 +21,11 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { buildCatalog, renderFind, SearchIndex } from '../src/catalog';
+import { buildCatalog, normalizeProviderName, renderFind, restoreProvider, SearchIndex, snapshotProvider, type CatalogTool, type DocTerms, type RestoredTerms } from '../src/catalog';
+import { CatalogCache } from '../src/cli/catalog-cache';
 import { run } from '../src/cli/run';
+import { loadConfig } from '../src/config';
+import { daemonRuntime } from '../src/daemon/client';
 import { createCliServer, createCliState, type CliState } from '../test/fixtures/mcp/cli-server.mjs';
 import { featuresOf } from './lib/chunk-features';
 import { loadBaseProviders, synthesizeProviders } from './lib/synth-catalog';
@@ -31,6 +37,7 @@ const DIST_DIR = distOption === -1 ? join(ROOT, 'dist') : join(ROOT, process.arg
 const DIST = join(DIST_DIR, 'via.js');
 const FIXTURES = join(ROOT, 'test', 'fixtures');
 const TRACE_HOOK = join(ROOT, 'scripts', 'lib', 'load-trace.mjs');
+const BUILTIN_TRACE = join(ROOT, 'scripts', 'lib', 'builtin-trace.cjs');
 
 // Targets from testing.md, "性能目标" (ms).
 const TARGET_COLD_START = 80;
@@ -50,6 +57,12 @@ function numberOption(name: string, fallback: number): number {
   return n;
 }
 const quick = argv.includes('--quick');
+// `--only cold,find` runs just those sections: cold, scenarios, find, call, loads, daemon, bun (default: all).
+const onlyOption = argv.indexOf('--only');
+const ONLY = onlyOption === -1 ? undefined : new Set((argv[onlyOption + 1] ?? '').split(','));
+const wanted = (section: string): boolean => ONLY === undefined || ONLY.has(section);
+const compareOption = argv.indexOf('--compare');
+const COMPARE_DIST = compareOption === -1 ? undefined : join(ROOT, argv[compareOption + 1] ?? '');
 const RUNS = numberOption('--runs', quick ? 10 : 30);
 const WARMUP = numberOption('--warmup', quick ? 2 : 5);
 
@@ -287,6 +300,129 @@ async function benchColdStart(sb: Sandbox): Promise<Map<string, number>> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// 1b. scenarios nearer to real use: framework configs, 1,000 tools, a warm daemon
+
+/** Runs of several builds of the CLI, alternating, so a change in machine load hits all of them alike. */
+async function measureBuilds(
+  builds: ReadonlyArray<{ label: string; dist: string }>,
+  args: string[],
+  options: SpawnOptions & { env: Record<string, string> },
+  okCodes: readonly number[] = [0],
+): Promise<Map<string, Stats>> {
+  const samples = new Map(builds.map((b) => [b.label, [] as number[]]));
+  for (let i = 0; i < WARMUP + RUNS; i += 1) {
+    for (const b of builds) {
+      const r = await spawnTimed(process.execPath, [join(b.dist, 'via.js'), ...args], options);
+      if (r.code === null || !okCodes.includes(r.code)) throw new Error(`${b.label}: ${args.join(' ')} exited with ${String(r.code)}\n${r.stderr.slice(0, 600)}`);
+      if (i >= WARMUP) samples.get(b.label)!.push(r.ms);
+    }
+  }
+  return new Map([...samples].map(([label, xs]) => [label, stats(xs)]));
+}
+
+/** `~/.claude.json`-shaped file: a few servers among the history of many projects (this is most of its size). */
+function bulkClaudeJson(servers: Record<string, unknown>): string {
+  const projects: Record<string, unknown> = {};
+  for (let i = 0; i < 300; i += 1) {
+    projects[`/home/user/work/project-${i}`] = {
+      allowedTools: [],
+      history: [{ display: `an earlier prompt, number ${i}, long enough to matter for parse time`, pastedContents: {} }],
+      mcpServers: {},
+      enabledMcpjsonServers: [],
+      lastCost: 0.5,
+      lastDuration: 1234 + i,
+    };
+  }
+  return JSON.stringify({ numStartups: 120, installMethod: 'native', mcpServers: servers, projects });
+}
+
+interface ScenarioSandbox {
+  sb: Sandbox;
+  describe: string;
+}
+
+/** The 8 scenario providers plus servers from four framework configs, every list cached, servers gone. */
+async function makeFrameworkScenario(): Promise<ScenarioSandbox> {
+  const servers = await Promise.all(SCENARIO_PROVIDERS.map((p) => startServer(loadTools(p))));
+  const sb = makeSandbox();
+  try {
+    const user = SCENARIO_PROVIDERS.map((name, i) => `  ${name}:\n    url: ${servers[i]!.url}\n`).join('');
+    mkdirSync(join(sb.home, '.config', 'via'), { recursive: true });
+    writeFileSync(join(sb.home, '.config', 'via', 'config.yaml'), `servers:\n${user}`);
+    const put = (path: string, text: string): void => {
+      mkdirSync(join(sb.home, path, '..'), { recursive: true });
+      writeFileSync(join(sb.home, path), text);
+    };
+    put('.claude.json', bulkClaudeJson({ 'fw-claude': { type: 'http', url: servers[0]!.url } }));
+    put('.cursor/mcp.json', JSON.stringify({ mcpServers: { 'fw-cursor': { url: servers[1]!.url } } }));
+    put('.codex/config.toml', `[mcp_servers.fw-codex]\nurl = "${servers[2]!.url}"\n`);
+    put('.config/Code/User/mcp.json', `// VS Code\n{\n  "servers": { "fw-vscode": { "type": "http", "url": "${servers[3]!.url}" } }\n}\n`);
+    const prime = await spawnTimed(process.execPath, [DIST, 'sync'], { env: sb.env, cwd: sb.project });
+    if (prime.code !== 0) throw new Error(`sync failed (${prime.code}): ${prime.stderr}`);
+    const root = await spawnTimed(process.execPath, [DIST], { env: sb.env, cwd: sb.project });
+    return { sb, describe: `${root.stdout.split('\n')[0] ?? ''}, 4 framework config files (a ${(bulkClaudeJson({}).length / 1024).toFixed(0)} KiB .claude.json among them)` };
+  } finally {
+    await Promise.all(servers.map((s) => s.close()));
+  }
+}
+
+/** 50 providers / 1,000 tools (the synthetic catalog of section 2), written straight into the disk cache. */
+async function makeScaleScenario(): Promise<ScenarioSandbox> {
+  const providers = synthesizeProviders(loadBaseProviders(FIXTURES));
+  const sb = makeSandbox();
+  mkdirSync(join(sb.home, '.config', 'via'), { recursive: true });
+  writeFileSync(join(sb.home, '.config', 'via', 'config.yaml'), `sources: false\nservers:\n${providers.map((p) => `  ${p.provider}:\n    url: http://127.0.0.1:1/${p.provider}\n`).join('')}`);
+  const config = await loadConfig({ home: sb.home, cwd: sb.project, env: {}, platform: 'linux' });
+  const cache = new CatalogCache(join(sb.home, '.cache', 'via', 'catalog'));
+  for (const p of providers) cache.write(config.servers.find((s) => s.name === p.provider)!, p.tools as never);
+  const root = await spawnTimed(process.execPath, [DIST], { env: sb.env, cwd: sb.project });
+  if (root.code !== 0) throw new Error(`scale scenario: via exited with ${String(root.code)}: ${root.stderr}`);
+  return { sb, describe: root.stdout.split('\n')[0] ?? '' };
+}
+
+let scenarioResults = new Map<string, number>();
+
+async function benchScenarios(base: Sandbox): Promise<void> {
+  section('1b. cold start in scenarios nearer to real use (spawn to exit, warm compile cache and warm catalog)');
+  const bare = await measure(process.execPath, ['-e', '0'], { env: base.env, cwd: base.project });
+  const esmFile = join(base.tmp, 'empty.mjs');
+  writeFileSync(esmFile, 'export {};\n');
+  const esm = await measure(process.execPath, [esmFile], { env: base.env, cwd: base.project });
+  const builds = [{ label: 'this build', dist: DIST_DIR }, ...(COMPARE_DIST ? [{ label: 'compared build', dist: COMPARE_DIST }] : [])];
+  const rows: string[][] = [
+    ['node -e 0', '-', '', ms(bare.median), ms(bare.p95), ms(bare.min), '-', ''],
+    ['node empty.mjs (an ES module entry)', '-', '', ms(esm.median), ms(esm.p95), ms(esm.min), ms(esm.median - bare.median), 'the floor of an ESM entry point'],
+  ];
+  const framework = await makeFrameworkScenario();
+  const scale = await makeScaleScenario();
+  const results = new Map<string, number>();
+  try {
+    const scenarios: Array<{ name: string; sb: Sandbox; env: Record<string, string>; commands: Array<{ id: string; args: string[] }> }> = [
+      { name: '8 providers, warm daemon', sb: base, env: withDaemon(base.env), commands: [{ id: 'via', args: [] }, { id: 'via github', args: ['github'] }, { id: 'via find', args: ['find', 'create issue'] }] },
+      { name: 'framework configs', sb: framework.sb, env: framework.sb.env, commands: [{ id: 'via', args: [] }, { id: 'via find', args: ['find', 'create issue'] }] },
+      { name: '1,000 tools / 50 providers', sb: scale.sb, env: scale.sb.env, commands: [{ id: 'via', args: [] }, { id: 'via find', args: ['find', 'create issue'] }, { id: 'via <provider>', args: ['github'] }] },
+    ];
+    for (const sc of scenarios) {
+      for (const c of sc.commands) {
+        const measured = await measureBuilds(builds, c.args, { env: sc.env, cwd: sc.sb.project });
+        for (const b of builds) {
+          const m = measured.get(b.label)!;
+          if (b.label === 'this build') results.set(`${sc.name}: ${c.id}`, m.median);
+          rows.push([sc.name, c.id, builds.length > 1 ? b.label : '', ms(m.median), ms(m.p95), ms(m.min), ms(m.median - bare.median), b.label === 'this build' ? verdict(m.median, TARGET_COLD_START) : '']);
+        }
+      }
+      if (sc.sb === base) await stopDaemon(base).catch(() => undefined);
+    }
+  } finally {
+    rmSync(framework.sb.root, { recursive: true, force: true });
+    rmSync(scale.sb.root, { recursive: true, force: true });
+  }
+  printTable(['scenario', 'command', 'build', 'median ms', 'p95 ms', 'min ms', 'median - bare', `target < ${TARGET_COLD_START} ms`], rows);
+  console.log(`framework configs = ${framework.describe}; 1,000 tools = ${scale.describe}. The daemon rows start the sandbox daemon on the first run (a warmup) and stop it afterwards. With --compare the two builds run alternately.\n`);
+  scenarioResults = results;
+}
+
+// ---------------------------------------------------------------------------------------------
 // 2. find over 1,000 tools
 
 interface FindChild {
@@ -326,7 +462,40 @@ function findChild(): FindChild {
   };
 }
 
-async function benchFind(sb: Sandbox): Promise<void> {
+interface RestoredChild {
+  cold: { restore: number; index: number; query: number; render: number };
+}
+
+/**
+ * Runs in a fresh process: what a one-shot `via find` pays when every provider's build is in the
+ * prebuilt-catalog cache (src/cli/view-cache.ts): read the snapshots, restore, index, query. The
+ * snapshots come from the parent, which built them; the raw tool lists are never parsed here.
+ */
+function restoredChild(snapshotFile: string): RestoredChild {
+  const snapshots = JSON.parse(readFileSync(snapshotFile, 'utf8')) as Array<{ provider: string; head: unknown; body: string; n: number }>;
+  const time = <T>(f: () => T): [T, number] => {
+    const t = performance.now();
+    const v = f();
+    return [v, performance.now() - t];
+  };
+  const terms = new Map<string, RestoredTerms>();
+  const [catalog, restore] = time(() => ({
+    warnings: [],
+    providers: snapshots.map((snap) => {
+      // The raw list stays unread: `source` would only be called for a tool definition.
+      const restored = restoreProvider(snap.provider, snap.head, snap.body, () => [])!;
+      terms.set(snap.provider, restored.terms);
+      return restored.catalog;
+    }),
+  }));
+  const known = { get: (tool: CatalogTool): DocTerms | undefined => terms.get(tool.provider)?.get(tool) };
+  const [index, indexMs] = time(() => new SearchIndex(catalog, undefined, known));
+  const [hits, query] = time(() => index.search(FIND_QUERIES[0]!, { limit: 10 }));
+  const [, render] = time(() => renderFind(hits, FIND_QUERIES[0]!));
+  return { cold: { restore, index: indexMs, query, render } };
+}
+
+async function benchFind(sb: Sandbox): Promise<{ coldTotal: number; restoredTotal: number; steadyQuery: number }> {
   section('2. `find` over 1,000 tools (in-process, real catalog APIs)');
   const children: FindChild[] = [];
   for (let i = 0; i < WARMUP + Math.max(RUNS / 2, 8); i += 1) {
@@ -334,10 +503,32 @@ async function benchFind(sb: Sandbox): Promise<void> {
     if (r.code !== 0) throw new Error(`find child failed: ${r.stderr}`);
     if (i >= WARMUP) children.push(JSON.parse(r.stdout) as FindChild);
   }
+  // The same catalog from the prebuilt cache: snapshots made here, restored in fresh processes.
+  const synthesized = synthesizeProviders(loadBaseProviders(FIXTURES));
+  const built = buildCatalog(synthesized);
+  const snapshotFile = join(sb.root, 'snapshots.json');
+  writeFileSync(
+    snapshotFile,
+    JSON.stringify(
+      built.providers.map((p) => {
+        const source = synthesized.find((x) => normalizeProviderName(x.provider) === p.provider)!.tools;
+        const { head, body } = snapshotProvider(p, source);
+        return { provider: p.provider, head, body, n: source.length };
+      }),
+    ),
+  );
+  const restoredRuns: RestoredChild[] = [];
+  for (let i = 0; i < WARMUP + Math.max(RUNS / 2, 8); i += 1) {
+    const r = await spawnTimed(process.execPath, [process.argv[1]!, '--child-find-restored', snapshotFile], { env: sb.env, cwd: ROOT });
+    if (r.code !== 0) throw new Error(`restored find child failed: ${r.stderr}`);
+    if (i >= WARMUP) restoredRuns.push(JSON.parse(r.stdout) as RestoredChild);
+  }
   const tools = children[0]!.tools;
   const pick = (f: (c: FindChild) => number) => stats(children.map(f));
+  const pickRestored = (f: (c: RestoredChild) => number) => stats(restoredRuns.map(f));
   const row = (label: string, s: Stats, target = ''): string[] => [label, ms(s.median), ms(s.p95), ms(s.min), target];
   const coldTotal = pick((c) => c.cold.build + c.cold.index + c.cold.query);
+  const restoredTotal = pickRestored((c) => c.cold.restore + c.cold.index + c.cold.query);
   const steadyQuery = pick((c) => c.steady.query);
   printTable(
     ['phase', 'median ms', 'p95 ms', 'min ms', `target < ${TARGET_FIND_1000} ms`],
@@ -347,12 +538,17 @@ async function benchFind(sb: Sandbox): Promise<void> {
       row('query, first call', pick((c) => c.cold.query)),
       row('render hits, first call', pick((c) => c.cold.render)),
       row('build + index + first query (one-shot CLI)', coldTotal, verdict(coldTotal.median, TARGET_FIND_1000)),
+      row('prebuilt cache: restore the snapshots, first call', pickRestored((c) => c.cold.restore)),
+      row('prebuilt cache: index from stored terms (restores the tools), first call', pickRestored((c) => c.cold.index)),
+      row('prebuilt cache: query, first call', pickRestored((c) => c.cold.query)),
+      row('prebuilt cache: restore + index + first query (one-shot CLI)', restoredTotal, verdict(restoredTotal.median, TARGET_FIND_1000)),
       row('catalog build, steady state', pick((c) => c.steady.build)),
       row('index build, steady state', pick((c) => c.steady.index)),
       row('query, steady state', steadyQuery, verdict(steadyQuery.median, TARGET_FIND_1000)),
     ],
   );
-  console.log(`catalog: ${tools} tools, ${50} providers (deterministic, seed 1); ${children.length} fresh processes, "first call" is the first use in each; steady state is the median of 15 rounds x ${FIND_QUERIES.length} queries.\n`);
+  console.log(`catalog: ${tools} tools, ${50} providers (deterministic, seed 1); ${children.length} fresh processes, "first call" is the first use in each; steady state is the median of 15 rounds x ${FIND_QUERIES.length} queries. The prebuilt-cache rows read snapshots written by this process in fresh ones that never ran the build code; the whole-process \`via find\` over this catalog is in section 1b.\n`);
+  return { coldTotal: coldTotal.median, restoredTotal: restoredTotal.median, steadyQuery: steadyQuery.median };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -490,6 +686,17 @@ async function traceLoads(sb: Sandbox, args: string[]): Promise<Loaded> {
   return summarizeTrace(existsSync(file) ? readFileSync(file, 'utf8') : '');
 }
 
+/** Node's own modules that a command that only prints a table has no business initialising: each costs milliseconds. */
+const AVOIDABLE_BUILTINS = ['crypto', 'net', 'tty', 'stream', 'fs/promises', 'internal/fs/promises', 'internal/fs/streams', 'readline', 'child_process'];
+
+async function traceBuiltins(sb: Sandbox, args: string[]): Promise<string[]> {
+  const file = join(sb.root, 'builtins.txt');
+  rmSync(file, { force: true });
+  const r = await spawnTimed(process.execPath, ['--require', BUILTIN_TRACE, DIST, ...args], { env: { ...sb.env, VIA_BUILTIN_TRACE: file }, cwd: sb.project });
+  if (r.code === null || r.code > 6) throw new Error(`traced run failed: ${r.stderr}`);
+  return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l.startsWith('NativeModule ')).map((l) => l.slice('NativeModule '.length)) : [];
+}
+
 async function benchLoads(sb: Sandbox): Promise<boolean> {
   section('4. modules loaded per command (bundle chunks and the libraries inside them)');
   const browse: Array<{ id: string; args: string[]; trivial: boolean }> = [
@@ -499,15 +706,17 @@ async function benchLoads(sb: Sandbox): Promise<boolean> {
   ];
   let ok = true;
   const rows: string[][] = [];
-  const add = (id: string, loaded: Loaded, trivial: boolean, mayLoadClient: boolean): void => {
+  const add = (id: string, loaded: Loaded, trivial: boolean, mayLoadClient: boolean, builtins: string[] = []): void => {
     let status = 'ok';
+    const avoidable = builtins.filter((m) => AVOIDABLE_BUILTINS.includes(m));
     const all = [...loaded.libraries, ...loaded.packages];
     if (trivial && all.length > 0) status = 'FAIL: loads a library';
     else if (!mayLoadClient && loaded.libraries.some((l) => l === 'mcp-sdk' || l === 'ajv' || l === 'zod')) status = 'FAIL: MCP SDK or ajv on a cached browse';
+    if (!mayLoadClient && avoidable.length > 0) status = `FAIL: initialises ${avoidable.join(', ')}`;
     if (status !== 'ok') ok = false;
-    rows.push([id, String(loaded.chunks), loaded.kib.toFixed(0), all.join(', ') || '(none)', status]);
+    rows.push([id, String(loaded.chunks), loaded.kib.toFixed(0), all.join(', ') || '(none)', builtins.length === 0 ? '-' : String(builtins.length), status]);
   };
-  for (const c of browse) add(c.id, await traceLoads(sb, c.args), c.trivial, false);
+  for (const c of browse) add(c.id, await traceLoads(sb, c.args), c.trivial, false, await traceBuiltins(sb, c.args));
 
   await withLiveScenario(async (live) => add(DOCTOR.id, await traceLoads(live, DOCTOR.args), false, true));
 
@@ -523,8 +732,8 @@ async function benchLoads(sb: Sandbox): Promise<boolean> {
     await server.close();
     rmSync(callSb.root, { recursive: true, force: true });
   }
-  printTable(['command', 'bundle chunks', 'KiB', 'libraries in the loaded chunks', 'check'], rows);
-  console.log('check: --version and -h load no library at all; cached browse commands (root, provider, find) load neither the MCP SDK nor ajv. Libraries are recognised by a marker name inside the loaded chunks (scripts/lib/chunk-features.ts); a chunk shared with other code counts whole.\n');
+  printTable(['command', 'bundle chunks', 'KiB', 'libraries in the loaded chunks', 'node internals', 'check'], rows);
+  console.log(`check: --version and -h load no library at all; cached browse commands (root, provider, find) load neither the MCP SDK nor ajv, and initialise none of ${AVOIDABLE_BUILTINS.join(', ')} (\`node internals\` is the length of process.moduleLoadList, scripts/lib/builtin-trace.cjs). Libraries are recognised by a marker name inside the loaded chunks (scripts/lib/chunk-features.ts); a chunk shared with other code counts whole.\n`);
   return ok;
 }
 
@@ -556,6 +765,18 @@ async function stopDaemon(sb: Sandbox): Promise<void> {
 
 const MiB = 1024 * 1024;
 
+/** Anonymous and file-backed resident memory of a process in MiB (Linux; the node binary's own pages are the file part). */
+function residentSplit(pid: number): string {
+  if (process.platform !== 'linux') return 'n/a';
+  try {
+    const status = readFileSync(`/proc/${pid}/status`, 'utf8');
+    const kb = (key: string): number => Number(new RegExp(`${key}:\\s+(\\d+)`).exec(status)?.[1] ?? 0) / 1024;
+    return `${kb('RssAnon').toFixed(1)} / ${kb('RssFile').toFixed(1)}`;
+  } catch {
+    return 'n/a';
+  }
+}
+
 async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakMiB: number } | undefined> {
   section('5. hot daemon (0.2): call overhead and resident memory');
   if (process.platform === 'win32') {
@@ -578,7 +799,9 @@ async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakM
     const daemonEnv = withDaemon(sb.env);
 
     // Idle memory: a daemon that has just started and holds no session.
-    standalone = spawn(process.execPath, [DIST, 'daemon', 'run'], { env: daemonEnv, cwd: sb.project, stdio: 'ignore' });
+    // Started the way the CLI starts it (V8 and malloc settings of daemonRuntime), not with a bare `node`.
+    const runtime = daemonRuntime(process.execPath);
+    standalone = spawn(process.execPath, [...runtime.flags, DIST, 'daemon', 'run'], { env: { ...daemonEnv, ...runtime.env }, cwd: sb.project, stdio: 'ignore' });
     let info: DaemonInfo | undefined;
     for (let i = 0; i < 100 && !info; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -587,14 +810,17 @@ async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakM
     if (!info) throw new Error('the daemon did not start');
     await new Promise((resolve) => setTimeout(resolve, 500));
     const idle = (await daemonInfo(sb))!.rssBytes;
+    const idleSplit = residentSplit(info.pid);
 
     const call = ['gh', 'echo_text', '--message', 'hi'];
     const first = await spawnTimed(process.execPath, [DIST, ...call], { env: daemonEnv, cwd: sb.project });
     if (first.code !== 0 || !first.stdout.includes('echo: hi')) throw new Error(`call through the daemon failed (${first.code}): ${first.stderr}`);
     const afterHttp = (await daemonInfo(sb))!.rssBytes;
+    const httpSplit = residentSplit(info.pid);
     const job = await spawnTimed(process.execPath, [DIST, 'job', 'run_job'], { env: daemonEnv, cwd: sb.project });
     if (job.code !== 0) throw new Error(`stdio call through the daemon failed (${job.code}): ${job.stderr}`);
     const afterStdio = (await daemonInfo(sb))!.rssBytes;
+    const stdioSplit = residentSplit(info.pid);
 
     // In-process timings, warm JIT: the daemon rows connect to the daemon socket from this process.
     const env = sb.env;
@@ -634,6 +860,7 @@ async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakM
     const procDirect = await measure(process.execPath, [DIST, ...call], { env: sb.env, cwd: sb.project });
     const procHot = await measure(process.execPath, [DIST, ...call], { env: daemonEnv, cwd: sb.project });
     const afterAll = (await daemonInfo(sb))!;
+    const allSplit = residentSplit(info.pid);
 
     const row = (label: string, s: Stats, extra = ''): string[] => [label, ms(s.median), ms(s.p95), ms(s.min), extra];
     const delta = (a: Stats, b: Stats): Stats => ({ median: a.median - b.median, p95: a.p95 - b.p95, min: a.min - b.min });
@@ -653,15 +880,15 @@ async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakM
       ],
     );
     printTable(
-      ['daemon resident memory', 'RSS MiB', `target < ${80} MiB (excluding stdio children)`],
+      ['daemon resident memory', 'RSS MiB', 'anon / file MiB', `target < ${80} MiB (excluding stdio children)`],
       [
-        ['idle, just started', (idle / MiB).toFixed(1), verdict(idle / MiB, 80)],
-        ['after one HTTP session and call', (afterHttp / MiB).toFixed(1), verdict(afterHttp / MiB, 80)],
-        ['after a stdio session and call', (afterStdio / MiB).toFixed(1), verdict(afterStdio / MiB, 80)],
-        [`after ${(WARMUP + RUNS) * 3 + 4} more calls`, (afterAll.rssBytes / MiB).toFixed(1), verdict(afterAll.rssBytes / MiB, 80)],
+        ['idle, just started', (idle / MiB).toFixed(1), idleSplit, verdict(idle / MiB, 80)],
+        ['after one HTTP session and call', (afterHttp / MiB).toFixed(1), httpSplit, verdict(afterHttp / MiB, 80)],
+        ['after a stdio session and call', (afterStdio / MiB).toFixed(1), stdioSplit, verdict(afterStdio / MiB, 80)],
+        [`after ${(WARMUP + RUNS) * 3 + 4} more calls`, (afterAll.rssBytes / MiB).toFixed(1), allSplit, verdict(afterAll.rssBytes / MiB, 80)],
       ],
     );
-    console.log('the daemon runs as a separate process started with `via daemon run` in the sandbox and stopped with `via daemon stop` afterwards; RSS is what `via daemon status` reports.\n');
+    console.log('the daemon runs as a separate process started with `via daemon run` in the sandbox and stopped with `via daemon stop` afterwards; RSS is what `via daemon status` reports; anon / file is RssAnon / RssFile from /proc (the file part is the node binary mapped into the process: about 44 MiB of the idle figure, shared with every other node process).\n');
     return { overhead: overhead.median, idleMiB: idle / MiB, peakMiB: Math.max(idle, afterHttp, afterStdio, afterAll.rssBytes) / MiB };
   } finally {
     await stopDaemon(sb).catch(() => undefined);
@@ -725,6 +952,11 @@ function environmentLines(): string[] {
 }
 
 async function main(): Promise<void> {
+  const restoredAt = argv.indexOf('--child-find-restored');
+  if (restoredAt !== -1) {
+    process.stdout.write(`${JSON.stringify(restoredChild(argv[restoredAt + 1]!))}\n`);
+    return;
+  }
   if (argv.includes('--child-find')) {
     process.stdout.write(`${JSON.stringify(findChild())}\n`);
     return;
@@ -754,25 +986,42 @@ async function main(): Promise<void> {
     const root = await spawnTimed(process.execPath, [DIST], { env: sb.env, cwd: sb.project });
     console.log(`scenario: ${SCENARIO_PROVIDERS.length} providers from test/fixtures/tools, tools/list cached on disk (${root.stdout.split('\n').find((l) => /providers/.test(l)) ?? 'root view'}), servers stopped; HOME and TMPDIR are in ${sb.root}.\n`);
 
-    const cold = await benchColdStart(sb);
-    await benchFind(sb);
-    await benchCall();
-    healthy = (await benchLoads(sb)) && healthy;
-    const daemonResult = await benchDaemon();
-    await benchBun(sb);
+    const cold = wanted('cold') ? await benchColdStart(sb) : new Map<string, number>();
+    if (wanted('scenarios')) await benchScenarios(sb);
+    const findResult = wanted('find') ? await benchFind(sb) : undefined;
+    if (wanted('call')) await benchCall();
+    if (wanted('loads')) healthy = (await benchLoads(sb)) && healthy;
+    const daemonResult = wanted('daemon') ? await benchDaemon() : undefined;
+    if (wanted('bun')) await benchBun(sb);
 
     section('Summary against the targets');
+    const startup = (label: string, value: number | undefined): string[] => [label, value === undefined ? 'n/a' : `${ms(value)} ms`, value === undefined ? 'not measured' : verdict(value, TARGET_COLD_START)];
     printTable(
-      ['target', 'measured', 'result'],
+      ['target', 'measured (median)', 'result'],
       [
-        ['CLI cold start < 80 ms: --version (cache warm)', `${ms(cold.get('--version') ?? NaN)} ms`, verdict(cold.get('--version') ?? Infinity, TARGET_COLD_START)],
-        ['CLI cold start < 80 ms: via (root, warm catalog)', `${ms(cold.get('via (root)') ?? NaN)} ms`, verdict(cold.get('via (root)') ?? Infinity, TARGET_COLD_START)],
+        startup('CLI cold start < 80 ms: --version (cache warm)', cold.get('--version')),
+        startup('CLI cold start < 80 ms: via (root, 180 tools, no daemon)', cold.get('via (root)')),
+        startup('CLI cold start < 80 ms: via github (180 tools, no daemon)', cold.get('via github')),
+        startup('CLI cold start < 80 ms: via find (180 tools, no daemon)', cold.get('via find')),
+        startup('CLI cold start < 80 ms: via, warm daemon', scenarioResults.get('8 providers, warm daemon: via')),
+        startup('CLI cold start < 80 ms: via find, warm daemon', scenarioResults.get('8 providers, warm daemon: via find')),
+        startup('CLI cold start < 80 ms: via, with framework configs', scenarioResults.get('framework configs: via')),
+        startup('whole-process via find over 1,000 tools (reference; library target below)', scenarioResults.get('1,000 tools / 50 providers: via find')),
+        findResult
+          ? ['find over 1,000 tools < 30 ms: library, restore + index + first query', `${ms(findResult.restoredTotal)} ms`, verdict(findResult.restoredTotal, TARGET_FIND_1000)]
+          : ['find over 1,000 tools < 30 ms', 'n/a', 'not measured'],
+        findResult
+          ? ['find over 1,000 tools < 30 ms: library, build + index + first query (no cache)', `${ms(findResult.coldTotal)} ms`, verdict(findResult.coldTotal, TARGET_FIND_1000)]
+          : ['find over 1,000 tools < 30 ms (no cache)', 'n/a', 'not measured'],
+        findResult
+          ? ['find over 1,000 tools < 30 ms: query on a resident index', `${ms(findResult.steadyQuery)} ms`, verdict(findResult.steadyQuery, TARGET_FIND_1000)]
+          : ['find over 1,000 tools < 30 ms (resident)', 'n/a', 'not measured'],
         daemonResult
           ? ['hot daemon overhead < 15 ms (over a reused SDK call)', `${ms(daemonResult.overhead)} ms`, verdict(daemonResult.overhead, TARGET_DAEMON_OVERHEAD)]
-          : ['hot daemon overhead < 15 ms', 'n/a', 'no daemon on this platform'],
+          : ['hot daemon overhead < 15 ms', 'n/a', 'not measured'],
         daemonResult
           ? ['daemon memory < 80 MB (idle / highest seen)', `${daemonResult.idleMiB.toFixed(1)} / ${daemonResult.peakMiB.toFixed(1)} MiB`, verdict(daemonResult.peakMiB, 80)]
-          : ['daemon memory < 80 MB', 'n/a', 'no daemon on this platform'],
+          : ['daemon memory < 80 MB', 'n/a', 'not measured'],
       ],
     );
   } finally {
