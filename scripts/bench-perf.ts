@@ -20,6 +20,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { buildCatalog, renderFind, SearchIndex } from '../src/catalog';
 import { run } from '../src/cli/run';
 import { createCliServer, createCliState, type CliState } from '../test/fixtures/mcp/cli-server.mjs';
+import { featuresOf } from './lib/chunk-features';
 import { loadBaseProviders, synthesizeProviders } from './lib/synth-catalog';
 
 const ROOT = process.cwd();
@@ -133,12 +134,12 @@ interface Sandbox {
 }
 
 function makeSandbox(): Sandbox {
-  const root = mkdtempSync(join(tmpdir(), 'via-bench-'));
+  const root = mkdtempSync(join(tmpdir(), 'via-perf-'));
   const home = join(root, 'home');
   const project = join(root, 'project');
   const tmp = join(root, 'tmp');
   for (const d of [home, project, tmp]) mkdirSync(d, { recursive: true });
-  return { root, home, project, tmp, env: { PATH: process.env.PATH ?? '', HOME: home, TMPDIR: tmp } };
+  return { root, home, project, tmp, env: { PATH: process.env.PATH ?? '', HOME: home, TMPDIR: tmp, VIA_NO_DAEMON: '1' } };
 }
 
 interface MockServer {
@@ -191,8 +192,8 @@ function loadTools(provider: string): unknown[] {
   return (JSON.parse(readFileSync(join(FIXTURES, 'tools', `${provider}.json`), 'utf8')) as { tools: unknown[] }).tools;
 }
 
-function writeConfig(sb: Sandbox, servers: Array<{ name: string; url: string }>): void {
-  const yaml = `sources: false\nservers:\n${servers.map((s) => `  ${s.name}:\n    url: ${s.url}\n`).join('')}`;
+function writeConfig(sb: Sandbox, servers: Array<{ name: string; url: string }>, extraYaml = ''): void {
+  const yaml = `sources: false\n${extraYaml}servers:\n${servers.map((s) => `  ${s.name}:\n    url: ${s.url}\n`).join('')}`;
   mkdirSync(join(sb.home, '.config', 'via'), { recursive: true });
   writeFileSync(join(sb.home, '.config', 'via', 'config.yaml'), yaml);
 }
@@ -444,12 +445,14 @@ await client.close();
 // ---------------------------------------------------------------------------------------------
 // 4. module loading
 
-const FORBIDDEN_ON_TRIVIAL = /^(?:@modelcontextprotocol\/sdk|ajv|ajv-formats|yaml|smol-toml|jsonc-parser|@napi-rs\/keyring|string-width)$/;
 
 interface Loaded {
   chunks: number;
   kib: number;
+  /** Packages still loaded from node_modules (only the native keychain binding can be one). */
   packages: string[];
+  /** Bundled libraries whose code is in a loaded chunk. */
+  libraries: string[];
 }
 
 function summarizeTrace(trace: string): Loaded {
@@ -457,6 +460,7 @@ function summarizeTrace(trace: string): Loaded {
   let kib = 0;
   const chunks = new Set<string>();
   const packages = new Set<string>();
+  const libraries = new Set<string>();
   for (const url of urls) {
     if (!url.startsWith('file://')) continue;
     const path = fileURLToPath(url);
@@ -465,9 +469,10 @@ function summarizeTrace(trace: string): Loaded {
     else if (path.startsWith(join(ROOT, 'dist'))) {
       chunks.add(path);
       kib += statSync(path).size / 1024;
+      for (const name of featuresOf(readFileSync(path, 'utf8'))) libraries.add(name);
     }
   }
-  return { chunks: chunks.size, kib, packages: [...packages].sort() };
+  return { chunks: chunks.size, kib, packages: [...packages].sort(), libraries: [...libraries].sort() };
 }
 
 async function traceLoads(sb: Sandbox, args: string[]): Promise<Loaded> {
@@ -482,7 +487,7 @@ async function traceLoads(sb: Sandbox, args: string[]): Promise<Loaded> {
 }
 
 async function benchLoads(sb: Sandbox): Promise<boolean> {
-  section('4. modules loaded per command (bundle chunks and node_modules packages)');
+  section('4. modules loaded per command (bundle chunks and the libraries inside them)');
   const browse: Array<{ id: string; args: string[]; trivial: boolean }> = [
     { id: '--version', args: ['--version'], trivial: true },
     { id: '-h', args: ['-h'], trivial: true },
@@ -492,10 +497,11 @@ async function benchLoads(sb: Sandbox): Promise<boolean> {
   const rows: string[][] = [];
   const add = (id: string, loaded: Loaded, trivial: boolean, mayLoadClient: boolean): void => {
     let status = 'ok';
-    if (trivial && loaded.packages.length > 0) status = 'FAIL: loads packages';
-    else if (!mayLoadClient && loaded.packages.some((p) => p.startsWith('@modelcontextprotocol') || p.startsWith('ajv'))) status = 'FAIL: MCP SDK or ajv on a cached browse';
+    const all = [...loaded.libraries, ...loaded.packages];
+    if (trivial && all.length > 0) status = 'FAIL: loads a library';
+    else if (!mayLoadClient && loaded.libraries.some((l) => l === 'mcp-sdk' || l === 'ajv' || l === 'zod')) status = 'FAIL: MCP SDK or ajv on a cached browse';
     if (status !== 'ok') ok = false;
-    rows.push([id, String(loaded.chunks), loaded.kib.toFixed(0), loaded.packages.join(', ') || '(none)', loaded.packages.some((p) => FORBIDDEN_ON_TRIVIAL.test(p)) ? 'yes' : 'no', status]);
+    rows.push([id, String(loaded.chunks), loaded.kib.toFixed(0), all.join(', ') || '(none)', status]);
   };
   for (const c of browse) add(c.id, await traceLoads(sb, c.args), c.trivial, false);
 
@@ -513,16 +519,159 @@ async function benchLoads(sb: Sandbox): Promise<boolean> {
     await server.close();
     rmSync(callSb.root, { recursive: true, force: true });
   }
-  printTable(['command', 'bundle chunks', 'KiB', 'node_modules packages', 'heavy deps', 'check'], rows);
-  console.log('check: --version and -h load no package at all; cached browse commands (root, provider, find) load neither the MCP SDK nor ajv. "heavy deps": SDK, ajv, config parsers, keyring or string-width. Only ESM imports are seen, not `require` calls made inside a CommonJS package.\n');
+  printTable(['command', 'bundle chunks', 'KiB', 'libraries in the loaded chunks', 'check'], rows);
+  console.log('check: --version and -h load no library at all; cached browse commands (root, provider, find) load neither the MCP SDK nor ajv. Libraries are recognised by a marker name inside the loaded chunks (scripts/lib/chunk-features.ts); a chunk shared with other code counts whole.\n');
   return ok;
 }
 
+
 // ---------------------------------------------------------------------------------------------
-// 5. Bun
+// 5. hot daemon (0.2)
+
+/** Environment that lets the CLI use (and start) the sandbox's daemon. */
+const withDaemon = (env: Record<string, string>): Record<string, string> => ({ ...env, VIA_NO_DAEMON: '0' });
+
+interface DaemonInfo {
+  pid: number;
+  rssBytes: number;
+  sessions: unknown[];
+}
+
+async function daemonInfo(sb: Sandbox): Promise<DaemonInfo | undefined> {
+  const r = await spawnTimed(process.execPath, [DIST, 'daemon', 'status', '-o', 'json'], { env: withDaemon(sb.env), cwd: sb.project });
+  if (r.code !== 0) return undefined;
+  const status = JSON.parse(r.stdout) as { running: boolean } & Partial<DaemonInfo>;
+  return status.running ? { pid: status.pid!, rssBytes: status.rssBytes!, sessions: status.sessions ?? [] } : undefined;
+}
+
+/** `via daemon stop` in the sandbox, so no benchmark leaves a daemon behind. */
+async function stopDaemon(sb: Sandbox): Promise<void> {
+  await spawnTimed(process.execPath, [DIST, 'daemon', 'stop'], { env: withDaemon(sb.env), cwd: sb.project });
+  for (let i = 0; i < 50 && (await daemonInfo(sb)); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+}
+
+const MiB = 1024 * 1024;
+
+async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakMiB: number } | undefined> {
+  section('5. hot daemon (0.2): call overhead and resident memory');
+  if (process.platform === 'win32') {
+    console.log('skipped: the daemon is not available on Windows before 0.3.\n');
+    return undefined;
+  }
+  const server = await startServer();
+  const sb = makeSandbox();
+  let standalone: ReturnType<typeof spawn> | undefined;
+  try {
+    const stdioServer = join(FIXTURES, 'mcp', 'cli-stdio-server.mjs');
+    writeConfig(
+      sb,
+      [{ name: 'gh', url: server.url }],
+      `daemon:\n  idleTimeout: 120\n`,
+    );
+    // Append the stdio server (its session is what grows the daemon).
+    const configPath = join(sb.home, '.config', 'via', 'config.yaml');
+    writeFileSync(configPath, `${readFileSync(configPath, 'utf8')}  job:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(stdioServer)}]\n`);
+    const daemonEnv = withDaemon(sb.env);
+
+    // Idle memory: a daemon that has just started and holds no session.
+    standalone = spawn(process.execPath, [DIST, 'daemon', 'run'], { env: daemonEnv, cwd: sb.project, stdio: 'ignore' });
+    let info: DaemonInfo | undefined;
+    for (let i = 0; i < 100 && !info; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      info = await daemonInfo(sb);
+    }
+    if (!info) throw new Error('the daemon did not start');
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const idle = (await daemonInfo(sb))!.rssBytes;
+
+    const call = ['gh', 'echo_text', '--message', 'hi'];
+    const first = await spawnTimed(process.execPath, [DIST, ...call], { env: daemonEnv, cwd: sb.project });
+    if (first.code !== 0 || !first.stdout.includes('echo: hi')) throw new Error(`call through the daemon failed (${first.code}): ${first.stderr}`);
+    const afterHttp = (await daemonInfo(sb))!.rssBytes;
+    const job = await spawnTimed(process.execPath, [DIST, 'job', 'run_job'], { env: daemonEnv, cwd: sb.project });
+    if (job.code !== 0) throw new Error(`stdio call through the daemon failed (${job.code}): ${job.stderr}`);
+    const afterStdio = (await daemonInfo(sb))!.rssBytes;
+
+    // In-process timings, warm JIT: the daemon rows connect to the daemon socket from this process.
+    const env = sb.env;
+    const viaRun = (overrides: Record<string, string>) => async (): Promise<void> => {
+      let out = '';
+      const code = await run(call, {
+        env: { ...env, ...overrides },
+        cwd: sb.project,
+        home: sb.home,
+        platform: process.platform,
+        stdout: { write: (x: string) => void (out += x) },
+        stderr: { write: () => undefined },
+        readStdin: async () => '',
+        daemonCommand: { command: process.execPath, args: [DIST] },
+      });
+      if (code !== 0 || !out.includes('echo: hi')) throw new Error(`via call failed (${code}): ${out}`);
+    };
+    const timeAsync = async (f: () => Promise<void>): Promise<Stats> => {
+      const samples: number[] = [];
+      for (let i = 0; i < WARMUP + RUNS; i += 1) {
+        const t = performance.now();
+        await f();
+        if (i >= WARMUP) samples.push(performance.now() - t);
+      }
+      return stats(samples);
+    };
+    const reuse = new Client({ name: 'bench', version: '0.0.0' });
+    await reuse.connect(new StreamableHTTPClientTransport(new URL(server.url)));
+    const reused = await timeAsync(async () => void (await reuse.callTool({ name: 'echo_text', arguments: { message: 'hi' } })));
+    await reuse.close();
+    await viaRun({ VIA_NO_DAEMON: '1' })(); // fills the catalog cache
+    const direct = await timeAsync(viaRun({ VIA_NO_DAEMON: '1' }));
+    const hot = await timeAsync(viaRun({ VIA_NO_DAEMON: '0' }));
+
+    // Process level: what one `via` invocation costs with and without the daemon.
+    const bare = await measure(process.execPath, ['-e', '0'], { env: sb.env, cwd: sb.project });
+    const procDirect = await measure(process.execPath, [DIST, ...call], { env: sb.env, cwd: sb.project });
+    const procHot = await measure(process.execPath, [DIST, ...call], { env: daemonEnv, cwd: sb.project });
+    const afterAll = (await daemonInfo(sb))!;
+
+    const row = (label: string, s: Stats, extra = ''): string[] => [label, ms(s.median), ms(s.p95), ms(s.min), extra];
+    const delta = (a: Stats, b: Stats): Stats => ({ median: a.median - b.median, p95: a.p95 - b.p95, min: a.min - b.min });
+    const overhead = delta(hot, reused);
+    printTable(
+      ['scenario', 'median ms', 'p95 ms', 'min ms', 'notes'],
+      [
+        row('in-process: SDK callTool, reused connection', reused, 'the floor a persistent connection reaches'),
+        row('in-process: run([gh echo_text ...]), no daemon', direct, 'fresh connection per call'),
+        row('in-process: run([gh echo_text ...]), hot daemon', hot, 'config + cache + validate + daemon round trip + render'),
+        row('  hot daemon over reused SDK call', overhead, `target < ${TARGET_DAEMON_OVERHEAD} ms: ${verdict(overhead.median, TARGET_DAEMON_OVERHEAD)}`),
+        row('  hot daemon vs no daemon', delta(hot, direct), 'negative: the daemon saves'),
+        row('process: node -e 0', bare),
+        row('process: node dist/via.js gh echo_text, no daemon', procDirect, 'loads the MCP SDK and ajv'),
+        row('process: node dist/via.js gh echo_text, hot daemon', procHot, 'loads neither'),
+        row('  hot daemon over bare node', delta(procHot, bare), 'the whole CLI cost of a call'),
+      ],
+    );
+    printTable(
+      ['daemon resident memory', 'RSS MiB', `target < ${80} MiB (excluding stdio children)`],
+      [
+        ['idle, just started', (idle / MiB).toFixed(1), verdict(idle / MiB, 80)],
+        ['after one HTTP session and call', (afterHttp / MiB).toFixed(1), verdict(afterHttp / MiB, 80)],
+        ['after a stdio session and call', (afterStdio / MiB).toFixed(1), verdict(afterStdio / MiB, 80)],
+        [`after ${(WARMUP + RUNS) * 3 + 4} more calls`, (afterAll.rssBytes / MiB).toFixed(1), verdict(afterAll.rssBytes / MiB, 80)],
+      ],
+    );
+    console.log('the daemon runs as a separate process started with `via daemon run` in the sandbox and stopped with `via daemon stop` afterwards; RSS is what `via daemon status` reports.\n');
+    return { overhead: overhead.median, idleMiB: idle / MiB, peakMiB: Math.max(idle, afterHttp, afterStdio, afterAll.rssBytes) / MiB };
+  } finally {
+    await stopDaemon(sb).catch(() => undefined);
+    if (standalone && standalone.exitCode === null) standalone.kill('SIGKILL');
+    await server.close();
+    rmSync(sb.root, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 6. Bun
 
 async function benchBun(sb: Sandbox): Promise<void> {
-  section('5. Bun single-file binary (open question: runtime and distribution)');
+  section('6. Bun single-file binary (open question: runtime and distribution)');
   const probe = spawnSync('bun', ['--version'], { encoding: 'utf8' });
   if (probe.status !== 0 || argv.includes('--skip-bun')) {
     console.log(argv.includes('--skip-bun') ? 'skipped (--skip-bun).\n' : 'skipped: `bun` is not installed (install it from https://bun.sh to fill this section in).\n');
@@ -605,6 +754,7 @@ async function main(): Promise<void> {
     await benchFind(sb);
     await benchCall();
     healthy = (await benchLoads(sb)) && healthy;
+    const daemonResult = await benchDaemon();
     await benchBun(sb);
 
     section('Summary against the targets');
@@ -613,8 +763,12 @@ async function main(): Promise<void> {
       [
         ['CLI cold start < 80 ms: --version (cache warm)', `${ms(cold.get('--version') ?? NaN)} ms`, verdict(cold.get('--version') ?? Infinity, TARGET_COLD_START)],
         ['CLI cold start < 80 ms: via (root, warm catalog)', `${ms(cold.get('via (root)') ?? NaN)} ms`, verdict(cold.get('via (root)') ?? Infinity, TARGET_COLD_START)],
-        ['hot daemon overhead < 15 ms', 'n/a', '0.2 (no daemon in 0.1)'],
-        ['daemon memory < 80 MB', 'n/a', '0.2 (no daemon in 0.1)'],
+        daemonResult
+          ? ['hot daemon overhead < 15 ms (over a reused SDK call)', `${ms(daemonResult.overhead)} ms`, verdict(daemonResult.overhead, TARGET_DAEMON_OVERHEAD)]
+          : ['hot daemon overhead < 15 ms', 'n/a', 'no daemon on this platform'],
+        daemonResult
+          ? ['daemon memory < 80 MB (idle / highest seen)', `${daemonResult.idleMiB.toFixed(1)} / ${daemonResult.peakMiB.toFixed(1)} MiB`, verdict(daemonResult.peakMiB, 80)]
+          : ['daemon memory < 80 MB', 'n/a', 'no daemon on this platform'],
       ],
     );
   } finally {

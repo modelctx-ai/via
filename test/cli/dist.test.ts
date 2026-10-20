@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { featuresOf, FEATURES } from '../../scripts/lib/chunk-features';
 import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, startFixtureServer } from './helpers';
 
 // The shipped CLI is what users run: build it exactly as `npm run build` does (into a scratch
@@ -19,7 +20,7 @@ function via(args: string[]) {
   const result = spawnSync(process.execPath, [bin, ...args], {
     encoding: 'utf8',
     cwd: home,
-    env: { PATH: process.env.PATH, HOME: home, NODE_DISABLE_COMPILE_CACHE: '1' },
+    env: { PATH: process.env.PATH, HOME: home, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1' },
     timeout: 20_000,
   });
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
@@ -30,7 +31,7 @@ function viaAsync(args: string[]): Promise<{ code: number | null; stdout: string
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [bin, ...args], {
       cwd: home,
-      env: { PATH: process.env.PATH, HOME: home, GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1' },
+      env: { PATH: process.env.PATH, HOME: home, GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1' },
     });
     let stdout = '';
     let stderr = '';
@@ -46,14 +47,14 @@ function writeUserConfig(yaml: string): void {
   writeFileSync(join(home, '.config', 'via', 'config.yaml'), yaml);
 }
 
-/** Packages (below node_modules) and bundle files a run loads, from the module-load tracer. */
-function loads(args: string[]): { packages: string[]; files: string[] } {
+/** Bundle files, the libraries inside them and node_modules packages a run loads, from the module-load tracer. */
+function loads(args: string[]): { packages: string[]; files: string[]; libraries: string[] } {
   const trace = join(dir, 'trace.txt');
   rmSync(trace, { force: true });
   const result = spawnSync(process.execPath, ['--import', pathToFileURL(join(root, 'scripts', 'lib', 'load-trace.mjs')).href, bin, ...args], {
     encoding: 'utf8',
     cwd: home,
-    env: { PATH: process.env.PATH, HOME: home, NODE_DISABLE_COMPILE_CACHE: '1', VIA_TRACE_FILE: trace },
+    env: { PATH: process.env.PATH, HOME: home, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1', VIA_TRACE_FILE: trace },
     timeout: 20_000,
   });
   expect(result.status).toBe(0);
@@ -64,7 +65,9 @@ function loads(args: string[]): { packages: string[]; files: string[] } {
     const m = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(path);
     if (m) packages.add(m[1]!);
   }
-  return { packages: [...packages].sort(), files: paths.filter((p) => !p.includes('node_modules')).map((p) => p.slice(p.lastIndexOf('/') + 1)) };
+  const bundle = paths.filter((p) => !p.includes('node_modules'));
+  const libraries = new Set(bundle.flatMap((p) => featuresOf(readFileSync(p, 'utf8'))));
+  return { packages: [...packages].sort(), files: bundle.map((p) => p.slice(p.lastIndexOf('/') + 1)), libraries: [...libraries].sort() };
 }
 
 beforeAll(() => {
@@ -174,10 +177,16 @@ describe('built dist/via.js', () => {
   // Cold start is a core metric (implementation.md, "启动速度"): what a command does not need, it
   // must not load. These check the module graph, not the clock; `npm run bench:perf` times it.
   describe('lazy loading', () => {
-    it('--version and -h load the entry and a text chunk only: no package, no command runner', () => {
+    it('the library markers still match the bundle (or the checks below would pass vacuously)', () => {
+      const all = new Set(readdirSync(dirname(bin)).filter((f) => f.endsWith('.js')).flatMap((f) => featuresOf(readFileSync(join(dirname(bin), f), 'utf8'))));
+      expect([...all].sort()).toEqual(FEATURES.map(([name]) => name).sort());
+    });
+
+    it('--version and -h load the entry and a text chunk only: no library, no command runner', () => {
       for (const args of [['--version'], ['-h']]) {
-        const { packages, files } = loads(args);
+        const { packages, libraries, files } = loads(args);
         expect(packages).toEqual([]);
+        expect(libraries).toEqual([]);
         expect(files.filter((f) => /^(run|app)-/.test(f))).toEqual([]);
         expect(files).toContain('via.js');
       }
@@ -185,9 +194,9 @@ describe('built dist/via.js', () => {
 
     it('a browse command with nothing configured loads neither the MCP SDK nor ajv', () => {
       for (const args of [[], ['find', 'issue']]) {
-        const { packages, files } = loads(args);
+        const { libraries, files } = loads(args);
         expect(files.some((f) => /^run-/.test(f))).toBe(true);
-        expect(packages.filter((p) => p.startsWith('@modelcontextprotocol') || p.startsWith('ajv') || p === 'zod')).toEqual([]);
+        expect(libraries.filter((l) => ['mcp-sdk', 'zod', 'ajv'].includes(l))).toEqual([]);
       }
     });
   });
