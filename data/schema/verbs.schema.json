@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "data/verbs.json",
+  "type": "object",
+  "required": ["version", "verbs", "conjunctions", "singularExceptions"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "verbs": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*$" }, "uniqueItems": true },
+    "conjunctions": { "type": "array", "items": { "type": "string", "pattern": "^[a-z]+$" }, "uniqueItems": true },
+    "singularExceptions": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9]+$" }, "uniqueItems": true },
+    "singularIrregular": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[a-z0-9]+$" },
+      "propertyNames": { "pattern": "^[a-z0-9]+$" }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "data/noise.json",
+  "type": "object",
+  "required": ["version", "fields", "keep"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "fields": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "keep": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+  }
+}
