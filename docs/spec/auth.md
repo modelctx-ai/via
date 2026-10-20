@@ -27,7 +27,7 @@
 ## 调用时的行为
 
 - 每次调用前按 server 解析凭证，解析结果只存在内存中。
-- 收到 401 或授权失败时，退出码 4，并提示下一步：
+- 收到 401、403 或授权失败时，退出码 4，并提示下一步（已配置凭证时原因写作 `rejected the credentials (HTTP 401)`，不回显任何凭证值）：
 
   ```console
   error: linear requires auth
@@ -35,6 +35,8 @@
   ```
 
 - 凭证缺失（如环境变量未设置、钥匙串无条目）时不发起调用，直接说明缺哪一项、可以用哪种写法补上，退出码 4。
+- 0.1 尚未实现 OAuth：`auth: oauth` 的 server 在调用前直接以退出码 4 失败，说明暂不支持并建议改用 `bearer`（如 Linear API key）。
+- stdio 子进程的 stderr 不转发（可能回显凭证）；启动失败时，脱敏后取最后一行放进错误信息。
 - `via` 顶层视图和 `via servers` 中标出需要鉴权的 provider。
 
 ## 常见 server 的鉴权

@@ -25,6 +25,7 @@
     "split-diff": "tsup scripts/split-diff.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-diff.js test/fixtures/tools test/fixtures/other"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@napi-rs/keyring": "^2.1.2",
     "env-paths": "^4.0.0",
     "jsonc-parser": "^3.3.1",

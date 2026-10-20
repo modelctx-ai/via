@@ -76,6 +76,7 @@ next: via auth login linear
 ```
 
 - `isError` 结果：上游错误文本经清理、脱敏后输出，退出码 1，`next:` 指向该工具的 `-h`。「清理」指去掉终端转义序列和控制字符（保留换行与制表符），并受预算约束，`--full` 时不截断。
+- 传输与上游错误（退出码 6）：第一行写原因，如 `cannot start playwright: …`、`github did not answer within 60s`、`lost the connection to exa`；`next:` 超时时为 `rerun with a larger --timeout`，其余为 `via doctor`。网络错误只写 scheme 与主机（URL 的路径和查询串可能带凭证）；上游回显的文本经脱敏、清理、折成一行并限长 300 字符。`exclusive: true` 的 stdio server 启动失败时原因后追加「可能与 agent 框架中仍在运行的同名 server 冲突」（命令不存在时除外）。
 - 参数错误附 usage（[arguments.md](arguments.md#校验与报错)）；找不到附 did you mean（[discovery.md](discovery.md#找不到时)）。
 - `-o json` 时错误同样写 stderr，格式为 `{"error": {"code": <退出码>, "message": "…", "next": "…", "details": [...]}}`。参数校验失败时 `details` 中每条错误一个对象：
 
