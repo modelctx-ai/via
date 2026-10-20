@@ -55,7 +55,7 @@ export function resolveInProvider(
   deny: readonly RegExp[],
   input: string,
 ): Target {
-  const { visible, full } = views;
+  const { visible } = views;
   if (input.startsWith('-')) throw usageFailure(`unknown option ${input}`, `via ${visible.provider} -h`);
   const found = resolveTarget(visible, input);
   if (found.kind === 'tool') return { kind: 'tool', provider: visible, tool: found.tool };
@@ -64,7 +64,8 @@ export function resolveInProvider(
     const candidates = found.candidates.map((c) => `${visible.provider} ${c}`);
     throw fail(ExitCode.NotFound, `ambiguous name: ${input}`, `via ${candidates[0]} -h`, [`candidates: ${candidates.join(' · ')}`]);
   }
-  const hidden = resolveTarget(full, input);
+  // `views.full` is built on first access: only a name that did not resolve gets here.
+  const hidden = resolveTarget(views.full, input);
   if (hidden.kind === 'tool') {
     const rule = matchingDeny(hidden.tool, deny);
     if (rule) {

@@ -17,9 +17,15 @@ import type { CatalogCache } from './catalog-cache';
 
 /** A fetched `tools/list` and where it came from. */
 export interface Listing {
-  tools: McpTool[];
+  /** For a list read from the disk cache this parses on first access, not before. */
+  readonly tools: McpTool[];
   fetchedAt: number;
   fromCache: boolean;
+  /**
+   * Length of the text of the cache file the list is (or was just written to), when there is one.
+   * Together with `fetchedAt` it identifies the content without parsing it (view-cache.ts).
+   */
+  rawBytes?: number;
 }
 
 export interface ListingOptions {
@@ -105,12 +111,21 @@ export class InProcessBackend implements Backend {
     }
     if (!refresh) {
       const hit = cache.read(server);
-      if (hit) return { tools: hit.tools, fetchedAt: hit.fetchedAt, fromCache: true };
+      if (hit) {
+        return {
+          fetchedAt: hit.fetchedAt,
+          fromCache: true,
+          rawBytes: hit.rawBytes,
+          get tools(): McpTool[] {
+            return hit.tools;
+          },
+        };
+      }
     }
     const tools = await (await this.client()).listTools(server.name, { timeoutMs });
     const fetchedAt = now();
-    cache.write(server, tools, fetchedAt);
-    return { tools, fetchedAt, fromCache: false };
+    const rawBytes = cache.write(server, tools, fetchedAt);
+    return { tools, fetchedAt, fromCache: false, ...(rawBytes !== undefined ? { rawBytes } : {}) };
   }
 
   listTools: McpClient['listTools'] = async (server, options) => (await this.client()).listTools(server, options);

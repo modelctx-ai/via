@@ -2,7 +2,7 @@
 // the helpers every command needs (writing, redaction, failure reports). The heavy modules
 // (config, catalog, MCP client) are imported on first use, so `via more` stays cheap.
 import { join } from 'node:path';
-import type { Catalog, McpTool, ProviderCatalog, ProviderStatus } from '../catalog';
+import type { Catalog, CatalogTool, DocTerms, McpTool, ProviderCatalog, ProviderStatus } from '../catalog';
 import type { McpClient } from '../client';
 import type { OAuthStore } from '../client/oauth/store';
 import type { SchemaCompiler, ToolArgsError } from './args';
@@ -14,6 +14,7 @@ import { ExitCode } from '../render/exit-codes';
 import type { Backend, Listing } from './backend';
 import type { CatalogCache } from './catalog-cache';
 import type { ProviderEntry, ProviderTable } from './directory';
+import type { ViewCache } from './view-cache';
 import type { CliEnv } from './env';
 import { CliFailure, fail } from './failure';
 import type { GlobalOptions } from './options';
@@ -38,6 +39,8 @@ export function daemonDisabled(io: Pick<CliEnv, 'env' | 'platform'>): boolean {
 export interface LoadedProviders {
   /** Visible catalog (deny applied). Failed providers are present with no tools. */
   catalog: Catalog;
+  /** Search terms of the tools whose build came from (or went to) the cache, for `SearchIndex`. */
+  terms: { get(tool: CatalogTool): DocTerms | undefined };
   statuses: Record<string, ProviderStatus>;
   failures: Array<{ entry: ProviderEntry; error: unknown }>;
 }
@@ -51,6 +54,7 @@ export class App {
   private socketClient?: import('../daemon/client').DaemonClient;
   private tableInstance?: ProviderTable;
   private cacheInstance?: CatalogCache;
+  private viewCacheInstance?: ViewCache;
   private oauthStoreInstance?: OAuthStore;
 
   constructor(
@@ -219,6 +223,15 @@ export class App {
     return this.cacheInstance;
   }
 
+  /** Where built provider catalogs are kept next to the raw tool lists (view-cache.ts). */
+  async viewCache(): Promise<ViewCache> {
+    if (!this.viewCacheInstance) {
+      const [{ ViewCache }, { rulesFingerprint }] = await Promise.all([import('./view-cache'), import('../catalog')]);
+      this.viewCacheInstance = new ViewCache(join(this.cacheDir, 'catalog'), rulesFingerprint());
+    }
+    return this.viewCacheInstance;
+  }
+
   async table(): Promise<ProviderTable> {
     if (!this.tableInstance) {
       const { buildProviderTable } = await import('./directory');
@@ -254,30 +267,62 @@ export class App {
   /** Fetch several providers in parallel; failures become statuses instead of aborting. */
   async loadProviders(entries: readonly ProviderEntry[], options: { refresh?: boolean } = {}): Promise<LoadedProviders> {
     const config = await this.config();
-    const { buildCatalog } = await import('../catalog');
-    const { providerInput, statusOf } = await import('./directory');
+    const [{ buildCatalog }, { providerInput, statusOf }, views] = await Promise.all([import('../catalog'), import('./directory'), this.viewCache()]);
     const statuses: Record<string, ProviderStatus> = {};
     const failures: LoadedProviders['failures'] = [];
     const results = await Promise.all(
       entries.map(async (entry) => {
         try {
-          return { entry, tools: (await this.listing(entry, { refresh: options.refresh ?? false, many: true })).tools };
+          return { entry, listing: await this.listing(entry, { refresh: options.refresh ?? false, many: true }) };
         } catch (error) {
           statuses[entry.name] = statusOf(error);
           failures.push({ entry, error });
-          return { entry, tools: [] as McpTool[] };
+          return { entry, listing: undefined };
         }
       }),
     );
-    const catalog = buildCatalog(results.map((r) => providerInput(r.entry, r.tools, config, true)));
-    return { catalog, statuses, failures };
+    const inputs = results.map((r) => providerInput(r.entry, r.listing?.tools ?? [], config, true));
+    // Providers whose build is in the cache are restored; the rest are built here and then kept.
+    const byName = new Map(results.map((r) => [r.entry.name, r]));
+    const written = new Map<CatalogTool, DocTerms>();
+    const restored = new Map<string, { get(tool: CatalogTool): DocTerms | undefined }>();
+    const catalog = buildCatalog(inputs, undefined, (input) => {
+      const r = byName.get(input.provider);
+      const hit = r?.listing ? views.read(r.entry.server, input, r.listing) : undefined;
+      if (!hit) return undefined;
+      restored.set(input.provider, hit.terms);
+      return hit.catalog;
+    });
+    for (const [i, r] of results.entries()) {
+      const built = catalog.providers.find((p) => p.provider === r.entry.name);
+      if (!r.listing || !built || restored.has(r.entry.name)) continue;
+      for (const [tool, known] of views.write(r.entry.server, inputs[i]!, r.listing, built)) written.set(tool, known);
+    }
+    const terms = { get: (tool: CatalogTool): DocTerms | undefined => written.get(tool) ?? restored.get(tool.provider)?.get(tool) };
+    return { catalog, terms, statuses, failures };
   }
 
-  /** Provider catalogs of one server: with `deny` applied (what the user sees) and without it. */
-  async providerViews(entry: ProviderEntry, tools: McpTool[]): Promise<{ visible: ProviderCatalog; full: ProviderCatalog }> {
+  /**
+   * Provider catalogs of one server: with `deny` applied (what the user sees, from the build cache
+   * when it has one) and without it (only built if something asks, which is rare: a name that does
+   * not resolve is checked against the denied tools).
+   */
+  async providerViews(entry: ProviderEntry, listing: Listing): Promise<{ visible: ProviderCatalog; full: ProviderCatalog }> {
     const config = await this.config();
-    const { buildProvider } = await import('./directory');
-    return { visible: buildProvider(entry, tools, config, true), full: buildProvider(entry, tools, config, false) };
+    const [{ buildProvider, providerInput }, views] = await Promise.all([import('./directory'), this.viewCache()]);
+    const input = providerInput(entry, listing.tools, config, true);
+    let visible = views.read(entry.server, input, listing)?.catalog;
+    if (!visible) {
+      visible = buildProvider(entry, listing.tools, config, true);
+      views.write(entry.server, input, listing, visible);
+    }
+    let full: ProviderCatalog | undefined;
+    return {
+      visible,
+      get full(): ProviderCatalog {
+        return (full ??= buildProvider(entry, listing.tools, config, false));
+      },
+    };
   }
 
   // Failures ----------------------------------------------------------------------------

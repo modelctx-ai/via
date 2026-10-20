@@ -17,7 +17,7 @@ export interface OpenProvider {
 export async function openProvider(app: App, input: string): Promise<OpenProvider> {
   const entry = await resolveEntry(app, input);
   const listing = await app.listing(entry);
-  return { entry, listing, views: await app.providerViews(entry, listing.tools) };
+  return { entry, listing, views: await app.providerViews(entry, listing) };
 }
 
 const withNewline = (s: string): string => (s.endsWith('\n') ? s : `${s}\n`);

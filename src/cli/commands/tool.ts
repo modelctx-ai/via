@@ -218,7 +218,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
 
 /** The same tool in a refreshed list, or undefined when the server no longer has it. */
 async function refreshedTarget(app: App, old: ToolTarget, listing: Listing): Promise<ToolTarget | undefined> {
-  const views = await app.providerViews(old.entry, listing.tools);
+  const views = await app.providerViews(old.entry, listing);
   const tool = views.visible.tools.find((t) => t.rawName === old.tool.rawName);
   return tool ? { entry: old.entry, listing, views, tool } : undefined;
 }

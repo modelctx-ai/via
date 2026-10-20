@@ -4,7 +4,7 @@ import { defaultSplitRules, type SplitRules } from './rules';
 import { extractParams } from './signature';
 import { splitToolName } from './split';
 import { kebab } from './tokenize';
-import type { CatalogTool, McpTool, ProviderCatalog, ResourceGroup } from './types';
+import type { CatalogTool, DomainAssignment, McpTool, ProviderCatalog, ResourceGroup } from './types';
 
 export interface CatalogRules {
   split: SplitRules;
@@ -130,19 +130,6 @@ export function buildProviderCatalog(
   const deny = (input.deny ?? []).map((re) => (re.global || re.sticky ? new RegExp(re.source, re.flags.replace(/[gy]/g, '')) : re));
   const visible = all.filter((t) => !deny.some((re) => re.test(t.singleRef) || re.test(`${t.provider}/${t.rawName}`)));
 
-  const groups = new Map<string, ResourceGroup>();
-  const leaves: CatalogTool[] = [];
-  for (const t of visible) {
-    if (t.resource === null) {
-      leaves.push(t);
-      continue;
-    }
-    const g = groups.get(t.resource) ?? { name: t.resource, tools: [] };
-    g.tools.push(t);
-    groups.set(t.resource, g);
-  }
-  const resources = [...groups.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-
   const domain = classifyProvider(
     {
       provider: input.provider,
@@ -155,5 +142,25 @@ export function buildProviderCatalog(
     rules.split,
   );
 
-  return { provider: input.provider, tools: visible, resources, leaves, domain };
+  return assembleProvider(input.provider, visible, domain);
+}
+
+/**
+ * The provider view over its visible tools: resource groups sorted by name, leaf tools in list
+ * order. Shared by the build and by restoring a cached build, so both group the same way.
+ */
+export function assembleProvider(provider: string, visible: CatalogTool[], domain: DomainAssignment): ProviderCatalog {
+  const groups = new Map<string, ResourceGroup>();
+  const leaves: CatalogTool[] = [];
+  for (const t of visible) {
+    if (t.resource === null) {
+      leaves.push(t);
+      continue;
+    }
+    const g = groups.get(t.resource) ?? { name: t.resource, tools: [] };
+    g.tools.push(t);
+    groups.set(t.resource, g);
+  }
+  const resources = [...groups.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { provider, tools: visible, resources, leaves, domain };
 }

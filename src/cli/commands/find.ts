@@ -17,8 +17,8 @@ export async function findCommand(app: App, argv: readonly string[]): Promise<nu
   }
   const query = positionals.join(' ');
   const { entries } = await app.table();
-  const { catalog, failures } = await app.loadProviders(entries);
-  const hits = new SearchIndex(catalog).search(query, {
+  const { catalog, terms, failures } = await app.loadProviders(entries);
+  const hits = new SearchIndex(catalog, undefined, terms).search(query, {
     limit,
     ...(typeof flags.domain === 'string' ? { domain: normalizeInput(flags.domain) } : {}),
   });

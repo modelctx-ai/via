@@ -25,9 +25,15 @@ interface CacheFile {
 }
 
 export interface CacheEntry {
-  tools: McpTool[];
   fetchedAt: number;
+  /** Length of the file's text; with `fetchedAt` it identifies the file's content for the prebuilt-catalog cache. */
+  rawBytes: number;
+  /** The tools; parsed on first access, so a command that does not need them never pays for them. */
+  readonly tools: McpTool[];
 }
+
+/** What `write` below puts first in every file, so `read` can learn the age without parsing the tools. */
+const FILE_HEAD = /^\{"version":(\d+),"fetchedAt":(\d+),"tools":(?=\[)/;
 
 function sortedKeys(record: Record<string, string>): string[] {
   return Object.keys(record).sort();
@@ -38,8 +44,22 @@ function refsOf(record: Record<string, string>): Array<[string, string]> {
   return sortedKeys(record).map((k) => [k, parseCredentialRef(record[k]!).kind === 'literal' ? '' : record[k]!]);
 }
 
-/** Hash of everything that decides which tools a server lists, without any resolved credential. */
+const keys = new WeakMap<ServerConfig, { transport: unknown; auth: unknown; key: string }>();
+
+/**
+ * Hash of everything that decides which tools a server lists, without any resolved credential.
+ * Computed once per server object and run: the raw list, the prebuilt catalog and the writes all
+ * ask for it.
+ */
 export function cacheKey(server: ServerConfig): string {
+  const known = keys.get(server);
+  if (known && known.transport === server.transport && known.auth === server.auth) return known.key;
+  const key = computeKey(server);
+  keys.set(server, { transport: server.transport, auth: server.auth, key });
+  return key;
+}
+
+function computeKey(server: ServerConfig): string {
   const { transport, auth } = server;
   const transportPart =
     transport.type === 'stdio'
@@ -71,10 +91,27 @@ export class CatalogCache {
   /** A fresh entry, or undefined when there is none, it is expired or unreadable. */
   read(server: ServerConfig): CacheEntry | undefined {
     try {
-      const data = JSON.parse(readFileSync(this.file(server), 'utf8')) as Partial<CacheFile>;
+      const text = readFileSync(this.file(server), 'utf8');
+      const head = FILE_HEAD.exec(text);
+      if (head && text.endsWith(']}')) {
+        // The layout `write` produces: age and version come from the head, the tools array is
+        // parsed only if somebody reads it.
+        if (Number(head[1]) !== CACHE_VERSION) return undefined;
+        const fetchedAt = Number(head[2]);
+        if (this.now() - fetchedAt > this.ttlMs) return undefined;
+        let tools: McpTool[] | undefined;
+        return {
+          fetchedAt,
+          rawBytes: text.length,
+          get tools(): McpTool[] {
+            return (tools ??= JSON.parse(text.slice(head[0].length, -1)) as McpTool[]);
+          },
+        };
+      }
+      const data = JSON.parse(text) as Partial<CacheFile>;
       if (data.version !== CACHE_VERSION || typeof data.fetchedAt !== 'number' || !Array.isArray(data.tools)) return undefined;
       if (this.now() - data.fetchedAt > this.ttlMs) return undefined;
-      return { tools: data.tools, fetchedAt: data.fetchedAt };
+      return { tools: data.tools, fetchedAt: data.fetchedAt, rawBytes: text.length };
     } catch {
       return undefined;
     }
@@ -83,9 +120,10 @@ export class CatalogCache {
   /**
    * Best effort: a cache that cannot be written must never fail a command. `fetchedAt` defaults to
    * now; callers that report the time to their own caller pass the value they report, so the file
-   * and the report agree (the prebuilt-catalog cache is keyed by it).
+   * and the report agree (the prebuilt-catalog cache is keyed by it). Returns the length of the
+   * text written, or undefined when nothing could be written.
    */
-  write(server: ServerConfig, tools: McpTool[], fetchedAt: number = this.now()): void {
+  write(server: ServerConfig, tools: McpTool[], fetchedAt: number = this.now()): number | undefined {
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       try {
@@ -96,10 +134,12 @@ export class CatalogCache {
       const file = this.file(server);
       const tmp = `${file}.${process.pid}.tmp`;
       const body: CacheFile = { version: CACHE_VERSION, fetchedAt, tools };
-      writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 });
+      const text = JSON.stringify(body);
+      writeFileSync(tmp, text, { mode: 0o600 });
       renameSync(tmp, file);
+      return text.length;
     } catch {
-      // ignore
+      return undefined;
     }
   }
 
