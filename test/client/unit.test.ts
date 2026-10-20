@@ -169,6 +169,8 @@ describe('lazy loading of the MCP SDK', () => {
         target: 'node20',
         metafile: true,
         write: false,
+        // A native addon; the real build leaves dependencies external as well.
+        external: ['@napi-rs/keyring'],
         logLevel: 'silent',
       });
       const outputs = Object.entries(result.metafile.outputs);

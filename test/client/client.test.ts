@@ -1,3 +1,4 @@
+import { createMemoryOAuthStore } from '../../src/client/oauth';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ import type { ServerConfig } from '../../src/config/types';
 const clients: InProcessClient[] = [];
 
 function makeClient(servers: ServerConfig[], env: Record<string, string> = {}): InProcessClient {
-  const client = new InProcessClient(servers, new FakeResolver(env));
+  const client = new InProcessClient(servers, new FakeResolver(env), { oauthStore: createMemoryOAuthStore() });
   clients.push(client);
   return client;
 }
@@ -158,13 +159,12 @@ describe('errors', () => {
     expect(unknown.message).toBe('no such server: missing');
   });
 
-  it('oauth servers get a clear exit-4 error in 0.1', async () => {
+  it('oauth servers without a saved login fail with exit 4 before any request (login flow: oauth.test.ts)', async () => {
     const client = makeClient([httpServer('http://127.0.0.1:1/mcp', { provider: 'linear', name: 'linear', auth: { type: 'oauth' } })]);
     const err = await failure(client.listTools('linear'));
     expect(err.exitCode).toBe(4);
-    expect(err.message).toContain('OAuth');
-    expect(err.message).toContain('not supported yet');
-    expect(err.next).toContain('bearer');
+    expect(err.message).toBe('linear requires auth');
+    expect(err.next).toBe('via auth login linear');
   });
 
   it('a call that outlasts its timeout fails with exit 6 and the session stays usable', async () => {

@@ -134,5 +134,8 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
     resolvedValues() {
       return [...values];
     },
+    track(value) {
+      if (value.length >= MIN_REDACTED_LITERAL_LENGTH) values.add(value);
+    },
   };
 }

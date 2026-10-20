@@ -4,6 +4,7 @@
 import { join } from 'node:path';
 import type { Catalog, McpTool, ProviderCatalog, ProviderStatus } from '../catalog';
 import type { McpClient } from '../client';
+import type { OAuthStore } from '../client/oauth/store';
 import type { ToolArgsError } from './args';
 import { pathContext, userCacheDir } from '../config/paths';
 import type { CredentialResolver, LoadedConfig, ServerConfig } from '../config';
@@ -39,6 +40,7 @@ export class App {
   private clientInstance?: McpClient;
   private tableInstance?: ProviderTable;
   private cacheInstance?: CatalogCache;
+  private oauthStoreInstance?: OAuthStore;
 
   constructor(
     readonly io: CliEnv,
@@ -103,9 +105,20 @@ export class App {
     if (!this.clientInstance) {
       const config = await this.config({ allowErrors: true });
       const { InProcessClient } = await import('../client');
-      this.clientInstance = new InProcessClient(config.servers, await this.resolver());
+      // The OAuth store is only set up when some server needs it.
+      const oauthStore = config.servers.some((s) => s.auth.type === 'oauth') ? await this.oauthStore() : undefined;
+      this.clientInstance = new InProcessClient(config.servers, await this.resolver(), { now: this.io.now, ...(oauthStore ? { oauthStore } : {}) });
     }
     return this.clientInstance;
+  }
+
+  /** Where OAuth logins are kept: keychain, else a file in the data directory (auth.md). */
+  async oauthStore(): Promise<OAuthStore> {
+    if (!this.oauthStoreInstance) {
+      const { createOAuthStore } = await import('../client/oauth');
+      this.oauthStoreInstance = createOAuthStore({ home: this.io.home, env: this.io.env, platform: this.io.platform });
+    }
+    return this.oauthStoreInstance;
   }
 
   async cache(): Promise<CatalogCache> {
@@ -143,7 +156,13 @@ export class App {
   async prime(server: ServerConfig, timeoutMs: number): Promise<void> {
     const { resolveConnection, mapError } = await import('../client');
     try {
-      await resolveConnection(server, await this.resolver(), this.io.env as NodeJS.ProcessEnv);
+      const resolver = await this.resolver();
+      await resolveConnection(server, resolver, this.io.env as NodeJS.ProcessEnv);
+      if (server.auth.type === 'oauth') {
+        // A saved login must exist (no network); its tokens join the redaction list.
+        const { createCallProvider } = await import('../client/oauth');
+        await createCallProvider(server, await this.oauthStore(), { track: (value) => resolver.track?.(value), now: this.io.now }).requireLogin();
+      }
     } catch (error) {
       throw mapError(error, { server, phase: 'connect', timeoutMs, redact: this.redact });
     }

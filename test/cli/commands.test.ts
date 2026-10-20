@@ -136,7 +136,7 @@ describe('via prompt', () => {
 });
 
 describe('built-ins reserved for 0.2', () => {
-  it.each([['batch'], ['auth', 'login', 'gh'], ['trust'], ['daemon', 'status']])('via %s explains itself with exit 2', async (...argv) => {
+  it.each([['batch'], ['trust'], ['daemon', 'status']])('via %s explains itself with exit 2', async (...argv) => {
     const sb = makeSandbox();
     const r = await sb.via(argv);
     expect(r.code).toBe(2);

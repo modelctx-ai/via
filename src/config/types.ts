@@ -97,4 +97,9 @@ export interface CredentialResolver {
   resolve(ref: CredentialRef, origin: ConfigOrigin): Promise<string>;
   /** Every value resolved so far, for redaction (output.md, "脱敏"). */
   resolvedValues(): readonly string[];
+  /**
+   * Add a secret obtained outside reference resolution (OAuth tokens, auth.md) to the redaction
+   * list. Values shorter than the literal minimum are ignored, as for literals.
+   */
+  track?(value: string): void;
 }

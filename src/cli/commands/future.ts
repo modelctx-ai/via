@@ -8,7 +8,6 @@ import { fail } from '../failure';
 
 const WHAT: Record<FutureCommand, string> = {
   batch: 'via batch (concurrent JSONL calls)',
-  auth: 'via auth (OAuth login, status, logout)',
   trust: 'via trust (confirming project-level configuration)',
   daemon: 'via daemon (the background process; 0.1 always connects in-process)',
 };
@@ -24,9 +23,6 @@ export function futureCommand(app: App, command: FutureCommand): never {
       'until via trust exists, use the server from your user config (~/.config/via/config.yaml) instead',
     );
     next = 'see docs/spec/security.md';
-  } else if (command === 'auth') {
-    lines.push('0.1 does not support OAuth: use a bearer token or API key, for example servers.<name>.auth: { bearer: "env:NAME" }');
-    next = 'see docs/spec/auth.md';
   }
   throw fail(ExitCode.Usage, `${WHAT[command]} is not available until 0.2`, next, lines);
 }
