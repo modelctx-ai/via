@@ -19,7 +19,7 @@
 - `via sync [provider]` 强制刷新。
 - 进程内模式（0.1）下，缓存是 `tools/list` 的唯一来源：`via <provider>` 只读取、必要时只拉取该 provider；`via`、`via find`、`via prompt` 并行处理全部 server，单个 server 的拉取超时取 `min(server 的 timeout, 10 秒)`（`--timeout` 覆盖）。拉取失败不中止：该 provider 仍然列出，标记 `needs auth`、`failed` 或 `untrusted`（[浏览视图](#via)）。
 - 命中缓存时仍会在本地解析该 server 的凭证引用，缺失就按「需要鉴权」处理，并让输出脱敏知道这些值；不发起网络请求。未信任的项目级 server 不读缓存，也不拉取。
-- 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt` 与原始 `tools/list` 结果。
+- 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt`、原始 `tools/list` 结果，以及 server 在 `initialize` 里声明的能力 `features`（`{"resources": bool, "prompts": bool}`，用于浏览视图的 `also:` 行；没有这一项的旧文件照常读取，只是不显示该行，刷新一次后出现）。
 - 经 daemon 时目录的读取、凭证检查和写缓存都在 daemon 里完成（与进程内模式写同一份 `catalog/` 文件）；CLI 只收到原始工具列表，拆分、分域和索引仍在 CLI 侧计算。
 - 校验失败且缓存超过 5 分钟时，刷新该 server 的缓存一次再校验（[arguments.md](arguments.md#schema-不可靠时)）。
 - 缓存中保存原始 `tools/list` 结果；拆分、分域、索引在加载时重新计算，因此规则升级无需清缓存。
@@ -122,6 +122,7 @@ commit         get · list
 - 叶子工具在资源行之后：`tools: search · fetch`，按 `tools/list` 顺序，超过 12 个时截断并提示 `--all`。
 - 资源行数超过一屏（默认 20 行）时截断，提示 `… N more · via <provider> --all`，位于叶子工具行之前。
 - 危险动作可以加标记（如 `delete!`），只读资源不加标记。
+- server 声明了 MCP 资源或 prompt 时，叶子工具行之后多一行 `also: via resources <provider> · via prompts <provider>`（只列出声明了的）。这是 agent 发现这两类内容的唯一入口，所以 `via prompt` 的说明文本不需要提它们。
 - 最后一行提示下一步：`→ via <provider> <resource> for signatures`。
 
 ### `via <provider> <resource>`
@@ -156,7 +157,7 @@ issue:search   query, [owner], [repo]                  Search issues
 
 ### 同义词扩展（默认开启，确定性）
 
-agent 的查询是自然语言（「删除工单」「合并 PR」），用词常与工具名不同。第 4 级的 BM25 因此在查询侧做数据驱动的扩展（[ADR 0010](../adr/0010-find-synonym-expansion-and-optional-embeddings.md)），不调用模型、不联网，规则在 `data/synonyms.json`（[格式](../development/data-files.md#synonymsjson)）：
+agent 的查询是自然语言（「删除工单」「合并 PR」），用词常与工具名不同。第 4 级的 BM25 因此在查询侧做数据驱动的扩展（[ADR 0011](../adr/0011-find-synonym-expansion-and-optional-embeddings.md)），不调用模型、不联网，规则在 `data/synonyms.json`（[格式](../development/data-files.md#synonymsjson)）：
 
 - **同义组**：动词（`remove`/`delete`/`destroy`/`drop`…，`get`/`fetch`/`retrieve`/`read`…，`find`/`search`/`query`/`lookup`…）和资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）各列一批等价词；组内成员可以是多词短语，查询里出现短语时整体匹配。
 - **词形还原**：单数化之外，按数据文件里的后缀规则（`ing`、`ed`、`ion`…）为查询词生成可能的原形（`creating` → `create`、`running` → `run`），只有在索引词表里确实存在的才采用，所以猜错无副作用。

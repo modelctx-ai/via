@@ -122,7 +122,7 @@ npm run lexicon    # 等价于对 test/fixtures/tools/ 运行 scripts/build-lexi
 
 ## synonyms.json
 
-`via find` 的查询侧同义词扩展（[discovery.md](../spec/discovery.md#同义词扩展默认开启确定性)，[ADR 0010](../adr/0010-find-synonym-expansion-and-optional-embeddings.md)）。Schema 为 `data/schema/synonyms.schema.json`。
+`via find` 的查询侧同义词扩展（[discovery.md](../spec/discovery.md#同义词扩展默认开启确定性)，[ADR 0011](../adr/0011-find-synonym-expansion-and-optional-embeddings.md)）。Schema 为 `data/schema/synonyms.schema.json`。
 
 ```json
 {

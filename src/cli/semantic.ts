@@ -1,4 +1,4 @@
-// Glue between `via find` and the optional embedding retrieval (discovery.md, "语义检索"; ADR 0010).
+// Glue between `via find` and the optional embedding retrieval (discovery.md, "语义检索"; ADR 0011).
 // Imported only when `search.semantic` is configured, so the default `find` never loads it or the
 // module behind it. Runs in the CLI process: the catalog is computed here, the embeddings are
 // cached on disk, and the daemon is not involved.

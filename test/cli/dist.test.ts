@@ -200,7 +200,7 @@ describe('built dist/via.js', () => {
       }
     });
 
-    // Optional embedding retrieval (ADR 0010) is one chunk that only `find` with `search.semantic` imports.
+    // Optional embedding retrieval (ADR 0011) is one chunk that only `find` with `search.semantic` imports.
     it('find without search.semantic never loads the embedding code', () => {
       const dir = dirname(bin);
       const semantic = readdirSync(dir).filter((f) => f.endsWith('.js') && readFileSync(join(dir, f), 'utf8').includes('VIAEMB1'));

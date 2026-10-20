@@ -19,7 +19,7 @@ export async function findCommand(app: App, argv: readonly string[]): Promise<nu
   const { entries } = await app.table();
   const { catalog, failures } = await app.loadProviders(entries);
 
-  // Optional embedding retrieval (ADR 0010): off unless the user config enables it, and then loaded
+  // Optional embedding retrieval (ADR 0011): off unless the user config enables it, and then loaded
   // on demand. Any failure leaves the lexical ranking and a meta line.
   const semanticConfig = (await app.config()).search?.semantic;
   const semantic = semanticConfig && query.trim() !== '' ? await (await import('../semantic')).semanticFind(app, semanticConfig, catalog, query) : undefined;

@@ -67,6 +67,8 @@ Providers: code (github, sentry) · search (exa, context7) · browser (playwrigh
 
 域摘要按 `via` 根视图的域顺序（分类表顺序、配置里自定义的域、`other`）逐域列出 provider，不分域的少量 provider 也一样；分在多个域下的 provider 在每个域各出现一次，并以 `名称[资源]` 注明相关资源（如 `workspace[mail]`）；超过 80 列时折行，续行与第一项对齐。没有任何 provider 时写 `Providers: none configured yet (run via doctor)`。
 
+说明里不提 MCP 资源和 prompt：server 声明了它们时，`via <provider>` 的视图会多一行 `also: via resources <provider> · via prompts <provider>`（[discovery.md](../spec/discovery.md#via-provider)），agent 在浏览时自然看到，没有的 server 不占任何 token。
+
 域摘要只有几十个 token，却能让 agent 一开始就知道去哪个方向找，提高首次命中率，减少 `find` 的往返次数。
 
 ## 迁移路径

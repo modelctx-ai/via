@@ -85,6 +85,8 @@ function describeServer(server: ServerConfig): string[] {
     lines.push(`  ${safe(server.provider)}  http  ${describeUrl(transport.url)}`);
     if (Object.keys(transport.headers).length > 0) lines.push(`      headers: ${describeEntries(transport.headers)}`);
   }
+  // Directories the server is told it may work in: part of what is being trusted (ADR 0010).
+  if (server.roots !== undefined && server.roots.length > 0) lines.push(`      roots: ${server.roots.map(word).join(', ')}`);
   if (auth.type === 'bearer') lines.push(`      auth.bearer: ${describeRef(auth.bearer)}`);
   if (auth.type === 'headers') lines.push(`      auth.headers: ${describeEntries(auth.headers)}`);
   return lines;

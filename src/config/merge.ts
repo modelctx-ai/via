@@ -61,12 +61,15 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
   if (def.headers !== undefined) d.headers = mergeRecord(d.headers, def.headers);
   if (def.rename !== undefined) d.rename = mergeRecord(d.rename, def.rename);
   if (def.noise !== undefined) d.noise = [...new Set([...(d.noise ?? []), ...def.noise])];
+  if (def.roots !== undefined) d.roots = [...def.roots];
   if (def.auth !== undefined) d.auth = def.auth as AuthConfig;
   for (const key of ['alias', 'domain', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget'] as const) {
     if (def[key] !== undefined) (d as Record<string, unknown>)[key] = def[key];
   }
 
-  if (isProject(origin) && origin.path && [def.command, def.args, def.env, def.cwd, def.url, def.headers].some((v) => v !== undefined)) {
+  // Non-empty `roots` widens what the server may touch, so it is trusted like a command (security.md); `[]` only narrows.
+  const widensRoots = def.roots !== undefined && def.roots.length > 0;
+  if (isProject(origin) && origin.path && (widensRoots || [def.command, def.args, def.env, def.cwd, def.url, def.headers].some((v) => v !== undefined))) {
     acc.launch.set(origin.path, origin);
   }
 }

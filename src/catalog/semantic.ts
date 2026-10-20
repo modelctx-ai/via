@@ -1,4 +1,4 @@
-// Optional embedding retrieval for `via find` (discovery.md, "语义检索"; ADR 0010). Loaded only when
+// Optional embedding retrieval for `via find` (discovery.md, "语义检索"; ADR 0011). Loaded only when
 // `search.semantic` is configured, so it costs nothing otherwise. This module knows nothing about
 // configuration or credentials: the caller passes resolved request headers.
 //

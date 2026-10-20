@@ -8,8 +8,8 @@
 
 ### Changed
 
-- `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0010](docs/adr/0010-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询、`--domain` 不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
-- AGENTS.md 的「发现逻辑是确定性的」改为「默认确定性；唯一的例外是用户显式开启的 `search.semantic`」（ADR 0010）。
+- `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0011](docs/adr/0011-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询、`--domain` 不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
+- AGENTS.md 的「发现逻辑是确定性的」改为「默认确定性；唯一的例外是用户显式开启的 `search.semantic`」（ADR 0011）。
 - 测试：`test/bench/synth-catalog.test.ts` 的「发送邮件」查询接受 `acme-workspace`（其 `mail-message:send` 现在是 `email` 的同义词命中，与 gmail 的描述命中同分）。
 - 规范补充（随 OAuth 实现）：auth.md 补全 OAuth 的发现、注册、回调、存储（含文件退路与 `VIA_OAUTH_STORE`）、刷新、状态与登出，以及调用时「需要登录」的行为；cli.md 的 `via auth` 说明；security.md、daemon.md 中 OAuth token 的脱敏与 daemon 持有的状态。`auth: oauth` 的 server 不再提示改用 bearer。
 - 项目名与命令名由占位名 `mx` 改为 `via`，npm 包名 `@modelctx/via`；配置路径、项目配置文件、socket、环境变量前缀随之改名（ADR 0009）。
@@ -29,6 +29,13 @@
 
 ### Added
 
+- MCP resources、prompts 与 roots（ADR 0010，roadmap c3；open-questions 里的对应条目已移除）：
+  - 新内置子命令 `via resources <provider>`（资源与资源模板）、`via read <provider> <uri>`、`via prompts <provider> [<名称> [参数]]`。`resources`、`read`、`prompts` 成为保留字，与之重名的 provider 需要 `alias`；`prompt` 与 `prompts` 是两个命令，`via prompt <provider>` 会提示后者。URI 是普通位置参数，不进工具语法（冒号）；不适用 `deny`、`--yes`、`--dry-run`（协议上只读）。订阅、补全、sampling 不在范围内。
+  - 输出走现有渲染流水线（预算、游标、媒体落盘、脱敏、`-o text|json|raw`），元信息行名称为 `resources <p>`、`read <p>`、`prompts <p> <名称>`；一次读取返回多个内容时每个前加 `# <uri>`。prompt 的参数转成字符串 schema，复用工具的参数解析、`-h`、校验与报错。server 没有声明相应能力退出码 3（不发请求），URI 不存在退出码 3，server 拒绝 prompt 参数退出码 1。
+  - `via <provider>` 在 server 声明了 resources 或 prompts 时多一行 `also: via resources <p> · via prompts <p>`；能力随 `tools/list` 缓存（缓存文件新增可选的 `features`，旧文件照常读取）。`via prompt` 的说明文本不变，不增加 token。
+  - 配置 `servers.<name>.roots`（路径或 `file://` URI）：声明 `roots` 能力并回应 `roots/list`。**默认不声明**；`listChanged` 为 `false`；相对路径相对运行 `via` 的当前目录，`~` 展开；daemon 里换算成绝对 URI 后参与会话键，所以相对 roots 不会跨目录共用会话。项目级配置设置非空 `roots` 需要 `via trust`（`via trust` 列出），`[]` 不需要；给 HTTP server 配 `roots` 有告警（`roots-remote`）。
+  - 协议：新增 `resources-list`、`resource-read`、`prompts-list`、`prompt-get` 请求（结果在 daemon 内脱敏，回退时作为无副作用请求重做），`list` 的结果带 `features`；会话键加入 `roots`。
+  - 测试夹具 `test/fixtures/mcp/cli-server.mjs` 增加可选的 resources（文本、JSON、二进制、多内容、长文本、模板、两页列表）、prompts 与读取 roots 的工具 `list_roots`。
 - 可选的 embedding 检索（路线图 c2 的第二层，默认关闭）：用户配置 `search.semantic: { provider: openai-compatible, url, model, auth, timeout, indexTimeout, dimensions }` 后，`via find` 把查询与工具描述的 embedding 同 BM25 做 RRF 融合（第 1–3 级规范写法匹配仍在最前）。只读用户配置与命令行覆盖，项目配置里的被忽略并告警（`search-forbidden`）；`url` 必须是 https（回环地址可用 http）且不含内嵌凭证；`auth` 是凭证引用，不跟随重定向，响应体、请求头、端点从不进入输出。工具描述的向量按文本哈希缓存在 `<缓存目录>/embeddings/`（目录 0700、文件 0600），描述变了才重新请求；缓存完整时语义步骤的期限是 `timeout`（默认 3 秒），补 embedding 时是 `indexTimeout`（默认 30 秒），期限内没完成（超时、HTTP 错误、凭证缺失、响应异常、缓存仍不完整）就退回词法排序并在 stderr 写一行 `· semantic unavailable: <原因> · lexical results`，退出码不变，已取得的向量保留供下次继续。只影响 `via find`；实现是独立分块，关闭时零加载；在 CLI 进程内完成，不经 daemon。spec 见 discovery.md、config.md、security.md（新增「embedding 检索的数据外流」）。
 - `npm run eval:search`（`scripts/eval-search.ts`）：在 `test/fixtures/search/eval.json`（调参集）和 `heldout.json`（留出集）上报告词法基线与默认的 recall@1、recall@5、MRR，`--misses` 列出仍然答错的查询；回归测试 `test/catalog/search-eval.test.ts` 断言不低于基线并锁定下限。
 - 测试：`test/helpers/embeddings-server.ts`（本机 OpenAI 兼容 embeddings 服务，确定性假向量），覆盖融合、缓存、超时与错误退回、脱敏、配置校验（`test/catalog/semantic.test.ts`、`test/cli/semantic.test.ts`、`test/config/search.test.ts`）；`test/cli/dist.test.ts` 校验默认的 `find` 不加载 embedding 分块。

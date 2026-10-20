@@ -16,6 +16,7 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 | 读取其他客户端的 token | 不读取；OAuth 由 via 自己完成并存入钥匙串（不可用时退回 0600 的私有文件，[auth.md](auth.md#存储)） |
 | OAuth token 出现在输出里 | access token、refresh token、ID token 与客户端 secret 一律计入脱敏列表；授权 URL 只含 `state` 与 PKCE challenge，不含秘密；回调监听只绑 `127.0.0.1` 并校验 `Host` 与 `state`；调用过程永远不会启动授权 |
 | 授权被发往仓库指定的地址 | `via auth login` 对未信任的项目级 server 退出码 5 |
+| 本机目录被告知 server（roots） | 默认不声明 `roots` 能力，server 看不到任何本机目录；只有用户在配置里写下 `roots` 才声明。项目级配置设置非空 `roots` 需要 `via trust`，`via trust` 会列出；`[]` 只会收窄，不需要。给 HTTP server 配 `roots` 时告警（本地路径发往远端）。via 不会因为 server 的请求改变 roots，会话的 roots 在其生命周期内固定 |
 | 工具描述与查询被发往第三方 embedding 端点 | `search.semantic` 默认关闭，只在用户配置里生效（项目与框架配置里的被忽略并告警）；见下文[embedding 检索的数据外流](#embedding-检索的数据外流) |
 
 ## 项目级配置的信任
@@ -24,6 +25,7 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 
 - 项目级 `.via.yaml`，以及作为来源读取的项目级框架配置（如 `.mcp.json`、`.cursor/mcp.json`、`.vscode/mcp.json`）中定义的 **stdio 命令**和 **HTTP 端点**，首次使用前必须经 `via trust` 确认。HTTP 同样需要确认，因为项目配置一旦能改 `url`，用户为这个 server 配置的凭证（`auth.bearer`、钥匙串、文件）就会被发往仓库指定的地址。
 - 信任按「文件路径（符号链接解析后的真实路径）+ 内容的 SHA-256」记录在用户数据目录的 `trust.json`（目录 0700，文件 0600，原子替换）；内容变化后需要重新确认。哈希针对 via 实际解析的那份字节，读取与校验之间文件被改动不会被误信任。记录文件损坏时视为没有任何信任记录，并给出告警。
+- 项目级文件设置非空的 `roots` 同样视为决定 server 能碰什么的字段：它会把本机目录交给 server（filesystem 类 server 会把 roots 当作可访问范围），所以与 `command`、`url` 一样需要 `via trust`；用户级配置里定义的 server，如果项目配置给它加了 `roots`，视为未信任。写成 `[]` 只会收窄，不需要。
 - 凡是参与决定传输的项目级文件都要已被信任：stdio 进程如何启动（`command`、`args`、`env`、`cwd`），HTTP 请求发往哪里、带什么头（`url`、`headers`）。用户级配置里定义的 server，如果项目配置给它加了 `env`、改了 `url` 或加了 `headers`，同样视为未信任；项目配置只改 `timeout`、`disabled`、`auth` 等不影响传输的字段则不需要。项目配置里 `sources` 列出的文件按项目级处理。
 - 未信任时，这些 server 在视图中显示为 `untrusted`，调用退出码 5，并提示 `via trust <路径>`（同一个 server 有多个文件待确认时提示不带路径的 `via trust`）。路径含空格等字符时按 shell 规则加引号。
 - 项目级配置和框架配置中出现 `cmd:` 凭证引用时直接拒绝，信任也不能放行：该 server 的定义整条被忽略，并报 error 级诊断（`cmd-forbidden`）。`cmd:` 会执行命令，不属于「确认之后可以使用」的范畴；需要时在用户配置里定义，项目配置只能引用用户配置里已有的 server（改传输部分仍要信任）。
@@ -38,7 +40,7 @@ via trust --revoke <路径>        # 删除一条记录
 ```
 
 - **范围**：不带路径时，处理当前目录加载到的、因信任而被拦住的项目级文件（含 `.via.yaml`、`sources` 列出的项目级文件、项目级框架配置）；带路径时只处理这一个文件。路径必须是当前目录实际加载的项目级文件（相对路径相对于当前目录，符号链接按真实路径匹配），否则退出码 2；该文件里没有需要信任的 server 定义时只说明情况，不记录。信任是针对文件的，不是针对 server 的。
-- **显示内容**：每个文件一段，写明文件路径、状态（`not trusted`；曾信任过但内容变了则为 `changed since it was trusted`）、哈希前 12 位，以及受它影响的每个 server 的有效传输定义：stdio 的命令行（含参数，含空白的参数加引号）、`cwd`、`env` 的变量名；HTTP 的 scheme、主机与路径（userinfo、查询串隐藏，并注明），`headers` 的头名。`env`、`headers`、`auth` 的值只写来源：凭证引用写引用本身，字面量写 `(literal)`，不显示值；`cmd:` 只写程序名，因为参数里可能带密钥。文件内容里的控制字符、双向文本控制符按转义形式显示，避免文件伪造显示内容。命令行的参数是配置原文，会原样显示，**不要把密钥写进参数**。
+- **显示内容**：每个文件一段，写明文件路径、状态（`not trusted`；曾信任过但内容变了则为 `changed since it was trusted`）、哈希前 12 位，以及受它影响的每个 server 的有效传输定义：stdio 的命令行（含参数，含空白的参数加引号）、`cwd`、`env` 的变量名；HTTP 的 scheme、主机与路径（userinfo、查询串隐藏，并注明），`headers` 的头名；非空的 `roots` 照原样列出（`roots: ., ~/notes`）。`env`、`headers`、`auth` 的值只写来源：凭证引用写引用本身，字面量写 `(literal)`，不显示值；`cmd:` 只写程序名，因为参数里可能带密钥。文件内容里的控制字符、双向文本控制符按转义形式显示，避免文件伪造显示内容。命令行的参数是配置原文，会原样显示，**不要把密钥写进参数**。
 - **确认**：显示之后需要明确确认才记录。在终端（stdin 与 stderr 都是 TTY）里提示 `trust this file? [y/N]`，只有 `y`/`yes` 通过；否则必须带 `--yes`，没有终端又没有 `--yes` 时退出码 5，提示 `next:` 重新运行并带 `--yes`；回答 `n` 或直接回车同样退出码 5，什么都不记录。`--dry-run` 只显示、不记录，退出码 0。`--yes` 是给脚本用的显式开关；它也意味着任何能执行 `via trust --yes` 的 agent 都能放行不可信的仓库，所以应当在 agent 的权限设置里不放行 `via trust`，而是让它把提示转给用户。
 - **记录**：写入 `trust.json` 的是 via 解析时读到的那份字节的 SHA-256（不是确认时磁盘上的内容），成功后在 stderr 输出 `· trusted <路径> · sha256 <12 位> · <provider 列表>`。文件内容之后改变则视为未信任，`via trust` 会再次显示并要求确认。
 - **`--list`**：每条记录一行：状态（`trusted`、`changed`、`missing`）、路径、哈希前 12 位、日期；没有记录时输出 `no trust records`。
@@ -71,5 +73,6 @@ via trust --revoke <路径>        # 删除一条记录
 
 ## 边界说明
 
+- `deny` 只匹配工具引用。MCP 资源与 prompt 的列出、读取（`via resources`、`via read`、`via prompts`）协议上都是只读的，不受 `deny` 与 `--yes` 约束。一个 server 通过资源暴露的内容多少，取决于 server 本身和用户给它的 `roots`；需要整个隐藏时用 `disabled`。资源内容和 prompt 消息同工具输出一样是数据，via 不解释它们。
 - `deny` 只在 via 一侧生效。agent 可以绕过 via 直接访问上游，需要不可绕过的限制时，使用上游提供的只读端点（如 Linear 的 `/mcp/readonly`）、最小权限的 token，或网关。
 - via 不修改任何框架配置，也不代替框架做权限判断。

@@ -1,7 +1,19 @@
 // Mock MCP server for the CLI end-to-end tests: a small GitHub-shaped tool set with annotations,
 // output schemas, progress, a long result and failing tools. Plain ESM like mock-server.mjs.
+// With `features` it also serves resources (text, JSON, blob, several contents, a long text, templates,
+// two list pages) and prompts; the feature `roots` adds the tool `list_roots`, which asks the client for its roots.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema,
+  ErrorCode,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListResourceTemplatesRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  McpError,
+  ReadResourceRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 
 const object = (properties = {}, required = []) => ({ type: 'object', properties, required });
 const str = (description) => ({ type: 'string', description });
@@ -56,20 +68,108 @@ export function defaultTools() {
   ];
 }
 
+const ROOTS_TOOL = { name: 'list_roots', description: 'Ask the client for its roots', inputSchema: object() };
+
+/** A 1x1 PNG. */
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+const RESOURCES = [
+  { uri: 'file:///project/README.md', name: 'README.md', description: 'Project readme', mimeType: 'text/plain' },
+  { uri: 'file:///project/data.json', name: 'data.json', mimeType: 'application/json' },
+  { uri: 'file:///project/logo.png', name: 'logo.png', mimeType: 'image/png' },
+  { uri: 'file:///project/credentials.txt', name: 'credentials.txt', description: 'Echoes the credential the server saw', mimeType: 'text/plain' },
+  { uri: 'file:///project/big.txt', name: 'big.txt', description: 'A long text', mimeType: 'text/plain' },
+  { uri: 'file:///project/dir', name: 'dir', description: 'Two files at once' },
+];
+
+const TEMPLATES = [{ uriTemplate: 'file:///project/logs/{date}.log', name: 'log', description: 'Log of a day', mimeType: 'text/plain' }];
+
+const PROMPTS = [
+  {
+    name: 'review',
+    description: 'Review a piece of code',
+    arguments: [
+      { name: 'code', description: 'The code to review', required: true },
+      { name: 'lang', description: 'Programming language' },
+    ],
+  },
+  { name: 'greet_user', description: 'Greet someone', arguments: [{ name: 'name', required: true }] },
+  { name: 'summarize', description: 'A prompt with several messages' },
+];
+
 /** Shared, inspectable state: one Server is built per HTTP request, so it lives outside. */
 export function createCliState() {
-  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0 };
+  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [] };
 }
 
 /**
- * @param {{ state: ReturnType<typeof createCliState>, authorization?: string }} options
+ * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots'> }} options
  */
-export function createCliServer({ state, authorization }) {
-  const server = new Server({ name: 'cli-fixture', version: '0.0.0' }, { capabilities: { tools: {} } });
+export function createCliServer({ state, authorization, features = [] }) {
+  const capabilities = { tools: {}, ...(features.includes('resources') ? { resources: {} } : {}), ...(features.includes('prompts') ? { prompts: {} } : {}) };
+  const server = new Server({ name: 'cli-fixture', version: '0.0.0' }, { capabilities });
+  const secret = authorization ?? process.env.FIXTURE_SECRET ?? '<none>';
+
+  if (features.includes('resources')) {
+    // Two pages, to prove that the client follows `nextCursor`.
+    server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
+      return request.params?.cursor === 'page-2' ? { resources: RESOURCES.slice(3) } : { resources: RESOURCES.slice(0, 3), nextCursor: 'page-2' };
+    });
+    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: TEMPLATES }));
+    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const { uri } = request.params;
+      state.reads.push(uri);
+      switch (uri) {
+        case 'file:///project/README.md':
+          return { contents: [{ uri, mimeType: 'text/plain', text: '# Project\nHello from the readme.' }] };
+        case 'file:///project/data.json':
+          return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ name: 'via', tags: ['a', 'b'], empty: null }) }] };
+        case 'file:///project/logo.png':
+          return { contents: [{ uri, mimeType: 'image/png', blob: PNG }] };
+        case 'file:///project/credentials.txt':
+          return { contents: [{ uri, mimeType: 'text/plain', text: `authorization: ${secret}` }] };
+        case 'file:///project/big.txt':
+          return { contents: [{ uri, mimeType: 'text/plain', text: Array.from({ length: 400 }, (_, i) => `line ${i + 1} of the long text`).join('\n') }] };
+        case 'file:///project/dir':
+          return { contents: [{ uri: 'file:///project/dir/a.txt', mimeType: 'text/plain', text: 'file a' }, { uri: 'file:///project/dir/b.bin', mimeType: 'application/octet-stream', blob: Buffer.from('bin').toString('base64') }] };
+        case 'file:///project/logs/2026-10-20.log':
+          return { contents: [{ uri, mimeType: 'text/plain', text: 'started\nstopped' }] };
+        case 'file:///project/odd':
+          throw new McpError(ErrorCode.InvalidParams, 'Invalid URI');
+        default:
+          throw new McpError(-32002, `Resource not found: ${uri}`);
+      }
+    });
+  }
+
+  if (features.includes('prompts')) {
+    server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: PROMPTS }));
+    server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args = {} } = request.params;
+      state.prompts.push({ name, args });
+      switch (name) {
+        case 'review':
+          if (args.code === undefined) throw new McpError(ErrorCode.InvalidParams, 'Missing required argument: code');
+          return { description: 'Review', messages: [{ role: 'user', content: { type: 'text', text: `Please review this ${args.lang ?? 'code'}:\n${args.code}` } }] };
+        case 'greet_user':
+          return { messages: [{ role: 'user', content: { type: 'text', text: `Hello, ${args.name}!` } }] };
+        case 'summarize':
+          return {
+            messages: [
+              { role: 'user', content: { type: 'text', text: 'Summarize the readme.' } },
+              { role: 'user', content: { type: 'resource', resource: { uri: 'file:///project/README.md', mimeType: 'text/plain', text: '# Project' } } },
+              { role: 'assistant', content: { type: 'text', text: 'It is a project.' } },
+            ],
+          };
+        default:
+          throw new McpError(ErrorCode.InvalidParams, `Unknown prompt: ${name}`);
+      }
+    });
+  }
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     state.listCalls += 1;
-    return { tools: state.tools };
+    return { tools: features.includes('roots') ? [...state.tools, ROOTS_TOOL] : state.tools };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -100,6 +200,13 @@ export function createCliServer({ state, authorization }) {
         return { content: [{ type: 'text', text: 'requested' }] };
       case 'whoami':
         return { content: [{ type: 'text', text: `authorization: ${authorization ?? '<none>'}` }] };
+      case 'list_roots': {
+        // A server asking its client: over stdio only (the HTTP fixture answers each request on a fresh server).
+        const roots = server.getClientCapabilities()?.roots;
+        if (!roots) return { content: [{ type: 'text', text: 'roots: the client did not declare the capability' }] };
+        const listed = await server.listRoots();
+        return { content: [{ type: 'text', text: [`roots (listChanged: ${roots.listChanged === true}):`, ...listed.roots.map((r) => `${r.uri} ${r.name ?? ''}`.trimEnd())].join('\n') }] };
+      }
       case 'echo_text':
         return { content: [{ type: 'text', text: `echo: ${args.message}` }] };
       case 'run_job': {

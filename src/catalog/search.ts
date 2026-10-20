@@ -31,7 +31,7 @@ export interface SearchOptions {
   domain?: string;
   /**
    * Cosine similarity of the query to each tool, keyed by `CatalogTool.ref` (optional embedding
-   * retrieval, ADR 0010). When present the BM25 and semantic rankings are fused with RRF inside each tier.
+   * retrieval, ADR 0011). When present the BM25 and semantic rankings are fused with RRF inside each tier.
    */
   semantic?: ReadonlyMap<string, number>;
 }

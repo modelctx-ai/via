@@ -11,7 +11,12 @@ via <provider> <resource>                 该资源下每个动作一行，带�
 via <provider> <resource>:<verb> -h       用法
 via <provider> <resource>:<verb> [参数]   调用
 via <provider> <tool>                     调用无法拆分的叶子工具
+via resources <provider>                  列出该 server 的 MCP 资源与资源模板
+via read <provider> <uri>                 读取一个 MCP 资源
+via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时取该 prompt
 ```
+
+最后三行不属于 `provider → 资源 → 动作` 的层级：MCP 资源按 URI 寻址，URI 自带冒号（`file:///a.txt`），不能放进以冒号标明工具的语法里，所以它们是独立的内置子命令（[ADR 0010](../adr/0010-mcp-resources-prompts-and-roots.md)）。文档里的「MCP 资源」与工具名拆出的「资源（resource）」不是一回事，见[术语表](../overview/glossary.md)。
 
 各级视图的输出格式见 [discovery.md](discovery.md#浏览视图)。
 
@@ -46,11 +51,14 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 | `via sync [provider]` | 强制刷新工具目录缓存 |
 | `via doctor` | 检查连接与鉴权，检测各框架挂载的 MCP 并输出关闭提示 |
 | `via prompt [--out <文件>]` | 生成给 agent 的说明与域摘要 |
+| `via resources <provider>` | 列出 MCP 资源与资源模板（[见下](#mcp-资源与-prompt-命令)） |
+| `via read <provider> <uri>` | 读取一个 MCP 资源 |
+| `via prompts <provider> [<名称> [参数]]` | 列出 MCP prompt；带名称时取该 prompt，参数写法同工具 |
 | `via daemon status\|stop\|run` | 管理后台进程；`run` 供内部拉起使用（[daemon.md](daemon.md)） |
 
 内置子命令名是保留字，大小写不敏感，不接受前缀。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警，该 server 在改名前不出现在任何视图里。
 
-0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用（[路线图](../roadmap.md)）。
+0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
 
 各命令的细节：
 
@@ -67,6 +75,31 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 - `via sync`：向各 server（或指定的 provider）重新拉取 `tools/list` 并更新缓存，每个 provider 一行（`gh  14 tools` 或 `linear  needs auth: …`）；有失败时退出码取其中最大的，并在 stderr 提示 `next: via doctor`。
 - `via doctor`：对每个 server 实时探测（不读缓存，成功后更新缓存），再输出检测结果；退出码取各项问题中最高的一个（见[退出码](output.md#退出码)）。
 - `via prompt --out <文件>`：路径相对当前目录；目标文件已存在时需要 `--yes` 才会覆盖（退出码 5），避免覆盖用户自己写的 AGENTS.md。成功后在 stderr 输出 `· wrote <文件> · N bytes`。
+
+### MCP 资源与 prompt 命令
+
+这三个命令只读：MCP 协议里列出和读取资源、列出和取 prompt 都没有副作用，所以没有 `--yes`、`--dry-run` 的含义，`deny` 也不适用（它匹配工具引用，见 [security.md](security.md#边界说明)）。第二个参数是 provider，解析规则同其他命令（唯一前缀、大小写与 `-`/`_` 宽松，输入不是规范写法时 stderr 打印 `· resources <provider>`）。结果走通用的[渲染流水线](output.md#mcp-资源与-prompt)：预算、游标、媒体落盘、脱敏、元信息行都与工具调用一致，元信息行里的名称是 `resources <provider>`、`read <provider>`、`prompts <provider> <名称>`。
+
+- `via resources <provider>`：每个资源一行（URI、MIME 类型或 `-`、名称、描述的首行），之后是 `templates:` 与每个资源模板一行（RFC 6570 的 `uriTemplate`），最后一行 `→ via read <provider> <uri>`。分页拉全。`-o json` 输出 `{"resources": […], "templates": […]}`。没有任何条目时输出 `(no resources)`。
+- `via read <provider> <uri>`：`<uri>` 原样发给 server，不拆分、不展开模板——资源模板里的 `{占位符}` 由调用方自己替换。有且只有两个参数。读取返回的每个内容：文本按文本结果渲染（内容是 JSON 时与工具结果一样被清理和整形，要原文用 `-o raw`），二进制 `blob` 写入缓存目录、只打印路径；一次返回多个内容时，每个前面加一行 `# <uri>`。
+- `via prompts <provider>`：每个 prompt 一行（名称、参数签名、描述的首行），最后一行 `→ via prompts <provider> <名称> -h for usage`。
+- `via prompts <provider> <名称> [参数…]`：名称按与工具相同的宽松规则匹配（原样、`-`/`_` 与大小写宽松、唯一前缀）；找不到时给出 did you mean（退出码 3），有歧义时列出候选。prompt 的参数是一组具名字符串，via 把它们当作只有字符串属性的工具 schema，复用工具的参数解析：`--名称 值`（名称按 kebab-case 书写）、`--args`、`@文件`、`-`（stdin）、唯一必填参数的位置写法、本地校验与 `-h`、`--no-validate`、校验报错与退出码 2（[arguments.md](arguments.md)）。`-h` 写在名称之后时显示这个 prompt 的用法，不含工具才有的 `alias` 与危险性标记行。结果的每条消息输出为 `[角色]` 一行加内容；非文本内容（图片、音频、嵌入资源、资源链接）紧随其后按[媒体规则](output.md#渲染流程)处理。`-o json` 输出 `{"description"?, "messages": [{"role", "content"}]}`，二进制内容只描述（`type`、`mimeType`），不内联。server 用 `-32602` 拒绝参数时退出码 1，信息取自 server。
+
+server 没有在 `initialize` 里声明相应能力（`resources`、`prompts`）时不发请求，退出码 3：
+
+```console
+$ via resources gh
+error: gh does not offer MCP resources
+next: via gh
+```
+
+URI 不存在（server 回 `-32002`，或把它当作 `-32602`）时同样退出码 3，`next: via resources <provider>`：
+
+```console
+$ via read fs file:///project/missing.txt
+error: no such resource: file:///project/missing.txt (Resource not found: file:///project/missing.txt)
+next: via resources fs
+```
 
 ### 配置错误
 

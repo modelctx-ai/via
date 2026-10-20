@@ -1,0 +1,4 @@
+review      code, [lang]  Review a piece of code
+greet_user  name          Greet someone
+summarize                 A prompt with several messages
+→ via prompts gh <name> -h for usage

@@ -18,6 +18,9 @@ export const RESERVED_COMMANDS: readonly string[] = [
   'doctor',
   'prompt',
   'daemon',
+  'resources',
+  'read',
+  'prompts',
   'help',
 ];
 

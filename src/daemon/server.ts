@@ -376,6 +376,18 @@ export class DaemonServer {
           ...(onProgress ? { onProgress } : {}),
         });
       }
+      case 'resources-list':
+        if (this.stale(request)) return STALE;
+        return this.sessions.resources(request, { timeoutMs: request.timeoutMs });
+      case 'resource-read':
+        if (this.stale(request)) return STALE;
+        return this.sessions.readResource(request, String(request.uri), { timeoutMs: request.timeoutMs });
+      case 'prompts-list':
+        if (this.stale(request)) return STALE;
+        return this.sessions.prompts(request, { timeoutMs: request.timeoutMs });
+      case 'prompt-get':
+        if (this.stale(request)) return STALE;
+        return this.sessions.getPrompt(request, String(request.name), promptArgs(request.args), { timeoutMs: request.timeoutMs });
       case 'validate':
         return this.validate(request.schema, request.label, request.data, request.compileOnly === true);
       case 'redact':
@@ -459,6 +471,15 @@ export class DaemonServer {
 const STALE = Symbol('stale');
 
 // Helpers -------------------------------------------------------------------------------
+
+/** Prompt arguments are strings; anything else a confused caller sent is dropped. */
+function promptArgs(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof value === 'object' && value !== null) {
+    for (const [key, v] of Object.entries(value)) if (typeof v === 'string') Object.defineProperty(out, key, { value: v, enumerable: true, writable: true, configurable: true });
+  }
+  return out;
+}
 
 function tokenMatches(expected: string, given: unknown): boolean {
   if (typeof given !== 'string' || given.length !== expected.length) return false;

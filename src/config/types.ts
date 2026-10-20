@@ -25,7 +25,7 @@ export type AuthConfig =
   | { type: "oauth"; scopes?: string[]; clientId?: string };
 
 /**
- * `search.semantic` (config.md, ADR 0010): optional embedding retrieval for `via find`. Read from
+ * `search.semantic` (config.md, ADR 0011): optional embedding retrieval for `via find`. Read from
  * the user config only; it sends tool descriptions and queries to `url`.
  */
 export interface SemanticSearchConfig {
@@ -81,6 +81,11 @@ export interface ServerConfig {
   concurrency: number;
   budget?: number;
   noise: string[];
+  /**
+   * Directories the server may work in, as written (paths or `file://` URIs; config.md, `roots`).
+   * Absent or empty: via does not declare the `roots` capability.
+   */
+  roots?: string[];
   /** Source of the transport definition. */
   origin: ConfigOrigin;
   /**

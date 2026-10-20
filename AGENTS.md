@@ -14,7 +14,7 @@
 - TypeScript，`strict` 模式，ESM，目标 Node.js 20+。技术选型与目录结构见 `docs/development/implementation.md`。
 - 规则类内容放在 `data/`（动词表、域分类表、噪声字段、框架描述），不要写死在代码里。格式见 `docs/development/data-files.md`。
 - 不为任何特定 server 或网关写专门适配逻辑；所有 server 走同一套命名、参数映射和渲染规则（ADR 0007）。
-- 发现逻辑默认是确定性的，不调用模型；唯一的例外是用户在用户配置里显式开启的 `search.semantic`，它只影响 `via find` 的排序、失败时退回词法排序（[ADR 0010](docs/adr/0010-find-synonym-expansion-and-optional-embeddings.md)）。
+- 发现逻辑默认是确定性的，不调用模型；唯一的例外是用户在用户配置里显式开启的 `search.semantic`，它只影响 `via find` 的排序、失败时退回词法排序（[ADR 0011](docs/adr/0011-find-synonym-expansion-and-optional-embeddings.md)）。
 - CLI 冷启动是核心指标：入口文件只做参数解析和 socket 通信，MCP SDK、ajv 等重依赖按需懒加载。
 - 退出码、stderr 元信息行、错误后的 `next:` 提示必须符合 `docs/spec/output.md`。
 
