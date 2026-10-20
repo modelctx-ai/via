@@ -2,13 +2,12 @@
 
 讨论有结论后，把结论写进对应的规范或新的 ADR，并从这里移除。
 
-- [ ] **包名与命令名**：仓库名为 `mx`，但 npm 上的 `mx`、Homebrew 上的同名公式、系统中已有的同名命令都需要检查；候选如 npm 用 scoped 包 `@modelctx/mx`，二进制名保持 `mx`。
 - [ ] **运行时与分发**：默认要求 Node 22，还是同时以 Bun 单文件可执行为主要分发形式；两者冷启动差异需要实测。
 - [ ] **截断预算默认值**：8 KB 是起点，需要用 token 基准和 agent 评测确定。
 - [ ] **拆分规则**：动词表的范围、拆分失败（退回叶子工具）的比例，需要在真实 server 上统计和调整。
 - [ ] **分域参数**：阈值、领先倍数、信号权重的初始值需要调参。
-- [ ] **MCP resources 与 prompts**：是否提供 `mx read <uri>` 和 `mx prompts`，还是只覆盖 tools。
-- [ ] **`mx serve` 模式**：是否让 mx 以 MCP server 身份对外暴露少量元工具，服务没有 shell 的 agent。这与网关的角色部分重叠。
+- [ ] **MCP resources 与 prompts**：是否提供 `via read <uri>` 和 `via prompts`，还是只覆盖 tools。
+- [ ] **`via serve` 模式**：是否让 via 以 MCP server 身份对外暴露少量元工具，服务没有 shell 的 agent。这与网关的角色部分重叠。
 - [ ] **Windows 支持**：Node 的 `net` 模块可直接使用 named pipe，剩下的差异主要在钥匙串、路径和对端身份校验。
 - [ ] **框架提示的维护方式**：各框架版本更新较快，`data/frameworks/` 靠社区贡献还是定期人工核对。
 - [ ] **并存期的状态冲突**：除 `exclusive` 提示外，是否需要主动检测框架里正在运行的同名 stdio 实例。

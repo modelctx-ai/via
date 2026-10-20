@@ -1,4 +1,4 @@
-# mx 文档
+# via 文档
 
 ## 索引
 
@@ -25,7 +25,7 @@
 ### 指南
 
 - [快速上手](guides/getting-started.md)
-- [与 agent 框架集成](guides/agent-integration.md)：`mx doctor`、`mx prompt`、迁移路径、并存期注意事项
+- [与 agent 框架集成](guides/agent-integration.md)：`via doctor`、`via prompt`、迁移路径、并存期注意事项
 - [组合用法](guides/recipes.md)：管道、batch、heredoc、跨 provider
 - Provider 示例：[GitHub](guides/providers/github.md) · [Linear](guides/providers/linear.md) · [Notion](guides/providers/notion.md) · [Cloudflare](guides/providers/cloudflare.md) · [网关类 server](guides/providers/gateways.md)
 
@@ -46,6 +46,6 @@
 - **规范优先**：`spec/` 是唯一的行为依据；指南和 README 里的示例与规范冲突时，以规范为准，并修正示例。
 - **措辞**：规范中「必须 / 不得」是硬性要求，「应当 / 不应」是默认要求（偏离需说明理由），「可以」是可选行为。
 - **示例**：命令输出示例表达的是意图，具体列宽与措辞以快照测试为准。
-- **上游事实**：引用真实 MCP server 的工具名、URL、鉴权方式时注明来源；这些会随上游版本变化，mx 运行时一律以 `tools/list` 为准。
+- **上游事实**：引用真实 MCP server 的工具名、URL、鉴权方式时注明来源；这些会随上游版本变化，via 运行时一律以 `tools/list` 为准。
 - **决策**：「为什么这样做」写进 ADR，规范里只写「是什么」，并链接到对应 ADR。
 - **术语**：首次出现的术语链接到[术语表](overview/glossary.md)。

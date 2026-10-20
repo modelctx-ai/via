@@ -5,21 +5,21 @@
 
 ## 背景
 
-用户已经在 Claude Code、Cursor、Codex、VS Code 等框架里配好了 MCP server。曾考虑过两种迁移方式：把这些配置导入 mx 并在框架中禁用（接管），或者只读引用。
+用户已经在 Claude Code、Cursor、Codex、VS Code 等框架里配好了 MCP server。曾考虑过两种迁移方式：把这些配置导入 via 并在框架中禁用（接管），或者只读引用。
 
 ## 决策
 
-- mx 在运行时只读引用框架配置，不做快照，框架那边改了这边自动生效。
-- mx 从不写入任何框架配置。是否在框架里关闭 MCP 注入由用户决定，mx 通过 `mx doctor` 给出关闭提示。
-- 凭证、覆盖定义、新增 server 写在 mx 自己的覆盖层（用户配置、项目配置）。
-- 框架通过 OAuth 获得的 token 存在框架私有位置，mx 不读取，需要 OAuth 的 server 由 mx 自己授权一次。
+- via 在运行时只读引用框架配置，不做快照，框架那边改了这边自动生效。
+- via 从不写入任何框架配置。是否在框架里关闭 MCP 注入由用户决定，via 通过 `via doctor` 给出关闭提示。
+- 凭证、覆盖定义、新增 server 写在 via 自己的覆盖层（用户配置、项目配置）。
+- 框架通过 OAuth 获得的 token 存在框架私有位置，via 不读取，需要 OAuth 的 server 由 via 自己授权一次。
 
 ## 备选方案
 
-- **导入并接管（takeover）**：迁移体验更顺，但修改了用户的配置，出错时难以恢复，也让 mx 承担了各框架配置格式写入的维护成本。
+- **导入并接管（takeover）**：迁移体验更顺，但修改了用户的配置，出错时难以恢复，也让 via 承担了各框架配置格式写入的维护成本。
 - **快照导入**：框架配置改了需要重新导入，容易漂移。
 
 ## 后果
 
-- 框架与 mx 可能同时运行同一个 stdio server，带来资源占用、独占冲突、状态不共享、限流共享等问题，需要 `exclusive` 配置和文档说明（[与 agent 框架集成](../guides/agent-integration.md#并存期的注意事项)）。
+- 框架与 via 可能同时运行同一个 stdio server，带来资源占用、独占冲突、状态不共享、限流共享等问题，需要 `exclusive` 配置和文档说明（[与 agent 框架集成](../guides/agent-integration.md#并存期的注意事项)）。
 - 各框架配置格式的解析描述放在 `data/frameworks/`，需要随框架版本维护。

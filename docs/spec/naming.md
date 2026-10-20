@@ -14,7 +14,7 @@
    - 首尾都不是动词时，取第一个出现的动词（`calendar_list_events` → `calendar-event:list`）；
    - 用 `or`、`and` 连接的多个动词合并为复合动作（`create_or_update_file` → `file:create-or-update`）。
 4. **组资源**：剩余的词用 `-` 连接作为资源，末词单数化，相邻重复词去重（单数化之后比较）。
-5. **叶子工具**：拆不出资源或动作的，作为叶子工具，名字转为 kebab-case，在 `mx <provider>` 的最后一行列出。
+5. **叶子工具**：拆不出资源或动作的，作为叶子工具，名字转为 kebab-case，在 `via <provider>` 的最后一行列出。
 6. **冲突**：两个工具拆出相同的 `资源:动作` 时，两者都退回为叶子工具，避免歧义。
 
 动词表放在 `data/verbs.json`（格式见[数据文件](../development/data-files.md#verbsjson)），至少包括 get、list、create、update、delete、search、send、run、fetch、read、write、add、remove、merge、trigger、query、move、duplicate、restore、cancel、navigate、click。

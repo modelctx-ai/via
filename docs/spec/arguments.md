@@ -11,7 +11,7 @@
 | 标量数组 | `--tag a --tag b` | 重复传参；不用逗号分隔，避免值内含逗号时歧义 |
 | object | `--filter.state open` | 点号路径逐层赋值 |
 | 复杂结构 | `--args '{…}'`、`--args @file.json`、`--args -` | `--args` 作为基础，其余参数在其上覆盖 |
-| 唯一必填的 string 参数 | 位置参数 `mx exa web:search "rust mcp"` | 仅当恰好一个必填参数且其类型为 string 时启用 |
+| 唯一必填的 string 参数 | 位置参数 `via exa web:search "rust mcp"` | 仅当恰好一个必填参数且其类型为 string 时启用 |
 
 ### 参数名
 
@@ -36,11 +36,11 @@ schema 中的 anyOf/oneOf 分支能由已给出的字段唯一确定时，自动
 
 ## 帮助
 
-`mx <provider> <resource>:<verb> -h` 由 schema 渲染：
+`via <provider> <resource>:<verb> -h` 由 schema 渲染：
 
 ```console
-$ mx github issue:read -h
-usage: mx github issue:read --owner <str> --repo <str> --issue-number <num>
+$ via github issue:read -h
+usage: via github issue:read --owner <str> --repo <str> --issue-number <num>
          --method get|get_comments|get_sub_issues|get_parent|get_labels
          [--page <num>] [--per-page <num>]
 
@@ -58,7 +58,7 @@ alias: issue_read · read-only
 
 ```console
 error: missing required --repo; --state must be one of open, closed, all
-usage: mx github issue:list --owner <str> --repo <str> [--state open|closed|all]
+usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all]
 ```
 
 未知参数报错并给出最接近的参数名。

@@ -36,18 +36,18 @@
 示例：
 
 ```console
-$ mx github issue:list --owner acme --repo api
+$ via github issue:list --owner acme --repo api
 number  title                    state  labels   updated
 12      Support OAuth DCR        open   auth     2026-10-18
 11      Group inference too eag… open   catalog  2026-10-17
 9       Windows named pipes      open   daemon   2026-10-12
 · github issue:list · 318ms · 3 rows · +7 cols (-o json)
 
-$ mx exa web:search "rust mcp"
+$ via exa web:search "rust mcp"
 title                          url                                   score
 Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 …
-· exa web:search · 612ms · 8.0k/38.2k bytes · next: mx more c7f2
+· exa web:search · 612ms · 8.0k/38.2k bytes · next: via more c7f2
 ```
 
 元信息行固定以 `·` 开头，避免与工具内容混淆（[security.md](security.md)）。
@@ -55,7 +55,7 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 ## 游标
 
 - 被截断的完整结果由 daemon 保存 30 分钟；进程内模式下存在用户缓存目录（权限 0700），按 TTL 清理。
-- `mx more <游标>` 从截断处继续，格式与首段一致；仍有剩余时元信息行给出新的游标。
+- `via more <游标>` 从截断处继续，格式与首段一致；仍有剩余时元信息行给出新的游标。
 - 游标是不透明字符串，不得编码凭证或参数原文。
 
 ## 错误
@@ -64,7 +64,7 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 
 ```console
 error: linear requires auth
-next: mx auth login linear
+next: via auth login linear
 ```
 
 - `isError` 结果：上游错误文本经清理、脱敏后输出，退出码 1。
@@ -82,4 +82,4 @@ next: mx auth login linear
 | 4 | 需要鉴权或鉴权失败 |
 | 5 | 被拒绝：deny 规则命中，或危险操作缺少 `--yes` |
 | 6 | 上游、传输错误或超时 |
-| 7 | mx 内部错误 |
+| 7 | via 内部错误 |

@@ -1,6 +1,6 @@
 # 鉴权
 
-框架不做鉴权，全部由 mx 负责：凭证按 server 绑定，调用时自动注入。
+框架不做鉴权，全部由 via 负责：凭证按 server 绑定，调用时自动注入。
 
 ## 鉴权方式
 
@@ -17,11 +17,11 @@
 ## OAuth
 
 - 流程：PKCE 授权码流程，按 MCP 授权规范发现授权服务器，支持动态客户端注册；不支持动态注册的 server 需在配置中提供 `clientId`。
-- 触发：`mx auth login <provider>` 打开浏览器完成授权；无浏览器环境打印授权 URL，并在本地回调端口等待。
-- 存储：access token、refresh token 存入系统钥匙串，服务名 `mx`，账户名为 server 定义的哈希。
+- 触发：`via auth login <provider>` 打开浏览器完成授权；无浏览器环境打印授权 URL，并在本地回调端口等待。
+- 存储：access token、refresh token 存入系统钥匙串，服务名 `via`，账户名为 server 定义的哈希。
 - 刷新：daemon 负责在过期前刷新；进程内模式在调用前检查并刷新。
-- 不读取其他客户端（Claude、Cursor 等）私有存储的 OAuth token；需要 OAuth 的 server 由 mx 自己授权一次。
-- `mx auth status [provider]` 显示鉴权方式、主体标识、过期时间（不显示 token）；`mx auth logout <provider>` 删除存储的 token。
+- 不读取其他客户端（Claude、Cursor 等）私有存储的 OAuth token；需要 OAuth 的 server 由 via 自己授权一次。
+- `via auth status [provider]` 显示鉴权方式、主体标识、过期时间（不显示 token）；`via auth logout <provider>` 删除存储的 token。
 
 ## 调用时的行为
 
@@ -30,11 +30,11 @@
 
   ```console
   error: linear requires auth
-  next: mx auth login linear
+  next: via auth login linear
   ```
 
 - 凭证缺失（如环境变量未设置、钥匙串无条目）时不发起调用，直接说明缺哪一项、可以用哪种写法补上，退出码 4。
-- `mx` 顶层视图和 `mx servers` 中标出需要鉴权的 provider。
+- `via` 顶层视图和 `via servers` 中标出需要鉴权的 provider。
 
 ## 常见 server 的鉴权
 

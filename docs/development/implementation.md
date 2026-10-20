@@ -1,6 +1,6 @@
 # 实现说明
 
-用 TypeScript 实现（[ADR 0004](../adr/0004-typescript.md)），运行在 Node.js 20 及以上（推荐 22，可启用模块编译缓存），以 npm 包发布，另提供免装 Node 的单文件可执行版本。CLI 与 `mx daemon run` 是同一个入口。
+用 TypeScript 实现（[ADR 0004](../adr/0004-typescript.md)），运行在 Node.js 20 及以上（推荐 22，可启用模块编译缓存），以 npm 包发布，另提供免装 Node 的单文件可执行版本。CLI 与 `via daemon run` 是同一个入口。
 
 ## 依赖选型
 
@@ -33,7 +33,7 @@
 单个包、按模块分目录，薄封装不需要 monorepo：
 
 ```text
-mx/
+via/
 ├─ src/
 │  ├─ cli/          # 入口、子命令、工具参数解析
 │  ├─ config/       # 框架配置探测与解析、合并、凭证引用
@@ -75,5 +75,5 @@ mx/
 3. `config/`：框架配置只读解析与合并、凭证引用。
 4. `client/` 进程内模式：stdio 与 HTTP 直连、bearer/env 鉴权。
 5. `cli/`：子命令、浏览视图、schema 驱动的参数解析、退出码。
-6. `mx doctor`、`mx prompt`。
+6. `via doctor`、`via prompt`。
 7. token 基准与 agent 评测（[testing.md](testing.md)）。

@@ -90,7 +90,7 @@ node scripts/build-lexicon.js test/fixtures/tools/ > data/domain-lexicon.json
 
 ## frameworks
 
-`data/frameworks/<id>.json`，每个 agent 框架一个文件，描述如何只读解析它的 MCP 配置，以及如何关闭注入。供[配置](../spec/config.md)与 [`mx doctor`](../guides/agent-integration.md) 使用。
+`data/frameworks/<id>.json`，每个 agent 框架一个文件，描述如何只读解析它的 MCP 配置，以及如何关闭注入。供[配置](../spec/config.md)与 [`via doctor`](../guides/agent-integration.md) 使用。
 
 ```json
 {
@@ -111,7 +111,7 @@ node scripts/build-lexicon.js test/fixtures/tools/ > data/domain-lexicon.json
 | `configs[].format` | `json`、`jsonc`、`toml`、`yaml` |
 | `configs[].pointer` | server 映射在文件中的位置（JSON Pointer），如 Codex 为 `/mcp_servers`，VS Code 为 `/servers` |
 | `configs[].scope` | `user` 或 `project`；`project` 级的 stdio 命令受[信任规则](../spec/security.md#项目级配置的信任)约束 |
-| `disableHint` | `mx doctor` 显示的关闭方法 |
+| `disableHint` | `via doctor` 显示的关闭方法 |
 | `verifiedAt` | 最近一次按该框架实际版本核对的时间 |
 
 各框架的路径和字段名会随版本变化，新增或更新条目时必须按实际版本核对并更新 `verifiedAt`。

@@ -4,8 +4,8 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 
 ## 生命周期
 
-1. CLI 检查 socket：Linux 为 `$XDG_RUNTIME_DIR/mx.sock`（未设置时退回用户缓存目录），macOS 为用户缓存目录下的 `mx.sock`，Windows 为 named pipe `\\.\pipe\mx-<用户名>`。
-2. 不存在则以 `mx daemon run` 分离启动，最多等待 2 秒就绪，然后转发请求。
+1. CLI 检查 socket：Linux 为 `$XDG_RUNTIME_DIR/via.sock`（未设置时退回用户缓存目录），macOS 为用户缓存目录下的 `via.sock`，Windows 为 named pipe `\\.\pipe\via-<用户名>`。
+2. 不存在则以 `via daemon run` 分离启动，最多等待 2 秒就绪，然后转发请求。
 3. 握手时交换版本；CLI 与 daemon 版本不一致时，daemon 处理完在途请求后退出，由本次 CLI 重新拉起。
 4. daemon 空闲 10 分钟退出；单个 stdio server 空闲 5 分钟停止子进程（均可配置，见 [config.md](config.md)）。
 5. daemon 异常（拉起失败、连接中断）时，CLI 回退为进程内模式完成本次调用，并在 stderr 提示一次。
@@ -71,17 +71,17 @@ type ErrorInfo = {
 
 ## 并发
 
-- agent 可能并行启动多个 `mx` 进程，daemon 对每个连接独立处理。
+- agent 可能并行启动多个 `via` 进程，daemon 对每个连接独立处理。
 - 同一 server 上的多个请求复用一个 MCP 会话，通过 JSON-RPC id 多路复用。
 - 可按 server 配置并发上限（`concurrency`），超出时排队。
 
 ## 独占资源的 server
 
-有些 server 会锁定同一个 SQLite 文件、浏览器 profile 或固定端口，和框架里仍在运行的同名实例冲突。配置 `exclusive: true` 后，启动失败时 mx 给出明确提示：可能与 agent 框架中的同名 server 冲突，运行 `mx doctor` 查看关闭方法。
+有些 server 会锁定同一个 SQLite 文件、浏览器 profile 或固定端口，和框架里仍在运行的同名实例冲突。配置 `exclusive: true` 后，启动失败时 via 给出明确提示：可能与 agent 框架中的同名 server 冲突，运行 `via doctor` 查看关闭方法。
 
 ## 无 daemon 模式
 
-设置 `MX_NO_DAEMON=1` 时在进程内直连，适用于 CI 或不允许常驻进程的沙箱。HTTP server 基本不受影响；stdio server 每次调用都会重新拉起；游标保存在用户缓存目录。
+设置 `VIA_NO_DAEMON=1` 时在进程内直连，适用于 CI 或不允许常驻进程的沙箱。HTTP server 基本不受影响；stdio server 每次调用都会重新拉起；游标保存在用户缓存目录。
 
 ## socket 安全
 

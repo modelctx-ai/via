@@ -12,7 +12,7 @@ flowchart LR
     a4["三级浏览 · find · 调用"]
     a5["工具名拆分与分域"]
     a6["统一渲染、游标、退出码"]
-    a7["mx doctor · mx prompt"]
+    a7["via doctor · via prompt"]
   end
   g1{{"门槛 1"}}
   subgraph v02["0.2 常驻与鉴权"]
@@ -20,8 +20,8 @@ flowchart LR
     b1["daemon 与会话复用"]
     b2["OAuth（PKCE、动态注册）"]
     b3["list_changed 实时刷新"]
-    b4["mx batch 与 cmd: 凭证"]
-    b5["mx trust 与 deny 规则"]
+    b4["via batch 与 cmd: 凭证"]
+    b5["via trust 与 deny 规则"]
     b6["框架关闭提示数据文件"]
   end
   g2{{"门槛 2"}}
@@ -31,7 +31,7 @@ flowchart LR
     c2["可选语义检索"]
     c3["resources 与 prompts"]
     c4["Windows 支持"]
-    c5["mx serve（待定）"]
+    c5["via serve（待定）"]
   end
   v01 --> g1 --> v02 --> g2 --> v03
 ```

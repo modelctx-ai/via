@@ -5,18 +5,18 @@
 
 ## 背景
 
-借鉴 Asterlane 按域聚合工具的思路，mx 也需要把 provider 分到 code、search、project 等域，方便在 provider 多时浏览。但 Asterlane 的域由管理员配置，mx 面对的是任意 server，域只能靠推断（分类表加启发式打分）。
+借鉴 Asterlane 按域聚合工具的思路，via 也需要把 provider 分到 code、search、project 等域，方便在 provider 多时浏览。但 Asterlane 的域由管理员配置，via 面对的是任意 server，域只能靠推断（分类表加启发式打分）。
 
 ## 决策
 
-- 域只用于 `mx` 顶层的分组展示和 `mx find --domain` 过滤，不出现在命令路径和规范名中。
+- 域只用于 `via` 顶层的分组展示和 `via find --domain` 过滤，不出现在命令路径和规范名中。
 - 分域优先级：配置 → 内置分类表 → 启发式打分 → `other`。
-- 启发式是确定性的，不调用模型；可以用 `mx servers --why` 解释，用配置覆盖。
+- 启发式是确定性的，不调用模型；可以用 `via servers --why` 解释，用配置覆盖。
 - provider 不超过 6 个时不分域。
 
 ## 备选方案
 
-- **`mx code github issue:create`**：域写进路径，推断规则一调整命令就失效；域名也可能与 provider 重名。
+- **`via code github issue:create`**：域写进路径，推断规则一调整命令就失效；域名也可能与 provider 重名。
 - **只靠分类表，不做启发式**：未知 server 全部落进 `other`，失去分组意义。
 
 ## 后果

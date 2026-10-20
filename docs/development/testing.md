@@ -31,13 +31,13 @@
 对一组真实 server（github、playwright、linear、notion 等）计算并持续跟踪：
 
 - **原生注入成本**：框架挂载这些 server 时每轮注入的 schema token；
-- **mx 成本**：`mx prompt` 说明 + 完成一组典型任务时发现与调用产生的 token。
+- **via 成本**：`via prompt` 说明 + 完成一组典型任务时发现与调用产生的 token。
 
 这是项目的核心指标，结果随版本记录。
 
 ## agent 评测
 
-同一组任务分别让 agent 用原生 MCP 和用 mx 完成，比较：
+同一组任务分别让 agent 用原生 MCP 和用 via 完成，比较：
 
 - 总 token；
 - 任务成功率；

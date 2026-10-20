@@ -1,15 +1,15 @@
-# 0002. mx 是独立的 MCP client，不是网关
+# 0002. via 是独立的 MCP client，不是网关
 
 - 状态：已接受
 - 日期：2026-10-20
 
 ## 背景
 
-可以把 mx 做成网关（集中托管凭证、按 key 划分权限、审计），也可以做成本地客户端。已有的网关项目（如 Asterlane）解决的是服务端的凭证路由、权限范围和懒加载目录。
+可以把 via 做成网关（集中托管凭证、按 key 划分权限、审计），也可以做成本地客户端。已有的网关项目（如 Asterlane）解决的是服务端的凭证路由、权限范围和懒加载目录。
 
 ## 决策
 
-mx 是一个本地、per-user 的独立 MCP client，与 Claude、Cursor 处在同一层级；它不托管多用户凭证，不做按 key 的权限划分，也不提供审计。需要这些能力时，在 mx 背后接一个网关，网关对 mx 而言只是普通 server。
+via 是一个本地、per-user 的独立 MCP client，与 Claude、Cursor 处在同一层级；它不托管多用户凭证，不做按 key 的权限划分，也不提供审计。需要这些能力时，在 via 背后接一个网关，网关对 via 而言只是普通 server。
 
 ## 备选方案
 
@@ -18,5 +18,5 @@ mx 是一个本地、per-user 的独立 MCP client，与 Claude、Cursor 处在�
 
 ## 后果
 
-- mx 与 agent 同用户运行，只能降低凭证意外暴露的概率，不能防止有意读取；这条边界必须在文档中写清楚（[security.md](../spec/security.md)）。
-- 网关不支持的本地 stdio server 由 mx 直连补上，两者可以并存。
+- via 与 agent 同用户运行，只能降低凭证意外暴露的概率，不能防止有意读取；这条边界必须在文档中写清楚（[security.md](../spec/security.md)）。
+- 网关不支持的本地 stdio server 由 via 直连补上，两者可以并存。

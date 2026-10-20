@@ -1,6 +1,6 @@
 # 发现：目录、分域、浏览与搜索
 
-域是推断出来的浏览视图，可以随规则调整，不进入名称（[ADR 0006](../adr/0006-domain-is-a-view.md)）。这是和 Asterlane 的关键区别：Asterlane 的域由管理员配置，可以写进名称；mx 的域靠推断，写进名称就会不稳定。
+域是推断出来的浏览视图，可以随规则调整，不进入名称（[ADR 0006](../adr/0006-domain-is-a-view.md)）。这是和 Asterlane 的关键区别：Asterlane 的域由管理员配置，可以写进名称；via 的域靠推断，写进名称就会不稳定。
 
 ## 目录构建流程
 
@@ -8,7 +8,7 @@
 2. **确定 provider**：取 server 别名（或配置中的 `alias`），统一为小写 kebab-case；与内置子命令重名时必须改名。
 3. **拆分工具名**：每个工具拆成 `资源:动作`，拆不开的作为叶子工具（[naming.md](naming.md)）。
 4. **推断域**：配置中的 `domain` → 内置分类表 → 启发式打分 → 置信度不足则归入 `other`。
-5. **建索引**：provider、资源、动作、原始名、描述、参数名分词后建倒排索引，供 `mx find` 使用。
+5. **建索引**：provider、资源、动作、原始名、描述、参数名分词后建倒排索引，供 `via find` 使用。
 6. **过滤**：`deny` 规则命中的工具从视图和索引中移除（[config.md](config.md#deny)）。
 
 ### 缓存
@@ -16,7 +16,7 @@
 - 缓存键：server 定义的哈希（命令、参数、URL、相关 env 名，不含凭证值）+ 身份（鉴权主体的稳定标识，无法获得时用凭证引用本身的哈希）。
 - 位置：用户缓存目录下的 `catalog/`，权限 0700。
 - TTL 默认 24 小时；daemon 在线时订阅 `notifications/tools/list_changed` 实时刷新。
-- `mx sync [provider]` 强制刷新。
+- `via sync [provider]` 强制刷新。
 - 缓存中保存原始 `tools/list` 结果；拆分、分域、索引在加载时重新计算，因此规则升级无需清缓存。
 
 ## 分域
@@ -70,11 +70,11 @@
 **可解释、可覆盖**：
 
 ```console
-$ mx servers --why acme-ops
+$ via servers --why acme-ops
 acme-ops → ops (heuristic, 0.82)
   ops   12.4   deployment, cluster, pod, logs
   data   3.1   query, table
-  next: set servers.acme-ops.domain in ~/.config/mx/config.yaml to override
+  next: set servers.acme-ops.domain in ~/.config/via/config.yaml to override
 ```
 
 判断不对时在配置里写 `domain:` 覆盖，或用顶层 `domains:` 自定义域并指定成员。
@@ -83,31 +83,31 @@ acme-ops → ops (heuristic, 0.82)
 
 每一级都应当控制在一屏以内，并在末尾提示下一步命令。
 
-### `mx`
+### `via`
 
 ```console
-$ mx
+$ via
 9 providers · 214 tools · 1 needs auth (linear)
 code     github · sentry
 search   exa · context7
 project  linear
 browser  playwright
-→ mx <provider> to browse · mx find <query> to search
+→ via <provider> to browse · via find <query> to search
 ```
 
 - 第一行：provider 数、可见工具数、异常状态（需要鉴权、连接失败）。
 - 可见 provider 不超过 6 个时不分域，直接每行一个 provider 并标注域。
 - 需要鉴权或连接失败的 provider 仍然列出，并带标记。
 
-### `mx <provider>`
+### `via <provider>`
 
 ```console
-$ mx github
+$ via github
 issue          read · write · list · search
 pull-request   read · create · list · merge
 file           create-or-update · push · delete
 commit         get · list
-… 14 more · mx github --all
+… 14 more · via github --all
 ```
 
 - 每个资源一行，动作内联，按资源名排序。
@@ -115,15 +115,15 @@ commit         get · list
 - 资源行数超过一屏（默认 20 行）时截断，提示 `--all`。
 - 危险动作可以加标记（如 `delete!`），只读资源不加标记。
 
-### `mx <provider> <resource>`
+### `via <provider> <resource>`
 
 ```console
-$ mx github issue
+$ via github issue
 issue:read     owner, repo, issue-number, method       Get issue details
 issue:write    owner, repo, method, [title], [body]     Create or update issue
 issue:list     owner, repo, [state], [labels]          List issues
 issue:search   query, [owner], [repo]                  Search issues
-→ mx github issue:<verb> -h for usage
+→ via github issue:<verb> -h for usage
 ```
 
 - 每个工具一行：动作、签名、截断到 60 字符的描述。
@@ -131,7 +131,7 @@ issue:search   query, [owner], [repo]                  Search issues
 
 ## 搜索
 
-`mx find <查询>` 跨 provider 搜索，排序规则沿用 Asterlane 的做法并增加多词检索：
+`via find <查询>` 跨 provider 搜索，排序规则沿用 Asterlane 的做法并增加多词检索：
 
 1. 规范写法完全匹配；
 2. 规范写法前缀匹配；
@@ -143,4 +143,4 @@ issue:search   query, [owner], [repo]                  Search issues
 
 ## 找不到时
 
-按段（provider、资源、动作分别）计算编辑距离，给出至多 3 个 did you mean；仍无结果时提示 `mx find <关键词>`。退出码 3。
+按段（provider、资源、动作分别）计算编辑距离，给出至多 3 个 did you mean；仍无结果时提示 `via find <关键词>`。退出码 3。

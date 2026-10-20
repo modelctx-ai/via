@@ -13,7 +13,7 @@ agent 接入外部工具有两条路：MCP 和 CLI。
 
 ## 决策
 
-服务端继续用 MCP 暴露能力；消费端（有 shell 的 agent）不挂载 MCP，统一通过 mx 这个 CLI 按需发现和调用工具。mx 负责把 MCP 的结构化能力（schema、鉴权）转成 CLI 的使用方式（逐级发现、管道、紧凑输出）。
+服务端继续用 MCP 暴露能力；消费端（有 shell 的 agent）不挂载 MCP，统一通过 via 这个 CLI 按需发现和调用工具。via 负责把 MCP 的结构化能力（schema、鉴权）转成 CLI 的使用方式（逐级发现、管道、紧凑输出）。
 
 ## 备选方案
 

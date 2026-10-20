@@ -7,13 +7,14 @@
 | 编号 | 决策 | 状态 |
 | --- | --- | --- |
 | [0001](0001-mcp-for-providers-cli-for-consumers.md) | MCP 做提供方协议，CLI 做消费方接口 | 已接受 |
-| [0002](0002-standalone-client-not-gateway.md) | mx 是独立的 MCP client，不是网关 | 已接受 |
+| [0002](0002-standalone-client-not-gateway.md) | via 是独立的 MCP client，不是网关 | 已接受 |
 | [0003](0003-read-only-framework-configs.md) | 只读引用框架配置，不接管、不写入 | 已接受 |
 | [0004](0004-typescript.md) | 使用 TypeScript 实现 | 已接受 |
-| [0005](0005-command-grammar-provider-resource-verb.md) | 命令形态为 `mx <provider> <resource>:<verb>` | 已接受 |
+| [0005](0005-command-grammar-provider-resource-verb.md) | 命令形态为 `via <provider> <resource>:<verb>` | 已接受 |
 | [0006](0006-domain-is-a-view.md) | 域只是浏览视图，不进入命令路径和规范名 | 已接受 |
 | [0007](0007-no-gateway-specific-adaptation.md) | 不对任何网关做专门适配 | 已接受 |
 | [0008](0008-dynamic-dispatch-no-codegen.md) | 运行时动态分发，不生成代码 | 已接受 |
+| [0009](0009-project-name-via.md) | 项目名与命令名为 via | 已接受 |
 
 ## 流程
 
