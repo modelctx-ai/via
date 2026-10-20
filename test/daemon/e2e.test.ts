@@ -2,6 +2,7 @@
 // daemon it starts is a detached child process (the same path production takes).
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { Socket } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -262,19 +263,46 @@ describe('credentials', () => {
     expect(unknown).toMatchObject({ ok: false, error: { exitCode: 7 } });
   });
 
-  it('restarts the daemon when the caller\'s environment differs, so a rotated token is used', async () => {
-    const srv = await startFixtureServer({ token: 'token-B-for-daemon-tests' });
+  it('shells with different tokens alternate without restarting the daemon: each gets its own token\'s result, and no token crosses the socket', async () => {
+    const TOKEN_A = 'token-A-for-daemon-tests';
+    const TOKEN_B = 'token-B-for-daemon-tests';
+    const srv = await startFixtureServer({ token: TOKEN_B });
     useCleanup(() => srv.close());
-    const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: 'token-A-for-daemon-tests' });
-    const wrong = await d.via(['gh', 'echo-text', '--message', 'hi']);
+    const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: TOKEN_A });
+    const asB = { env: { GH_TOKEN: TOKEN_B } };
+    const call = ['gh', 'echo-text', '--message', 'hi'];
+
+    // What this process writes to any socket (the CLI side of the daemon protocol).
+    const written: string[] = [];
+    const write = Socket.prototype.write;
+    Socket.prototype.write = function (this: Socket, ...args: Parameters<Socket['write']>) {
+      const chunk = args[0] as unknown;
+      // Only the daemon socket (a unix socket has no remote port), not the HTTP connections to the upstream server.
+      if (this.remotePort === undefined) written.push(typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : '');
+      return write.apply(this, args);
+    } as typeof write;
+    useCleanup(() => {
+      Socket.prototype.write = write;
+    });
+
+    const wrong = await d.via(call); // the daemon is started by the shell holding the token the server refuses
     expect(wrong.code).toBe(4);
     const first = (await d.status())!;
-    const right = await d.via(['gh', 'echo-text', '--message', 'hi'], { env: { GH_TOKEN: 'token-B-for-daemon-tests' } });
-    expect(right.code).toBe(0);
-    expect(right.stdout).toBe('echo: hi\n');
-    expect(right.stderr).not.toContain('warning');
-    const second = (await d.via(['daemon', 'status', '-o', 'json'], { env: { GH_TOKEN: 'token-B-for-daemon-tests' } })).stdout;
-    expect((JSON.parse(second) as { pid: number }).pid).not.toBe(first.pid);
+    for (let i = 0; i < 3; i += 1) {
+      const right = await d.via(call, asB); // handled in-process: this shell's token is not the daemon's
+      expect(right.code).toBe(0);
+      expect(right.stdout).toBe('echo: hi\n');
+      expect(right.stderr).not.toContain('warning');
+      expect((await d.via(call)).code).toBe(4); // the daemon still serves shell A, with A's token
+    }
+    const status = (await d.via(['daemon', 'status', '-o', 'json'], asB)).stdout;
+    expect((JSON.parse(status) as { pid: number }).pid).toBe(first.pid);
+    Socket.prototype.write = write;
+    expect(written.length).toBeGreaterThan(0);
+    for (const chunk of written) {
+      expect(chunk).not.toContain(TOKEN_A);
+      expect(chunk).not.toContain(TOKEN_B);
+    }
   });
 });
 
@@ -294,7 +322,7 @@ describe('exclusive servers', () => {
 });
 
 describe('cursors', () => {
-  it('keeps truncated results in the daemon, not on disk', async () => {
+  it('keeps truncated results readable after the daemon has exited', async () => {
     const srv = await startFixtureServer({ token: FAKE_TOKEN });
     useCleanup(() => srv.close());
     const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: FAKE_TOKEN });
@@ -302,15 +330,19 @@ describe('cursors', () => {
     expect(first.code).toBe(0);
     const cursor = /next: via more ([0-9a-f]+)/.exec(first.stderr)?.[1];
     expect(cursor).toBeDefined();
-    expect(existsSync(join(d.sb.cacheDir, 'cursors'))).toBe(false);
+    expect(existsSync(join(d.sb.cacheDir, 'cursors', `${cursor!}.json`))).toBe(true);
 
     const more = await d.via(['more', cursor!]);
     expect(more.code).toBe(0);
     expect(more.stdout).toContain('Pull request number');
     expect(first.stdout).not.toBe(more.stdout);
 
+    // The daemon's idle exit must not expire the cursor: the files are in the cache directory.
     await d.stop();
-    const gone = await d.via(['more', cursor!]);
+    const after = await d.via(['more', cursor!]);
+    expect(after.code).toBe(0);
+    expect(after.stdout).toBe(more.stdout);
+    const gone = await d.via(['more', 'ffff']);
     expect(gone.code).toBe(3);
   });
 });

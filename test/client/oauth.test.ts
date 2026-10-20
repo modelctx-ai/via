@@ -6,6 +6,7 @@ import { InProcessClient } from '../../src/client';
 import {
   accountOf,
   browserUnavailable,
+  checkStoreWritable,
   createCallProvider,
   createMemoryOAuthStore,
   createOAuthStore,
@@ -305,6 +306,89 @@ describe('token refresh', () => {
     const { store, target } = await loggedIn(srv);
     const provider = createCallProvider(httpServer(target.url, { provider: 'linear', auth: { type: 'oauth' } }), store, { now: () => T0 + 2 * HOUR });
     await expect(provider.accessToken()).rejects.toMatchObject({ name: 'LoginRequiredError', reason: 'expired' });
+  });
+});
+
+describe('checkStoreWritable', () => {
+  it('names what cannot be written: the file, or the directory it is replaced in', async () => {
+    const location = { kind: 'file' as const, path: '/data/via/oauth/oauth-abc.json' };
+    const denied = (blocked: string) => async (path: string) => {
+      if (path === blocked) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    };
+    expect(await checkStoreWritable(location, async () => undefined)).toBeUndefined();
+    expect(await checkStoreWritable(location, denied('/data/via/oauth'))).toEqual({ path: '/data/via/oauth', what: 'directory' });
+    expect(await checkStoreWritable(location, denied('/data/via/oauth/oauth-abc.json'))).toEqual({ path: '/data/via/oauth/oauth-abc.json', what: 'file' });
+  });
+
+  it('does not probe the keychain', async () => {
+    expect(await checkStoreWritable({ kind: 'keychain' }, async () => { throw new Error('never called'); })).toBeUndefined();
+  });
+
+  it('works on real files', async () => {
+    const dir = tmp();
+    const file = join(dir, 'x.json');
+    writeFileSync(file, '{}');
+    expect(await checkStoreWritable({ kind: 'file', path: file })).toBeUndefined();
+  });
+});
+
+describe('refresh with a read-only token store', () => {
+  /** A store that can be read but not written, like a login kept on a read-only mount. */
+  function readOnly(inner: ReturnType<typeof createMemoryOAuthStore>) {
+    return { get: inner.get.bind(inner), delete: inner.delete.bind(inner), set: async () => { throw new Error('EROFS: read-only file system, open \'/data/via/oauth/x.json\''); } };
+  }
+
+  it('keeps working with the refreshed token and warns once per session (not per refresh)', async () => {
+    const srv = await mockServer();
+    const { store } = await loggedIn(srv);
+    let now = T0;
+    const warnings: string[] = [];
+    const client = new InProcessClient([httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } })], new FakeResolver(), {
+      oauthStore: readOnly(store),
+      now: () => now,
+      onWarning: (m) => warnings.push(m),
+    });
+    cleanups.push(() => client.close());
+    await client.listTools('linear');
+    expect(warnings).toEqual([]);
+    now = T0 + 2 * HOUR;
+    const result = await client.callTool('linear', 'echo_text', { message: 'hi' });
+    expect(JSON.stringify(result)).toContain('echo: hi');
+    now = T0 + 4 * HOUR;
+    await client.callTool('linear', 'echo_text', { message: 'again' });
+    expect(srv.state.tokenRequests.filter((t) => t.grant_type === 'refresh_token')).toHaveLength(2);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('linear');
+    expect(warnings[0]).toContain('writable');
+    expect(warnings[0]).toContain('via doctor');
+    // No token value in the warning.
+    for (const secret of srv.issuedAccessTokens().concat(srv.issuedRefreshTokens())) expect(warnings[0]).not.toContain(secret);
+  });
+
+  it('delivers the warning to the call that caused it (what the daemon forwards to its caller)', async () => {
+    const srv = await mockServer();
+    const { store } = await loggedIn(srv);
+    let now = T0;
+    const client = new InProcessClient([httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } })], new FakeResolver(), { oauthStore: readOnly(store), now: () => now });
+    cleanups.push(() => client.close());
+    await client.listTools('linear');
+    now = T0 + 2 * HOUR;
+    const warnings: string[] = [];
+    await client.callTool('linear', 'echo_text', { message: 'hi' }, { onWarning: (m) => warnings.push(m) });
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('a writable store produces no warning', async () => {
+    const srv = await mockServer();
+    const { store } = await loggedIn(srv);
+    let now = T0;
+    const warnings: string[] = [];
+    const client = new InProcessClient([httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } })], new FakeResolver(), { oauthStore: store, now: () => now, onWarning: (m) => warnings.push(m) });
+    cleanups.push(() => client.close());
+    await client.listTools('linear');
+    now = T0 + 2 * HOUR;
+    await client.callTool('linear', 'echo_text', { message: 'hi' });
+    expect(warnings).toEqual([]);
   });
 });
 

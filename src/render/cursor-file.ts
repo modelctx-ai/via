@@ -63,6 +63,18 @@ export class FileCursorStore implements CursorStore {
     return record;
   }
 
+  /** Cursors on disk that have not expired yet. */
+  async count(): Promise<number> {
+    const cutoff = this.now() - this.ttlMs;
+    let n = 0;
+    for (const name of await readdir(this.dir).catch(() => [] as string[])) {
+      if (!name.endsWith('.json')) continue;
+      const info = await stat(join(this.dir, name)).catch(() => undefined);
+      if (info && info.mtimeMs >= cutoff) n += 1;
+    }
+    return n;
+  }
+
   /** Delete expired cursors. */
   private async sweep(): Promise<void> {
     const cutoff = this.now() - this.ttlMs;

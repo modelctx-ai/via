@@ -47,7 +47,7 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 | `via batch [--concurrency <n>]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出（[见下](#via-batch)） |
 | `via servers [--why <provider>]` | 列出 server、来源文件、传输方式、鉴权状态、域的判定依据 |
 | `via auth login <provider> [--manual]`<br>`via auth status [<provider>]`<br>`via auth logout <provider>` | OAuth 登录、状态、登出；`login --manual` 用于无头环境（[auth.md](auth.md)） |
-| `via trust [路径] [--yes] [--dry-run]` | 显示并信任项目级配置文件；`--list` 列出记录，`--revoke <路径>` 撤销（[security.md](security.md#via-trust)） |
+| `via trust [路径] [--dry-run]`、`via trust <路径> --yes` | 显示并信任项目级配置文件；`--list` 列出记录，`--revoke <路径>` 撤销（[security.md](security.md#via-trust)） |
 | `via sync [provider]` | 强制刷新工具目录缓存 |
 | `via doctor` | 检查连接与鉴权，检测各框架挂载的 MCP 并输出关闭提示 |
 | `via prompt [--out <文件>]` | 生成给 agent 的说明与域摘要 |
@@ -70,7 +70,7 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
   - `stop`：让 daemon 处理完在途请求后退出，等它关闭连接（至多 5 秒）后输出 `daemon: stopped (pid N)`；还在处理时输出 `daemon: stopping, waiting for requests in flight (pid N)`；没有 daemon 时输出 `daemon: not running`，退出码 0。
   - `run`：前台运行 daemon，由 CLI 分离拉起，也可手动运行。选项 `--socket <路径>`、`--idle-timeout <秒>`（缺省取配置的 `daemon.idleTimeout`）；已有 daemon 在这个 socket 上应答时输出 `daemon: already running on <路径>` 并以 0 退出。收到 SIGTERM/SIGINT/SIGHUP 时正常退出。
 - `via servers`：每个 server 一行，依次为 provider、传输方式（HTTP 只写 scheme 与主机，stdio 只写命令）、鉴权方式及凭证引用是否可解析（只写引用，不写值）、来源文件、备注（`disabled`、`untrusted`、框架间冲突、保留名冲突）；之后列出配置诊断。不连接任何 server，也不执行 `cmd:` 凭证引用（[config.md](config.md#凭证引用)）。`untrusted` 的备注附 `via trust <路径>`（多个文件待确认时为 `via trust`）。配置里有 error 级诊断时照常显示，不中止。
-- `via trust`：显示并记录对项目级配置文件的信任，也能列出、撤销记录；细节、确认方式和退出码见 [security.md](security.md#via-trust)。它读取配置但不连接 server，配置里有 error 级诊断时照常工作（不执行任何工具）。
+- `via trust`：显示并记录对项目级配置文件的信任，也能列出、撤销记录；细节、确认方式和退出码见 [security.md](security.md#via-trust)。它读取配置但不连接 server，配置里有 error 级诊断时照常工作（不执行任何工具）。确认默认在终端里完成；`--yes` 只在带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1` 时有效。
 - `via auth`：`login <provider> [--manual]`、`status [<provider>]`、`logout <provider>`，只用于 `auth: oauth` 的 HTTP server（provider 接受唯一前缀）。provider 未配置为 OAuth 退出码 2，并提示把 `servers.<name>.auth` 设为 `oauth`；项目级配置里未信任的 server 退出码 5（登录会把授权发往仓库指定的地址）。`login` 的等待时间默认 300 秒，`--timeout <秒>` 覆盖。其余行为见 [auth.md](auth.md#oauth)。
 - `via sync`：向各 server（或指定的 provider）重新拉取 `tools/list` 并更新缓存，每个 provider 一行（`gh  14 tools` 或 `linear  needs auth: …`）；有失败时退出码取其中最大的，并在 stderr 提示 `next: via doctor`。
 - `via doctor`：对每个 server 实时探测（不读缓存，成功后更新缓存），再输出检测结果；退出码取各项问题中最高的一个（见[退出码](output.md#退出码)）。

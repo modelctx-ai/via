@@ -133,6 +133,14 @@ describe('renderDoctor', () => {
     expect(renderDoctor({ config: config(servers), frameworks: [], probes }).exitCode).toBe(code);
   });
 
+  it('hints at an OAuth login store that cannot be written, without changing the exit code', () => {
+    const warning = { message: 'the OAuth login store /home/u/.local/share/via/oauth is not writable, so a refreshed token cannot be saved', next: 'chmod u+w /home/u/.local/share/via/oauth' };
+    const out = renderDoctor({ config: config([server('linear', { auth: { type: 'oauth' } })]), frameworks: [], probes: [probe('linear', { warning })], home: '/home/u' });
+    expect(out.exitCode).toBe(0);
+    expect(out.text).toContain('servers   1 ok');
+    expect(out.text).toContain('  linear: warning: the OAuth login store ~/.local/share/via/oauth is not writable, so a refreshed token cannot be saved\n    next: chmod u+w ~/.local/share/via/oauth\n');
+  });
+
   it('flags untrusted servers that were never probed', () => {
     const s = server('acme', { trusted: false, untrustedPaths: ['/work/.via.yaml'] });
     const out = renderDoctor({ config: config([s]), frameworks: [], probes: [] });

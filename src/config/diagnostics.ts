@@ -14,6 +14,7 @@ export type DiagnosticCode =
   | 'cmd-forbidden'
   | 'search-forbidden'
   | 'invalid-deny'
+  | 'unsafe-deny'
   | 'unknown-source'
   | 'unexpanded-variable'
   | 'legacy-transport'

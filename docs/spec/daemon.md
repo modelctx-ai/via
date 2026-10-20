@@ -20,7 +20,10 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 
 - stdio server 没有写 `cwd` 时，以调用方的工作目录启动；`file:` 引用的相对路径同样相对调用方的目录（daemon 内换算成绝对路径）。会话按「server 名 + 传输 + 鉴权 + `exclusive` + `concurrency` + `roots`」的哈希区分，所以不同目录下的同名 stdio server 是不同的会话。
 - `roots`（[config.md](config.md#roots)）里的相对路径和 `~` 同样由 daemon 按调用方的目录与家目录换成绝对 `file://` URI，换算后的列表参与会话键：写了 `roots: ["."]` 的 server 在两个目录里是两个会话，一个会话的 roots 在它的生命周期里不变，所以 via 声明 `roots` 能力时 `listChanged` 为 `false`，不需要发 `notifications/roots/list_changed`。没有 `cwd` 的 HTTP server 因 roots 而按目录分会话，代价与 stdio 的 `cwd` 相同：两个目录交替使用时，后到的会话替换先到的（同名 server 只保留最新定义的会话）。
-- `env:` 引用在 **daemon 自己的环境**里解析（它由第一个启动它的 CLI 继承环境），解析值不经过 socket。为了不让 daemon 用着过期的环境变量，每个请求带 `envStamp`：对该 server 所有 `env:` 引用的变量名与调用方当前取值取单向摘要。daemon 用自己的环境算同一个摘要，不一致就回复 `stale`（不执行请求），CLI 随即让 daemon 退出（处理完在途请求）、拉起新的并重试一次；重试后仍不一致则回退为进程内模式。摘要不可逆，协议里仍然没有凭证值。
+- `env:` 引用在 **daemon 自己的环境**里解析（它由第一个启动它的 CLI 继承环境），解析值不经过 socket，协议里始终没有凭证值。每个请求带 `envStamp`：对该 server 所有 `env:` 引用的变量名与调用方当前取值取单向摘要（没有 `env:` 引用时为空串）。daemon 用自己的环境算同一个摘要，不一致就回复 `stale`（不执行请求）。
+  - 收到 `stale` 的 CLI **只对这个 server 的这一个请求**改用进程内模式完成：不重启 daemon，也不把取值告诉 daemon；daemon 里按自己环境建立的会话继续服务摘要一致的调用方，对同一次运行里的其他 server 照常使用 daemon。`stale` 的请求没有执行过，所以不论是否只读都可以安全地在进程内重做，也不打印回退提示。
+  - 因此两个 shell 里 `GH_TOKEN` 取值不同、交替调用时：与 daemon 环境一致的那个 shell 用 daemon，另一个 shell 的该 server 每次调用都在进程内完成，两边各用自己的取值，daemon 不会反复重启。调用方没有设置该变量时摘要同样不一致，由进程内的凭证解析报缺失（退出码 4），永远不会拿到 daemon 环境里的同名变量。
+  - 代价：这是用共存换「凭证不过 socket」。取值不一致的 shell 失去 daemon 的好处：HTTP 每次重新握手，stdio server 每次调用都重新拉起子进程（与进程内模式一致）。想让某个 shell 也用上 daemon，可以让它的环境与 daemon 一致（`via daemon stop` 后由该 shell 重新拉起），或者用 `file:` / `keychain:` 引用代替 `env:`——这两种由 daemon 自己解析，与调用方的环境无关。
 - daemon 里解析过的凭证（`file:`、`keychain:`、`env:` 的结果）缓存 10 分钟后丢弃，之后重新解析，所以轮换过的密钥无需重启 daemon；丢弃的值仍保留在脱敏名单里。
 
 ## daemon 持有的状态
@@ -28,7 +31,7 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 - MCP 会话：stdio 子进程、HTTP 的 session id、OAuth 会话（登录与登出由 CLI 完成，daemon 在下一次请求时读到存储里的新状态，见 [auth.md](auth.md#oauth)）。
 - 工具目录的内存副本，连同 server 在 `initialize` 里声明的 `resources` / `prompts` 能力（同时持久化到磁盘缓存，写入的是与进程内模式相同的 `catalog/` 文件，两种模式共享），以及 `list_changed` 订阅：收到 `notifications/tools/list_changed` 后 50 毫秒内（合并连发的通知）重新 `tools/list`，同时替换内存副本和磁盘缓存，所以下一次浏览、`find` 或调用就能看到变化；刷新失败时丢弃副本与磁盘缓存，下一次请求重新向 server 拉取。内存副本的有效期与磁盘缓存相同（24 小时）。stdio server 因空闲被停止后订阅随之结束，之后只靠 TTL。
 - 凭证解析结果与 OAuth token 刷新。
-- 截断结果的游标（内存，30 分钟）。daemon 退出（空闲 10 分钟）后游标随之失效，`via more` 报告过期（退出码 3）；进程内模式的游标仍在缓存目录里。`via more` 先问已经在运行的 daemon（不会为它拉起新的），再看缓存目录。
+- 截断结果的游标。daemon 与进程内模式一样把游标写入用户缓存目录（`cursors/`，目录 0700、文件 0600，内容已脱敏，TTL 30 分钟，按文件修改时间清理），所以 daemon 空闲退出（10 分钟）不会让游标提前失效；只有 TTL 到期或 id 不存在才报告过期（退出码 3）。`via more` 先问已经在运行的 daemon（不会为它拉起新的），再看缓存目录。
 - 编译好的 JSON Schema（见下「校验」）。
 
 ## CLI 与 daemon 的协议
@@ -72,10 +75,11 @@ type Request =
 
 ```ts
 type Event = { id; type: "event"; event: "progress" | "log"; data: unknown };   // 零到多次
+// log 事件的 data 是 { level: "warning", message: string }：发给触发它的那个请求（list 或 call），CLI 把 message 打印为 stderr 的 `warning: …`；message 已脱敏。目前只有「刷新后的 OAuth 登录存不下来」这一种（auth.md）
 type Response =
   | { id; type: "result"; ok: true; result: unknown; meta: { elapsedMs: number } }
   | { id; type: "result"; ok: false; error: ErrorInfo };
-type Stale = { id; type: "stale"; reason: "environment" };                      // 未执行，见上
+type Stale = { id; type: "stale"; reason: "environment" };                      // 未执行，见「环境与工作目录」
 type ErrorInfo = {
   exitCode: 1 | 2 | 3 | 4 | 5 | 6 | 7;   // 与 output.md 的退出码一致
   message: string;
@@ -96,7 +100,7 @@ type ErrorInfo = {
 | `prompt-get` | 返回 `{ description?, messages }`（`prompts/get` 的原始结果）。参数都是字符串；server 用 `-32602` 拒绝参数时退出码 1，与工具一致 |
 | `validate` | 编译 JSON Schema（按内容缓存）并校验 `data`，返回 ajv 的错误与 `format` 警告；`compileOnly` 只编译。这样 CLI 进程不加载 ajv |
 | `redact` | 把文本里 daemon 已知的凭证值换成 `***`；CLI 在打印可能回显用户输入的文本（错误、`--dry-run`、校验警告）前用它补上本地没有的脱敏。只在已有连接时发，不为它拉起 daemon |
-| `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录 |
+| `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录；记录落在用户缓存目录，不随 daemon 退出而丢失 |
 | `status` | 返回 pid、版本、socket、运行时间、距空闲退出的时间、请求数、游标数、内存和各会话（server 名、传输、是否连接、子进程 pid、目录中的工具数、调用数、空闲时间）。不含 URL、参数和任何凭证 |
 | `shutdown` | 先停止监听、删除 socket，应答，处理完在途请求后退出 |
 

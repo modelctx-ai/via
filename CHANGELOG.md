@@ -26,6 +26,7 @@
 - 未信任时的 `next:`：同一个 server 有多个文件待确认时提示不带路径的 `via trust`，路径含空格时加引号。
 - 规范补充（随 `via batch` 实现）：cli.md 的 `via batch` 一节补全输入字段（`tool`、`args`，其余字段报错）、行号、空输入（退出码 2）、全局选项对整批生效、危险工具缺少 `--yes` 时只让该行失败、`--dry-run`、全局并发上限 `--concurrency`（默认 16）、text 与 `-o json` 的逐行框架（`line N` 标记、`· batch · …` 汇总行、JSONL 记录字段、超出预算时的 `truncated` / `next`）以及整体退出码取数值最大者；output.md 的元信息行增加 `line N` 标记；arguments.md、config.md、daemon.md 各补一句与批量的关系。
 - 内部：`commands/tool.ts` 抽出 `executeCall`，`via <provider> …`、`via call`、`via batch` 共用同一条「校验 → dry-run / 确认 → 调用 → 渲染」路径；它返回结果（stdout、stderr、退出码、结构化的元信息与错误）而不直接写输出，也只通过 `app.client()` 触达上游，后端（进程内或 daemon）对它透明。渲染流水线的返回值附带元信息与结构化错误。
+- `via trust --yes` 不再是单个开关（security.md、cli.md）：agent 若能执行 `via trust --yes` 就能放行不可信的仓库。现在默认在终端里确认；`--yes` 必须带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1`，否则不记录（不带路径退出码 2，缺少变量退出码 5）。没有终端时的 `next:` 改为请用户在终端运行 `via trust <路径>`，不再建议 `--yes`。`via prompt` 生成的说明增加一句「不要自己运行 `via trust`，请用户来做」。
 
 ### Added
 
@@ -94,6 +95,11 @@
 
 ### Fixed
 
+- daemon 的游标不再随 daemon 空闲退出（10 分钟）而提前失效：daemon 与进程内模式一样把游标写入用户缓存目录（0700 目录、0600 文件、内容已脱敏、TTL 30 分钟），`via more` 在 daemon 退出后仍可续读。
+- deny 规则的 ReDoS：项目配置可以追加会灾难性回溯的正则（如 `^(a+)+$`）卡死 via。现在加载时静态检查（嵌套量词、被重复分组里重叠的候选分支、反向引用、开放量词超过 3 个、长度超过 200 字符），不通过的规则按无效规则处理：忽略并给出 error 级诊断 `unsafe-deny`，CLI 停止执行；匹配只在不超过 256 字符的写法上进行，更长的工具名按 deny 处理（config.md「deny」）。
+- deny 规则与 `rename`：按工具默认规范写法写的规则（如 `^github/file:delete$`）在用户用 `rename` 改名后不再命中，该工具重新可见。现在一条规则同时匹配当前规范写法、原始名写法和默认规范写法（命名规则对原始名的拆分结果，不含 `rename`）（config.md「deny」）。
+- OAuth 刷新遇到不可写的登录存储时，新 token 只在内存里使用且没有任何提示，别的进程（以及之后的调用）读到的仍是旧记录，轮换 refresh token 的 server 会因此让登录失效。现在：当前会话继续用内存里的新记录（后续刷新不再读回存储里作废的旧 refresh token），并在 stderr 提示一次 `warning: could not save the refreshed OAuth login for <provider> …`（daemon 里作为 `log` 事件转发给触发刷新的请求）；`via doctor` 对不可写的文件存储给出提示和 `chmod` 建议（auth.md、daemon.md、agent-integration.md）。
+- daemon 在不同 shell 的 `env:` 值不同时反复重启：两个 shell 里同名变量（如 `GH_TOKEN`）取值不同，每次交替调用都会让 daemon 因摘要不一致而重启，会话和 stdio 子进程随之丢失。现在 daemon 回复 `stale` 时，CLI 不再重启 daemon，而是只把这个 server 的这一个请求改在进程内完成（也不会把取值发给 daemon，凭证值不过 socket 的约定不变）；与 daemon 环境一致的 shell 继续用 daemon，另一个 shell 各自用自己的取值，没有设置变量的调用方得到退出码 4 而不是 daemon 环境里的值。代价：取值不一致的 shell 里，该 server 的 stdio 子进程每次调用都重新拉起（daemon.md「环境与工作目录」）。
 - ADR 0008 的背景误称 mcp2cli 采用代码生成；mcp2cli 实际是运行时分发。
 - 多个 server 同时解析凭证（`via doctor`、`via sync`）时，CLI 可能创建两个凭证解析器和两个 MCP client：脱敏只认其中一个解析器的值，另一个解析出的凭证可能漏出脱敏，退出时也只关闭一个 client。现在一次运行共用一个。
 

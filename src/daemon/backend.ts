@@ -24,7 +24,7 @@ import type {
 } from '../protocol';
 import type { CursorRecord, CursorStore } from '../render/cursor';
 import { ExitCode } from '../render/exit-codes';
-import { DaemonStale, DaemonUnavailable, type DaemonClient } from './client';
+import { DaemonUnavailable, type DaemonClient } from './client';
 import { envStamp } from './target';
 
 export interface DaemonBackendOptions {
@@ -36,6 +36,8 @@ export interface DaemonBackendOptions {
   env: Readonly<Record<string, string | undefined>>;
   /** `daemon.serverIdleTimeout`, seconds. */
   serverIdleTimeoutSec: number;
+  /** `log` events of level `warning` from the daemon, as text for stderr. */
+  onWarning?: (message: string) => void;
 }
 
 /** Slack on top of a request's own timeout before the CLI gives up on a daemon that stopped answering. */
@@ -47,7 +49,10 @@ export class DaemonBackend implements Backend {
   constructor(private readonly options: DaemonBackendOptions) {}
 
   async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {
-    const response = await this.send({ type: 'list', ...this.target(server), timeoutMs, ...(refresh ? { refresh: true } : {}) }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS });
+    const response = await this.send(
+      { type: 'list', ...this.target(server), timeoutMs, ...(refresh ? { refresh: true } : {}) },
+      { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, onEvent: (event) => this.onLog(event) },
+    );
     return unwrap<ListResult>(response);
   }
 
@@ -73,11 +78,19 @@ export class DaemonBackend implements Backend {
       {
         deadlineMs: timeoutMs * (options.retry ? 2 : 1) + DEADLINE_SLACK_MS,
         onEvent: (event) => {
+          this.onLog(event);
           if (event.event === 'progress' && options.onProgress) options.onProgress(event.data as Parameters<NonNullable<CallOptions['onProgress']>>[0]);
         },
       },
     );
     return unwrap<ToolCallResult>(response);
+  }
+
+  /** A `log` event is `{ level: 'warning', message }`; other levels are not shown. */
+  private onLog(event: Event): void {
+    if (event.event !== 'log') return;
+    const data = event.data as { level?: unknown; message?: unknown } | null;
+    if (data?.level === 'warning' && typeof data.message === 'string') this.options.onWarning?.(data.message);
   }
 
   async listResources(server: string, options: ListOptions = {}): Promise<ResourceListing> {
@@ -193,28 +206,15 @@ export class DaemonBackend implements Backend {
   }
 
   /**
-   * Send one request, starting the daemon when needed. A daemon that says its environment differs
-   * is restarted once; if it still disagrees the daemon is of no use to this run.
+   * Send one request, starting the daemon when needed. A daemon that answers `stale` (the values of
+   * the server's `env:` variables in this shell are not the ones it resolves) is not restarted and is
+   * not told the values: `DaemonStale` goes to the caller, which runs this request in-process.
    */
   private async send(body: RequestBody, options: { onEvent?: (event: Event) => void; deadlineMs?: number; spawn?: boolean } = {}): Promise<Response> {
     const { client } = this.options;
-    const attempt = async (): Promise<Response> => {
-      const conn = await client.connection({ spawn: options.spawn ?? true });
-      if (!conn) throw new DaemonUnavailable('the via daemon is not running');
-      return conn.request(body, { ...(options.onEvent ? { onEvent: options.onEvent } : {}), ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {}) });
-    };
-    try {
-      return await attempt();
-    } catch (error) {
-      if (!(error instanceof DaemonStale)) throw error;
-    }
-    await client.restart();
-    try {
-      return await attempt();
-    } catch (error) {
-      if (error instanceof DaemonStale) throw new DaemonUnavailable('the via daemon keeps a different environment from this shell');
-      throw error;
-    }
+    const conn = await client.connection({ spawn: options.spawn ?? true });
+    if (!conn) throw new DaemonUnavailable('the via daemon is not running');
+    return conn.request(body, { ...(options.onEvent ? { onEvent: options.onEvent } : {}), ...(options.deadlineMs !== undefined ? { deadlineMs: options.deadlineMs } : {}) });
   }
 }
 
