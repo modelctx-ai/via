@@ -1,0 +1,14 @@
+number: 1
+title: Support OAuth DCR
+state: open
+· gh issue:read · <t> · 47 bytes · line 1
+error: line 2: no such tool: issue:rea
+did you mean: gh issue:read
+next: via gh issue:read -h
+error: line 3: --repo is required
+usage: via gh issue:list --owner <str> --repo <str> [--state open|closed] [--per-page <num>]
+error: line 4: boom: the upstream failed
+next: via gh broken-tool -h
+echo: after
+· gh echo-text · <t> · 12 bytes · line 5
+· batch · 5 calls · 2 ok · 3 failed · 0ms

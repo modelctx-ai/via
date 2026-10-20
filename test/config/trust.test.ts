@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { checkTrust, forgetTrust, hashContent, readTrustStore, recordTrust, trustKey, trustStatus, trustStorePath } from '../../src/config';
+import { checkTrust, forgetTrust, hashContent, readTrustStore, recordTrust, recordTrustHash, trustKey, trustStatus, trustStorePath } from '../../src/config';
 import { tempDir } from '../helpers/config';
 
 function setup() {
@@ -37,6 +37,16 @@ describe('trust store', () => {
     recordTrust(dataDir, file, 'servers: {}\n');
     writeFileSync(file, 'changed after the prompt\n');
     expect(checkTrust(dataDir, file)).toBe('changed');
+  });
+
+  it('records a hash directly (the one computed over the bytes that were parsed)', () => {
+    const { file, dataDir } = setup();
+    const shown = hashContent('servers: {}\n');
+    writeFileSync(file, 'edited after the hash was taken\n');
+    recordTrustHash(dataDir, file, shown);
+    expect(checkTrust(dataDir, file)).toBe('changed');
+    writeFileSync(file, 'servers: {}\n');
+    expect(checkTrust(dataDir, file)).toBe('trusted');
   });
 
   it('keeps the directory at 0700 and the file at 0600', () => {

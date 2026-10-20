@@ -44,7 +44,7 @@ export function defaultTools() {
     { name: 'whoami', description: 'Show the credentials the server saw', inputSchema: object() },
     { name: 'echo_text', description: 'Echo a message', inputSchema: object({ message: str('Message') }, ['message']) },
     { name: 'run_job', description: 'A job that reports progress', inputSchema: object() },
-    { name: 'sleepy', description: 'Answers after ms milliseconds', inputSchema: object({ ms: { type: 'number' } }) },
+    { name: 'sleepy', description: 'Answers after ms milliseconds', inputSchema: object({ ms: { type: 'number' }, label: str('Echoed back') }) },
     { name: 'broken_tool', description: 'Always fails', inputSchema: object() },
     { name: 'picky_tool', description: 'Rejects its arguments server-side', inputSchema: object({ n: { type: 'number' } }) },
     {
@@ -58,7 +58,7 @@ export function defaultTools() {
 
 /** Shared, inspectable state: one Server is built per HTTP request, so it lives outside. */
 export function createCliState() {
-  return { tools: defaultTools(), listCalls: 0, calls: [] };
+  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0 };
 }
 
 /**
@@ -112,8 +112,15 @@ export function createCliServer({ state, authorization }) {
         return { content: [{ type: 'text', text: 'job done' }] };
       }
       case 'sleepy':
-        await new Promise((resolve) => setTimeout(resolve, Number(args.ms ?? 1000)));
-        return { content: [{ type: 'text', text: 'rested' }] };
+        // `maxInflight` is how many sleepy calls overlapped at the most: the concurrency tests read it.
+        state.inflight += 1;
+        state.maxInflight = Math.max(state.maxInflight, state.inflight);
+        try {
+          await new Promise((resolve) => setTimeout(resolve, Number(args.ms ?? 1000)));
+        } finally {
+          state.inflight -= 1;
+        }
+        return { content: [{ type: 'text', text: args.label === undefined ? 'rested' : `rested ${args.label}` }] };
       case 'broken_tool':
         return { content: [{ type: 'text', text: 'boom: the upstream failed' }], isError: true };
       case 'picky_tool':

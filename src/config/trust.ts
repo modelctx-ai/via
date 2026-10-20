@@ -3,7 +3,7 @@
 // A stdio command that comes from a file inside a project may belong to an untrusted repository,
 // so it only runs after the person confirmed that exact file content. A record is the file path
 // plus the SHA-256 of its content, kept in the user data directory; a changed file is untrusted again.
-// The `via trust` command (0.2) is built on `recordTrust`; this module has no CLI.
+// The `via trust` command (src/cli/commands/trust.ts) is built on `recordTrustHash`; this module has no CLI.
 
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -102,8 +102,15 @@ export function checkTrust(dataDir: string, path: string): TrustStatus {
  * and file mode 0600; the file is replaced atomically.
  */
 export function recordTrust(dataDir: string, path: string, content?: string | Uint8Array, now: () => Date = () => new Date()): TrustRecord {
-  const bytes = content ?? readFileSync(path);
-  const record: TrustRecord = { sha256: hashContent(bytes), trustedAt: now().toISOString() };
+  return recordTrustHash(dataDir, path, hashContent(content ?? readFileSync(path)), now);
+}
+
+/**
+ * Record a hash directly: the one `loadConfig` computed over the bytes it parsed (`LoadedFile.sha256`).
+ * `via trust` uses this, so what gets trusted is what was shown, even if the file changed since.
+ */
+export function recordTrustHash(dataDir: string, path: string, sha256: string, now: () => Date = () => new Date()): TrustRecord {
+  const record: TrustRecord = { sha256, trustedAt: now().toISOString() };
   const { store, error } = readTrustStore(dataDir);
   if (error?.includes('not a valid trust store')) {
     // Start over rather than keep entries that cannot be read; nothing was trusted by them anyway.
