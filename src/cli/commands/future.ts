@@ -9,7 +9,6 @@ import { fail } from '../failure';
 const WHAT: Record<FutureCommand, string> = {
   auth: 'via auth (OAuth login, status, logout)',
   trust: 'via trust (confirming project-level configuration)',
-  daemon: 'via daemon (the background process; 0.1 always connects in-process)',
 };
 
 export function futureCommand(app: App, command: FutureCommand): never {

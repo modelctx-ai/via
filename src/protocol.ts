@@ -58,7 +58,7 @@ export type Request =
   /** `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. */
   | ({ id: string; type: 'call'; rawName: string; args: Record<string, unknown>; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
   /** Compile a JSON Schema (cached by the daemon) and check `data`; keeps ajv out of the CLI process. */
-  | { id: string; type: 'validate'; schema: unknown; label: string; data: unknown }
+  | { id: string; type: 'validate'; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
   /** Replace the credential values the daemon knows with `***` in `text`. */
   | { id: string; type: 'redact'; text: string }
   | { id: string; type: 'cursor-put'; record: CursorRecord }

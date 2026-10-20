@@ -71,6 +71,8 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
         return (await import('./commands/doctor')).doctorCommand(app);
       case 'prompt':
         return (await import('./commands/prompt')).promptCommand(app, argv);
+      case 'daemon':
+        return (await import('./commands/daemon')).daemonCommand(app, argv);
       default:
         return (await import('./commands/future')).futureCommand(app, builtin);
     }

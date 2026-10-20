@@ -16,6 +16,8 @@ export interface CliEnv {
   /** Reads all of stdin (for `--args -` and `--body -`). */
   readStdin: () => Promise<string>;
   now: () => number;
+  /** How to start `via daemon run` detached: the executable and the arguments before the subcommand. */
+  daemonCommand: { command: string; args: string[] };
 }
 
 async function readProcessStdin(): Promise<string> {
@@ -34,6 +36,7 @@ export function makeEnv(overrides: Partial<CliEnv> = {}): CliEnv {
     stderr: process.stderr,
     readStdin: readProcessStdin,
     now: Date.now,
+    daemonCommand: { command: process.execPath, args: [process.argv[1] ?? ''] },
     ...overrides,
   };
 }

@@ -15,8 +15,8 @@ usage:
   via batch [--concurrency <n>]              JSON Lines on stdin: concurrent calls, results in input order
 
 commands:
-  find call more batch servers sync doctor prompt
-  auth trust daemon (not available until 0.2)
+  find call more batch servers sync doctor prompt daemon
+  auth trust (not available until 0.2)
 
 options:
   -o text|json|raw  --full  --all  --yes  --dry-run  --no-validate  --timeout <seconds>  -h
@@ -36,5 +36,5 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   batch: 'usage: via batch [--concurrency <n>]  (JSON Lines on stdin: {"tool":"<provider>/<resource>:<verb>","args":{…}})',
   auth: 'usage: via auth login|status|logout <provider> (not available until 0.2)',
   trust: 'usage: via trust [<path>] (not available until 0.2)',
-  daemon: 'usage: via daemon status|stop|run (not available until 0.2)',
+  daemon: 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>]',
 };

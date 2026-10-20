@@ -375,7 +375,7 @@ export class DaemonServer {
         });
       }
       case 'validate':
-        return this.validate(request.schema, request.label, request.data);
+        return this.validate(request.schema, request.label, request.data, request.compileOnly === true);
       case 'redact':
         return this.sessions.redact(String(request.text));
       case 'cursor-put':
@@ -410,7 +410,7 @@ export class DaemonServer {
   // Validation --------------------------------------------------------------------------
 
   /** Schema validation for CLIs that keep ajv out of their process; compiled schemas are cached. */
-  private async validate(schema: unknown, label: string, data: unknown): Promise<ValidateResult> {
+  private async validate(schema: unknown, label: string, data: unknown, compileOnly: boolean): Promise<ValidateResult> {
     if (typeof schema !== 'object' || schema === null) return { ok: false, reason: 'schema is not an object', warnings: [] };
     const key = createHash('sha1').update(JSON.stringify(schema)).digest('hex');
     let canonical = this.schemas.get(key);
@@ -423,6 +423,7 @@ export class DaemonServer {
     this.schemas.set(key, canonical);
     const result: CompileResult = await compileSchema(canonical, label);
     if (!result.ok) return { ok: false, reason: result.reason, warnings: result.warnings };
+    if (compileOnly) return { ok: true, warnings: result.compiled.warnings, errors: [], formats: [] };
     const errors = await result.compiled.check(data);
     const formats = errors.length === 0 ? await result.compiled.formats(data) : [];
     return { ok: true, warnings: result.compiled.warnings, errors, formats };
