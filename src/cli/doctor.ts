@@ -4,6 +4,7 @@
 import { formatDiagnostic, isCredentialRef, type ConfigDiagnostic, type FrameworkDef, type LoadedConfig, type ServerConfig } from '../config';
 import type { CatalogWarning } from '../catalog';
 import { ExitCode } from '../render/exit-codes';
+import { shellWord } from '../render/shell';
 import { displayWidth, padEndWidth, truncateChars } from '../render/width';
 
 /** Result of probing one server (done by the CLI with the client; doctor only renders). */
@@ -120,7 +121,7 @@ function defaultNext(row: Row, server: ServerConfig | undefined): string[] {
   if (row.status === 'needs-auth' && server?.auth.type === 'oauth') return [`via auth login ${row.provider}`];
   if (row.status === 'untrusted') {
     const paths = server?.untrustedPaths ?? [];
-    return paths.length > 0 ? paths.map((p) => `via trust ${p}`) : ['via trust'];
+    return paths.length > 0 ? paths.map((p) => `via trust ${shellWord(p)}`) : ['via trust'];
   }
   return [];
 }
@@ -254,6 +255,7 @@ function renderSecrets(config: LoadedConfig, home: string | undefined): string[]
 
 const DIAGNOSTIC_NEXT: Partial<Record<ConfigDiagnostic['code'], string>> = {
   'cmd-forbidden': 'define the server in the user config, or use an env:, file: or keychain: reference',
+  'trust-store-corrupt': 'remove the file, then run via trust again for the project files you rely on',
 };
 
 function renderConfigProblems(input: DoctorInput): string[] {

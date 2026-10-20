@@ -69,6 +69,8 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
         return (await import('./commands/sync')).syncCommand(app, argv);
       case 'doctor':
         return (await import('./commands/doctor')).doctorCommand(app);
+      case 'trust':
+        return (await import('./commands/trust')).trustCommand(app, argv);
       case 'prompt':
         return (await import('./commands/prompt')).promptCommand(app, argv);
       default:

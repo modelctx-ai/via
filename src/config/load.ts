@@ -321,6 +321,7 @@ function finalize(
   if (d.domain !== undefined) server.domain = d.domain;
   if (d.budget !== undefined) server.budget = d.budget;
   if (conflicts && conflicts.length > 0) server.conflicts = conflicts;
+  if (acc.launch.size > 0) server.launchPaths = [...acc.launch.keys()];
   if (untrustedPaths) server.untrustedPaths = untrustedPaths;
   return server;
 }
