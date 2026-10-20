@@ -80,8 +80,12 @@ export class CatalogCache {
     }
   }
 
-  /** Best effort: a cache that cannot be written must never fail a command. */
-  write(server: ServerConfig, tools: McpTool[]): void {
+  /**
+   * Best effort: a cache that cannot be written must never fail a command. `fetchedAt` defaults to
+   * now; callers that report the time to their own caller pass the value they report, so the file
+   * and the report agree (the prebuilt-catalog cache is keyed by it).
+   */
+  write(server: ServerConfig, tools: McpTool[], fetchedAt: number = this.now()): void {
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       try {
@@ -91,7 +95,7 @@ export class CatalogCache {
       }
       const file = this.file(server);
       const tmp = `${file}.${process.pid}.tmp`;
-      const body: CacheFile = { version: CACHE_VERSION, fetchedAt: this.now(), tools };
+      const body: CacheFile = { version: CACHE_VERSION, fetchedAt, tools };
       writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 });
       renameSync(tmp, file);
     } catch {
@@ -101,5 +105,6 @@ export class CatalogCache {
 
   clear(server: ServerConfig): void {
     rmSync(this.file(server), { force: true });
+    rmSync(join(this.dir, `${cacheKey(server)}.view.json`), { force: true });
   }
 }

@@ -26,7 +26,7 @@ import type {
 } from '../protocol';
 import { MemoryCursorStore, type CursorRecord } from '../render/cursor';
 import { ExitCode } from '../render/exit-codes';
-import { sanitizeText } from '../render/pipeline';
+import { sanitizeText } from '../render/sanitize';
 import type { DaemonPaths } from './paths';
 import { CREDENTIAL_TTL_MS, ExpiringResolver, SessionManager } from './sessions';
 import { envStamp } from './target';

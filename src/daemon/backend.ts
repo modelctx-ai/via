@@ -4,7 +4,8 @@
 import type { Backend, Listing, ListingOptions } from '../cli/backend';
 import type { Compiled, CompileResult, SchemaCompiler } from '../cli/args/validate';
 import type { McpTool } from '../catalog/types';
-import { ClientError, type CallOptions, type ListOptions } from '../client';
+import { ClientError } from '../client/errors';
+import type { CallOptions, ListOptions } from '../client/session';
 import type { ServerConfig } from '../config/types';
 import type { CursorGetResult, ErrorInfo, Event, ListResult, RequestBody, Response, ServerTarget, ToolCallResult, ValidateResult } from '../protocol';
 import type { CursorRecord, CursorStore } from '../render/cursor';

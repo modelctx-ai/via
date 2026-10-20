@@ -4,7 +4,7 @@
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { CatalogTool, ProviderCatalog } from '../../catalog';
-import { ClientError } from '../../client';
+import { ClientError } from '../../client/errors';
 import { formatError, type ErrorInfo } from '../../render/errors';
 import { ExitCode } from '../../render/exit-codes';
 import { FileMediaSink } from '../../render/media';

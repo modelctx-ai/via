@@ -296,7 +296,7 @@ export class SessionManager {
   private store(entry: Entry, tools: McpTool[]): void {
     entry.tools = tools;
     entry.fetchedAt = this.options.now();
-    this.cache.write(entry.original, tools);
+    this.cache.write(entry.original, tools, entry.fetchedAt);
   }
 
   // list_changed ------------------------------------------------------------------------

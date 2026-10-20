@@ -5,9 +5,12 @@ import { formatError, type ErrorInfo } from './errors';
 import { formatMetaLine, type MetaInfo } from './meta';
 import type { MediaSink } from './media';
 import { createRedactor, redactValue } from './redact';
+import { sanitizeText } from './sanitize';
 import { defaultColumns, defaultNoise, type ColumnsData, type NoiseRules } from './rules';
 import { shapeValue } from './shape';
 import type { ContentBlock, OutputFormat, ToolResult } from './types';
+
+export { sanitizeText };
 
 /** Default output budget in bytes (output.md, step 4). */
 export const DEFAULT_BUDGET = 8192;
@@ -316,16 +319,6 @@ export async function renderMore(
 }
 
 // Errors ---------------------------------------------------------------------------
-
-/** Strip ANSI escape sequences and control characters (except newline and tab) from upstream text. */
-export function sanitizeText(text: string): string {
-  return (
-    text
-      .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
-      .replace(/\u001b[@-Z\\-_]/g, '')
-      .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
-  );
-}
 
 function upstreamError(
   result: ToolResult,
