@@ -34,6 +34,7 @@
 - 内置子命令 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`auth`、`trust`、`daemon` 保留名字，提示 0.2 才可用。via 自己的配置有 error 级诊断时，除 `doctor` / `servers` 外拒绝执行（退出码 2），避免无效的 deny 规则失效放行。
 - `via doctor`：server 状态计数与 `next:`、仍在注入 MCP schema 的框架及 token 估算（4 字节约 1 token）、明文凭证告警（只写键名与文件，不写值）、配置诊断与目录告警，退出码 0/2/4/5/6。`via prompt`：给 agent 的说明块加按域摘要；`--out` 覆盖已有文件需要 `--yes`。
 - 打包启用代码分块：`--version` 与 `-h` 只加载入口，MCP SDK、ajv、配置解析器都在首次需要时加载。
+- GitHub Actions CI：Node 22 / 24 上类型检查、打包、测试，并在 Node 20 上运行打包产物。
 - 测试夹具：GitHub / Linear / Notion / Cloudflare 等 `tools/list` 快照与拆分结果基线（`test/fixtures/`），`npm run split-diff` 离线检查拆分变化；渲染与浏览视图的文件快照；快照与夹具的凭证扫描。
 - 初始设计文档：愿景、架构、术语表。
 - 规范：命令语法、工具名拆分、发现与分域、参数映射、输出与退出码、配置与鉴权、daemon 协议、安全模型。

@@ -26,6 +26,13 @@
 - 所有快照中不得出现测试凭证值，CI 中对快照做凭证值扫描。
 - 项目级配置未信任时 stdio 命令不得执行。
 
+### 持续集成
+
+`.github/workflows/ci.yml` 在每个 PR 和 `main` 的推送上运行：
+
+- Node 22、24 上执行 `npm ci`、`npm run typecheck`、`npm run build`、`npm test`（含快照、拆分基线、词典是否最新、凭证扫描）；
+- 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
+
 ## token 基准
 
 对一组真实 server（github、playwright、linear、notion 等）计算并持续跟踪：
