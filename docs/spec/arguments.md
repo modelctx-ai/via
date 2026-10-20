@@ -73,6 +73,9 @@ alias: issue_read · read-only
 ```
 
 - 必填参数在前，显示类型、默认值、enum 可选值和截断后的描述。
+- usage 行超过 120 列时按 80 列折行，续行缩进 9 格，每个参数不拆开；错误信息里的 usage 最多列出 8 个可选参数，其余写成 `[…]`，完整列表见 `-h`。
+- 类型写法：string `<str>`、number/integer `<num>`、object/array `<json>`、boolean 只写开关；enum 直接写 `a|b|c`（超过 60 个字符时退回类型，完整列表放在参数行）。与全局选项重名的参数显示为 `--p.<name>`。
+- 参数行只列有描述、默认值或需要说明的参数；多行描述压成一行，列表项以 ` · ` 连接，放不下时以 ` · …` 结尾。标量数组注明「repeat the flag or pass a JSON array」。
 - 末尾显示原始名、只读或危险标记。
 
 ## 校验与报错
@@ -90,9 +93,9 @@ alias: issue_read · read-only
 ### 校验范围
 
 - **覆盖**：必填字段、类型、enum 与 const、数值范围、字符串长度与正则、数组长度、嵌套对象与数组元素、anyOf / oneOf / allOf、`additionalProperties`。
-- **草案版本**：按 schema 中 `$schema` 声明的版本校验，未声明时按 MCP 规范规定的默认版本。
+- **草案版本**：按 schema 中 `$schema` 声明的版本校验，未声明时按 JSON Schema 2020-12（MCP 规范规定的默认方言）。没有 `$schema` 且无法按 2020-12 编译的旧式 schema（如数组形式的 `items`）退回 draft-07 再试一次；声明 draft-04/06/07 的按 draft-07 校验，2019-09 按 2019-09。
 - **`format`**（如 `date-time`、`uri`、`email`）：校验不通过时只在 stderr 给出警告，不阻止调用。各 server 对 format 的理解并不一致，以上游为准。
-- **`$ref`**：只解析 schema 内部的引用；指向外部 URL 的引用不下载，相关部分跳过校验并给出警告。
+- **`$ref`**：只解析 schema 内部的引用；指向外部 URL 的引用不下载，相关部分跳过校验并给出警告（`<规范写法>: external $ref <url> is not downloaded; that part is not validated`）。
 
 ### 报错
 
@@ -103,7 +106,7 @@ alias: issue_read · read-only
 ```console
 $ via github issue:list --owner acme
 error: --repo is required
-usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all] [--per-page <num>]
+usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all] [--per-page <num>] [--title <str>]
 ```
 
 有多个错误时一次全部列出，每个参数一行：
@@ -115,7 +118,7 @@ error: 4 invalid arguments
   --state      must be one of: open, closed, all (got "opened"; did you mean "open"?)
   --per-page   must be <= 100 (got 500)
   --titel      unknown argument; did you mean --title?
-usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all] [--per-page <num>]
+usage: via github issue:list --owner <str> --repo <str> [--state open|closed|all] [--per-page <num>] [--title <str>]
 next: via github issue:list -h
 ```
 
@@ -137,6 +140,11 @@ next: via github issue:list -h
 | JSON 解析失败 | `--filter  invalid JSON at 1:18: unexpected "}"; consider @file` |
 | 文件读取失败 | `--body  cannot read @bug.md: no such file` |
 | `format` 不符（仅警告） | `warning: --due should be a date-time (got "tomorrow")` |
+| 缺少参数值 | `--state  requires a value` |
+| 参数名归一化后有歧义 | `--per-page  ambiguous; use one of the original names: per_page, perPage` |
+| 多余的位置参数 | `foo  unexpected argument; pass values as --name value`（唯一的位置参数之后再出现则提示加引号） |
+| stdin 被重复读取 | `--name  cannot read stdin: another argument already reads it (only one per call)` |
+| oneOf 同时匹配多个分支 | `--v  must provide only one of: a, b` |
 
 规则：
 
@@ -145,10 +153,16 @@ next: via github issue:list -h
 - 有更接近的合法值时附 did you mean（枚举值、参数名都适用），最多给一个。
 - anyOf / oneOf 无法匹配时，列出各分支需要的字段，而不是逐条罗列每个分支的失败原因。
 - 未知参数在根对象允许任意字段时不报错（见 [JSON 输入](#json-输入)）。
+- 只有一个错误时，`error:` 行写成 `<参数> <说明>`（`--repo is required`、`unknown argument --titel; did you mean --title?`），不带 `next:`；有多个错误时写 `N invalid arguments`，逐行列出并附 `next: via <规范写法> -h`。
+- 错误顺序：解析阶段的错误（JSON、文件、缺少参数值）、必填、取值错误（按 schema 字段顺序）、未知参数。同一个参数有多条取值错误时合并成一行，用 `; ` 连接。
+- JSON 解析失败的位置是 `行:列`；来自文件或 stdin 时写成 `invalid JSON at 3:9 in @p.json: unexpected "}"`，不再提示 `consider @file`。
+- anyOf / oneOf 的各分支用「区别于其他分支的必填字段」代表（只有一个可选值的字段如 `type` 不算）；分支不是对象时列出类型名（`must provide one of: string, integer (got true)`）。
+- 已被 `--no-validate` 跳过校验时，仍报告 JSON、文件和 stdin 错误，但不再报告未知参数。
+- 重复的数组参数（`--tag a --tag b`）从该参数在命令行上的第一次出现起重新累积，覆盖 `--args` 中的同名值；整体 JSON 数组写法覆盖此前的累积。boolean 参数后面紧跟 `true` / `false` 时当作它的值。
 - 错误信息使用英文。模型对英文 CLI 报错最熟悉，也方便在 issue 和日志中搜索。
 - `-o json` 时报错为结构化 JSON，格式见 [output.md](output.md#错误)。
 
-上游返回的参数错误（本地校验通过、上游拒绝）原样输出上游的错误文本，退出码 1，并在 stderr 提示「schema 与 server 行为不一致」，便于判断是哪一侧的问题。
+上游返回的参数错误（本地校验通过、上游拒绝）原样输出上游的错误文本，退出码 1，并在 stderr 提示「schema 与 server 行为不一致」，便于判断是哪一侧的问题。判断规则：结果 `isError` 且文本里出现 `invalid arguments`、`missing … parameter`、`must be`、`unknown argument` 之类的措辞，或上游以 JSON-RPC `InvalidParams`（-32602）拒绝时，在 `next:` 之前加一行 `note: the local schema accepted these arguments but the server rejected them; the tool schema and the server disagree (try --no-validate to rule the schema out)`。`-o json` 时错误对象的格式固定，不加这一行。
 
 ### schema 不可靠时
 
@@ -157,7 +171,7 @@ next: via github issue:list -h
 | 情况 | 处理 |
 | --- | --- |
 | 本地缓存的 schema 已过期（server 刚升级） | 校验失败且缓存超过 5 分钟时，先刷新该 server 的 `tools/list` 再校验一次；仍失败才报错 |
-| schema 无法编译（语法错误、不支持的关键字） | 跳过本地校验直接发送，stderr 给出一次警告，并记录在 `via servers` 中 |
+| schema 无法编译（语法错误、不支持的关键字） | 跳过本地校验直接发送，stderr 给出一次警告（`schema of <规范写法> cannot be compiled (<原因>); local validation skipped`），并记录在 `via servers` 中 |
 | schema 写错，导致合法调用被拒 | 用户可以加 `--no-validate` 跳过本地校验；元信息行标注 `unvalidated` |
 | 上游返回参数错误，而本地校验通过 | 原样输出上游错误（退出码 1），并在 stderr 提示 schema 与 server 行为不一致 |
 
@@ -167,9 +181,16 @@ next: via github issue:list -h
 
 工具声明了 `outputSchema` 时，用它校验返回的 `structuredContent`。不匹配时照常渲染，只在 stderr 给出警告，不改变退出码。
 
+警告写成 `<tool> result does not match its outputSchema: items[0].id must be string`，最多 3 条，其余合并为一行计数；返回值可能含敏感内容，警告里不引用值，也不检查 `format`。`outputSchema` 无法编译时静默跳过。
+
 ## 危险操作
 
-- 工具 annotations 中 `destructiveHint: true` 的工具需要 `--yes` 才会执行；缺少时退出码为 5，并说明原因。
+- 工具 annotations 中 `destructiveHint: true` 的工具需要 `--yes` 才会执行；缺少时退出码为 5，并说明原因：
+
+  ```console
+  error: gh file:delete is destructive and was not run
+  next: rerun with --yes to confirm
+  ```
 - 可在配置中按 server 设置 `confirm: never` 关闭这一检查。
 - `readOnlyHint` 在帮助和资源视图中标注，方便 agent 判断。
 - `--dry-run` 只打印解析结果：规范写法、目标 server、最终参数（凭证打码），不发起调用，退出码 0。
@@ -177,6 +198,6 @@ next: via github issue:list -h
 
 ## 调用过程
 
-- 上游的 progress 通知输出到 stderr，不污染 stdout。
+- 上游的 progress 通知输出到 stderr，不污染 stdout，每条一行：`progress: 1/2 halfway`（没有 total 时只写进度值）。进度是尽力而为的提示，到达顺序不保证先于结果。
 - 默认超时 60 秒，可按 server 配置或用 `--timeout` 覆盖；超时退出码 6。
 - 只对 `readOnlyHint: true` 的工具在超时或连接错误时自动重试一次；其余工具失败即返回，避免重复写入。
