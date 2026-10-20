@@ -1,6 +1,6 @@
 # 数据文件
 
-规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`domains`、`domain-lexicon`、`noise`、`columns` 的 schema 已经提供，测试会逐个校验。
+规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`domains`、`domain-lexicon`、`noise`、`columns`、`synonyms` 的 schema 已经提供，测试会逐个校验。
 
 ## verbs.json
 
@@ -119,6 +119,39 @@ npm run lexicon    # 等价于对 test/fixtures/tools/ 运行 scripts/build-lexi
 - `maxColumns`：一张表最多显示的列数。
 - `priority`：列数超过上限时优先保留的字段名，靠前的优先；用完后按字段在对象中出现的顺序补满。
 - `labelKeys`：对象出现在表格单元格里时，用其中第一个有标量值的字段代表它（如 `user` 显示为 `octocat`）；都没有则显示紧凑 JSON。
+
+## synonyms.json
+
+`via find` 的查询侧同义词扩展（[discovery.md](../spec/discovery.md#同义词扩展默认开启确定性)，[ADR 0010](../adr/0010-find-synonym-expansion-and-optional-embeddings.md)）。Schema 为 `data/schema/synonyms.schema.json`。
+
+```json
+{
+  "version": 1,
+  "weights": { "verb": 0.35, "resource": 0.6, "stem": 0.8 },
+  "queryStopwords": ["i", "me", "my", "want", "please"],
+  "verbs": [
+    ["remove", "delete", "destroy", "drop", "erase", "trash"],
+    ["get", "fetch", "retrieve", "read", "obtain", "load"],
+    ["find", "search", "query", "lookup", "look up", "locate"]
+  ],
+  "resources": [
+    ["issue", "ticket", "bug"],
+    ["pr", "pull request", "merge request"],
+    ["repo", "repository"]
+  ],
+  "suffixes": [
+    { "suffix": "ing", "append": ["", "e"], "undouble": true },
+    { "suffix": "ation", "append": ["ate", "e", ""] }
+  ]
+}
+```
+
+- `verbs`、`resources`：每个内层数组是一组**等价**词（团，不传递：一个词可以出现在多组里，扩展取各组的并集）。成员是小写词或空格分隔的短语；加载时逐词单数化，和索引词一致，所以写单数即可。
+- `weights`：替代词相对原词的权重，都在 (0, 1]。`verb`、`resource` 是同义组的权重，`stem` 是词形还原的权重。权重在 fixture 评测上调参；改动后运行 `npm run eval:search`，指标不得下降。
+- `queryStopwords`：查询侧丢弃的口语词，只在查询里还有其他词时生效。不得包含 `verbs.json` 里的动词（测试校验）。
+- `suffixes`：词形还原。查询词以 `suffix` 结尾时，去掉后缀，再依次接上 `append` 里的每个尾巴（`""` 表示什么都不接）得到候选原形；`undouble` 为真时，词干以双写辅音结尾（`running` → `runn`）也尝试去掉一个。词干至少 3 个字符；候选只有在索引词表里存在时才采用。
+- 组应当是通用英文与开发工具里的常识，不是为某个 server 写的补丁（[ADR 0007](../adr/0007-no-gateway-specific-adaptation.md)）。同义词只在查询侧生效，不影响规范名：改动这个文件**不会**改变任何 `provider resource:verb`，因此不需要写进 CHANGELOG 的「影响规范写法」，但仍写进 Unreleased，并附 `npm run eval:search` 前后对比。
+- 两套评测集的写法：`test/fixtures/search/eval.json`（调参）与 `heldout.json`（只用来估计泛化，不拿它调参）里每条是 `{ "q": 自然语言查询, "group": direct|synonym|phrase, "expect": [可接受的规范写法…] }`，按最佳名次计分。
 
 ## frameworks
 

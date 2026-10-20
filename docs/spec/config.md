@@ -18,7 +18,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 - 框架配置中的 `env`、`headers` 原样继承，包括其中的明文值；`via doctor` 对明文值告警。
 - 同一框架的项目级配置整条覆盖它的用户级配置（框架自己的优先级），这不算冲突；只有不同框架之间才记录冲突。冲突项记在 server 的 `conflicts` 里，列出被忽略的来源；内容完全相同的重复定义不算冲突。
 - 覆盖层只写了部分字段时只改这些字段：`env`、`headers`、`rename` 按键合并，`args` 整体替换，`noise` 追加去重，其余标量字段后者覆盖。覆盖层给出的传输方式与来源不同（对 HTTP server 写了 `command`，或对 stdio server 写了 `url`）时，整体替换传输定义，不继承另一种传输的字段。
-- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`domains` 按域名逐项覆盖；`output.*`、`daemon.*` 逐字段覆盖。
+- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`domains` 按域名逐项覆盖；`output.*`、`daemon.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
 - 覆盖层里没有任何来源定义的 server（只有 `timeout` 之类设置，没有 `command` 或 `url`）被忽略并给出告警，通常是框架那边已经删掉了它。
 
 `sources` 的细节：
@@ -68,6 +68,35 @@ domains:
 | `output.cellWidth` | 字符数 | `80` | 表格单元格截断宽度 |
 | `daemon.idleTimeout` | 秒 | `600` | daemon 空闲退出时间 |
 | `daemon.serverIdleTimeout` | 秒 | `300` | 单个 stdio server 空闲停止时间 |
+| `search.semantic` | 映射 \| `false` | 未设置 | `via find` 的可选 embedding 检索，**只在用户配置里生效**，见[下文](#searchsemantic) |
+
+### `search.semantic`
+
+`via find` 的可选 embedding 检索（[discovery.md](discovery.md#embedding-检索可选默认关闭)，[ADR 0010](../adr/0010-find-synonym-expansion-and-optional-embeddings.md)）。默认关闭；它会把工具描述与每次查询发往 `url`，所以只在用户配置（和命令行覆盖）里读取：
+
+```yaml
+search:
+  semantic:
+    provider: openai-compatible
+    url: https://api.openai.com/v1
+    model: text-embedding-3-small
+    auth: { bearer: "env:OPENAI_API_KEY" }
+```
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `provider` | `openai-compatible` | `openai-compatible` | 目前只有 OpenAI 兼容的 `/embeddings` 接口 |
+| `url` | 字符串 | 必填 | 基础地址（`…/v1`，请求发往 `<url>/embeddings`）或完整的 `…/embeddings` 地址。必须是 https；`localhost`、`127.0.0.0/8`、`::1` 允许 http（本机 Ollama、vLLM 等）。不允许内嵌用户名或密码 |
+| `model` | 字符串 | 必填 | 模型名，原样放进请求 |
+| `auth` | `none` \| `{ bearer }` \| `{ headers }` | `none` | 与 server 的 `auth` 同形（[auth.md](auth.md)），值是凭证引用；不支持 `oauth`。字面量凭证加载时告警 |
+| `timeout` | 秒 | `3` | 缓存已完整时，整个语义步骤（只剩查询要 embedding）的期限 |
+| `indexTimeout` | 秒 | `30` | 有工具还没有 embedding（首次、目录变了）时的期限 |
+| `dimensions` | 正整数 | 不传 | 作为 `dimensions` 发给端点（支持缩短向量的模型）；也参与缓存键 |
+
+- `search.semantic: false` 显式关闭（命令行覆盖可以用它临时关掉用户配置里的设置）。
+- 项目配置里出现 `search.semantic` 时被忽略并给出告警（`search-forbidden`）：它会把工具描述与查询发往仓库指定的主机（[security.md](security.md#embedding-检索的数据外流)）。框架配置没有 `search` 字段，不读取。
+- `url` 为 http 且不是回环地址、含内嵌凭证、缺少 `url` 或 `model`、`provider` 不是 `openai-compatible`、`auth` 是 `oauth`，都是 `invalid-field` 错误（与其他字段错误一样，命令拒绝执行，退出码 2），整段 `search.semantic` 被忽略。
+- 凭证引用在 `find` 需要请求端点时才解析；解析失败不让 `find` 失败，只退回词法排序并在 stderr 说明缺哪一项，不含值。
 
 ### `servers.<name>`
 

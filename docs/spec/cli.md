@@ -55,7 +55,7 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 各命令的细节：
 
 - `via call`：`<provider>/<ref>` 按与命令行形式相同的规则解析（provider 与资源接受唯一前缀，原始名可用）；其后的参数交给工具参数解析器，`--args`、`@文件`、`-`（stdin）均可用。
-- `via find`：没有命中时输出 `no tools match "<查询>"`；个别 provider 无法连接时照常搜索其余的，并在 stderr 警告哪些没有被搜索。
+- `via find`：没有命中时输出 `no tools match "<查询>"`；个别 provider 无法连接时照常搜索其余的，并在 stderr 警告哪些没有被搜索。用户配置了 `search.semantic` 时，stderr 可能多一行 `· semantic …` 元信息行（退回词法排序的原因，或第一次补全 embedding 缓存），退出码不变（[discovery.md](discovery.md#embedding-检索可选默认关闭)）。
 - `via more`：只读游标，不加载配置和目录。游标先向已经在运行的 daemon 要（不会为此拉起 daemon），再看缓存目录（[daemon.md](daemon.md#daemon-持有的状态)）。
 - `via daemon`：
   - `status`：不拉起 daemon，只询问正在运行的。输出一行概况、socket 路径和各会话（server 名、传输、`running (pid N)` / `connected` / `stopped`、目录中的工具数、调用数、空闲时间或在途数）；不含 URL、参数、凭证。没有 daemon 时输出 `daemon: not running` 加 `socket:` 一行，`VIA_NO_DAEMON` 打开时输出 `daemon: disabled (VIA_NO_DAEMON)`，退出码都是 0。`-o json` 输出 `{"running": true, …}`（字段同协议的 `status`）或 `{"running": false}`。

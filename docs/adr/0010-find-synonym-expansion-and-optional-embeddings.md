@@ -59,7 +59,7 @@
 
 ## 后果
 
-- 查询侧扩展让 `find` 在 fixture 目录上的召回明显提高（见 CHANGELOG 与 `npm run eval:search`），代价是 1,000 个工具上单次查询的中位耗时约 0.3 ms（此前约 0.2 ms），首次查询多一次约 1 ms 的同义词表编译。
+- 查询侧扩展让 `find` 在 fixture 目录上的召回明显提高（见 CHANGELOG 与 `npm run eval:search`），代价是 1,000 个工具上稳态单次查询的中位耗时约 0.3–0.5 ms（此前约 0.2–0.4 ms，目标 < 30 ms），首次查询多一次约 1 ms 的同义词表编译。
 - 同义词表是新的需要维护的数据：词组应当是通用英文与开发工具里的常识，而不是针对某个 server 的补丁（[ADR 0007](0007-no-gateway-specific-adaptation.md)）。新增或修改词组时运行 `npm run eval:search`，不得降低评测指标。
 - 同义词扩展不改变任何规范名，因此 CHANGELOG 的「影响规范写法」一节不受影响。
 - 开启 embedding 后，工具名、描述与参数名以及每次的查询会发往配置的端点；文档（security.md）如实写明，由用户决定。

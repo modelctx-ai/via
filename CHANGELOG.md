@@ -8,6 +8,9 @@
 
 ### Changed
 
+- `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0010](docs/adr/0010-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询、`--domain` 不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
+- AGENTS.md 的「发现逻辑是确定性的」改为「默认确定性；唯一的例外是用户显式开启的 `search.semantic`」（ADR 0010）。
+- 测试：`test/bench/synth-catalog.test.ts` 的「发送邮件」查询接受 `acme-workspace`（其 `mail-message:send` 现在是 `email` 的同义词命中，与 gmail 的描述命中同分）。
 - 规范补充（随 OAuth 实现）：auth.md 补全 OAuth 的发现、注册、回调、存储（含文件退路与 `VIA_OAUTH_STORE`）、刷新、状态与登出，以及调用时「需要登录」的行为；cli.md 的 `via auth` 说明；security.md、daemon.md 中 OAuth token 的脱敏与 daemon 持有的状态。`auth: oauth` 的 server 不再提示改用 bearer。
 - 项目名与命令名由占位名 `mx` 改为 `via`，npm 包名 `@modelctx/via`；配置路径、项目配置文件、socket、环境变量前缀随之改名（ADR 0009）。
 - 规范补充（随首个实现，不改变既有设计决策）：naming.md 明确逐词单数化并加入不规则复数；discovery.md 补全启发式打分的细节（递减计分、`minScore`、双域判定）、浏览视图的排序与截断、签名上限、安全标记和搜索排序的并列规则；output.md 补全表格选列、一行数组、元信息行格式、游标续读、脱敏顺序和错误文本清理；data-files.md 增加 `columns.json`、`singularIrregular`、`minScore`、`stopwords` 以及词典与差异检查的命令。
@@ -26,6 +29,9 @@
 
 ### Added
 
+- 可选的 embedding 检索（路线图 c2 的第二层，默认关闭）：用户配置 `search.semantic: { provider: openai-compatible, url, model, auth, timeout, indexTimeout, dimensions }` 后，`via find` 把查询与工具描述的 embedding 同 BM25 做 RRF 融合（第 1–3 级规范写法匹配仍在最前）。只读用户配置与命令行覆盖，项目配置里的被忽略并告警（`search-forbidden`）；`url` 必须是 https（回环地址可用 http）且不含内嵌凭证；`auth` 是凭证引用，不跟随重定向，响应体、请求头、端点从不进入输出。工具描述的向量按文本哈希缓存在 `<缓存目录>/embeddings/`（目录 0700、文件 0600），描述变了才重新请求；缓存完整时语义步骤的期限是 `timeout`（默认 3 秒），补 embedding 时是 `indexTimeout`（默认 30 秒），期限内没完成（超时、HTTP 错误、凭证缺失、响应异常、缓存仍不完整）就退回词法排序并在 stderr 写一行 `· semantic unavailable: <原因> · lexical results`，退出码不变，已取得的向量保留供下次继续。只影响 `via find`；实现是独立分块，关闭时零加载；在 CLI 进程内完成，不经 daemon。spec 见 discovery.md、config.md、security.md（新增「embedding 检索的数据外流」）。
+- `npm run eval:search`（`scripts/eval-search.ts`）：在 `test/fixtures/search/eval.json`（调参集）和 `heldout.json`（留出集）上报告词法基线与默认的 recall@1、recall@5、MRR，`--misses` 列出仍然答错的查询；回归测试 `test/catalog/search-eval.test.ts` 断言不低于基线并锁定下限。
+- 测试：`test/helpers/embeddings-server.ts`（本机 OpenAI 兼容 embeddings 服务，确定性假向量），覆盖融合、缓存、超时与错误退回、脱敏、配置校验（`test/catalog/semantic.test.ts`、`test/cli/semantic.test.ts`、`test/config/search.test.ts`）；`test/cli/dist.test.ts` 校验默认的 `find` 不加载 embedding 分块。
 - OAuth（auth.md）：`via auth login|status|logout`。PKCE 授权码流程，按 MCP 授权规范发现受保护资源与授权服务器（RFC 9728 / 8414）、动态客户端注册（RFC 7591）、`resource` 参数（RFC 8707）；回调监听 `127.0.0.1` 的随机端口并校验 `state` 与 `Host`，`--manual` 在无头环境打印授权 URL、从终端读取粘贴的重定向 URL；平台打开命令只是尽力而为（SSH 会话或无显示时不尝试，打开失败不报错、不等待）。登录存入系统钥匙串（服务名 `via`，账户名 `oauth:<server 定义的哈希>`），不可用时退回用户数据目录下 0600 的文件，`VIA_OAUTH_STORE=file|keychain|auto` 可固定；调用前和收到 401 时用 refresh token 静默刷新（同进程串行，多进程轮换冲突时改用已刷新的 token），登录失效时退出码 4 并提示 `via auth login`，调用过程永远不会启动浏览器或等待输入；`logout` 撤销 token（RFC 7009，尽力而为）并删除本地记录。OAuth token 计入脱敏列表（`CredentialResolver.track`）。`via servers` 的鉴权列显示登录状态，`via doctor` 对未登录的 server 给出 `next: via auth login <provider>`。MCP SDK 仍按需加载。
 - 测试夹具 `test/fixtures/mcp/oauth-server.mjs`：模拟授权服务器（元数据、动态注册、PKCE 校验、刷新与轮换、撤销）加受保护的 Streamable HTTP MCP server。
 
