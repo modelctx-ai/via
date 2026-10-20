@@ -14,8 +14,8 @@ usage:
   via find <query> [--domain <d>] [-n 10]    search tools across providers
 
 commands:
-  find call more servers sync doctor prompt
-  batch auth trust daemon (not available until 0.2)
+  find call more servers sync doctor prompt trust
+  batch auth daemon (not available until 0.2)
 
 options:
   -o text|json|raw  --full  --all  --yes  --dry-run  --no-validate  --timeout <seconds>  -h
@@ -34,6 +34,6 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   prompt: 'usage: via prompt [--out <file>]',
   batch: 'usage: via batch (not available until 0.2)',
   auth: 'usage: via auth login|status|logout <provider> (not available until 0.2)',
-  trust: 'usage: via trust [<path>] (not available until 0.2)',
+  trust: 'usage: via trust [<path>] [--dry-run] [--yes] | via trust --list | via trust --revoke <path>',
   daemon: 'usage: via daemon status|stop|run (not available until 0.2)',
 };

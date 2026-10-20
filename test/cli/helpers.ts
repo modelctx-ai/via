@@ -67,12 +67,16 @@ export interface CliResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** Questions put to the person (only with `RunOptions.answer`). */
+  asked: string[];
 }
 
 export interface RunOptions {
   env?: Record<string, string | undefined>;
   cwd?: string;
   stdin?: string;
+  /** Pretend a person sits at a terminal and types this at the next question (`via trust`); the questions are collected in `CliResult.asked`. */
+  answer?: string;
   now?: number;
 }
 
@@ -124,7 +128,13 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
     via: async (argv, options = {}) => {
       let stdout = '';
       let stderr = '';
+      const asked: string[] = [];
       const code = await run(argv, {
+        interactive: options.answer !== undefined,
+        ask: async (question) => {
+          asked.push(question);
+          return options.answer ?? '';
+        },
         env: { PATH: process.env.PATH, ...env, ...options.env },
         cwd: options.cwd ?? project,
         home,
@@ -134,7 +144,7 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
         readStdin: async () => options.stdin ?? '',
         now: () => options.now ?? 1_800_000_000_000,
       });
-      return { code, stdout, stderr };
+      return { code, stdout, stderr, asked };
     },
   };
 }

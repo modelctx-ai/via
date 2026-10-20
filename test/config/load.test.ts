@@ -150,6 +150,9 @@ describe('trust (security.md)', () => {
     expect(server(config, 'local-tool')).toMatchObject({ trusted: true });
     expect(server(config, 'proj-yaml').trusted).toBe(true);
     expect(server(config, 'codex-proj').trusted).toBe(false);
+    // `launchPaths` keeps naming the files once they are trusted: `via trust` lists them.
+    expect(server(config, 'local-tool').launchPaths?.map(relative)).toEqual(['project/.mcp.json', 'project/.via.yaml']);
+    expect(server(config, 'aster')).not.toHaveProperty('launchPaths');
   });
 
   it('asks again when the file content changed', async () => {
