@@ -15,8 +15,14 @@
 - client 把上游 `InvalidParams`（-32602）映射为退出码 1，并提示 schema 与 server 行为不一致。
 - 安全：项目级配置的信任范围从 stdio 命令扩大到 HTTP 端点。项目级文件设置或覆盖 `url`、`headers` 时同样需要 `via trust`，避免仓库把 server 指向别处，从而拿到用户为它配置的凭证（security.md）。
 
+- 规范补充（随 `via trust`、`cmd:`、deny 审计实现，不改变既有设计决策）：security.md 新增 `via trust` 的范围、显示内容、确认方式（终端提示或 `--yes`、`--dry-run`）、`--list` / `--revoke` 与退出码，以及 `cmd:` 的执行细节（不经 shell、环境、超时、输出上限、错误信息不含命令输出）；config.md 补全 `cmd:` 的分词与缓存语义、deny 的匹配范围（规范写法与原始名、别名、区分大小写）、分层规则（只能追加）与 deny 先于 `--yes`；`via servers` 不执行 `cmd:`；output.md 的退出码 5 补充未信任。
+- 未信任时的 `next:`：同一个 server 有多个文件待确认时提示不带路径的 `via trust`，路径含空格时加引号。
+
 ### Added
 
+- `via trust [<路径>] [--yes] [--dry-run]`、`via trust --list`、`via trust --revoke <路径>`：显示项目级文件将让 via 启动或访问什么（命令行、URL、env / header 的名字与凭证引用，不显示值），确认后按真实路径 + 解析时读到的那份字节的 SHA-256 记录信任；文件变化后需重新确认。`trust` 不再是 0.2 的保留名。
+- `cmd:` 凭证：用户配置里可用，不经 shell 执行，30 秒超时、64 KiB 上限、stdout 去首尾空白，结果按引用在解析器内存中缓存 10 分钟（失败不缓存，并发解析只运行一次）；错误信息只含程序名与原因，不含命令的 stdout / stderr；项目与框架配置里的 `cmd:` 仍在加载阶段拒绝，信任也不能放行。
+- deny 规则的审计与测试：分层并集（项目与命令行只能追加）、规范写法与原始名两种匹配、别名、`--yes` 之前拒绝、全局 / 粘性标志不影响结果。
 - 工程骨架：`@modelctx/via` 包（ESM、Node 20+，TypeScript strict），tsup 打成单个文件并内联 `data/`，vitest 测试，`typecheck` / `build` / `test` 脚本。
 - `src/catalog/`：工具名拆分（切词、去 provider 词、找动作、复合动词、逐词单数化、叶子工具、`resource:verb` 冲突退回叶子、`rename` 覆盖、`deny` 过滤）；分域（配置 → 内置分类表 → 启发式打分 → `other`，按资源拆分，`--why` 的依据）；`SearchIndex`（规范写法三级匹配 + BM25）；工具引用解析与 did you mean；`via`、`via <provider>`、`via <provider> <resource>`、`via find` 的浏览视图。规则放在 `data/verbs.json`、`data/domains.json`、`data/domain-lexicon.json`（`npm run lexicon` 生成）。
 - `src/render/`：输出流水线（选数据源、清理噪声、形状判断、表格与 CJK 双宽对齐、单元格与预算截断、游标、媒体落盘、脱敏）、元信息行、`next:` 提示与错误格式、退出码常量。游标存储与媒体落盘在接口之后，0.1 的实现写入用户缓存目录（权限 0700）。规则放在 `data/noise.json`、`data/columns.json`。
@@ -52,6 +58,7 @@
 ### Fixed
 
 - ADR 0008 的背景误称 mcp2cli 采用代码生成；mcp2cli 实际是运行时分发。
+- 多个 server 同时解析凭证（`via doctor`、`via sync`）时，CLI 可能创建两个凭证解析器和两个 MCP client：脱敏只认其中一个解析器的值，另一个解析出的凭证可能漏出脱敏，退出时也只关闭一个 client。现在一次运行共用一个。
 
 ### 影响规范写法的改动（动词表、单数化规则）
 
