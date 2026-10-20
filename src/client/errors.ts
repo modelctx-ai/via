@@ -64,10 +64,11 @@ export function notFoundServer(name: string, known: readonly string[]): ClientEr
 }
 
 export function untrustedServer(server: ServerConfig): ClientError {
-  const path = server.origin.path;
+  const path = server.untrustedPaths?.[0] ?? server.origin.path;
+  const what = server.transport.type === 'stdio' ? 'its command was not started' : 'no request was sent';
   return new ClientError({
     exitCode: ExitCode.Denied,
-    message: `${server.provider} is defined in an untrusted project config${path ? ` (${path})` : ''}; its command was not started`,
+    message: `${server.provider} is defined in an untrusted project config${path ? ` (${path})` : ''}; ${what}`,
     next: path ? `via trust ${path}` : 'via trust',
   });
 }

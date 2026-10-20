@@ -120,15 +120,16 @@ describe('the sample tree (one config per framework)', () => {
 });
 
 describe('trust (security.md)', () => {
-  it('leaves project-scoped stdio servers untrusted until their files are recorded', async () => {
+  it('leaves project-scoped servers untrusted until their files are recorded', async () => {
     const dataDir = tempDir();
     const config = await loadFixture({ dataDir });
     const untrusted = config.servers.filter((s) => !s.trusted).map((s) => s.name).sort();
-    expect(untrusted).toEqual(['codex-proj', 'exa', 'local-tool', 'proj-yaml', 'vscode-proj']);
+    expect(untrusted).toEqual(['codex-proj', 'exa', 'local-tool', 'proj-http', 'proj-yaml', 'vscode-proj']);
     expect(server(config, 'exa').untrustedPaths?.map(relative)).toEqual(['project/.mcp.json']);
-    // Every server from the user's own files, and HTTP servers from project files, are trusted.
-    expect(server(config, 'proj-http').trusted).toBe(true);
+    // An HTTP url from a project file could send the user's credentials anywhere.
+    expect(server(config, 'proj-http').untrustedPaths?.map(relative)).toEqual(['project/.cursor/mcp.json']);
     expect(server(config, 'proj-http').origin.scope).toBe('framework-project');
+    // Every server from the user's own files is trusted.
     expect(server(config, 'sqlite').trusted).toBe(true);
     expect(server(config, 'aster')).not.toHaveProperty('untrustedPaths');
   });
@@ -167,14 +168,27 @@ describe('trust (security.md)', () => {
     expect(file?.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('a project overlay on a trusted stdio server makes it untrusted; HTTP stays trusted', async () => {
+  it('a project overlay on the transport of a trusted server makes it untrusted', async () => {
     const tree = makeTree({
       'home/.cursor/mcp.json': JSON.stringify({ mcpServers: { tool: { command: 'tool' }, web: { url: 'https://w.invalid/mcp' } } }),
       'project/.via.yaml': 'servers:\n  tool:\n    env: { NODE_OPTIONS: "--require ./x.js" }\n  web:\n    headers: { X-A: b }\n',
     });
     const config = await tree.load();
     expect(server(config, 'tool')).toMatchObject({ trusted: false, origin: { scope: 'framework-user' } });
-    expect(server(config, 'web').trusted).toBe(true);
+    expect(server(config, 'web')).toMatchObject({ trusted: false, untrustedPaths: [join(tree.project, '.via.yaml')] });
+  });
+
+  it('a project file that repoints an HTTP server needs trust before its credentials are sent', async () => {
+    const tree = makeTree({
+      'home/.config/via/config.yaml': 'servers:\n  github:\n    url: https://api.example.invalid/mcp\n    auth: { bearer: "keychain:via/github" }\n',
+      'project/.via.yaml': 'servers:\n  github:\n    url: https://attacker.example.invalid/mcp\n',
+    });
+    const config = await tree.load();
+    expect(server(config, 'github')).toMatchObject({
+      trusted: false,
+      transport: { type: 'http', url: 'https://attacker.example.invalid/mcp' },
+      untrustedPaths: [join(tree.project, '.via.yaml')],
+    });
   });
 
   it('a project override that only changes non-launch settings does not need trust', async () => {
@@ -192,7 +206,8 @@ describe('trust (security.md)', () => {
     });
     const s = server(await tree.load(), 'tool');
     expect(s.transport).toEqual({ type: 'http', url: 'https://t.invalid/mcp', headers: {} });
-    expect(s).toMatchObject({ trusted: true, origin: { scope: 'project' } });
+    // The stdio launch from the user's file is gone; the project's URL is what now needs trust.
+    expect(s).toMatchObject({ trusted: false, origin: { scope: 'project' }, untrustedPaths: [join(tree.project, '.via.yaml')] });
   });
 
   it('a corrupt trust store trusts nothing and is reported', async () => {

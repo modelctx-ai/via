@@ -222,7 +222,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
 
   // 5. Trust, then the final ServerConfig values.
   const dataDir = options.dataDir ?? userDataDir(ctx);
-  const needsTrust = [...accumulators.values()].some((acc) => acc.def.command !== undefined && acc.launch.size > 0);
+  const needsTrust = [...accumulators.values()].some((acc) => acc.launch.size > 0);
   let trustStore: TrustStore = { version: 1, entries: {} };
   if (needsTrust) {
     const { store, error } = readTrustStore(dataDir);
@@ -283,15 +283,6 @@ function finalize(
   if (d.command !== undefined) {
     transport = { type: 'stdio', command: d.command, args: d.args ?? [], env: d.env ?? {} };
     if (d.cwd !== undefined) transport.cwd = d.cwd;
-    const pending: string[] = [];
-    for (const path of acc.launch.keys()) {
-      const hash = hashes.get(path);
-      if (hash === undefined || trustStatus(store, path, hash) !== 'trusted') pending.push(path);
-    }
-    if (pending.length > 0) {
-      trusted = false;
-      untrustedPaths = pending;
-    }
   } else if (d.url !== undefined) {
     transport = { type: 'http', url: d.url, headers: d.headers ?? {} };
   } else {
@@ -302,6 +293,15 @@ function finalize(
       server: name,
     });
     return undefined;
+  }
+  const pending: string[] = [];
+  for (const path of acc.launch.keys()) {
+    const hash = hashes.get(path);
+    if (hash === undefined || trustStatus(store, path, hash) !== 'trusted') pending.push(path);
+  }
+  if (pending.length > 0) {
+    trusted = false;
+    untrustedPaths = pending;
   }
   const server: ServerConfig = {
     name,

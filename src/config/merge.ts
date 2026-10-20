@@ -9,7 +9,10 @@ export interface Accumulator {
   def: ServerDef;
   /** Origin of the layer that last set `command` or `url`. */
   transportOrigin?: ConfigOrigin;
-  /** Project-scoped files that contributed to how a stdio process is launched (command, args, env, cwd). */
+  /**
+   * Project-scoped files that shape the transport: how a stdio process is launched (command, args,
+   * env, cwd) or where HTTP requests go and what they carry (url, headers).
+   */
   launch: Map<string, ConfigOrigin>;
 }
 
@@ -39,6 +42,7 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
   if (def.command !== undefined && d.url !== undefined) {
     delete d.url;
     delete d.headers;
+    acc.launch.clear();
   }
   if (def.url !== undefined && d.command !== undefined) {
     delete d.command;
@@ -62,7 +66,7 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
     if (def[key] !== undefined) (d as Record<string, unknown>)[key] = def[key];
   }
 
-  if (isProject(origin) && origin.path && (def.command !== undefined || def.args !== undefined || def.env !== undefined || def.cwd !== undefined)) {
+  if (isProject(origin) && origin.path && [def.command, def.args, def.env, def.cwd, def.url, def.headers].some((v) => v !== undefined)) {
     acc.launch.set(origin.path, origin);
   }
 }

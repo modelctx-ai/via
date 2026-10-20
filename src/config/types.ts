@@ -64,8 +64,8 @@ export interface ServerConfig {
   /** Source of the transport definition. */
   origin: ConfigOrigin;
   /**
-   * False when the stdio command comes from a project-scoped source that has
-   * not been confirmed with `via trust` (security.md). Always true for HTTP.
+   * False when a project-scoped source that shapes the transport (stdio command,
+   * args, env, cwd; HTTP url, headers) has not been confirmed with `via trust` (security.md).
    */
   trusted: boolean;
   /** Project-scoped files that still need `via trust` (when `trusted` is false); absolute paths. */
