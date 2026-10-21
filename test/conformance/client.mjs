@@ -35,7 +35,12 @@ const via = resolve(here, '..', '..', 'dist', 'via.js');
 const home = mkdtempSync(join(tmpdir(), 'via-conformance-'));
 mkdirSync(join(home, '.config', 'via'), { recursive: true });
 // `sources: false`: nothing from the machine running the suite leaks in; no daemon: one process, one connection.
-const auth = oauth ? `    auth: { oauth: ${context.client_id ? `{ clientId: ${JSON.stringify(context.client_id)} }` : '{}'} }\n` : '';
+// The CIMD scenario expects the client id `https://conformance-test.local/client-metadata.json`, a document that does not
+// exist: via's own hosted document is replaced through `auth.oauth.clientMetadataUrl`, the same setting a person would use.
+const oauthFields = [];
+if (context.client_id) oauthFields.push(`clientId: ${JSON.stringify(context.client_id)}`);
+if (scenario === 'auth/basic-cimd') oauthFields.push('clientMetadataUrl: "https://conformance-test.local/client-metadata.json"');
+const auth = oauth ? `    auth: { oauth: { ${oauthFields.join(', ')} } }\n` : '';
 writeFileSync(join(home, '.config', 'via', 'config.yaml'), `sources: false\nservers:\n  conf:\n    url: ${serverUrl}\n    timeout: 30\n${auth}`);
 const env = {
   PATH: process.env.PATH,

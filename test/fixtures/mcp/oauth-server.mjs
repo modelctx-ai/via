@@ -34,11 +34,16 @@ function listen(server) {
 /**
  * @param {{
  *   accessTokenTtl?: number, dcr?: boolean, revocation?: boolean, rotateRefresh?: boolean,
- *   scopes?: string[], idToken?: boolean, refreshTokens?: boolean
+ *   scopes?: string[], idToken?: boolean, refreshTokens?: boolean, cimd?: Record<string, object>
  * }} [options]
+ *
+ * `cimd` maps a client metadata document URL to the document it serves: the server advertises
+ * `client_id_metadata_document_supported` and accepts these URLs as `client_id` (without fetching them),
+ * checking the redirect URI against the document's `redirect_uris`.
  */
 export async function startOAuthServer(options = {}) {
-  const { accessTokenTtl = 3600, dcr = true, revocation = true, rotateRefresh = true, scopes = ['read', 'write'], idToken = false, refreshTokens = true } = options;
+  const { accessTokenTtl = 3600, dcr = true, revocation = true, rotateRefresh = true, scopes = ['read', 'write'], idToken = false, refreshTokens = true, cimd } = options;
+  const lookupClient = (id) => clients.get(id) ?? (cimd && Object.hasOwn(cimd, id) ? cimd[id] : undefined);
 
   const clients = new Map(); // client_id -> registered metadata
   const codes = new Map(); // code -> grant
@@ -75,6 +80,7 @@ export async function startOAuthServer(options = {}) {
           issuer: asOrigin,
           authorization_endpoint: `${asOrigin}/authorize`,
           token_endpoint: `${asOrigin}/token`,
+          ...(cimd ? { client_id_metadata_document_supported: true } : {}),
           ...(dcr ? { registration_endpoint: `${asOrigin}/register` } : {}),
           ...(revocation ? { revocation_endpoint: `${asOrigin}/revoke` } : {}),
           response_types_supported: ['code'],
@@ -101,7 +107,7 @@ export async function startOAuthServer(options = {}) {
       if (req.method === 'GET' && url.pathname === '/authorize') {
         const q = url.searchParams;
         state.authorizeRequests.push(Object.fromEntries(q));
-        const client = clients.get(q.get('client_id') ?? '');
+        const client = lookupClient(q.get('client_id') ?? '');
         const redirect = q.get('redirect_uri');
         if (!client || !redirect || !client.redirect_uris.includes(redirect)) {
           return json(res, 400, { error: 'invalid_request', error_description: 'unknown client or redirect_uri' });
@@ -117,7 +123,7 @@ export async function startOAuthServer(options = {}) {
         } else {
           const code = token('code');
           codes.set(code, {
-            clientId: client.client_id,
+            clientId: q.get('client_id'),
             redirect,
             challenge: q.get('code_challenge'),
             scope: q.get('scope') ?? scopes.join(' '),
@@ -135,7 +141,7 @@ export async function startOAuthServer(options = {}) {
         if (state.tokenFailure) return json(res, state.tokenFailure, { error: 'server_error' });
         const grantType = form.get('grant_type');
         const clientId = form.get('client_id') ?? '';
-        if (!clients.has(clientId)) return json(res, 401, { error: 'invalid_client' });
+        if (!lookupClient(clientId)) return json(res, 401, { error: 'invalid_client' });
 
         let scope;
         if (grantType === 'authorization_code') {

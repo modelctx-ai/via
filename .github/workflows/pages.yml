@@ -1,0 +1,39 @@
+# 发布 CIMD 客户端元数据文档（docs/spec/auth.md「客户端标识」）：pages/ 目录原样成为
+# https://modelctx-ai.github.io/via/ 。文档的 URL 就是 via 的 client_id，不能随意改动。
+#
+# 手动步骤（只做一次）：仓库 Settings -> Pages -> Build and deployment -> Source 选 "GitHub Actions"。
+# 在此之前这个工作流的部署步骤会失败，不影响其他工作流。
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - pages/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只部署一次，不取消进行中的部署。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -53,6 +53,18 @@ describe('validateLayer', () => {
     expect(data.daemon).toEqual({ idleTimeout: 30, serverIdleTimeout: 10 });
   });
 
+  it('accepts auth.oauth.clientMetadataUrl as an https URL with a path, or false; rejects anything else', () => {
+    const ok = (value: unknown) => validateLayer({ servers: { o: { url: 'https://o.invalid', auth: { oauth: { clientMetadataUrl: value } } } } }, undefined);
+    expect(ok('https://example.org/via/client.json').data.servers.get('o')?.auth).toEqual({ type: 'oauth', clientMetadataUrl: 'https://example.org/via/client.json' });
+    expect(ok(false).data.servers.get('o')?.auth).toEqual({ type: 'oauth', clientMetadataUrl: false });
+    for (const bad of ['http://example.org/c.json', 'https://example.org/', 'https://example.org', 'https://u:p@example.org/c.json', 'https://example.org/c.json#x', 'not a url']) {
+      const { data, diagnostics } = ok(bad);
+      expect(diagnostics.map((d) => d.message), String(bad)).toEqual(['servers.o.auth.oauth.clientMetadataUrl: expected https URL with a path (no credentials, no fragment), or false']);
+      expect(data.servers.get('o')?.auth).toEqual({ type: 'oauth' });
+    }
+    expect(ok(true).diagnostics.map((d) => d.message)).toEqual(['servers.o.auth.oauth.clientMetadataUrl: expected non-empty string']);
+  });
+
   it('accepts roots as paths and file URIs', () => {
     const { data, diagnostics } = validateLayer({ servers: { a: { command: 'x', roots: ['.', '~/notes', '/abs', 'C:\\work', 'file:///u', 'FILE:///v'] } } }, undefined);
     expect(diagnostics).toEqual([]);

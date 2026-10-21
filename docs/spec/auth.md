@@ -16,14 +16,31 @@
 
 ## OAuth
 
-`auth: oauth` 只用于 HTTP server（stdio server 写 `oauth` 视为配置错误，退出码 2）。`oauth: { scopes: […], clientId: … }`：`scopes` 覆盖 server 声明的 scope；`clientId` 用于不支持动态注册的授权服务器（作为公开客户端使用，不带 secret）。
+`auth: oauth` 只用于 HTTP server（stdio server 写 `oauth` 视为配置错误，退出码 2）。`oauth: { scopes: […], clientId: …, clientMetadataUrl: … }`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `scopes` | 覆盖 server 声明的 scope |
+| `clientId` | 预注册的客户端，用于既不支持 CIMD 也不支持动态注册的授权服务器；作为公开客户端使用，不带 secret |
+| `clientMetadataUrl` | CIMD 的客户端元数据文档地址，缺省为 via 托管的那份（见[客户端标识](#客户端标识)）；写 `false` 关闭 CIMD、直接动态注册。必须是 https、有路径、不含用户信息与片段，否则是 `invalid-field` 错误 |
+
+### 客户端标识
+
+via 向授权服务器表明身份的方式，按下列顺序取第一个可用的（授权服务器元数据决定能用哪个）：
+
+1. **配置的 `clientId`**：预注册的客户端，不再做别的注册。
+2. **CIMD（Client ID Metadata Document，`2025-11-25` 授权规范推荐的方式）**：授权服务器元数据里 `client_id_metadata_document_supported` 为 `true` 时，`client_id` 就是元数据文档的 https 地址，不注册、不保存客户端信息；授权服务器自己去取这份文档，核对回调地址。via 的文档托管在 GitHub Pages：`https://modelctx-ai.github.io/via/client-metadata.json`（仓库里的 `pages/client-metadata.json`，由 `.github/workflows/pages.yml` 发布）。内容：`client_id`（即它自己的地址）、`client_name: via`、`client_uri`、`redirect_uris`（见下）、`grant_types: [authorization_code, refresh_token]`、`response_types: [code]`、`token_endpoint_auth_method: none`、`application_type: native`。`clientMetadataUrl` 换成别的地址（自托管、测试）或 `false`（关闭）。
+3. **动态客户端注册（RFC 7591）**：授权服务器不支持 CIMD（或 `clientMetadataUrl: false`）但有 `registration_endpoint` 时自动注册，客户端名为 `via`，公开客户端（`token_endpoint_auth_method: none`），回调地址只登记本次登录用的那一个。每次登录重新注册。
+4. 都不可用：必须配置 `clientId`，否则 `login` 退出码 2 并说明。
+
+CIMD 的文档地址是 via 所有安装共用的身份：改动文档的地址等于换一个客户端。文档里的 `redirect_uris` 必须与代码里的回调端口范围一致（测试核对）。授权服务器取不到文档（例如 GitHub Pages 尚未启用、服务器出不了网）时，浏览器里会看到授权服务器的错误页，`via auth login` 等到超时；改用 `clientMetadataUrl: false` 即可。登录时 stderr 会提示本次用的是 CIMD 以及怎样关掉。
 
 ### 流程
 
 - 发现：先向 server 发未带凭证的探测请求（先按无状态协议发 `server/discover`，没有得到 401/403 再按 SDK 支持的最新旧版本发 `initialize`，版本号不写死在代码里，[ADR 0017](../adr/0017-protocol-versions-newest-first-with-fallback.md)），从 `WWW-Authenticate` 取 `resource_metadata` 和 `scope`；取不到就按 RFC 9728 的 well-known 路径找受保护资源元数据，再据此找授权服务器元数据（RFC 8414，退回 OpenID Connect Discovery）。授权请求带 RFC 8707 的 `resource`。
-- 注册：授权服务器支持动态客户端注册（RFC 7591）时自动注册，客户端名为 `via`，公开客户端（`token_endpoint_auth_method: none`）；不支持时必须配置 `clientId`，否则 `login` 退出码 2 并说明。
+- 客户端标识：配置的 `clientId`，授权服务器支持 CIMD 时用元数据文档的地址，否则动态注册（[客户端标识](#客户端标识)）。
 - 授权：PKCE（S256）授权码流程，带随机 `state`，回调时校验 `state`；授权被拒绝、`state` 不匹配、超时（默认 300 秒，`--timeout` 覆盖）都退出码 4。
-- 回调：`via auth login <provider>` 在 `127.0.0.1` 的随机端口监听 `/callback`（只接受 `Host` 为该地址的请求），同时用平台的打开命令（macOS `open`、Linux `xdg-open`、Windows `rundll32 url.dll,FileProtocolHandler`）打开浏览器，并总是把授权 URL 打印出来。只打开 `http://` 与 `https://` 的地址，其他 scheme（`file:`、`ms-settings:` 等）不交给系统。Windows 上不用 `cmd /c start`：授权 URL 来自授权服务器而不是用户，`cmd.exe` 会解释其中的 `|`、`^`、`(` 和 `%VAR%`；`rundll32.exe` 以完整路径（`%SystemRoot%\System32`）直接启动，URL 只是它的一个参数，没有 shell 看到它。动态注册的客户端每次登录都按本次的回调地址重新注册，因为端口是随机的；配置了 `clientId` 时需要授权服务器按 RFC 8252 接受任意端口的 loopback 回调地址。
+- 回调：`via auth login <provider>` 在 `127.0.0.1` 监听 `/callback`（只接受 `Host` 为该地址与端口的请求），端口取固定范围 **29842–29851** 里第一个空闲的（回调地址 `http://127.0.0.1:<端口>/callback`，只用 IP 字面量，不用 `localhost`，RFC 8252 第 8.3 节）；某个端口被占用（或系统不让绑，如 Windows 的保留端口段）就试下一个，十个都不可用时退出码 6，`next:` 建议 `--manual`。范围固定是为了让 CIMD 文档能事先列出全部回调地址（预注册的 `clientId` 也只需在授权服务器登记这十个地址，或让它按 RFC 8252 接受任意回环端口）。选这段的理由：低于所有系统的临时端口范围（Linux 32768–60999，macOS、Windows、BSD 49152 起），端口被占用只会是别的程序在监听，而不是本机某个外发连接；避开开发服务器与数据库常用的端口（3000、5000、8000–9999、5432 等）；十个，几次并发登录或一个残留的监听不会让登录失败。同时用平台的打开命令（macOS `open`、Linux `xdg-open`、Windows `rundll32 url.dll,FileProtocolHandler`）打开浏览器，并总是把授权 URL 打印出来。只打开 `http://` 与 `https://` 的地址，其他 scheme（`file:`、`ms-settings:` 等）不交给系统。Windows 上不用 `cmd /c start`：授权 URL 来自授权服务器而不是用户，`cmd.exe` 会解释其中的 `|`、`^`、`(` 和 `%VAR%`；`rundll32.exe` 以完整路径（`%SystemRoot%\System32`）直接启动，URL 只是它的一个参数，没有 shell 看到它。动态注册的客户端每次登录都按本次的回调地址重新注册（端口取决于当时哪个空闲）；配置了 `clientId` 时，授权服务器要么登记了上述十个地址，要么按 RFC 8252 接受任意端口的回环地址。`--manual` 没有监听，回调地址取范围里的第一个（`http://127.0.0.1:29842/callback`，落地页打不开是预期行为），它同样在文档登记的地址之内。
 - 无头环境：通过 SSH 登录的 VPS、容器里，浏览器和 via 不在同一台机器，本地回调端口收不到重定向。`via auth login <provider> --manual` 只打印授权 URL，不打开浏览器、不监听回调端口；用户在任意机器上完成授权后，把落地页的完整 URL（落地页本身打不开是预期行为）粘贴回终端（从 stdin 读一行），via 从中取出 `code` 和 `state`。PKCE 与 state 校验不变。检测不到可用浏览器时（Linux 无 `DISPLAY` 与 `WAYLAND_DISPLAY`、处于 SSH 会话），不尝试打开浏览器，默认打印授权 URL 并提示可改用 `--manual`；打开命令不存在或启动失败也只是提示，不报错、不等待。
 - 代理：登录、刷新与撤销令牌的请求同样遵守 `HTTPS_PROXY`、`HTTP_PROXY`、`NO_PROXY`（[config.md](config.md#代理)）；回调监听在本机回环上，不经代理。
 - 输出：授权 URL 写 stdout（它是命令的数据），进度与提示写 stderr，以 `·` 开头；成功后 stdout 输出 `logged in: <provider>` 与 scope、有效期、存放位置。输出中不出现 token。

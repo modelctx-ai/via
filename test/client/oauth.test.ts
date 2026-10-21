@@ -1,9 +1,13 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:net';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { InProcessClient } from '../../src/client';
 import {
+  CALLBACK_PORTS,
+  CLIENT_METADATA_URL,
+  CallbackPortsBusyError,
   accountOf,
   browserUnavailable,
   checkStoreWritable,
@@ -11,8 +15,10 @@ import {
   createMemoryOAuthStore,
   createOAuthStore,
   describeLogin,
+  documentedRedirectUris,
   formatDuration,
   oauthKey,
+  oauthTarget,
   openBrowser,
   openerCommand,
   parseRedirect,
@@ -256,6 +262,116 @@ describe('redirect handling', () => {
     const ok = await fetch(`${loop.redirectUrl}?code=good&state=s`);
     expect(ok.status).toBe(200);
     await expect(loop.response).resolves.toEqual({ code: 'good', state: 's' });
+  });
+});
+
+/** Occupy `port` on 127.0.0.1 for the length of the test. */
+function occupy(port: number): Promise<Server> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      cleanups.push(() => new Promise<void>((ok) => server.close(() => ok())));
+      resolve(server);
+    });
+  });
+}
+
+describe('callback ports', () => {
+  it('are ten fixed loopback ports below every ephemeral range, and the metadata document lists exactly those redirect URIs', () => {
+    expect(CALLBACK_PORTS).toHaveLength(10);
+    expect(CALLBACK_PORTS.every((port, i) => port === CALLBACK_PORTS[0]! + i)).toBe(true);
+    expect(Math.max(...CALLBACK_PORTS)).toBeLessThan(32768);
+    const doc = JSON.parse(readFileSync(new URL('../../pages/client-metadata.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+    expect(doc.client_id).toBe(CLIENT_METADATA_URL);
+    expect(doc.redirect_uris).toEqual(documentedRedirectUris());
+    expect(documentedRedirectUris().every((u) => u.startsWith('http://127.0.0.1:') && u.endsWith('/callback'))).toBe(true);
+    expect(doc).toMatchObject({ client_name: 'via', token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] });
+    expect(new URL(CLIENT_METADATA_URL).protocol).toBe('https:');
+  });
+
+  it('the listener takes the first free port of the range and moves on when one is taken', async () => {
+    const ports = [29842, 29843, 29844];
+    const taken = await occupy(ports[0]!);
+    const loop = await startLoopback(ports);
+    cleanups.push(() => loop.close());
+    expect(loop.redirectUrl).toBe('http://127.0.0.1:29843/callback');
+    expect(taken.listening).toBe(true);
+  });
+
+  it('is an error naming the range when every port is taken', async () => {
+    const ports = [29860, 29861];
+    for (const port of ports) await occupy(port);
+    await expect(startLoopback(ports)).rejects.toBeInstanceOf(CallbackPortsBusyError);
+    await expect(startLoopback(ports)).rejects.toThrow('ports 29860-29861 on 127.0.0.1 are all in use');
+  });
+
+  it('a login with every port taken fails with exit 6 and suggests --manual', async () => {
+    const srv = await mockServer();
+    const ports = [29862, 29863];
+    for (const port of ports) await occupy(port);
+    const error = await performLogin({ target: { provider: 'linear', url: srv.url }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 2000, io: io(srv), callbackPorts: ports }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 6, next: 'via auth login linear --manual' });
+    expect((error as Error).message).toBe('linear: ports 29862-29863 on 127.0.0.1 are all in use');
+    expect(srv.state.registrations).toHaveLength(0);
+  });
+
+  it('--manual uses the first port of the range as redirect URI without listening on it', async () => {
+    const srv = await mockServer();
+    const urls: string[] = [];
+    const manual: LoginIO = { ...io(srv), showUrl: (url) => urls.push(url), readLine: async () => (await srv.approve(urls[0]!)) };
+    await performLogin({ target: { provider: 'linear', url: srv.url }, store: createMemoryOAuthStore(), manual: true, timeoutMs: 5000, io: manual, callbackPorts: [29870, 29871] });
+    expect(srv.state.registrations[0]?.redirect_uris).toEqual(['http://127.0.0.1:29870/callback']);
+  });
+});
+
+describe('client ID metadata document (CIMD)', () => {
+  const document = (): Record<string, unknown> => JSON.parse(readFileSync(new URL('../../pages/client-metadata.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+
+  it('is the client id where the authorization server supports it: no registration, public client, loopback from the documented range', async () => {
+    const srv = await mockServer({ cimd: { [CLIENT_METADATA_URL]: document() } });
+    const notes: string[] = [];
+    const store = createMemoryOAuthStore();
+    const target = { provider: 'linear', url: srv.url, clientMetadataUrl: CLIENT_METADATA_URL };
+    const { record } = await performLogin({ target, store, manual: false, timeoutMs: 10_000, io: { ...io(srv), note: (t) => notes.push(t) }, now: () => T0 });
+    expect(srv.state.registrations).toHaveLength(0);
+    expect(srv.state.authorizeRequests[0]).toMatchObject({ client_id: CLIENT_METADATA_URL });
+    expect(documentedRedirectUris()).toContain(srv.state.authorizeRequests[0]!.redirect_uri);
+    expect(srv.state.tokenRequests[0]).toMatchObject({ client_id: CLIENT_METADATA_URL, grant_type: 'authorization_code' });
+    expect(srv.state.tokenRequests[0]).not.toHaveProperty('client_secret');
+    expect(record.clientInformation).toMatchObject({ client_id: CLIENT_METADATA_URL });
+    expect(notes.some((n) => n.startsWith(`client id: ${CLIENT_METADATA_URL} (client ID metadata document`))).toBe(true);
+
+    // The login refreshes with the same client id.
+    srv.expireAccessTokens();
+    const provider = createCallProvider({ ...httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } }) }, store, { now: () => T0 + 2 * HOUR });
+    await provider.accessToken();
+    expect(srv.state.tokenRequests.at(-1)).toMatchObject({ grant_type: 'refresh_token', client_id: CLIENT_METADATA_URL });
+  });
+
+  it('is not used when the authorization server does not advertise it: dynamic registration', async () => {
+    const srv = await mockServer();
+    await performLogin({ target: { provider: 'linear', url: srv.url, clientMetadataUrl: CLIENT_METADATA_URL }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 10_000, io: io(srv), now: () => T0 });
+    expect(srv.state.registrations).toHaveLength(1);
+    expect(srv.state.authorizeRequests[0]!.client_id).not.toBe(CLIENT_METADATA_URL);
+  });
+
+  it('is not used when it is turned off, or when a clientId is configured', async () => {
+    const srv = await mockServer({ cimd: { [CLIENT_METADATA_URL]: document() } });
+    await performLogin({ target: { provider: 'linear', url: srv.url }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 10_000, io: io(srv), now: () => T0 });
+    expect(srv.state.registrations).toHaveLength(1);
+    // The fixture does not know this id; the point is which one is sent.
+    const error = await performLogin({ target: { provider: 'linear', url: srv.url, clientId: 'pre-registered', clientMetadataUrl: CLIENT_METADATA_URL }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 1000, io: io(srv), now: () => T0 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(srv.state.authorizeRequests.at(-1)).toMatchObject({ client_id: 'pre-registered' });
+    expect(srv.state.registrations).toHaveLength(1);
+  });
+
+  it('a configured URL replaces the hosted document; false switches CIMD off (oauthTarget)', () => {
+    const server = (oauth: object) => httpServer('https://m.example/mcp', { provider: 'm', name: 'm', auth: { type: 'oauth', ...oauth } as never });
+    expect(oauthTarget(server({}))?.clientMetadataUrl).toBe(CLIENT_METADATA_URL);
+    expect(oauthTarget(server({ clientMetadataUrl: 'https://example.org/c.json' }))?.clientMetadataUrl).toBe('https://example.org/c.json');
+    expect(oauthTarget(server({ clientMetadataUrl: false }))).not.toHaveProperty('clientMetadataUrl');
   });
 });
 

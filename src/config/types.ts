@@ -22,7 +22,13 @@ export type AuthConfig =
   | { type: "none" }
   | { type: "bearer"; bearer: CredentialRef }
   | { type: "headers"; headers: Record<string, CredentialRef> }
-  | { type: "oauth"; scopes?: string[]; clientId?: string };
+  | {
+      type: "oauth";
+      scopes?: string[];
+      clientId?: string;
+      /** Client ID Metadata Document URL used as `client_id` where supported; `false` turns CIMD off (auth.md). */
+      clientMetadataUrl?: string | false;
+    };
 
 /**
  * `search.semantic` (config.md, ADR 0011): optional embedding retrieval for `via find`. Read from

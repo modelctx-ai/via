@@ -1,0 +1,21 @@
+{
+  "client_id": "https://modelctx-ai.github.io/via/client-metadata.json",
+  "client_name": "via",
+  "client_uri": "https://github.com/modelctx-ai/via",
+  "redirect_uris": [
+    "http://127.0.0.1:29842/callback",
+    "http://127.0.0.1:29843/callback",
+    "http://127.0.0.1:29844/callback",
+    "http://127.0.0.1:29845/callback",
+    "http://127.0.0.1:29846/callback",
+    "http://127.0.0.1:29847/callback",
+    "http://127.0.0.1:29848/callback",
+    "http://127.0.0.1:29849/callback",
+    "http://127.0.0.1:29850/callback",
+    "http://127.0.0.1:29851/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}

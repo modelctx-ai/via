@@ -17,6 +17,8 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 | 缓存中的敏感结果 | 游标与媒体文件存放在权限为 0700 的用户缓存目录，按 TTL 清理。Windows 没有这类权限位，私密性来自用户目录的默认 ACL（见下「Windows 上的文件权限」）。性能缓存（`tools/list` 的原始缓存与预构建缓存、配置的解析缓存）同在这个目录：配置解析缓存只存结构和字符串在文件里的偏移，不复制任何字符串，所以写进配置的字面量凭证不会出现在缓存目录里（[config.md](config.md#解析缓存)）；预构建缓存只含工具名、参数名、描述与检索词，和原始缓存同一类内容，不含任何凭证值（[discovery.md](discovery.md#预构建缓存)） ||
 | 读取其他客户端的 token | 不读取；OAuth 由 via 自己完成并存入钥匙串（不可用时退回 0600 的私有文件，[auth.md](auth.md#存储)） |
 | OAuth token 出现在输出里 | access token、refresh token、ID token 与客户端 secret 一律计入脱敏列表；授权 URL 只含 `state` 与 PKCE challenge，不含秘密；回调监听只绑 `127.0.0.1` 并校验 `Host` 与 `state`；调用过程永远不会启动授权 |
+| 本机其他程序抢占回调端口或截获授权码 | 回调端口是固定范围（29842–29851），可以被预先占满：登录退出码 6，`next:` 建议 `--manual`，不会发出授权请求；被别的程序监听到授权码也兑换不了——PKCE 的 verifier 只在 via 进程内存里，`state` 随机且回调时校验。回调监听只绑 `127.0.0.1`，校验 `Host`，回调地址只用 IP 字面量（不依赖 DNS 解析 `localhost`） |
+| CIMD 文档被替换或地址被改 | via 的 `client_id` 是托管文档的 https 地址：谁控制这个地址，谁决定授权页上显示的客户端名和允许的回调地址。授权请求里的 `redirect_uri` 由 via 自己选定（回环地址），授权服务器只会把授权码送到文档里同样列着的那个地址，所以文档被换也不会把授权码送到别处；`clientMetadataUrl` 可以设成别的地址或关闭（`false`），它和 `clientId` 一样可以写在项目级配置里，影响只限于授权页上显示的客户端名，所以不要求 `via trust`。文档与代码里的端口范围由测试核对，改文档地址等于换客户端，须同时发新版本 |
 | 授权被发往仓库指定的地址 | `via auth login` 对未信任的项目级 server 退出码 5 |
 | 本机目录被告知 server（roots） | 默认不声明 `roots` 能力，server 看不到任何本机目录；只有用户在配置里写下 `roots` 才声明。项目级配置设置非空 `roots` 需要 `via trust`，`via trust` 会列出；`[]` 只会收窄，不需要。给 HTTP server 配 `roots` 时告警（本地路径发往远端）。via 不会因为 server 的请求改变 roots，会话的 roots 在其生命周期内固定 |
 | 代理密码出现在输出里，或请求绕过代理直连 | `HTTPS_PROXY` / `HTTP_PROXY` 里的用户名和密码计入脱敏名单；`via doctor` 把 userinfo 显示为 `***@`；网络层错误信息在抛出前先抹掉 `user:pass@` 与已知的密码；代理地址不可用时请求失败（退出码 2），不退回直连；代理变量只来自环境，项目级配置无法设置，代理密码不经过 daemon 的 socket（[config.md](config.md#代理)） |

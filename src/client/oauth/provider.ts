@@ -37,6 +37,12 @@ export interface OAuthProviderOptions {
   scopes?: readonly string[];
   /** Pre-registered client id (no dynamic registration). */
   clientId?: string;
+  /**
+   * Client ID Metadata Document URL: used as `client_id` when the authorization server advertises
+   * `client_id_metadata_document_supported` and no `clientId` is configured; otherwise the client
+   * registers dynamically. Absent: CIMD is not used.
+   */
+  clientMetadataUrl?: string;
   store: OAuthStore;
   /** Told about every secret this provider handles, so output redaction knows it. */
   track?: (value: string) => void;
@@ -274,6 +280,11 @@ export class ViaOAuthProvider implements OAuthClientProvider {
 
   get redirectUrl(): string | undefined {
     return this.options.login?.redirectUrl;
+  }
+
+  /** Read by the SDK's `auth()`: where the authorization server can fetch this client's metadata (CIMD). */
+  get clientMetadataUrl(): string | undefined {
+    return this.options.clientMetadataUrl;
   }
 
   get clientMetadata(): OAuthClientMetadata {

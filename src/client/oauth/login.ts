@@ -8,7 +8,7 @@ import { MODERN_PROTOCOL_VERSIONS } from '../../protocol-versions';
 import { LoginFailedError, oauthErrorCode } from './errors';
 import type { OpenResult } from './opener';
 import { ViaOAuthProvider } from './provider';
-import { CALLBACK_PATH, parseRedirect, randomPort, startLoopback, type AuthorizationResponse, type Loopback } from './redirect';
+import { CALLBACK_PORTS, CallbackPortsBusyError, callbackUrl, parseRedirect, startLoopback, type AuthorizationResponse, type Loopback } from './redirect';
 import type { OAuthRecord, OAuthStore, SetResult } from './store';
 import type { FetchLike } from '@modelcontextprotocol/client';
 
@@ -29,6 +29,8 @@ export interface LoginTarget {
   url: string;
   scopes?: readonly string[];
   clientId?: string;
+  /** Client ID Metadata Document URL (CIMD) to offer as `client_id`; absent: dynamic registration only. */
+  clientMetadataUrl?: string;
 }
 
 export interface LoginOptions {
@@ -39,6 +41,8 @@ export interface LoginOptions {
   /** How long to wait for the authorization to finish. */
   timeoutMs: number;
   io: LoginIO;
+  /** Loopback ports to try, in order; default: the fixed range of the client metadata document. */
+  callbackPorts?: readonly number[];
   track?: (value: string) => void;
   now?: () => number;
   fetch?: FetchLike;
@@ -156,17 +160,22 @@ export async function performLogin(options: LoginOptions): Promise<LoginResult> 
   const sdk = await import('@modelcontextprotocol/client');
   const state = randomBytes(24).toString('base64url');
   let loopback: Loopback | undefined;
+  const ports = options.callbackPorts ?? CALLBACK_PORTS;
   try {
-    loopback = options.manual ? undefined : await startLoopback();
-  } catch {
-    throw new LoginFailedError('cannot listen on 127.0.0.1 for the authorization response', 6, `via auth login ${target.provider} --manual`);
+    loopback = options.manual ? undefined : await startLoopback(ports);
+  } catch (error) {
+    const reason = error instanceof CallbackPortsBusyError ? error.message : 'cannot listen on 127.0.0.1 for the authorization response';
+    throw new LoginFailedError(`${target.provider}: ${reason}`, 6, `via auth login ${target.provider} --manual`);
   }
-  const redirectUrl = loopback?.redirectUrl ?? `http://127.0.0.1:${randomPort()}${CALLBACK_PATH}`;
+  // Without a listener (`--manual`) the redirect URI is the first port of the range: nothing listens, the page the
+  // browser lands on does not load, and the URI is still one the client metadata document lists.
+  const redirectUrl = loopback?.redirectUrl ?? callbackUrl(ports[0]!);
   let authorizationUrl: URL | undefined;
   const provider = new ViaOAuthProvider({
     serverUrl: target.url,
     ...(target.scopes ? { scopes: target.scopes } : {}),
     ...(target.clientId ? { clientId: target.clientId } : {}),
+    ...(target.clientMetadataUrl ? { clientMetadataUrl: target.clientMetadataUrl } : {}),
     store: options.store,
     ...(options.track ? { track: options.track } : {}),
     ...(options.now ? { now: options.now } : {}),
@@ -202,6 +211,10 @@ export async function performLogin(options: LoginOptions): Promise<LoginResult> 
     }
 
     const url = authorizationUrl.href;
+    const clientId = authorizationUrl.searchParams.get('client_id');
+    if (target.clientMetadataUrl && clientId === target.clientMetadataUrl) {
+      io.note(`client id: ${clientId} (client ID metadata document; set auth.oauth.clientMetadataUrl: false to register dynamically instead)`);
+    }
     io.showUrl(url);
     let response: AuthorizationResponse;
     const timeoutError = (): Error =>

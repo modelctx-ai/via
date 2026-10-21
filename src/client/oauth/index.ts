@@ -2,6 +2,7 @@
 // Everything here loads the MCP SDK on demand, so importing it is cheap.
 import type { FetchLike } from '@modelcontextprotocol/client';
 import type { ServerConfig } from '../../config/types';
+import { CLIENT_METADATA_URL } from './client-metadata';
 import type { LoginTarget } from './login';
 import { ViaOAuthProvider } from './provider';
 import type { OAuthStore } from './store';
@@ -11,7 +12,8 @@ export { performLogin, type LoginIO, type LoginOptions, type LoginResult, type L
 export { performLogout, type LogoutResult, type RevokeOutcome } from './logout';
 export { browserUnavailable, openBrowser, openerCommand, type OpenResult } from './opener';
 export { EXPIRY_SKEW_MS, ViaOAuthProvider, tokenState, type OAuthProviderOptions, type TokenState } from './provider';
-export { CALLBACK_PATH, parseRedirect, startLoopback, type AuthorizationResponse, type Loopback } from './redirect';
+export { CLIENT_METADATA_URL, documentedRedirectUris } from './client-metadata';
+export { CALLBACK_PATH, CALLBACK_PORTS, CallbackPortsBusyError, callbackUrl, parseRedirect, startLoopback, type AuthorizationResponse, type Loopback } from './redirect';
 export { accountOf, describeLogin, formatDuration, summarizeLogin, type LoginState, type LoginStatus } from './status';
 export {
   KEYCHAIN_SERVICE,
@@ -42,6 +44,8 @@ export function oauthTarget(server: ServerConfig): LoginTarget | undefined {
     url: transport.url,
     ...(auth.scopes && auth.scopes.length > 0 ? { scopes: auth.scopes } : {}),
     ...(auth.clientId ? { clientId: auth.clientId } : {}),
+    // CIMD is on by default; `clientMetadataUrl: false` is the opt-out, a URL replaces the hosted document.
+    ...(auth.clientMetadataUrl === false ? {} : { clientMetadataUrl: auth.clientMetadataUrl ?? CLIENT_METADATA_URL }),
   };
 }
 
@@ -57,6 +61,7 @@ export function createCallProvider(
     serverUrl: target.url,
     ...(target.scopes ? { scopes: target.scopes } : {}),
     ...(target.clientId ? { clientId: target.clientId } : {}),
+    ...(target.clientMetadataUrl ? { clientMetadataUrl: target.clientMetadataUrl } : {}),
     store,
     ...(options.track ? { track: options.track } : {}),
     ...(options.now ? { now: options.now } : {}),

@@ -2,8 +2,6 @@
 # "官方一致性测试"). CI fails on a scenario that fails and is not listed here (a regression), and on one that passes and
 # is still listed (remove the entry). Each entry is a gap with an owner in docs/roadmap.md, not a decision.
 client:
-  # e7: CIMD (a client id that is a URL to a metadata document) is not implemented; via registers dynamically.
-  - auth/basic-cimd
   # e7: a pre-registered client is public (`clientId` only); there is nowhere to configure its secret yet, and
   # the scenario expects HTTP Basic client authentication.
   - auth/pre-registration

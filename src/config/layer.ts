@@ -151,7 +151,7 @@ function auth(r: Reporter, path: string, v: unknown, server?: string): AuthConfi
       const o = v.oauth;
       if (o === null || o === true || o === undefined) return { type: 'oauth' };
       if (!isPlainObject(o)) {
-        r.invalid(`${path}.oauth`, 'map with scopes and clientId', server);
+        r.invalid(`${path}.oauth`, 'map with scopes, clientId and clientMetadataUrl', server);
         return undefined;
       }
       const result: AuthConfig & { type: 'oauth' } = { type: 'oauth' };
@@ -162,10 +162,30 @@ function auth(r: Reporter, path: string, v: unknown, server?: string): AuthConfi
         } else if (k === 'clientId') {
           const clientId = str(r, `${path}.oauth.clientId`, val, server);
           if (clientId) result.clientId = clientId;
+        } else if (k === 'clientMetadataUrl') {
+          const field = `${path}.oauth.clientMetadataUrl`;
+          if (val === false) result.clientMetadataUrl = false;
+          else {
+            const url = str(r, field, val, server);
+            if (url !== undefined) {
+              if (isClientMetadataUrl(url)) result.clientMetadataUrl = url;
+              else r.invalid(field, 'https URL with a path (no credentials, no fragment), or false', server);
+            }
+          }
         } else r.add('warning', 'unknown-field', `${path}.oauth.${k}`, 'unknown field', server);
       }
       return result;
     }
+  }
+}
+
+/** A CIMD `client_id` (draft-ietf-oauth-client-id-metadata-document): https, a path, no userinfo, no fragment. */
+function isClientMetadataUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.pathname !== '/' && url.username === '' && url.password === '' && url.hash === '' && !value.includes('#');
+  } catch {
+    return false;
   }
 }
 
