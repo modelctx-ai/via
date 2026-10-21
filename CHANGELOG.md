@@ -129,6 +129,7 @@
 
 ### Fixed
 
+- CI：自动合并（`auto-merge.yml`）合入的 PR 不再留下分支。仓库开着「Automatically delete head branches」，但合并由 `GITHUB_TOKEN` 完成时 GitHub 不执行这项设置，#8–#12 的分支因此都留着。现在同一个工作流在 PR 合入后删除它的分支；合入后分支又有了新提交，或分支仍是其他打开的 PR 的基准时保留。不涉及规范与规范写法。
 - daemon 请求超时与停不干净（真实配置下 `via doctor`、`via find` 报 `the via daemon did not answer in time; continuing without the daemon`，`via daemon stop` 之后进程仍在、`status` 却说没有运行）：
   - 根因：建立会话（拉起 stdio server、MCP 握手）只受 server 自己的 `timeout`（默认 60 秒）约束，不受请求的超时约束。浏览类命令每个 server 只给 10 秒，CLI 等 daemon 的期限是 10 + 30 秒，一个卡在握手里的 server 就让 CLI 先放弃，并且断开整条连接，同一次运行里其他 server 的请求也一起改走进程内。现在一次操作（列表、调用、资源、prompt）的超时是整体预算：排队等并发名额、等会话建立、请求本身都算在内，到期报 `timed out after <秒>s connecting to <provider>` 或 `<provider> did not answer within <秒>s`（退出码 6）。握手本身仍以 server 的 `timeout` 为上限继续进行，daemon 里的下一次请求可以直接用上。**行为变化**：显式的短 `--timeout` 现在也包括 server 的冷启动；进程内模式下冷启动超过 10 秒的 server 在浏览类命令里会标为失败（`via <provider>` 仍用 server 自己的超时）。
   - CLI 的请求期限到了不再直接断开连接：先在同一连接上发 `status`，2 秒内有应答就只让这一个请求失败（只读的在进程内重做，提示 `warning: the via daemon did not answer in time while …; running it in this process`，其余请求照常走 daemon；其他调用以退出码 6 报告可能已执行），没有应答才断开并整体回退。
