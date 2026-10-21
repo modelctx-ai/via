@@ -2,9 +2,9 @@
   <title id="t">How via works</title>
   <desc id="d">An agent runs via commands in the shell; via talks MCP to the servers and returns compact output.</desc>
   <style>
-    :root { --bg:#ffffff; --panel:#f6f8fa; --border:#d0d7de; --text:#1f2328; --muted:#59636e; --line:#8c959f; --accent:#0969da; --accent-soft:#ddf4ff; --pill:#ffffff; }
+    :root { --bg:#ffffff; --panel:#f6f8fa; --border:#d0d7de; --text:#1f2328; --muted:#59636e; --line:#8c959f; --accent:#c2410c; --accent-soft:#fff4eb; --pill:#ffffff; }
     @media (prefers-color-scheme: dark) {
-      :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#9198a1; --line:#6e7681; --accent:#4493f8; --accent-soft:#0f2742; --pill:#0d1117; }
+      :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#9198a1; --line:#6e7681; --accent:#ff8a3d; --accent-soft:#33200f; --pill:#0d1117; }
     }
     text { font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: var(--text); }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -36,7 +36,7 @@
   <text class="s" x="44" y="113">Claude Code · Cursor · Codex …</text>
   <rect class="ctx" x="40" y="130" width="188" height="122" rx="8"/>
   <text class="cap" x="54" y="152">CONTEXT WINDOW</text>
-  <text class="b" x="54" y="178">~150-token note</text>
+  <text class="b" x="54" y="178">~200-token note</text>
   <text class="b" x="54" y="198">from via prompt</text>
   <text class="s" x="54" y="230">no tool schemas</text>
 

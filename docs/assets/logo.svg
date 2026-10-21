@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="t">
+  <title id="t">via</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#ffffff" stroke="#fde3cc" stroke-width="4"/>
+  <!-- prompt chevron: the agent's shell -->
+  <path d="M26 42 L48 64 L26 86" fill="none" stroke="#f76b15" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- one command fans out to many servers -->
+  <g fill="none" stroke="#f76b15" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M60 64 H74"/>
+    <path d="M74 64 C84 64 84 38 96 38"/>
+    <path d="M74 64 H96"/>
+    <path d="M74 64 C84 64 84 90 96 90"/>
+  </g>
+  <g fill="#f76b15">
+    <circle cx="101" cy="38" r="7"/>
+    <circle cx="101" cy="64" r="7"/>
+    <circle cx="101" cy="90" r="7"/>
+  </g>
+</svg>
