@@ -232,6 +232,9 @@ export function createCliServer({ state, authorization, features = [] }) {
         return { content: [{ type: 'text', text: 'boom: the upstream failed' }], isError: true };
       case 'picky_tool':
         return { content: [{ type: 'text', text: 'Invalid arguments: n must be even' }], isError: true };
+      case 'search':
+      case 'batch_search':
+        return { content: [{ type: 'text', text: `${name}: ${args.query ?? ''}` }] };
       case 'stats_get':
         return { content: [{ type: 'text', text: '{"count":"many"}' }], structuredContent: { count: 'many' } };
       default:

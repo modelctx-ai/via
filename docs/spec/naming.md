@@ -16,6 +16,7 @@
 4. **组资源**：剩余的词逐词单数化后用 `-` 连接作为资源，相邻重复词去重（单数化之后比较）。修饰词同样用单数，所以 `actions_run_trigger` 的资源是 `action-run`，而不是 `actions-run`。
 5. **叶子工具**：拆不出资源或动作的，作为叶子工具，名字转为 kebab-case，在 `via <provider>` 的最后一行列出。
 6. **冲突**：两个工具拆出相同的 `资源:动作` 时，两者都退回为叶子工具，避免歧义。
+7. **叶子与资源同名**：叶子工具的名字与某个资源相同时，资源保留这个名字，叶子改用原始名的 kebab-case（`acme_search` 去掉 provider 词后是 `search`，改为 `acme-search`）。原始名本身就是这个名字时（`search` 与拆成 `search:batch` 的 `batch_search`），叶子没有别的名字可用，于是**资源让出名字**：该资源下的工具全部按规则 6 退回为叶子工具（`batch-search`），叶子保留 `search`。退回后若又出现同名，按本条再处理一次，直到没有冲突。用户 `rename` 到该资源的工具不退回，资源随之保留。
 
 动词表放在 `data/verbs.json`（格式见[数据文件](../development/data-files.md#verbsjson)），至少包括 get、list、create、update、delete、search、send、run、fetch、read、write、add、remove、merge、trigger、query、move、duplicate、restore、cancel、navigate、click。
 

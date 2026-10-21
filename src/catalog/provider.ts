@@ -52,6 +52,20 @@ function paramsOf(def: McpTool) {
   return extractParams(def.inputSchema);
 }
 
+/** `readOnlyHint: true` (arguments.md, "危险操作"). */
+function readOnlyOf(def: McpTool): boolean {
+  return def.annotations?.readOnlyHint === true;
+}
+
+/**
+ * `destructiveHint: true` on a tool that is not read-only. MCP gives `destructiveHint` meaning only
+ * when `readOnlyHint` is false, so a tool marked both is read-only: no `--yes`, and it is retried
+ * like any read-only tool (arguments.md, "危险操作").
+ */
+function destructiveOf(def: McpTool): boolean {
+  return !readOnlyOf(def) && def.annotations?.destructiveHint === true;
+}
+
 function toCatalogTool(provider: string, d: Draft): CatalogTool {
   const name = d.resource !== null ? `${d.resource}:${d.verb}` : d.leafName;
   return {
@@ -65,8 +79,8 @@ function toCatalogTool(provider: string, d: Draft): CatalogTool {
     defaultSingleRef: `${provider}/${d.defaultName}`,
     description: d.def.description ?? d.def.title ?? '',
     params: paramsOf(d.def),
-    readOnly: d.def.annotations?.readOnlyHint === true,
-    destructive: d.def.annotations?.destructiveHint === true,
+    readOnly: readOnlyOf(d.def),
+    destructive: destructiveOf(d.def),
     renamed: d.renamed,
     def: d.def,
   };
@@ -116,13 +130,29 @@ export function buildProviderCatalog(
     }
   }
 
-  // Leaf names must not clash with each other or with a resource (resources win, cli.md).
-  const resourceNames = new Set(drafts.filter((d) => d.resource !== null).map((d) => d.resource!));
-  const leafCount = new Map<string, number>();
-  for (const d of drafts) if (d.resource === null) leafCount.set(d.leafName, (leafCount.get(d.leafName) ?? 0) + 1);
-  for (const d of drafts) {
-    if (d.resource !== null || d.renamed) continue;
-    if ((leafCount.get(d.leafName) ?? 0) > 1 || resourceNames.has(d.leafName)) d.leafName = kebab(d.def.name);
+  // Leaf names must not clash with each other or with a resource (naming.md rule 7). The resource
+  // wins and the leaf goes by its raw name; when the raw name is the resource's name too (`search`
+  // next to `batch_search`), the leaf has nothing else to go by, so the resource yields: its tools
+  // fall back to leaf tools as in rule 6. Each round removes a resource, so this ends.
+  for (;;) {
+    const resourceNames = new Set(drafts.filter((d) => d.resource !== null).map((d) => d.resource!));
+    const leafCount = new Map<string, number>();
+    for (const d of drafts) if (d.resource === null) leafCount.set(d.leafName, (leafCount.get(d.leafName) ?? 0) + 1);
+    for (const d of drafts) {
+      if (d.resource !== null || d.renamed) continue;
+      if ((leafCount.get(d.leafName) ?? 0) > 1 || resourceNames.has(d.leafName)) d.leafName = kebab(d.def.name);
+    }
+    const shadowed = new Set(drafts.filter((d) => d.resource === null && !d.renamed && resourceNames.has(d.leafName)).map((d) => d.leafName));
+    let demoted = false;
+    for (const d of drafts) {
+      if (d.resource === null || d.renamed || !shadowed.has(d.resource)) continue;
+      d.resource = null;
+      d.verb = null;
+      d.leafName = d.fallbackLeaf;
+      demoted = true;
+    }
+    // A resource made only of renamed tools stays: the user chose that name.
+    if (!demoted) break;
   }
 
   const all = drafts.map((d) => toCatalogTool(input.provider, d));

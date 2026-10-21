@@ -54,6 +54,38 @@ describe('conflicts (naming.md, rule 6)', () => {
   });
 });
 
+describe('a leaf named like a resource (naming.md, rule 7)', () => {
+  // Anysearch: `search` is a leaf, `batch_search` splits into `search:batch`; the leaf's raw name
+  // is the resource's name, so the raw name cannot keep it reachable.
+  const anysearch = () => buildProviderCatalog({ provider: 'anysearch', tools: tools('search', 'batch_search', 'extract') });
+
+  it('lets the resource yield when the leaf has no other name: its tools become leaf tools', () => {
+    const c = anysearch();
+    expect(names(c)).toEqual(['search', 'batch-search', 'extract']);
+    expect(c.resources).toEqual([]);
+    expect(c.leaves.map((t) => t.rawName)).toEqual(['search', 'batch_search', 'extract']);
+  });
+
+  it('does not depend on the order of tools/list', () => {
+    const c = buildProviderCatalog({ provider: 'anysearch', tools: tools('batch_search', 'extract', 'search') });
+    expect([...names(c)].sort()).toEqual(['batch-search', 'extract', 'search']);
+  });
+
+  it('keeps the other resources and the rule 7 fallback where the raw name differs', () => {
+    const c = buildProviderCatalog({ provider: 'acme', tools: tools('search', 'batch_search', 'list_search', 'acme_issue', 'list_issues') });
+    // `search` has only its own name, so the whole `search` resource yields; `acme_issue` -> leaf
+    // `issue` is reachable as `acme-issue`, so the `issue` resource stays.
+    expect(c.resources.map((r) => r.name)).toEqual(['issue']);
+    expect(names(c)).toEqual(['search', 'batch-search', 'list-search', 'acme-issue', 'issue:list']);
+  });
+
+  it('keeps a resource that a user rename put there', () => {
+    const c = buildProviderCatalog({ provider: 'anysearch', tools: tools('search', 'batch_search'), rename: { batch_search: 'search:batch' } });
+    expect(c.resources.map((r) => r.name)).toEqual(['search']);
+    expect(names(c)).toEqual(['search', 'search:batch']);
+  });
+});
+
 describe('deny filter (discovery.md, step 6)', () => {
   it('removes denied tools from the catalog; patterns match canonical and raw forms', () => {
     const c = buildProviderCatalog({
@@ -116,9 +148,14 @@ describe('canonical forms', () => {
       tools: [
         { name: 'get_a', annotations: { readOnlyHint: true } },
         { name: 'delete_a', annotations: { destructiveHint: true } },
+        { name: 'search_a', annotations: { readOnlyHint: true, destructiveHint: true } },
+        { name: 'update_a', annotations: { readOnlyHint: false, destructiveHint: true } },
       ],
     });
+    // MCP: destructiveHint means something only when readOnlyHint is false, so read-only wins.
     expect(c.tools.map((t) => [t.readOnly, t.destructive])).toEqual([
+      [true, false],
+      [false, true],
       [true, false],
       [false, true],
     ]);

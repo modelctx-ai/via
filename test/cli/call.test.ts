@@ -227,15 +227,17 @@ describe('exit codes and errors', () => {
     expect(srv.state.calls).toHaveLength(0);
   });
 
-  it('a resource wins over a leaf tool of the same name; the leaf stays in the provider view', async () => {
+  it('a leaf tool whose raw name is a resource name keeps it; the resource yields its tools as leaves', async () => {
     const { srv, sb } = await setup();
     srv.state.tools = [
       { name: 'issue_read', description: 'Read', inputSchema: { type: 'object', properties: {} } },
       { name: 'issue', description: 'A tool named like the resource', inputSchema: { type: 'object', properties: {} } },
     ];
-    const r = await sb.via(['gh', 'issue']);
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain('issue:read');
+    const view = await sb.via(['gh']);
+    expect(view.stdout).toMatch(/^tools: issue-read · issue$/m);
+    const help = await sb.via(['gh', 'issue', '-h']);
+    expect(help.code).toBe(0);
+    expect(help.stdout).toContain('A tool named like the resource');
     expect(srv.state.calls).toHaveLength(0);
   });
 
@@ -441,5 +443,39 @@ describe('cursors', () => {
     } else {
       expect(statSync(join(sb.cacheDir, 'cursors')).isDirectory()).toBe(true);
     }
+  });
+});
+
+// Reported against Anysearch: a leaf `search` next to `batch_search` (which splits into
+// `search:batch`) could not be called at all, and its read-only search tools, also marked
+// destructive, asked for --yes.
+describe('a server shaped like Anysearch', () => {
+  const ANYSEARCH = [
+    { name: 'search', description: 'Search the web', annotations: { readOnlyHint: true, destructiveHint: true }, inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+    { name: 'batch_search', description: 'Several searches at once', annotations: { readOnlyHint: true, destructiveHint: true }, inputSchema: { type: 'object', properties: { query: { type: 'string' } } } },
+  ];
+
+  it('calls the leaf by its name, by the single-string form and through via call', async () => {
+    const { srv, sb } = await setup();
+    srv.state.tools = ANYSEARCH;
+    const view = await sb.via(['gh']);
+    expect(view.stdout).toMatch(/^tools: search · batch-search$/m);
+    for (const argv of [['gh', 'search', 'cats'], ['call', 'gh/search', '--args', '{"query":"cats"}']]) {
+      const r = await sb.via(argv);
+      expect(r, argv.join(' ')).toMatchObject({ code: 0, stdout: 'search: cats\n' });
+    }
+    const batch = await sb.via(['gh', 'batch-search', '--query', 'dogs']);
+    expect(batch).toMatchObject({ code: 0, stdout: 'batch_search: dogs\n' });
+    expect(srv.state.calls.map((c) => c.name)).toEqual(['search', 'search', 'batch_search']);
+  });
+
+  it('treats a tool marked both read-only and destructive as read-only: no --yes, help says read-only', async () => {
+    const { srv, sb } = await setup();
+    srv.state.tools = ANYSEARCH;
+    const help = await sb.via(['gh', 'search', '-h']);
+    expect(help.stdout).toContain('read-only');
+    expect(help.stdout).not.toContain('destructive');
+    const r = await sb.via(['gh', 'search', 'cats']);
+    expect(r.code).toBe(0);
   });
 });
