@@ -16,6 +16,8 @@
 
 via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，按 server 注入凭证，以 `provider → 资源 → 动作` 的命令形态暴露工具，并用一套统一规则渲染输出。agent 上下文里只剩一段约 150 token 的使用说明。
 
+![via 的工作原理：agent 在 shell 里执行 via 并拿回紧凑输出；via CLI 把调用交给本机 daemon，daemon 读取框架 MCP 配置和凭证，经 stdio 或 HTTP 用 MCP 与各 server 通信](docs/assets/how-it-works.zh-CN.svg)
+
 在 [token 基准](bench/results/0.1.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），via 消耗的 token 约为原生 MCP 注入方式的 4%。这个数字按脚本化的命令序列估算；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。真实模型的成功率评测（`npm run bench:eval`）尚未发布结果。
 
 ## 先看一眼

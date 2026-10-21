@@ -35,6 +35,7 @@
 - `via trust --yes` 不再是单个开关（security.md、cli.md）：agent 若能执行 `via trust --yes` 就能放行不可信的仓库。现在默认在终端里确认；`--yes` 必须带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1`，否则不记录（不带路径退出码 2，缺少变量退出码 5）。没有终端时的 `next:` 改为请用户在终端运行 `via trust <路径>`，不再建议 `--yes`。`via prompt` 生成的说明增加一句「不要自己运行 `via trust`，请用户来做」。
 - 文档：README 按开源项目的使用者重写——状态改为「预发布、0.1–0.3 已实现、需从源码安装」（原先写的「设计阶段」已过时），补充安装、快速上手、常用命令、安全须知、开发命令，示例输出换成对着回放 server 的实际输出，引用 token 基准结果并注明口径；设计原理、性能数字、Windows 与单文件细节只留链接。CONTRIBUTING 与快速上手同步更新阶段描述和源码安装方式。不涉及规范与规范写法。
 - 文档：README 默认改为英文（`README.md`），中文版移到 `README.zh-CN.md`，两份顶部互相链接；CONTRIBUTING 写明两份需同步。不涉及规范与规范写法。
+- 文档：两份 README 加入工作原理示意图（`docs/assets/how-it-works.svg` 与 `.zh-CN.svg`）：agent 经 shell 调用 via CLI，CLI 经本机 socket 交给 daemon，daemon 读取框架 MCP 配置与凭证、经 stdio / HTTP 连接各 MCP server。SVG 自带浅色与深色配色。不涉及规范与规范写法。
 
 ### Added
 
