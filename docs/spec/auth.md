@@ -20,11 +20,12 @@
 
 ### 流程
 
-- 发现：先向 server 发一次未带凭证的请求，从 `WWW-Authenticate` 取 `resource_metadata` 和 `scope`；取不到就按 RFC 9728 的 well-known 路径找受保护资源元数据，再据此找授权服务器元数据（RFC 8414，退回 OpenID Connect Discovery）。授权请求带 RFC 8707 的 `resource`。
+- 发现：先向 server 发未带凭证的探测请求（先按无状态协议发 `server/discover`，没有得到 401/403 再按 SDK 支持的最新旧版本发 `initialize`，版本号不写死在代码里，[ADR 0017](../adr/0017-protocol-versions-newest-first-with-fallback.md)），从 `WWW-Authenticate` 取 `resource_metadata` 和 `scope`；取不到就按 RFC 9728 的 well-known 路径找受保护资源元数据，再据此找授权服务器元数据（RFC 8414，退回 OpenID Connect Discovery）。授权请求带 RFC 8707 的 `resource`。
 - 注册：授权服务器支持动态客户端注册（RFC 7591）时自动注册，客户端名为 `via`，公开客户端（`token_endpoint_auth_method: none`）；不支持时必须配置 `clientId`，否则 `login` 退出码 2 并说明。
 - 授权：PKCE（S256）授权码流程，带随机 `state`，回调时校验 `state`；授权被拒绝、`state` 不匹配、超时（默认 300 秒，`--timeout` 覆盖）都退出码 4。
 - 回调：`via auth login <provider>` 在 `127.0.0.1` 的随机端口监听 `/callback`（只接受 `Host` 为该地址的请求），同时用平台的打开命令（macOS `open`、Linux `xdg-open`、Windows `rundll32 url.dll,FileProtocolHandler`）打开浏览器，并总是把授权 URL 打印出来。只打开 `http://` 与 `https://` 的地址，其他 scheme（`file:`、`ms-settings:` 等）不交给系统。Windows 上不用 `cmd /c start`：授权 URL 来自授权服务器而不是用户，`cmd.exe` 会解释其中的 `|`、`^`、`(` 和 `%VAR%`；`rundll32.exe` 以完整路径（`%SystemRoot%\System32`）直接启动，URL 只是它的一个参数，没有 shell 看到它。动态注册的客户端每次登录都按本次的回调地址重新注册，因为端口是随机的；配置了 `clientId` 时需要授权服务器按 RFC 8252 接受任意端口的 loopback 回调地址。
 - 无头环境：通过 SSH 登录的 VPS、容器里，浏览器和 via 不在同一台机器，本地回调端口收不到重定向。`via auth login <provider> --manual` 只打印授权 URL，不打开浏览器、不监听回调端口；用户在任意机器上完成授权后，把落地页的完整 URL（落地页本身打不开是预期行为）粘贴回终端（从 stdin 读一行），via 从中取出 `code` 和 `state`。PKCE 与 state 校验不变。检测不到可用浏览器时（Linux 无 `DISPLAY` 与 `WAYLAND_DISPLAY`、处于 SSH 会话），不尝试打开浏览器，默认打印授权 URL 并提示可改用 `--manual`；打开命令不存在或启动失败也只是提示，不报错、不等待。
+- 代理：登录、刷新与撤销令牌的请求同样遵守 `HTTPS_PROXY`、`HTTP_PROXY`、`NO_PROXY`（[config.md](config.md#代理)）；回调监听在本机回环上，不经代理。
 - 输出：授权 URL 写 stdout（它是命令的数据），进度与提示写 stderr，以 `·` 开头；成功后 stdout 输出 `logged in: <provider>` 与 scope、有效期、存放位置。输出中不出现 token。
 
 ### 存储

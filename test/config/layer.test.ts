@@ -59,6 +59,18 @@ describe('validateLayer', () => {
     expect(data.servers.get('a')?.roots).toEqual(['.', '~/notes', '/abs', 'C:\\work', 'file:///u', 'FILE:///v']);
   });
 
+  it('accepts protocolVersion when it names a known revision, and says which are known otherwise', () => {
+    const ok = validateLayer({ servers: { a: { command: 'x', protocolVersion: '2026-07-28' }, b: { command: 'x', protocolVersion: '2025-03-26' } } }, undefined);
+    expect(ok.diagnostics).toEqual([]);
+    expect(ok.data.servers.get('a')?.protocolVersion).toBe('2026-07-28');
+    expect(ok.data.servers.get('b')?.protocolVersion).toBe('2025-03-26');
+    for (const bad of ['2099-01-01', 'latest', 20260728, true]) {
+      const { data, diagnostics } = validateLayer({ servers: { a: { command: 'x', protocolVersion: bad } } }, undefined);
+      expect(diagnostics.map((d) => d.message)).toEqual(['servers.a.protocolVersion: expected one of 2026-07-28, 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05, 2024-10-07']);
+      expect(data.servers.get('a')).toEqual({ command: 'x' });
+    }
+  });
+
   it('reports type errors with the full path, and drops the bad field only', () => {
     const { data, diagnostics } = validateLayer({ servers: { github: { timeout: 'soon', url: 'https://g.invalid', concurrency: 2.5 } } }, '/c.yaml');
     expect(diagnostics.map((d) => d.message)).toEqual(['servers.github.timeout: expected number', 'servers.github.concurrency: expected positive integer']);

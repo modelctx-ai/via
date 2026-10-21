@@ -113,6 +113,16 @@ search:
 | `budget` | 全部 | 覆盖输出预算 |
 | `noise` | 全部 | 追加的噪声字段名或通配 |
 | `roots` | 全部 | 声明给 server 的 roots，见下 |
+| `protocolVersion` | 全部 | 固定 MCP 协议版本，见下；默认不固定（新版本优先，自动回退） |
+
+#### `protocolVersion`
+
+默认不写：via 先按最新的协议版本（`2026-07-28` 的无状态协议）谈，server 不支持就退回 `initialize` 握手，用户什么都不用配（[daemon.md](daemon.md#协议版本与无状态连接)）。写了 `protocolVersion` 就只用这一个版本，**server 不支持时报错（退出码 6，`next:` 提示去掉这个字段或改成 server 支持的版本），不回退**。
+
+- 取值：`2026-07-28`、`2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05`、`2024-10-07`（与 SDK 支持的一致，由测试对照）。其他值是 `invalid-field` 错误（`servers.<name>.protocolVersion: expected one of …`），该字段被忽略。
+- 用途：绕过某个 server 在新协议上的缺陷；或要求一个必须是无状态的部署（`2026-07-28`）；对 stdio server 还可以固定旧版本，省去协议探测多启动的那个进程。
+- 当前协商出的版本和连接是否有状态由 `via servers`（上次拉取时记下的）与 `via doctor`（实时）显示，固定了的标注 `pinned`（[cli.md](cli.md#内置子命令)）。
+- 合并时后者覆盖前者，与 `timeout` 相同；它不改变 via 连到哪里、启动什么，所以项目级配置设置它不需要 `via trust`。它参与目录缓存键和 daemon 会话键。
 
 #### `roots`
 
@@ -120,9 +130,21 @@ search:
 
 - **默认没有**：不写或写 `[]` 时 via 不声明 `roots` 能力，server 无从得知任何本机目录。要让 server 看到当前目录写 `roots: ["."]`，这是明确的授权，via 不替用户做这个决定。
 - 路径中的 `~` 展开为家目录，相对路径相对于**运行 `via` 的当前目录**（与 stdio 的 `cwd` 一致），都转成绝对 `file://` URI；`file://` URI 原样使用。其他 scheme 的 URI 是 error 级诊断（`servers.<name>.roots[0]: expected a path or file:// URI`）。每个 root 的名字取路径的末段。
-- 声明时 `listChanged` 为 `false`：一个会话的 roots 在它的一生里不变。daemon 里 roots 参与会话键，相对路径依赖调用目录时不同目录使用不同的会话（[daemon.md](daemon.md#环境与工作目录)）。
+- 声明时 `listChanged` 为 `false`：一个会话的 roots 在它的一生里不变。无状态协议（`2026-07-28`）里 server 在调用结果中要求提供 roots，via 用同一份配置回答，配置、声明条件和授权含义都不变（该协议已把 roots 标为弃用，[daemon.md](daemon.md#协议版本与无状态连接)）。daemon 里 roots 参与会话键，相对路径依赖调用目录时不同目录使用不同的会话（[daemon.md](daemon.md#环境与工作目录)）。
 - 合并时整体替换，不按元素合并。项目配置设置**非空**的 `roots` 要求 `via trust`（它改变 server 的访问边界），写 `[]`（收窄）不需要；`via trust` 会显示 roots（[security.md](security.md#项目级配置的信任)）。
 - 给 HTTP server 配 `roots` 时，加载时有一条 `warning`：这些本地路径会发往远端服务。
+
+### 代理
+
+via 自己发出的 HTTP 请求——连接 HTTP 的 MCP server、OAuth（登录、刷新、撤销令牌）、`search.semantic` 的 embedding 端点——遵守环境变量 `HTTPS_PROXY`、`HTTP_PROXY`、`NO_PROXY`。stdio 子进程收到同样的变量（见下节），所以它们自己的请求也走代理。没有配置项：代理是环境的属性，不属于某个 server，也不能由项目级配置设置。
+
+- **变量名不分大小写**（`https_proxy` 也行）；两种写法同时存在时用大写的。
+- **选哪个代理**：请求 https URL 用 `HTTPS_PROXY`，没有就用 `HTTP_PROXY`；请求 http URL 只用 `HTTP_PROXY`（只设了 `HTTPS_PROXY` 时，本机回环上的 http server 不会被送去代理）。值可以写成 `http://[user:password@]host:port`、`https://…`，或不带协议的 `host:port`（按 http 代理处理）；userinfo 作为代理的 Basic 认证。http 目标走绝对形式的转发请求，https 目标用 `CONNECT` 隧道。
+- **`NO_PROXY`**：逗号分隔。`*` 表示全部；`example.com` 表示这个主机及其子域；`.example.com` 与 `*.example.com` 只表示子域；`host:port` 限定端口；IP 字面量（`127.0.0.1`、`[::1]`）。不在清单里的一律走代理，**`localhost` 与回环地址也不例外**，需要时自己写进 `NO_PROXY`。不理解 CIDR 段。只设了 `NO_PROXY`、没有代理变量时什么都不发生。
+- **不可用的代理是错误，不是直连**：代理地址不是 URL，或协议不是 http / https（如 `socks5://`），用到它的请求失败（退出码 2，`next:` 提示修正或取消这个变量），不会悄悄绕过代理直接连出去。错误信息不含代理地址里的用户名和密码。
+- **daemon**：daemon 里的请求用 **daemon 自己的环境**（由第一个拉起它的 CLI 继承），与 `env:` 凭证的解析一致（[daemon.md](daemon.md#环境与工作目录)）；代理地址和它的密码不经过 socket。改了代理变量后 `via daemon stop`，让下一次调用拉起的 daemon 带上新值。进程内模式、`via auth`、`via find` 用 CLI 自己的环境。
+- **`via doctor`** 在 servers 之后用一节显示生效的代理：`proxy     none`，或每个代理一行（`https http://***@proxy.corp:3128 (HTTPS_PROXY)`，用户名和密码显示为 `***@`，不会出现原文）和 `no proxy for … (NO_PROXY)`；不可用的代理在行尾说明原因。显示的是 `via doctor` 进程的环境，与 daemon 的环境可能不同。
+- 实现与冷启动：没有设置代理变量时只是请求发出前扫描一遍环境；设置了才在第一个要走代理的请求时加载 undici 的 `ProxyAgent`（打进一个按需加载的分块，要求 Node.js 20.18.1 及以上；Bun 的单文件版本用 `fetch` 自带的 `proxy` 选项）。证书用 `NODE_EXTRA_CA_CERTS`（企业代理做 TLS 检查时），via 不提供关闭证书校验的选项。
 
 ### stdio 子进程的环境
 

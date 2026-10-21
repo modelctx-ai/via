@@ -63,7 +63,7 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
   if (def.noise !== undefined) d.noise = [...new Set([...(d.noise ?? []), ...def.noise])];
   if (def.roots !== undefined) d.roots = [...def.roots];
   if (def.auth !== undefined) d.auth = def.auth as AuthConfig;
-  for (const key of ['alias', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget'] as const) {
+  for (const key of ['alias', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'protocolVersion'] as const) {
     if (def[key] !== undefined) (d as Record<string, unknown>)[key] = def[key];
   }
 

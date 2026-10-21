@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { cacheKey, CATALOG_TTL_MS } from '../../src/cli/catalog-cache';
 import type { ServerConfig } from '../../src/config';
 import { httpServer, stdioServer } from '../helpers/client';
+import { defaultGeneration } from '../helpers/generation';
 import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, makeSandbox, startFixtureServer, useCleanup } from './helpers';
 
 
@@ -93,19 +94,71 @@ describe('catalog cache', () => {
     expect(r.stdout).toBe('authorization: Bearer ***\n');
   });
 
+  // Probing the protocol version starts a stdio server twice (the SDK probes a copy), so the very first
+  // connection of a server with no cached catalog may spawn two processes.
   it('does not start a stdio server again to browse a cached catalog', async () => {
     const sb = makeSandbox();
     const log = sb.write('spawns.log', '');
     sb.userConfig(`sources: false\nservers:\n  job:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(CLI_STDIO_SERVER)}]\n    env: { CLI_FIXTURE_LOG: ${JSON.stringify(log)} }\n`);
     const spawns = (): number => readFileSync(log, 'utf8').split('\n').filter(Boolean).length;
     expect((await sb.via(['job'])).code).toBe(0);
-    expect(spawns()).toBe(1);
+    const first = spawns();
+    expect(first).toBeGreaterThanOrEqual(1);
+    expect(first).toBeLessThanOrEqual(2);
     await sb.via(['job', 'issue']);
     await sb.via([]);
     await sb.via(['find', 'issue']);
-    expect(spawns()).toBe(1);
+    expect(spawns()).toBe(first);
     await sb.via(['sync']);
-    expect(spawns()).toBe(2);
+    expect(spawns()).toBeGreaterThan(first);
+  });
+
+  // The cache remembers the protocol the server spoke; a server of the old protocol is then connected
+  // with the plain handshake, one process, no probe (a server of the stateless one is probed each time).
+  it.runIf(defaultGeneration() === 'legacy')('starts a stdio server of the old protocol once when its catalog is cached', async () => {
+    const sb = makeSandbox();
+    const log = sb.write('spawns.log', '');
+    sb.userConfig(`sources: false\nservers:\n  job:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(CLI_STDIO_SERVER)}]\n    env: { CLI_FIXTURE_LOG: ${JSON.stringify(log)} }\n`);
+    const spawns = (): number => readFileSync(log, 'utf8').split('\n').filter(Boolean).length;
+    expect((await sb.via(['job'])).code).toBe(0);
+    const first = spawns();
+    await sb.via(['sync']);
+    expect(spawns()).toBe(first + 1);
+    await sb.via(['job', 'echo-text', '--message', 'x']);
+    expect(spawns()).toBe(first + 2);
+  });
+});
+
+describe('the cache hint of a stateless server', () => {
+  async function hinted(ttlMs: number | undefined) {
+    const srv = await startFixtureServer({ token: FAKE_TOKEN, protocol: 'modern', ...(ttlMs !== undefined ? { ttlMs } : {}) });
+    useCleanup(() => srv.close());
+    const sb = makeSandbox();
+    sb.userConfig(ghConfig(srv.url));
+    return { srv, sb };
+  }
+
+  it('shortens the 24 hours: the catalog is fetched again once the hint has run out', async () => {
+    const { srv, sb } = await hinted(60_000);
+    await sb.via(['gh'], { now: T0 });
+    await sb.via(['gh'], { now: T0 + 59_000 });
+    expect(srv.state.listCalls).toBe(1);
+    await sb.via(['gh'], { now: T0 + 61_000 });
+    expect(srv.state.listCalls).toBe(2);
+  });
+
+  it('does not lengthen it', async () => {
+    const { srv, sb } = await hinted(10 * CATALOG_TTL_MS);
+    await sb.via(['gh'], { now: T0 });
+    await sb.via(['gh'], { now: T0 + CATALOG_TTL_MS + 1000 });
+    expect(srv.state.listCalls).toBe(2);
+  });
+
+  it.each([0, undefined])('is no hint at all when it is %s: the 24 hours stay', async (ttl) => {
+    const { srv, sb } = await hinted(ttl);
+    await sb.via(['gh'], { now: T0 });
+    await sb.via(['gh'], { now: T0 + 3600_000 });
+    expect(srv.state.listCalls).toBe(1);
   });
 });
 

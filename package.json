@@ -30,6 +30,8 @@
     "prepack": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:stateless": "VIA_TEST_PROTOCOL=modern vitest run test/cli test/daemon test/client test/bench",
+    "test:conformance": "npm run build && npx -y @modelcontextprotocol/conformance@0.1.16 client --command \"node test/conformance/client.mjs\" --suite all --expected-failures test/conformance/expected-failures.yml",
     "typecheck": "tsc --noEmit",
     "build:bin": "bun scripts/build-bin.ts",
     "eval:search": "tsup scripts/eval-search.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/eval-search.js",
@@ -39,7 +41,8 @@
     "split-diff": "tsup scripts/split-diff.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-diff.js test/fixtures/tools test/fixtures/other"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/server": "2.3.1",
     "@napi-rs/keyring": "^2.1.2",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
@@ -47,10 +50,13 @@
     "get-east-asian-width": "^1.5.0",
     "jsonc-parser": "^3.3.1",
     "smol-toml": "^1.9.1",
+    "undici": "^7.30.1",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
+    "@modelcontextprotocol/node": "^2.1.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
     "string-width": "^8.3.0",

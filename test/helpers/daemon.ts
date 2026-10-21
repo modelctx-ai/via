@@ -3,6 +3,7 @@
 // the CLI does it in production. Every sandbox gets its own socket directory (on Windows its own
 // profile directories and pipe-name prefix), and every daemon it started is stopped (and killed if
 // need be) when the test ends.
+import { defaultGeneration, fixtureScript } from './generation';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -238,7 +239,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
 
 /** The stdio mock server as a `servers:` entry for the user config. */
 export function mockServerYaml(name = 'mock', extra = ''): string {
-  const server = fileURLToPath(new URL('../fixtures/mcp/stdio-server.mjs', import.meta.url));
+  const server = fixtureScript('stdio-server', defaultGeneration());
   return `  ${name}:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(server)}]\n${extra}`;
 }
 

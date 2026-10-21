@@ -192,7 +192,7 @@ describe('errors', () => {
     // Closing does not wait for the abandoned handshake either: the child is killed.
     const closing = Date.now();
     await client.close();
-    expect(Date.now() - closing).toBeLessThan(3000);
+    expect(Date.now() - closing).toBeLessThan(8000); // at most the stdio probe timeout (5 s), never the 60 s connect timeout
   });
 
   it('a request queued behind a long call (concurrency) fails within its own timeout', async () => {

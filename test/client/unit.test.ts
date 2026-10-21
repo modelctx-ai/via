@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/client';
 import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import { baseEnvironment, ClientError, Limiter, mapError, resolveConnection } from '../../src/client';
@@ -124,16 +125,23 @@ describe('mapError', () => {
     expect(mapError(new CredentialError('missing', 'env:X'), ctx)).toMatchObject({ exitCode: 4, next: 'via auth login acme' });
   });
 
-  it('maps an SDK-shaped HTTP error and redacts and flattens its text', () => {
-    const err = Object.assign(new Error(`Streamable HTTP error: Error POSTing to endpoint: oops\n\u001b[31m${FAKE_TOKEN}\u001b[0m`), { code: 502 });
+  it('maps an SDK HTTP error and redacts and flattens its text', () => {
+    const err = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: oops\n\u001b[31m${FAKE_TOKEN}\u001b[0m`, { status: 502 });
     const mapped = mapError(err, ctx);
     expect(mapped.exitCode).toBe(6);
     expect(mapped.message).toBe('acme returned HTTP 502: oops ***');
   });
 
   it('caps long upstream text', () => {
-    const err = Object.assign(new Error(`Streamable HTTP error: ${'x'.repeat(5000)}`), { code: 500 });
+    const err = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${'x'.repeat(5000)}`, { status: 500 });
     expect(mapError(err, ctx).message.length).toBeLessThan(400);
+  });
+
+  it('maps the SDK errors of a request that ran out of time, lost its connection or was refused', () => {
+    expect(mapError(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out'), ctx)).toMatchObject({ exitCode: 6, message: 'acme did not answer within 60s' });
+    expect(mapError(new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed'), ctx)).toMatchObject({ exitCode: 6, message: 'lost the connection to acme' });
+    expect(mapError(new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', { status: 401 }), ctx)).toMatchObject({ exitCode: 4, next: 'via auth login acme' });
+    expect(mapError(new ProtocolError(-32602, 'MCP error -32602: n must be even'), ctx)).toMatchObject({ exitCode: 1, message: 'n must be even' });
   });
 
   it('maps an unknown failure while connected to exit 6', () => {
@@ -193,7 +201,7 @@ describe('lazy loading of the MCP SDK', () => {
       const outputs = Object.entries(result.metafile.outputs);
       const entryOutput = outputs.find(([, o]) => o.entryPoint !== undefined);
       expect(entryOutput).toBeDefined();
-      const sdkOf = (o: { inputs: Record<string, unknown> }): boolean => Object.keys(o.inputs).some((i) => i.includes('@modelcontextprotocol/sdk'));
+      const sdkOf = (o: { inputs: Record<string, unknown> }): boolean => Object.keys(o.inputs).some((i) => i.includes('@modelcontextprotocol/'));
       expect(sdkOf(entryOutput![1])).toBe(false);
       // Every chunk the entry statically imports is SDK-free as well.
       const staticChunks = entryOutput![1].imports.filter((i) => i.kind === 'import-statement' && !i.external).map((i) => i.path);

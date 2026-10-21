@@ -284,7 +284,7 @@ describe('catalog', () => {
       const first = await list(conn, t);
       const at = first.result.fetchedAt;
       const same = await list(conn, t, { have: at });
-      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true, features: { resources: false, prompts: false } });
+      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true, features: { resources: false, prompts: false }, protocol: { version: expect.stringMatching(/^\d{4}-\d\d-\d\d$/), stateful: expect.any(Boolean) } });
       const other = await list(conn, t, { have: at - 1 });
       expect(other.result).toMatchObject({ fetchedAt: at, fromCache: true });
       expect((other.result as ListedTools).tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
@@ -615,6 +615,10 @@ describe('lifecycle timers', () => {
   it('shutdown answers, stops listening at once and exits when the requests are done', async () => {
     const h = await startDaemon();
     const conn = await h.connect();
+    // Start the stdio server first: the first connection probes the protocol in a copy of the server
+    // before starting it for real, and two process starts on a Windows runner can outlast the
+    // fixed wait below. Only shutdown is under test here, not connecting.
+    expect((await conn.request({ type: 'call', ...target(stdioServer()), rawName: 'echo', args: { message: 'warm' } })).ok).toBe(true);
     const slow = conn.request({ type: 'call', ...target(stdioServer()), rawName: 'slow', args: { ms: 300 } });
     await new Promise((r) => setTimeout(r, 100));
     const other = await h.connect();

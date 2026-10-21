@@ -4,6 +4,7 @@ import { shellWord } from '../../render/shell';
 import { ClientError } from '../../client/errors';
 import type { App } from '../app';
 import { buildProviderTable, statusOf } from '../directory';
+import { describeProxy, proxySettings } from '../../proxy';
 import { renderDoctor, type ServerProbe } from '../doctor';
 
 export async function doctorCommand(app: App): Promise<number> {
@@ -19,9 +20,9 @@ export async function doctorCommand(app: App): Promise<number> {
       const entry = entryOf.get(server);
       if (!entry) return { ...base, status: 'error', message: skipped.get(server) ?? 'provider name is not usable' };
       try {
-        const { tools } = await app.listing(entry, { refresh: true, many: true });
+        const { tools, protocol } = await app.listing(entry, { refresh: true, many: true });
         const warning = await loginStoreWarning(app, server);
-        return { ...base, status: 'ok', toolCount: tools.length, schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), ...(warning ? { warning } : {}) };
+        return { ...base, status: 'ok', toolCount: tools.length, ...(protocol ? { protocol } : {}), schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), ...(warning ? { warning } : {}) };
       } catch (error) {
         const probe: ServerProbe = { ...base, status: statusOf(error), message: app.redact.scan(error instanceof Error ? error.message : String(error)) };
         const next = error instanceof ClientError || error instanceof CredentialError ? error.next : undefined;
@@ -31,7 +32,7 @@ export async function doctorCommand(app: App): Promise<number> {
     }),
   );
 
-  const out = renderDoctor({ config, frameworks: BUNDLED_FRAMEWORKS, probes, catalogWarnings: table.warnings, home: app.io.home });
+  const out = renderDoctor({ config, frameworks: BUNDLED_FRAMEWORKS, probes, catalogWarnings: table.warnings, home: app.io.home, proxy: describeProxy(proxySettings(app.io.env)) });
   app.out(`${out.text}\n`);
   return out.exitCode;
 }

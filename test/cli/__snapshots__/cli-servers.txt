@@ -1,6 +1,6 @@
-gh       http http://127.0.0.1:<port>     bearer                                 ~/.config/via/config.yaml
-keyless  http http://127.0.0.1:<port>     bearer (missing env:NOT_SET_ANYWHERE)  ~/.config/via/config.yaml
-linear   http https://mcp.linear.example  oauth (not logged in)                  ~/.config/via/config.yaml
-off      http http://127.0.0.1:<port>     none                                   ~/.config/via/config.yaml  disabled
-find     stdio node                       none                                   ~/.config/via/config.yaml  provider name "find" collides with a built-in subcommand; set "alias" in the server config
-figma    stdio node                       none                                   <root>/project/.via.yaml   untrusted (via trust <root>/project/.via.yaml)
+gh       http http://127.0.0.1:<port>     -  bearer                                 ~/.config/via/config.yaml
+keyless  http http://127.0.0.1:<port>     -  bearer (missing env:NOT_SET_ANYWHERE)  ~/.config/via/config.yaml
+linear   http https://mcp.linear.example  -  oauth (not logged in)                  ~/.config/via/config.yaml
+off      http http://127.0.0.1:<port>     -  none                                   ~/.config/via/config.yaml  disabled
+find     stdio node                       -  none                                   ~/.config/via/config.yaml  provider name "find" collides with a built-in subcommand; set "alias" in the server config
+figma    stdio node                       -  none                                   <root>/project/.via.yaml   untrusted (via trust <root>/project/.via.yaml)

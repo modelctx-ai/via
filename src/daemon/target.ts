@@ -75,6 +75,8 @@ export function sessionKey(server: ServerConfig): string {
     exclusive: server.exclusive,
     concurrency: server.concurrency,
     roots: server.roots ?? [],
+    // Only when pinned: a session key from before the field existed stays what it was.
+    ...(server.protocolVersion !== undefined ? { protocolVersion: server.protocolVersion } : {}),
   };
   return sha256Hex(JSON.stringify(identity)).slice(0, 24);
 }

@@ -6,7 +6,9 @@
 
 | 用途 | 包 |
 | --- | --- |
-| MCP client（stdio、Streamable HTTP、OAuth） | `@modelcontextprotocol/sdk`（官方 SDK，client 端自带 OAuth 流程支持） |
+| MCP client（stdio、Streamable HTTP、OAuth） | `@modelcontextprotocol/client`（官方 TypeScript SDK v2，client 端自带 OAuth 流程支持；是目前唯一支持 `2026-07-28` 无状态协议的官方实现，见下「MCP SDK」） |
+| 出站 HTTP 代理 | `undici` 的 `ProxyAgent`（仅在设置了代理变量时按需加载；锁在 7.x：Node 内置的 `fetch` 带的 undici 版本拒绝 8.x 的 dispatcher） |
+| `via serve` 的 MCP server | `@modelcontextprotocol/server`（同一代 SDK 的 server 端） |
 | 固定子命令解析 | 全局选项可以出现在任何位置（包括工具参数之间），0.1 用 `cli/options.ts` 里的小解析器先取走它们，不引入 `commander`；工具参数由 schema 驱动的自定义解析器处理 |
 | schema 校验 | `ajv` |
 | 配置解析 | `yaml`、`smol-toml`、`jsonc-parser`（部分框架配置带注释） |
@@ -40,6 +42,15 @@
 - **一次 `import()` 取齐浏览命令要用的模块**（`src/cli/browse-deps.ts`），而不是按命令逐个串行 `import()`；渲染流水线与 MCP 客户端不进浏览命令的加载路径。
 - **分词、签名、索引**：ASCII 快路径（不用正则）、字符串只 kebab 一次、倒排表用扁平数组并能直接使用预算好的词频。分词在一千个工具上约 4–6 ms 降到约 2.3 ms；一千个工具、新进程里的目录构建加索引加首次查询约 80 ms，命中预构建缓存时约 21 ms。
 - **daemon**：不在内存里保存解析后的工具列表（磁盘缓存就是副本），`list` 带 `have` 时不重传（[daemon.md](../spec/daemon.md)）；Node 运行时下拉起时加 `--max-semi-space-size=2` 与（Linux）`MALLOC_ARENA_MAX=2`（`daemonRuntime`），建立会话后的常驻内存少 5 到 10 MiB；SDK 与 ajv 仍是按需加载。
+
+### MCP SDK（v2）
+
+via 用官方 TypeScript SDK v2：client 端 `@modelcontextprotocol/client`，`via serve` 的 server 端 `@modelcontextprotocol/server`（均精确锁版本）。1.x 的 `@modelcontextprotocol/sdk` 最高协商到 `2025-11-25`，`2026-07-28` 的无状态协议只有 v2 支持（[daemon.md](../spec/daemon.md#协议版本与无状态连接)）；`@modelcontextprotocol/sdk` 现在只是开发依赖，测试用的模拟 server 仍用它，这样「旧一代 server」是真正的旧 SDK。
+
+- **结果不经 SDK 的类型化方法校验。** `listTools()`、`readResource()` 等会按完整的 MCP schema 校验整个结果，一个畸形条目就让整次操作失败。via 一直用通用请求加一个什么都接受的 schema（`src/client/session.ts` 的 `RAW`），只留下自己要用的条目（有 `name` 的工具、有 `uri` 的内容），其余原样交给渲染。迁移后保持这一点；`2026-07-28` 连接上的 `tools/call` 例外，走 SDK 的 `callTool()`：只有它会按 `x-mcp-header` 声明镜像 `Mcp-Param-*` 请求头，缺了头 server 会拒绝调用。它的输出校验被换成什么都接受的校验器，结果仍按 server 给的样子显示。
+- **重定向。** v2 的 HTTP 传输默认只跟随同源重定向（1.x 跟随到任何地方，并把自定义请求头一起带过去）。via 保持 v2 的默认：指向别处的重定向报错，错误信息带目标地址，让用户直接配置那个地址。
+- **协议版本常量。** `src/protocol-versions.ts` 重复了 SDK 的版本列表和 `serverInfo` 的 `_meta` 键，因为配置加载器要校验 `protocolVersion`，不能为此加载 SDK。`test/protocol-versions.test.ts` 对照 node_modules 里的 SDK 检查它们：旧版列表等于 `SUPPORTED_PROTOCOL_VERSIONS`，无状态版本等于 SDK server 在 `server/discover` 里给出的列表，并用真正的 SDK client 钉住每个版本连一次。SDK 升级后增减版本会让这个测试失败。OAuth 登录的探测请求（`src/client/oauth/login.ts`）不再写死版本：用 SDK 的 `LATEST_PROTOCOL_VERSION` 发 `initialize`，用 via 的无状态版本发 `server/discover`，哪个先得到 401 就用哪个的挑战头。
+- **代价**（`npm run bench:perf`，同一台机器上与迁移前的构建交替运行，噪声明显）：调用路径多加载约 0.55 MiB 的分块（`gh echo_text` 加载的分块 1.0 → 1.6 MiB：SDK 与 zod 4 共约 1.0 MiB，1.x 连同其中的 zod 约 0.3 MiB），加载时要构造全部 schema；进程内模式（无 daemon）的一次 `gh echo_text` 中位数多约 40 ms（HTTP 514 → 554 ms，stdio 735 → 771 ms；各自用独立的目录缓存，交替运行 25 次）；单文件可执行 86 → 89 MiB，进程内的一次调用没有可见差别（232 → 236 ms）；走 daemon 的 CLI、浏览类命令不加载 SDK，不受影响（`test/cli/dist.test.ts`、`test/daemon/e2e.test.ts` 的加载追踪断言，冷启动数字在噪声内）；daemon 建立 HTTP 会话与调用后的常驻内存约多 5 MiB（三次交替测量的均值 80 → 85 MiB，单次波动 ±5 MiB）。热 daemon 的调用开销不变（5.3 ms）。undici（出站代理）是另一个按需加载的分块（约 1 MiB），只有设置了代理变量才加载。
 
 评估后**没有**保留的做法：把目录和索引常驻在 daemon 里再让 CLI 查询（协议要新增 `ls`/`find`，渲染要在两处实现，而预构建缓存已经把 CLI 一侧压到几毫秒，收益不抵复杂度）；在命令之间预取（并行 `import()`，收益在噪声内）；用非密码学哈希给缓存键（字面量凭证会进入键的原文）；关闭 socket 后立即释放（会破坏进程内测试的「空闲退出」语义）。
 

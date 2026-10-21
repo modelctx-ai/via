@@ -22,6 +22,7 @@
 | [0014](0014-drop-the-domain-view.md) | 去掉「域」：provider 按名字列出，不做分类 | 已接受 |
 | [0015](0015-npm-scope-modelctx-ai.md) | npm 包名为 `@modelctx-ai/via` | 已接受 |
 | [0016](0016-via-serve-meta-tools-over-stdio.md) | `via serve`：以 stdio MCP server 暴露七个元工具，每次调用就是一次 CLI 命令 | 已接受 |
+| [0017](0017-protocol-versions-newest-first-with-fallback.md) | MCP 协议版本：新版本优先，自动回退，可以固定 | 已接受 |
 
 ## 流程
 

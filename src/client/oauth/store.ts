@@ -5,8 +5,7 @@
 import { createHash } from 'node:crypto';
 import { access, chmod, constants, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
-import type { OAuthClientInformationMixed, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { OAuthClientInformationMixed, OAuthDiscoveryState, OAuthTokens } from '@modelcontextprotocol/client';
 import { pathContext, userDataDir, type Env, type PathContext } from '../../config/paths';
 import { importKeyring } from '../../keyring';
 

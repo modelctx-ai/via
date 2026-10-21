@@ -83,9 +83,11 @@ flowchart LR
 | c5 `via serve` | 已实现，未发布 | stdio MCP server，七个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[cli.md](spec/cli.md#via-serve)） |
 | d1–d5 | 计划中（0.4） | 见[验证与打磨](#验证与打磨) |
 | d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
-| e1–e9 | 计划中（0.4），必须做 | 见 [MCP 协议对齐](#mcp-协议对齐)；不依赖 d1 的评测结论，与验证同时开工 |
+| e1 SDK v2、e2 2026-07-28 无状态协议、e3 协议版本可见与固定、e8 一致性测试 | 已实现，未发布 | `@modelcontextprotocol/client` 2.3.1；`server/discover` 探测并自动回退（[ADR 0017](adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](spec/daemon.md)）；`protocolVersion` 配置字段；CI 新增 `conformance` 与 `stateless` 任务，预期失败的场景列在 `test/conformance/expected-failures.yml` |
+| e4–e7、e9 | 计划中（0.4），必须做 | 见 [MCP 协议对齐](#mcp-协议对齐) |
 | f1 schema 快照校验 | 已实现，未发布 | `--schema-snapshot <文件>`、`--schema-mode compatible\|strict`（[arguments.md](spec/arguments.md#schema-快照校验)） |
-| f2、f3 | 计划中（0.4） | 见[借鉴与补齐](#借鉴与补齐) |
+| f2 出站代理 | 已实现，未发布 | MCP HTTP、OAuth 与 embedding 请求遵守 `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`，`via doctor` 显示生效的代理（[config.md](spec/config.md)、[security.md](spec/security.md)） |
+| f3 | 计划中（0.4） | 见[借鉴与补齐](#借鉴与补齐) |
 | f4 `-h` 调用示例 | 已实现，未发布 | [arguments.md](spec/arguments.md#调用示例) |
 | f5 SKILL.md | 已实现，未发布 | `via prompt --skill`（[cli.md](spec/cli.md)） |
 

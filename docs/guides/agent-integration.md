@@ -16,6 +16,8 @@ servers   9 ok · 1 needs auth (linear)
   linear: needs auth
     next: via auth login linear
 
+proxy     none
+
 frameworks still injecting MCP schemas:
   claude-code   6 servers · ~41k tokens/turn
     hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用；默认已用 tool search 延迟加载 schema，设 ENABLE_TOOL_SEARCH=false 才会全量注入
@@ -27,9 +29,10 @@ secrets:
     next: set servers.exa.env.EXA_API_KEY to an env:, file: or keychain: reference in your via config
 ```
 
-输出分四节，节间空一行：
+输出分五节，节间空一行：
 
-- **servers**：按状态计数（`ok`、`needs auth`、`failed`、`untrusted`、`disabled`），非 ok 的状态列出 provider 名；需要鉴权、连接失败、未信任的 server 各占一行并附 `next:`（OAuth server 为 `via auth login <provider>`，未信任的项目级文件为 `via trust <路径>`，凭证缺失时用凭证解析给出的提示）。
+- **servers**：按状态计数（`ok`、`needs auth`、`failed`、`untrusted`、`disabled`），非 ok 的状态列出 provider 名；探测成功的 server 各占一行写出协商出的 MCP 协议版本和连接是否有状态（`  github: MCP 2026-07-28 stateless`；`protocolVersion` 固定了版本的加 `(pinned)`，[config.md](../spec/config.md#protocolversion)）；需要鉴权、连接失败、未信任的 server 各占一行并附 `next:`（OAuth server 为 `via auth login <provider>`，未信任的项目级文件为 `via trust <路径>`，凭证缺失时用凭证解析给出的提示）。
+- **proxy**：via 自己的 HTTP 请求（MCP server、OAuth、embedding）生效的代理：`proxy     none`，或每个代理一行，用户名和密码显示为 `***@`，后面是 `NO_PROXY` 的清单（[config.md](../spec/config.md#代理)）。
 - **frameworks still injecting MCP schemas**：按框架归并，数据来自 server 定义所在的框架配置（`origin.framework`），以及 `conflicts` 里被忽略的其他框架定义（同名 server 在多个框架里各被注入一次）。框架里可能已经关掉的 server 无从得知，所以按「仍在注入」估算。每个框架一行：server 数与 token 估算，下一行是 `data/frameworks/` 中的 `disableHint`。
 - **secrets**：明文凭证告警，见下。
 - **config**：配置诊断（`error`、`warning`，不含 `info`；明文凭证的告警并入 secrets，不重复）和目录告警（与内置子命令重名、重复的 provider），仅在有内容时出现。项目配置里的 `cmd:`（`cmd-forbidden`）附 `next:` 说明改在用户配置里定义；信任记录损坏附 `next:` 说明删除后重新 `via trust`。

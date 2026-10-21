@@ -48,6 +48,25 @@ describe('renderDoctor', () => {
     await expect(`${out.text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-healthy.txt');
   });
 
+  it('shows the protocol each healthy server negotiated, and which versions are pinned', () => {
+    const out = renderDoctor({
+      config: config([server('github'), server('legacy', { protocolVersion: '2025-06-18' }), server('quiet'), server('down')]),
+      frameworks: BUNDLED_FRAMEWORKS,
+      probes: [
+        probe('github', { protocol: { version: '2026-07-28', stateful: false } }),
+        probe('legacy', { protocol: { version: '2025-06-18', stateful: true } }),
+        probe('quiet'),
+        { server: 'down', provider: 'down', status: 'error', message: 'cannot start down: it does not support protocol version 2026-07-28' },
+      ],
+    });
+    expect(out.text.split('\n').slice(0, 4)).toEqual([
+      'servers   3 ok · 1 failed (down)',
+      '  github: MCP 2026-07-28 stateless',
+      '  legacy: MCP 2025-06-18 stateful (pinned)',
+      '  down: failed (cannot start down: it does not support protocol version 2026-07-28)',
+    ]);
+  });
+
   it('says so when there are no servers at all', () => {
     const out = renderDoctor({ config: config([]), frameworks: BUNDLED_FRAMEWORKS, probes: [] });
     expect(out.text.split('\n')[0]).toBe('servers   none configured');

@@ -464,7 +464,7 @@ describe('via auth logout', () => {
 describe('via servers and via doctor with OAuth', () => {
   it('servers shows the login state in the auth column', async () => {
     const { srv, sb } = await setup();
-    expect((await sb.via(['servers'])).stdout).toMatch(/linear\s+http http:\/\/127\.0\.0\.1:\d+\s+oauth \(not logged in\)/);
+    expect((await sb.via(['servers'])).stdout).toMatch(/linear\s+http http:\/\/127\.0\.0\.1:\d+\s+-\s+oauth \(not logged in\)/);
     await login(sb, srv);
     expect((await sb.via(['servers'], { now: T0 })).stdout).toContain('oauth (logged in, expires in 1h)');
     expect((await sb.via(['servers'], { now: T0 + 2 * HOUR })).stdout).toContain('oauth (access token expired, refreshable)');

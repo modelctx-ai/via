@@ -9,7 +9,7 @@
 
 ## 决策
 
-用 TypeScript 实现，运行在 Node.js 20 及以上，以 npm 包发布，另提供单文件可执行版本。MCP 能力基于官方 `@modelcontextprotocol/sdk`。
+用 TypeScript 实现，运行在 Node.js 20 及以上，以 npm 包发布，另提供单文件可执行版本。MCP 能力基于官方 TypeScript SDK（0.3 前是 1.x 的 `@modelcontextprotocol/sdk`，0.4 起是 v2 的 `@modelcontextprotocol/client` 与 `@modelcontextprotocol/server`，因为只有 v2 支持 `2026-07-28` 无状态协议；选型原则不变，见[实现说明](../development/implementation.md#mcp-sdkv2)）。
 
 ## 备选方案
 

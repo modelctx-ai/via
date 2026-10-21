@@ -19,6 +19,7 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 | OAuth token 出现在输出里 | access token、refresh token、ID token 与客户端 secret 一律计入脱敏列表；授权 URL 只含 `state` 与 PKCE challenge，不含秘密；回调监听只绑 `127.0.0.1` 并校验 `Host` 与 `state`；调用过程永远不会启动授权 |
 | 授权被发往仓库指定的地址 | `via auth login` 对未信任的项目级 server 退出码 5 |
 | 本机目录被告知 server（roots） | 默认不声明 `roots` 能力，server 看不到任何本机目录；只有用户在配置里写下 `roots` 才声明。项目级配置设置非空 `roots` 需要 `via trust`，`via trust` 会列出；`[]` 只会收窄，不需要。给 HTTP server 配 `roots` 时告警（本地路径发往远端）。via 不会因为 server 的请求改变 roots，会话的 roots 在其生命周期内固定 |
+| 代理密码出现在输出里，或请求绕过代理直连 | `HTTPS_PROXY` / `HTTP_PROXY` 里的用户名和密码计入脱敏名单；`via doctor` 把 userinfo 显示为 `***@`；网络层错误信息在抛出前先抹掉 `user:pass@` 与已知的密码；代理地址不可用时请求失败（退出码 2），不退回直连；代理变量只来自环境，项目级配置无法设置，代理密码不经过 daemon 的 socket（[config.md](config.md#代理)） |
 | 工具描述与查询被发往第三方 embedding 端点 | `search.semantic` 默认关闭，只在用户配置里生效（项目与框架配置里的被忽略并告警）；见下文[embedding 检索的数据外流](#embedding-检索的数据外流) |
 
 ## 打印出来的命令行
@@ -108,7 +109,7 @@ via 在 POSIX 上靠文件模式（目录 0700、文件 0600）保护信任记�
 - **传输与凭证**：`url` 必须是 https（回环地址除外），不含内嵌凭证；凭证只来自 `auth` 的凭证引用，在内存中解析，随请求头发出；不跟随重定向，避免凭证随跳转发到别处；解析出的值进入脱敏列表，不出现在输出、错误信息、缓存文件里。
 - **错误信息**：退回词法排序时只输出状态码或错误码（`HTTP 401`、`ECONNREFUSED`、`timeout after 3s`）和缺失的凭证引用名；不输出响应体（服务端可能回显请求）、请求头或端点。
 - **缓存**：用户缓存目录下的 `embeddings/`（0700，文件 0600），只含文本哈希与向量；端点只以哈希参与文件名。向量本身可以部分反推文本，所以与目录缓存一样按用户私有数据对待。
-- **范围**：只有 `via find` 使用它，其他命令不会触发请求；daemon 不参与，也不会因此保存端点凭证。
+- **范围**：只有 `via find` 使用它，其他命令不会触发请求；daemon 不参与，也不会因此保存端点凭证。请求遵守代理变量（[config.md](config.md#代理)）。
 
 ## 单文件可执行
 

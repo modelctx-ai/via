@@ -131,9 +131,17 @@ export function internal(message: string): ClientError {
 /** Turn anything thrown while connecting or calling into a ClientError. */
 export function mapError(err: unknown, ctx: ErrorContext): ClientError {
   if (err instanceof ClientError) return err;
+  // The SDK wraps whatever went wrong while it probed the protocol version (a refused connection, a login that
+  // cannot be refreshed) in an `ERA_NEGOTIATION_FAILED`; the cause is the failure to report.
+  if (sdkCode(err) === 'ERA_NEGOTIATION_FAILED' && (err as { cause?: unknown }).cause instanceof Error) return mapError((err as { cause: Error }).cause, ctx);
   const { server } = ctx;
   const provider = server.provider;
   const loginNext = `via auth login ${provider}`;
+  // A proxy variable that cannot be used (config.md, "代理"): the environment's mistake, not the server's.
+  if (err instanceof Error && err.name === 'ProxyConfigError') {
+    return new ClientError({ exitCode: ExitCode.Usage, message: `cannot reach ${provider}: ${clean(err.message, ctx)}`, next: 'fix the proxy variable, or unset it (via doctor shows what is in effect)' });
+  }
+  if (ctx.phase === 'connect' && server.protocolVersion !== undefined && refusesVersion(err)) return pinRefused(err, server.protocolVersion, ctx);
 
   // OAuth layer (matched by name: it lives next to the lazily loaded SDK).
   if (err instanceof Error && err.name === 'LoginRequiredError') {
@@ -180,7 +188,7 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
   }
 
   if (status !== undefined) {
-    const detail = clean(stripSdkPrefix(errorMessage(err)), ctx);
+    const detail = clean(upstreamText(err), ctx);
     return new ClientError({
       exitCode: ExitCode.Upstream,
       message: `${provider} returned HTTP ${status}${detail ? `: ${detail}` : ''}`,
@@ -203,6 +211,44 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
   });
 }
 
+// Pinned protocol version (config.md, `protocolVersion`) ---------------------------------------
+
+/**
+ * Whether the failure to connect is the server declining the protocol version via asked for: the SDK's
+ * "did not offer the pinned version" (a probe without a better cause), a counter-offer it does not accept,
+ * or the server's own -32022 "unsupported protocol version" (a 400 with a JSON-RPC body).
+ */
+function refusesVersion(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (sdkCode(err) === 'ERA_NEGOTIATION_FAILED' && !((err as { cause?: unknown }).cause instanceof Error)) return true;
+  if (httpStatus(err) === 400 && /-32022|unsupported protocol version/i.test(httpBody(err))) return true;
+  return /protocol version.*(?:not supported|unsupported)|unsupported protocol version/i.test(err.message);
+}
+
+function httpBody(err: Error): string {
+  const text = (err as { data?: { text?: unknown } }).data?.text;
+  return typeof text === 'string' ? text : '';
+}
+
+/** The versions the server said it supports, when its refusal listed them (`error.data.supported`). */
+function offeredVersions(err: Error): string[] {
+  try {
+    const supported = (JSON.parse(httpBody(err)) as { error?: { data?: { supported?: unknown } } }).error?.data?.supported;
+    return Array.isArray(supported) ? supported.filter((v): v is string => typeof v === 'string' && /^\d{4}-\d\d-\d\d$/.test(v)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pinRefused(err: unknown, pin: string, ctx: ErrorContext): ClientError {
+  const offered = err instanceof Error ? offeredVersions(err) : [];
+  return new ClientError({
+    exitCode: ExitCode.Upstream,
+    message: `cannot start ${ctx.server.provider}: it does not support protocol version ${pin}${offered.length > 0 ? ` (it supports ${offered.join(', ')})` : ''}; servers.${ctx.server.name}.protocolVersion pins it`,
+    next: `remove protocolVersion from servers.${ctx.server.name}, or pin a version the server supports`,
+  });
+}
+
 /** Failures while spawning the child or opening the HTTP session. */
 function startupFailure(err: unknown, ctx: ErrorContext): ClientError {
   const { server } = ctx;
@@ -222,7 +268,7 @@ function startupFailure(err: unknown, ctx: ErrorContext): ClientError {
       reason = clean(errorMessage(err), ctx);
     }
   } else if (status !== undefined) {
-    const detail = clean(stripSdkPrefix(errorMessage(err)), ctx);
+    const detail = clean(upstreamText(err), ctx);
     reason = `HTTP ${status}${detail ? `: ${detail}` : ''}`;
   } else if (networkCode(err) !== undefined || isFetchFailure(err)) {
     reason = `cannot reach ${originOf(server.transport.url)} (${networkCode(err) ?? 'network error'})`;
@@ -249,33 +295,44 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && err.constructor.name === 'UnauthorizedError';
 }
 
-/** SDK `StreamableHTTPError`: message starts with "Streamable HTTP error:" and `code` is the HTTP status (or -1). */
+/** SDK `SdkHttpError`: the transport got an HTTP status it cannot use (matched by name, like the rest, to keep the SDK lazy). */
 function httpStatus(err: unknown): number | undefined {
-  if (!(err instanceof Error)) return undefined;
-  const code = (err as { code?: unknown }).code;
-  if (typeof code === 'number' && code >= 100 && err.message.startsWith('Streamable HTTP error')) return code;
-  return undefined;
+  if (!(err instanceof Error) || err.name !== 'SdkHttpError') return undefined;
+  const status = (err as { status?: unknown }).status;
+  return typeof status === 'number' && status >= 100 ? status : undefined;
 }
 
-const REQUEST_TIMEOUT = -32001;
+const REQUEST_TIMEOUT = 'REQUEST_TIMEOUT';
+const CONNECTION_LOST = new Set(['CONNECTION_CLOSED', 'NOT_CONNECTED', 'SEND_FAILED']);
 const CONNECTION_CLOSED = -32000;
 const INVALID_PARAMS = -32602;
 const RESOURCE_NOT_FOUND = -32002;
 
+/** The JSON-RPC code of an error the server answered with (SDK `ProtocolError`); undefined for anything else. */
 function mcpCode(err: unknown): number | undefined {
-  if (err instanceof Error && err.name === 'McpError') {
+  if (err instanceof Error && err.name === 'ProtocolError') {
     const code = (err as { code?: unknown }).code;
     if (typeof code === 'number') return code;
   }
   return undefined;
 }
 
+/** SDK `SdkError`: a failure of the client itself (timeout, closed connection, …), with a string `code`. */
+function sdkCode(err: unknown): string | undefined {
+  if (err instanceof Error && (err.name === 'SdkError' || err.name === 'SdkHttpError')) {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+  }
+  return undefined;
+}
+
 function isTimeout(err: unknown): boolean {
-  return mcpCode(err) === REQUEST_TIMEOUT;
+  return sdkCode(err) === REQUEST_TIMEOUT;
 }
 
 function isConnectionClosed(err: unknown): boolean {
-  return mcpCode(err) === CONNECTION_CLOSED;
+  const code = sdkCode(err);
+  return (code !== undefined && CONNECTION_LOST.has(code)) || mcpCode(err) === CONNECTION_CLOSED;
 }
 
 function errnoCode(err: unknown): string | undefined {
@@ -302,9 +359,15 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** What the SDK says about a failed HTTP exchange, plus the response body it kept separately (a probe answered with 5xx carries it only there). */
+function upstreamText(err: unknown): string {
+  const message = stripSdkPrefix(errorMessage(err));
+  const body = err instanceof Error && err.name === 'SdkHttpError' ? (err as { data?: { text?: unknown } }).data?.text : undefined;
+  return typeof body === 'string' && body !== '' && !message.includes(body) ? `${message}: ${body}` : message;
+}
+
 function stripSdkPrefix(message: string): string {
   return message
-    .replace(/^Streamable HTTP error:\s*/, '')
     .replace(/^Error POSTing to endpoint:\s*/, '')
     .replace(/^Failed to open SSE stream:\s*/, '');
 }

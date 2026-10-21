@@ -463,7 +463,7 @@ describe('cold start', () => {
         ...d.processEnv(),
         VIA_NO_DAEMON: daemon ? '0' : '1',
         TRACE_FILE: trace,
-        TRACE_IMPORTS: '@modelcontextprotocol/sdk,ajv,ajv-formats',
+        TRACE_IMPORTS: '@modelcontextprotocol/client,ajv,ajv-formats',
       },
       timeout: 20_000,
     });
@@ -487,7 +487,7 @@ describe('cold start', () => {
     const d = await daemonSandbox(config());
     const r = await traced(d, ['mock', 'echo', '--message', 'hi'], false);
     expect(r.code).toBe(0);
-    expect(r.loaded.some((s) => s.startsWith('@modelcontextprotocol/sdk'))).toBe(true);
+    expect(r.loaded.some((s) => s.startsWith('@modelcontextprotocol/client'))).toBe(true);
     expect(r.loaded.some((s) => s.startsWith('ajv'))).toBe(true);
   });
 });

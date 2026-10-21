@@ -379,6 +379,7 @@ function finalize(
     trusted,
   };
   if (d.budget !== undefined) server.budget = d.budget;
+  if (d.protocolVersion !== undefined) server.protocolVersion = d.protocolVersion;
   if (d.roots !== undefined && d.roots.length > 0) {
     server.roots = [...d.roots];
     if (transport.type === 'http') {

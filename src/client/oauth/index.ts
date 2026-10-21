@@ -1,5 +1,6 @@
 // OAuth for HTTP servers (docs/spec/auth.md): login, token storage, silent refresh, status, logout.
 // Everything here loads the MCP SDK on demand, so importing it is cheap.
+import type { FetchLike } from '@modelcontextprotocol/client';
 import type { ServerConfig } from '../../config/types';
 import type { LoginTarget } from './login';
 import { ViaOAuthProvider } from './provider';
@@ -48,7 +49,7 @@ export function oauthTarget(server: ServerConfig): LoginTarget | undefined {
 export function createCallProvider(
   server: ServerConfig,
   store: OAuthStore,
-  options: { track?: (value: string) => void; now?: () => number; onSaveFailed?: (reason: string) => void } = {},
+  options: { track?: (value: string) => void; now?: () => number; onSaveFailed?: (reason: string) => void; fetch?: FetchLike } = {},
 ): ViaOAuthProvider {
   const target = oauthTarget(server);
   if (!target) throw new Error(`${server.provider} does not use OAuth over HTTP`);
@@ -60,5 +61,6 @@ export function createCallProvider(
     ...(options.track ? { track: options.track } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.onSaveFailed ? { onSaveFailed: options.onSaveFailed } : {}),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
   });
 }

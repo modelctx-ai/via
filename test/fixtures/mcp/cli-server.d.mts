@@ -1,4 +1,5 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server as ModernServer } from '@modelcontextprotocol/server';
 
 export interface CliState {
   tools: Array<Record<string, unknown> & { name: string }>;
@@ -15,4 +16,7 @@ export interface CliState {
 }
 export declare function defaultTools(): CliState['tools'];
 export declare function createCliState(): CliState;
-export declare function createCliServer(options: { state: CliState; authorization?: string; features?: Array<'resources' | 'prompts' | 'roots'> }): Server;
+type Options = { state: CliState; authorization?: string; features?: Array<'resources' | 'prompts' | 'roots'> };
+/** `flavor` picks the protocol generation: `legacy` (initialize handshake, the default) or `modern` (stateless `2026-07-28`). */
+export declare function createCliServer(options: Options & { flavor: 'modern'; notifier?: { toolsChanged(): void }; /** `ttlMs` of `tools/list` results. */ ttlMs?: number }): ModernServer;
+export declare function createCliServer(options: Options & { flavor?: 'legacy' }): Server;

@@ -4,12 +4,13 @@
 // is the same for the terminal, for tests and for anything else that wants to log in.
 import { randomBytes } from 'node:crypto';
 import pkg from '../../../package.json';
-import { LoginFailedError } from './errors';
+import { MODERN_PROTOCOL_VERSIONS } from '../../protocol-versions';
+import { LoginFailedError, oauthErrorCode } from './errors';
 import type { OpenResult } from './opener';
 import { ViaOAuthProvider } from './provider';
 import { CALLBACK_PATH, parseRedirect, randomPort, startLoopback, type AuthorizationResponse, type Loopback } from './redirect';
 import type { OAuthRecord, OAuthStore, SetResult } from './store';
-import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { FetchLike } from '@modelcontextprotocol/client';
 
 export interface LoginIO {
   /** The authorization URL, shown to the person as soon as it is known. */
@@ -53,26 +54,46 @@ const MANUAL_ATTEMPTS = 3;
 /** What an unauthenticated request to the server says about how to authorize (RFC 9728 / 6750). */
 async function probeChallenge(url: string, fetchFn: FetchLike | undefined): Promise<{ resourceMetadataUrl?: URL; scope?: string }> {
   try {
-    const { extractWWWAuthenticateParams } = await import('@modelcontextprotocol/sdk/client/auth.js');
-    const response = await (fetchFn ?? ((u, init) => fetch(u, init)))(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 0,
-        method: 'initialize',
-        params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'via', version: pkg.version } },
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    await response.body?.cancel().catch(() => undefined);
-    return response.status === 401 || response.status === 403 ? extractWWWAuthenticateParams(response) : {};
+    const sdk = await import('@modelcontextprotocol/client');
+    const send = fetchFn ?? ((u, init) => fetch(u, init));
+    const clientInfo = { name: 'via', version: pkg.version };
+    // One request per protocol generation, newest first: a server answers either with the challenge
+    // (an unauthenticated request is refused before it is understood) or with "not for me", and the
+    // second try covers a server that only understands the other generation. The versions are the
+    // SDK's and via's own list (protocol-versions.ts), never a literal here.
+    const modern = MODERN_PROTOCOL_VERSIONS[0]!;
+    const probes: Array<{ headers: Record<string, string>; body: unknown }> = [
+      {
+        headers: { 'mcp-protocol-version': modern, 'mcp-method': 'server/discover' },
+        body: {
+          jsonrpc: '2.0',
+          id: 0,
+          method: 'server/discover',
+          params: { _meta: { [sdk.PROTOCOL_VERSION_META_KEY]: modern, [sdk.CLIENT_INFO_META_KEY]: clientInfo, [sdk.CLIENT_CAPABILITIES_META_KEY]: {} } },
+        },
+      },
+      {
+        headers: {},
+        body: { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: sdk.LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo } },
+      },
+    ];
+    for (const probe of probes) {
+      const response = await send(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...probe.headers },
+        body: JSON.stringify(probe.body),
+        signal: AbortSignal.timeout(10_000),
+      });
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status === 401 || response.status === 403) return sdk.extractWWWAuthenticateParams(response);
+    }
+    return {};
   } catch {
     return {}; // discovery by well-known paths still works without it
   }
 }
 
-function describeOAuthError(error: Error & { errorCode?: string }): string {
+function describeOAuthError(error: Error): string {
   const text = error.message.split('\n')[0] ?? '';
   return text.length > 200 ? `${text.slice(0, 200)}…` : text;
 }
@@ -88,7 +109,7 @@ function loginFailure(error: unknown, target: LoginTarget): LoginFailedError {
       `register a client there and set servers.${target.provider}.auth to { oauth: { clientId: "<id>" } }`,
     );
   }
-  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  const code = oauthErrorCode(error);
   if (typeof code === 'string') return new LoginFailedError(`${target.provider}: the authorization server refused the request (${code}): ${describeOAuthError(error as Error)}`, 4);
   const host = (() => {
     try {
@@ -132,7 +153,7 @@ async function readManual(io: LoginIO, provider: string): Promise<AuthorizationR
  */
 export async function performLogin(options: LoginOptions): Promise<LoginResult> {
   const { target, io } = options;
-  const sdk = await import('@modelcontextprotocol/sdk/client/auth.js');
+  const sdk = await import('@modelcontextprotocol/client');
   const state = randomBytes(24).toString('base64url');
   let loopback: Loopback | undefined;
   try {

@@ -4,11 +4,16 @@
 // name, the tools and the canned calls are all inputs.
 //
 //   node bench/replay-server.mjs --tools test/fixtures/tools/github.json \
-//        --server github --task bench/tasks/github-triage.yaml [--task ...] [--port 0] [--stdio]
+//        --server github --task bench/tasks/github-triage.yaml [--task ...] [--port 0] [--stdio] [--protocol 2026-07-28]
 //
 // HTTP mode (Streamable HTTP, stateless, JSON responses) prints one JSON line to stdout once it
 // listens: {"server":"github","url":"http://127.0.0.1:41234/mcp"}. `GET /__replay/calls` returns the
 // log of every call received so far. Plain ESM so it runs without a build step.
+//
+// Protocol: by default the server speaks the `initialize` handshake of 2025-11-25 and earlier (1.x SDK).
+// `--protocol 2026-07-28` (option `protocol`) serves the stateless protocol instead (2.x SDK: `server/discover`,
+// no sessions; a client that only knows the handshake is refused), so the benchmark and the tests can run
+// against both generations of server.
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
@@ -17,7 +22,21 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { createMcpHandler, Server as StatelessServer } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import { parse as parseYaml } from 'yaml';
+
+/** The stateless protocol revision the replay server can speak. */
+export const STATELESS_PROTOCOL = '2026-07-28';
+
+/** `VIA_REPLAY_PROTOCOL=2026-07-28` makes the benchmarks and the eval harness replay on the stateless protocol; unset: the handshake. */
+export function replayProtocolFromEnv(env = process.env) {
+  const value = env.VIA_REPLAY_PROTOCOL;
+  if (value === undefined || value === '') return undefined;
+  if (value !== STATELESS_PROTOCOL) throw new Error(`VIA_REPLAY_PROTOCOL: expected ${STATELESS_PROTOCOL} or nothing, got ${value}`);
+  return value;
+}
 
 /** Read a `tools/list` fixture: `{ "tools": [...] }`. */
 export function readTools(file) {
@@ -78,32 +97,50 @@ export function cannedCalls(tasks, server, baseDir) {
  * (never a protocol error), so a model that guesses wrong sees an ordinary tool failure. Entries
  * are tried in order and the first match wins; a call is not "used up" by being answered.
  *
- * @param {{ name?: string, tools: object[], calls?: Array<{ tool: string, args?: object, result: object }>, log?: Array<object> }} options
+ * @param {{ name?: string, tools: object[], calls?: Array<{ tool: string, args?: object, result: object }>, log?: Array<object>, protocol?: string }} options
  */
-export function createReplayServer({ name = 'replay', tools, calls = [], log = [] }) {
-  const server = new Server({ name, version: '0.0.0' }, { capabilities: { tools: {} } });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name: tool, arguments: args = {} } = request.params;
+export function createReplayServer({ name = 'replay', tools, calls = [], log = [], protocol }) {
+  const listTools = async () => ({ tools });
+  const callTool = async (params) => {
+    const { name: tool, arguments: args = {} } = params;
     const hit = calls.find((c) => c.tool === tool && (c.args === undefined || matchArgs(c.args, args)));
     log.push({ tool, args, matched: hit !== undefined });
     if (hit) return hit.result;
     const known = tools.some((t) => t.name === tool);
     const reason = known ? `no canned result for ${tool} with these arguments` : `unknown tool: ${tool}`;
     return { content: [{ type: 'text', text: `replay: ${reason}: ${JSON.stringify(args)}` }], isError: true };
-  });
+  };
+  if (protocol === STATELESS_PROTOCOL) {
+    const server = new StatelessServer({ name, version: '0.0.0' }, { capabilities: { tools: {} } });
+    server.setRequestHandler('tools/list', listTools);
+    server.setRequestHandler('tools/call', (request) => callTool(request.params));
+    return server;
+  }
+  if (protocol !== undefined) throw new Error(`replay server: unknown protocol ${protocol}`);
+  const server = new Server({ name, version: '0.0.0' }, { capabilities: { tools: {} } });
+  server.setRequestHandler(ListToolsRequestSchema, listTools);
+  server.setRequestHandler(CallToolRequestSchema, (request) => callTool(request.params));
   return server;
 }
 
 /**
  * Streamable HTTP front end on a localhost port (0 = ephemeral). Stateless: a Server and a
- * transport per request, like the mocks in test/fixtures/mcp/.
+ * transport per request, like the mocks in test/fixtures/mcp/ (with `protocol: '2026-07-28'` the 2.x SDK's
+ * request handler does the same and refuses clients that only speak the handshake).
  *
  * @returns {Promise<{ url: string, log: Array<object>, close(): Promise<void> }>}
  */
 export async function startReplayHttp({ port = 0, host = '127.0.0.1', ...options }) {
   const log = options.log ?? [];
+  const stateless = options.protocol === STATELESS_PROTOCOL ? toNodeHandler(createMcpHandler(() => createReplayServer({ ...options, log }), { legacy: 'reject' })) : undefined;
   const http = createServer((req, res) => {
+    if (stateless && !(req.method === 'GET' && req.url === '/__replay/calls')) {
+      stateless(req, res).catch((error) => {
+        if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' });
+        res.end(String(error));
+      });
+      return;
+    }
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
@@ -146,7 +183,7 @@ export async function startReplayHttp({ port = 0, host = '127.0.0.1', ...options
 // CLI ----------------------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const opts = { tasks: [], stdio: false, port: 0, server: undefined, tools: undefined };
+  const opts = { tasks: [], stdio: false, port: 0, server: undefined, tools: undefined, protocol: undefined };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--tools') opts.tools = argv[++i];
@@ -154,6 +191,7 @@ function parseArgs(argv) {
     else if (arg === '--server') opts.server = argv[++i];
     else if (arg === '--port') opts.port = Number(argv[++i]);
     else if (arg === '--stdio') opts.stdio = true;
+    else if (arg === '--protocol') opts.protocol = argv[++i];
     else throw new Error(`unknown argument: ${arg}`);
   }
   if (!opts.tools) throw new Error('--tools <tools.json> is required');
@@ -169,8 +207,11 @@ if (process.argv[1] && basename(process.argv[1]) === 'replay-server.mjs') {
     name: server,
     tools: readTools(opts.tools),
     calls: cannedCalls(opts.tasks.map(readTaskFile), server, baseDir),
+    ...(opts.protocol ? { protocol: opts.protocol } : {}),
   };
-  if (opts.stdio) {
+  if (opts.stdio && opts.protocol === STATELESS_PROTOCOL) {
+    serveStdio(() => createReplayServer(options));
+  } else if (opts.stdio) {
     await createReplayServer(options).connect(new StdioServerTransport());
   } else {
     const running = await startReplayHttp({ ...options, port: opts.port });

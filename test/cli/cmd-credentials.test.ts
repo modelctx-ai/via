@@ -55,7 +55,7 @@ describe('cmd: credentials', () => {
     sb.userConfig(`sources: false\nservers:\n  gh:\n    url: ${srv.url}\n    auth: { bearer: ${JSON.stringify(ref)} }\n`);
     const r = await sb.via(['servers'], { env });
     expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(/^gh {2}http http:\/\/127\.0\.0\.1:<port>|^gh {2}http http:\/\/127\.0\.0\.1:\d+ {2}bearer {2}/);
+    expect(r.stdout).toMatch(/^gh {2}http http:\/\/127\.0\.0\.1:\d+ {2}- {2}bearer {2}/);
     expect(r.stdout).not.toContain('missing');
     expect(runs()).toBe(0);
   });

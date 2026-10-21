@@ -22,6 +22,26 @@
 - 慢响应与超时、progress 通知；
 - 带 `destructiveHint` / `readOnlyHint` 的工具。
 
+### 两代协议
+
+MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[ADR 0017](../adr/0017-protocol-versions-newest-first-with-fallback.md)）。模拟 server 能讲其中任何一代，端到端测试对两代各跑一遍：
+
+- **同一张处理表，两种 server。** `test/fixtures/mcp/mock-server.mjs` 与 `cli-server.mjs` 把自己回答什么写成一张表（`tools/list`、`tools/call`、`resources/*`、`prompts/*`），`flavors.mjs` 把表装配成旧一代的 server（1.x SDK，`legacy`，默认）或无状态的 server（2.x SDK，`modern`）。工具、资源、prompt、进度、roots、`list_changed` 等行为两代相同；差别只在协议。无状态的 HTTP 端点是 `modern-http.mjs`（`createMcpHandler`，`legacy: 'reject'`：退回握手的客户端会被告知版本不受支持，所以测试不会在旧协议上误过）。stdio 夹具有 `-modern` 孪生脚本（`stdio-server-modern.mjs`、`cli-stdio-server-modern.mjs`）。
+- **选哪一代。** 助手 `startHttpServer`、`startFixtureServer`、`stdioServer`、`CLI_STDIO_SERVER` 默认讲旧一代；环境变量 `VIA_TEST_PROTOCOL=modern`（`test/helpers/generation.ts`）把默认换成无状态一代。专讲某一代的测试（`test/client/protocol.test.ts`、`test/cli/protocol.test.ts`）显式传 `protocol`。`npm run test:stateless` 用 `modern` 重跑依赖 server 的套件（`test/cli`、`test/daemon`、`test/client`、`test/bench`），CI 里是单独的 `stateless` 任务；`npm test` 仍是旧一代。
+- **回放 server。** `bench/replay-server.mjs` 同样有两种：默认旧一代，`--protocol 2026-07-28`（选项 `protocol`）讲无状态协议；`VIA_REPLAY_PROTOCOL=2026-07-28` 让 token 基准与 agent 评测在无状态的回放 server 上跑。
+- **协议版本常量。** via 自己保存的版本列表（`src/protocol-versions.ts`）由 `test/protocol-versions.test.ts` 对照 SDK 检查：旧版列表等于 SDK 的 `SUPPORTED_PROTOCOL_VERSIONS`，无状态版本等于 SDK server 在 `server/discover` 里给出的列表，SDK client 能钉住每个版本连接。SDK 升级后增减版本会让它失败。
+- **协议本身的行为。** `test/client/protocol.test.ts` 覆盖：旧 server 的回退、请求头（`Mcp-Method`、`MCP-Protocol-Version`、没有会话 ID）、`ttlMs`、订阅流的重订、固定版本。
+
+### 官方一致性测试
+
+[`@modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance)（固定在 0.1.16）的 client 场景起一个专用 server，运行我们给的命令，再按 server 看到的请求判定。`test/conformance/client.mjs` 是适配器：它在空的 HOME 里（`sources: false`，无 daemon，OAuth 存储用文件）驱动打包后的 `dist/via.js`，和用户用法一致，不绕过 CLI：
+
+- `initialize`、`tools_call`：`via conf`（握手与 `tools/list`）、`via conf add_numbers --a 2 --b 3`；
+- `sse-retry`：调用中途服务端断开事件流，检查 via 按 `retry` 重连并带 `Last-Event-ID`；
+- `auth/*`：`via auth login conf --manual`，适配器自己请求授权 URL、取重定向地址再从 stdin 交给 via（相当于人把浏览器最后停在的页面地址粘贴回来），然后用登录后的令牌浏览；场景给的预注册客户端 id 写进 `auth.oauth.clientId`。
+
+运行：`npm run test:conformance`（先构建，再 `--suite all`）。已知不过的场景写在 `test/conformance/expected-failures.yml`，每条标明缺口对应的路线图项（CIMD、预注册客户端的密钥、step-up 授权、client credentials 等属 e7，elicitation 属 e5，另有一个 2025-03-26 旧授权规范的发现场景被 SDK 严格的 issuer 校验拒绝）：新增失败，或某条已经修好却没从清单里删掉，都让 CI 的 `conformance` 任务失败。升级一致性测试包时先 `npx @modelcontextprotocol/conformance list --client` 看有没有新场景；套件目前的 client 场景最高到 `2025-11-25`，所以这里走的是 via 的回退路径，无状态协议由上面的两代测试覆盖。
+
 ### 安全相关测试
 
 - 所有快照中不得出现测试凭证值，CI 中对快照做凭证值扫描。
@@ -43,6 +63,8 @@
 `.github/workflows/ci.yml` 在每个 PR 和 `main` 的推送上运行：
 
 - Node 22、24 上执行 `npm ci`、`npm run typecheck`、`npm run build`、`npm test`（含快照、拆分基线、数据文件校验、凭证扫描）；
+- `stateless` 任务：把模拟 server 换成 `2026-07-28` 的无状态协议再跑依赖 server 的套件（`npm run test:stateless`，见[两代协议](#两代协议)）；
+- `conformance` 任务：官方一致性测试的 client 场景（`npm run test:conformance`，见[官方一致性测试](#官方一致性测试)）；
 - `windows-latest`（Node 22）上执行同样四步，再用空的用户目录运行 `dist/via.js`（`--version`、浏览、`doctor`、`daemon status`）；
 - `auto-merge.yml`：CI 在仓库所有者从本仓库分支开的 PR 上通过后，开启 squash 自动合并，合入后删除该 PR 的分支（合入后分支又有新提交，或它是其他打开的 PR 的基准时保留）。合并用的是 `GITHUB_TOKEN`，所以仓库的「自动删除分支」设置不会生效，删除由这个工作流完成；同样因为是 `GITHUB_TOKEN`，合入 `main` 的提交不会再触发 `main` 上的 CI。
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。

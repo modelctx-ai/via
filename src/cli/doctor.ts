@@ -3,6 +3,8 @@
 // Pure: the CLI probes the servers and prints the text; nothing here reads files or the network.
 import { formatDiagnostic, isCredentialRef, type ConfigDiagnostic, type FrameworkDef, type LoadedConfig, type ServerConfig } from '../config';
 import type { CatalogWarning } from '../catalog';
+import type { ProtocolInfo } from '../protocol';
+import { protocolLabel } from './protocol-label';
 import { ExitCode } from '../render/exit-codes';
 import { shortenHome } from '../config/paths';
 import { shellArg, shellWord } from '../render/shell';
@@ -19,6 +21,8 @@ export interface ServerProbe {
   /** Suggested fix for the `next:` line (e.g. `CredentialError.next`), already redacted. Overrides the derived one. */
   next?: string;
   toolCount?: number;
+  /** What the connection negotiated (cli.md, `via doctor`); absent when the list came from a source that does not know. */
+  protocol?: ProtocolInfo;
   /** Something to fix that does not stop the server from working (e.g. an unwritable OAuth login store). */
   warning?: { message: string; next?: string };
   /** Length of the serialized `tools/list` result, for the tokens/turn estimate. */
@@ -33,6 +37,11 @@ export interface DoctorInput {
   catalogWarnings?: readonly CatalogWarning[];
   /** Home directory; paths below it are shown as `~/…`. */
   home?: string;
+  /**
+   * The effective HTTP proxy, one line per part, userinfo already hidden (`describeProxy`); empty when none
+   * is set. Absent: not reported (config.md, "代理").
+   */
+  proxy?: readonly string[];
 }
 
 export interface DoctorOutput {
@@ -97,6 +106,7 @@ interface Row {
   message?: string;
   next?: string;
   warning?: { message: string; next?: string };
+  protocol?: ProtocolInfo;
 }
 
 /** Probes, plus config servers nobody probed that are known to be unusable (untrusted, disabled). */
@@ -106,6 +116,7 @@ function collectRows(input: DoctorInput): Row[] {
     const row: Row = { server: p.server, provider: p.provider, status: p.status };
     if (p.message) row.message = oneLine(p.message);
     if (p.next) row.next = oneLine(p.next);
+    if (p.protocol) row.protocol = p.protocol;
     if (p.warning) row.warning = { message: oneLine(p.warning.message), ...(p.warning.next ? { next: oneLine(p.warning.next) } : {}) };
     return row;
   });
@@ -132,7 +143,7 @@ function defaultNext(row: Row, server: ServerConfig | undefined): string[] {
   return [];
 }
 
-function renderServers(rows: readonly Row[], home: string | undefined): string[] {
+function renderServers(rows: readonly Row[], home: string | undefined, pins: ReadonlyMap<string, string>): string[] {
   if (rows.length === 0) return ['servers   none configured'];
   const parts: string[] = [`${rows.filter((r) => r.status === 'ok').length} ok`];
   for (const status of ['needs-auth', 'error', 'untrusted', 'disabled'] as const) {
@@ -141,6 +152,10 @@ function renderServers(rows: readonly Row[], home: string | undefined): string[]
   }
   const lines = [`servers   ${parts.join(' · ')}`];
   for (const row of rows) {
+    if (row.status === 'ok') {
+      const label = protocolLabel(row.protocol, pins.get(row.server));
+      if (label) lines.push(`  ${row.provider}: MCP ${label}`);
+    }
     if (row.status !== 'ok' && row.status !== 'disabled') {
       lines.push(`  ${row.provider}: ${STATUS_LABEL[row.status]}${row.message ? ` (${row.message})` : ''}`);
       for (const next of row.next?.split('\n') ?? []) lines.push(`    next: ${shorten(next, home)}`);
@@ -151,6 +166,13 @@ function renderServers(rows: readonly Row[], home: string | undefined): string[]
     }
   }
   return lines;
+}
+
+// proxy --------------------------------------------------------------------------------------
+
+function renderProxy(lines: readonly string[]): string[] {
+  if (lines.length === 0) return ['proxy     none'];
+  return lines.map((line, i) => `${i === 0 ? 'proxy     ' : '          '}${line}`);
 }
 
 // frameworks ---------------------------------------------------------------------------------
@@ -292,7 +314,8 @@ function renderConfigProblems(input: DoctorInput): string[] {
 export function renderDoctor(input: DoctorInput): DoctorOutput {
   const rows = collectRows(input);
   const config = renderConfigProblems(input);
-  const sections = [renderServers(rows, input.home), renderFrameworks(input), renderSecrets(input.config, input.home)];
+  const pins = new Map(input.config.servers.flatMap((s) => (s.protocolVersion !== undefined ? [[s.name, s.protocolVersion] as const] : [])));
+  const sections = [renderServers(rows, input.home, pins), ...(input.proxy ? [renderProxy(input.proxy)] : []), renderFrameworks(input), renderSecrets(input.config, input.home)];
   if (config.length > 0) sections.push(config);
 
   let exitCode: number = ExitCode.Ok;

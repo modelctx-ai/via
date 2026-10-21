@@ -1,6 +1,6 @@
 import type { McpTool } from '../catalog/types';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { GetPromptResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
+import type { GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
 import { notFoundServer } from './errors';
 import { McpSession, type CallOptions, type ListOptions, type SessionOptions } from './session';
 
@@ -19,6 +19,8 @@ export interface McpClient {
   getPrompt(server: string, name: string, args: Record<string, string>, options?: ListOptions): Promise<GetPromptResult>;
   /** What the server declared at `initialize`, once a session to it exists; undefined if unknown. */
   features(server: string): ServerFeatures | undefined;
+  /** The protocol version the session to the server negotiated and whether it is stateful; undefined while not connected. */
+  protocol(server: string): ProtocolInfo | undefined;
   close(): Promise<void>;
 }
 
@@ -63,6 +65,10 @@ export class InProcessClient implements McpClient {
 
   features(server: string): ServerFeatures | undefined {
     return this.sessions.get(this.find(server).name)?.features();
+  }
+
+  protocol(server: string): ProtocolInfo | undefined {
+    return this.sessions.get(this.find(server).name)?.protocol();
   }
 
   /** Close every session and kill stdio children. */

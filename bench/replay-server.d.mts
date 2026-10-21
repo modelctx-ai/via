@@ -1,4 +1,5 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server as StatelessServer } from '@modelcontextprotocol/server';
 
 export interface ReplayTool {
   name: string;
@@ -32,7 +33,12 @@ export interface ReplayOptions {
   calls?: ReplayCall[];
   /** Every `tools/call` received is appended here. */
   log?: ReplayLogEntry[];
+  /** `2026-07-28` serves the stateless protocol (2.x SDK); absent: the `initialize` handshake of the 1.x SDK. */
+  protocol?: typeof STATELESS_PROTOCOL;
 }
+
+/** The stateless protocol revision the replay server can speak. */
+export declare const STATELESS_PROTOCOL: '2026-07-28';
 
 export interface TaskLike {
   calls?: ReadonlyArray<{
@@ -48,11 +54,13 @@ export interface TaskLike {
   }>;
 }
 
+/** `VIA_REPLAY_PROTOCOL` as a `protocol` option: `2026-07-28`, or undefined for the handshake. */
+export declare function replayProtocolFromEnv(env?: Record<string, string | undefined>): typeof STATELESS_PROTOCOL | undefined;
 export declare function readTools(file: string): ReplayTool[];
 export declare function readTaskFile(file: string): unknown;
 export declare function matchArgs(expected: unknown, actual: unknown): boolean;
 export declare function cannedCalls(tasks: TaskLike[], server: string, baseDir: string): ReplayCall[];
-export declare function createReplayServer(options: ReplayOptions): Server;
+export declare function createReplayServer(options: ReplayOptions): Server & StatelessServer;
 export declare function startReplayHttp(
   options: ReplayOptions & { port?: number; host?: string },
 ): Promise<{ url: string; log: ReplayLogEntry[]; close(): Promise<void> }>;

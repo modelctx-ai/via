@@ -134,13 +134,20 @@ export type Message = Response | Event | Stale;
 export type ServerFeatures = { resources: boolean; prompts: boolean };
 
 /**
+ * What a connection negotiated (daemon.md, "协议版本与无状态连接"). `stateful` is false for the stateless
+ * protocol (`2026-07-28`: no handshake, no server-side session) and for an old-protocol HTTP server that
+ * assigned no session id; a stdio process, and an HTTP server that assigned a session id, are stateful.
+ */
+export type ProtocolInfo = { version: string; stateful: boolean };
+
+/**
  * `result` of `list`. `features` is absent when it is not known (a cache written before it was
  * recorded). `unchanged` replaces `tools` when the request's `have` is the `fetchedAt` of the list
  * the daemon would have sent; the credentials and trust checks ran all the same.
  */
 export type ListResult = ListedTools | ListUnchanged;
-export type ListedTools = { tools: McpTool[]; fetchedAt: number; fromCache: boolean; features?: ServerFeatures };
-export type ListUnchanged = { unchanged: true; fetchedAt: number; fromCache: true; features?: ServerFeatures };
+export type ListedTools = { tools: McpTool[]; fetchedAt: number; fromCache: boolean; features?: ServerFeatures; protocol?: ProtocolInfo };
+export type ListUnchanged = { unchanged: true; fetchedAt: number; fromCache: true; features?: ServerFeatures; protocol?: ProtocolInfo };
 
 /** `result` of `validate`. `ok: false` means the schema cannot be compiled. */
 export type ValidateResult =
@@ -176,6 +183,8 @@ export type SessionStatus = {
   pid?: number;
   /** Tools in the daemon's copy of the catalog. */
   tools?: number;
+  /** What the live connection negotiated; absent while not connected. */
+  protocol?: ProtocolInfo;
   calls: number;
   /** Requests running right now. */
   active: number;

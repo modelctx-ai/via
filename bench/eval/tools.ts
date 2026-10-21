@@ -4,8 +4,7 @@
 //         replay servers with the official MCP SDK client.
 // via / mcp2cli: one `shell` tool that runs only that program. The command line is split
 //         POSIX-style and handed to the program as argv; no shell is involved anywhere.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { Exec } from '../harness/exec';
 import { injectedTool, nativeToolName, resultText } from '../harness/native';
 import { splitCommand } from '../harness/shell';
@@ -42,7 +41,7 @@ export async function nativeTools(env: EvalEnv): Promise<AgentTools> {
   const close = async (): Promise<void> => void (await Promise.all([...clients.values()].map((c) => c.close().catch(() => undefined))));
   try {
     for (const [server, url] of Object.entries(env.urls)) {
-      const client = new Client({ name: 'via-bench-eval', version: '0.0.0' });
+      const client = new Client({ name: 'via-bench-eval', version: '0.0.0' }, { versionNegotiation: { mode: 'auto' } });
       await client.connect(new StreamableHTTPClientTransport(new URL(url)));
       clients.set(server, client);
       for (const tool of (await client.listTools()).tools as ReplayTool[]) {

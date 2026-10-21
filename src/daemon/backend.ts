@@ -15,6 +15,7 @@ import type {
   GetPromptResult,
   ListResult,
   McpPrompt,
+  ProtocolInfo,
   ReadResourceResult,
   RequestBody,
   ResourceListing,
@@ -74,11 +75,13 @@ export class DaemonBackend implements Backend {
     // if anyone asks for them, are parsed from there instead of coming over the socket.
     if (!disk || disk.fetchedAt !== result.fetchedAt) return this.listing(server, { timeoutMs, refresh: true });
     const features = result.features ?? disk.features;
+    const protocol = result.protocol ?? disk.protocol;
     return {
       fetchedAt: disk.fetchedAt,
       fromCache: true,
       rawBytes: disk.rawBytes,
       ...(features ? { features } : {}),
+      ...(protocol ? { protocol } : {}),
       get tools() {
         return disk.tools;
       },
@@ -148,6 +151,11 @@ export class DaemonBackend implements Backend {
 
   /** The daemon returns `features` with every listing; there is no other source in this process. */
   features(): ServerFeatures | undefined {
+    return undefined;
+  }
+
+  /** Likewise `protocol`: it comes with the listing. */
+  protocol(): ProtocolInfo | undefined {
     return undefined;
   }
 
