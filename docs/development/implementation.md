@@ -81,7 +81,7 @@ npm run build:bin -- --target darwin-arm64,linux-x64-musl
 - **daemon**：`via daemon run` 重新执行的是当前程序自身（`src/runtime.ts` 的 `selfCommand()`）。脚本运行时是 `<node|bun> <入口脚本> daemon run`；可执行文件的 `process.argv[1]` 是 Bun 虚拟文件系统里的路径（`/$bunfs/root/…`），别的进程打不开，所以只用 `<可执行文件> daemon run`。冒烟测试核对守护进程的命令行。
 - **`module.enableCompileCache()`**：Bun 里这个函数是空桩（返回成功但什么也不缓存），`main.ts` 在 Bun 下不调用它；可执行文件靠字节码；以 `bun dist/via.js` 运行时也不需要它。
 - **stdio server、OAuth 回环监听、`cmd:` 凭证、`via batch` 读 stdin**：都是 Node API，Bun 兼容，冒烟测试各走一遍。
-- 平台判断仍用 `process.platform`；Windows 版本能构建，但 daemon（命名管道）与对端校验是路线图 c4，冒烟测试也只在 Linux 与 macOS 上跑。
+- 平台判断仍用 `process.platform`。Windows 上的 daemon 走命名管道（[daemon.md](../spec/daemon.md#windows)），Node 版本在 CI 的 Windows 任务里完整测试；Windows 的单文件版本只构建，冒烟测试只在 Linux 与 macOS 上跑。
 
 ### 测试与发布
 
