@@ -22,6 +22,7 @@ export interface ServerDef {
   budget?: number;
   noise?: string[];
   roots?: string[];
+  protocolVersion?: string;
 }
 
 /** Server names are user data: build records without ever assigning `__proto__`. */

@@ -27,7 +27,7 @@ socket 只能说明有没有 daemon 在接受连接。还在启动（取锁、�
 
 CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用**）、自己的工作目录、`daemon.serverIdleTimeout`，daemon 自己不读配置文件，所以项目级 `.via.yaml` 随调用目录变化，不会被某个 daemon 的启动目录固化。
 
-- stdio server 没有写 `cwd` 时，以调用方的工作目录启动；`file:` 引用的相对路径同样相对调用方的目录（daemon 内换算成绝对路径）。会话按「server 名 + 传输 + 鉴权 + `exclusive` + `concurrency` + `roots`」的哈希区分，所以不同目录下的同名 stdio server 是不同的会话。
+- stdio server 没有写 `cwd` 时，以调用方的工作目录启动；`file:` 引用的相对路径同样相对调用方的目录（daemon 内换算成绝对路径）。会话按「server 名 + 传输 + 鉴权 + `exclusive` + `concurrency` + `roots` + `protocolVersion`」的哈希区分，所以不同目录下的同名 stdio server 是不同的会话。
 - `roots`（[config.md](config.md#roots)）里的相对路径和 `~` 同样由 daemon 按调用方的目录与家目录换成绝对 `file://` URI，换算后的列表参与会话键：写了 `roots: ["."]` 的 server 在两个目录里是两个会话，一个会话的 roots 在它的生命周期里不变，所以 via 声明 `roots` 能力时 `listChanged` 为 `false`，不需要发 `notifications/roots/list_changed`。没有 `cwd` 的 HTTP server 因 roots 而按目录分会话，代价与 stdio 的 `cwd` 相同：两个目录交替使用时，后到的会话替换先到的（同名 server 只保留最新定义的会话）。
 - `env:` 引用在 **daemon 自己的环境**里解析（它由第一个启动它的 CLI 继承环境），解析值不经过 socket，协议里始终没有凭证值。每个请求带 `envStamp`：对该 server 所有 `env:` 引用的变量名与调用方当前取值取单向摘要（没有 `env:` 引用时为空串）。daemon 用自己的环境算同一个摘要，不一致就回复 `stale`（不执行请求）。
   - 收到 `stale` 的 CLI **只对这个 server 的这一个请求**改用进程内模式完成：不重启 daemon，也不把取值告诉 daemon；daemon 里按自己环境建立的会话继续服务摘要一致的调用方，对同一次运行里的其他 server 照常使用 daemon。`stale` 的请求没有执行过，所以不论是否只读都可以安全地在进程内重做，也不打印回退提示。
@@ -37,8 +37,8 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 
 ## daemon 持有的状态
 
-- MCP 会话：stdio 子进程、HTTP 的 session id、OAuth 会话（登录与登出由 CLI 完成，daemon 在下一次请求时读到存储里的新状态，见 [auth.md](auth.md#oauth)）。
-- 工具目录的副本，连同 server 在 `initialize` 里声明的 `resources` / `prompts` 能力，以及 `list_changed` 订阅：副本就是磁盘缓存（与进程内模式相同的 `catalog/` 文件，两种模式共享，能力声明一并写入）；daemon 在内存里只记下它的 `fetchedAt`、能力声明和工具个数，不留解析后的工具对象（几百个工具是几 MB），有人不带 `have` 来要列表时才从文件读出来发送；只有磁盘写不进去时才把列表留在内存里。订阅：收到 `notifications/tools/list_changed` 后 50 毫秒内（合并连发的通知）重新 `tools/list`，同时替换内存副本和磁盘缓存，所以下一次浏览、`find` 或调用就能看到变化；刷新失败时丢弃副本与磁盘缓存，下一次请求重新向 server 拉取。内存副本的有效期与磁盘缓存相同（24 小时）。stdio server 因空闲被停止后订阅随之结束，之后只靠 TTL。
+- MCP 会话：stdio 子进程、旧版协议下 HTTP 的 session id、OAuth 会话（登录与登出由 CLI 完成，daemon 在下一次请求时读到存储里的新状态，见 [auth.md](auth.md#oauth)）。无状态协议（`2026-07-28`）没有 server 端会话：daemon 只保留连接与下面的缓存，不做会话恢复，也不存会话 ID（[协议版本与无状态连接](#协议版本与无状态连接)）。
+- 工具目录的副本，连同 server 在 `initialize` 里声明的 `resources` / `prompts` 能力，以及 `list_changed` 订阅：副本就是磁盘缓存（与进程内模式相同的 `catalog/` 文件，两种模式共享，能力声明一并写入）；daemon 在内存里只记下它的 `fetchedAt`、能力声明和工具个数，不留解析后的工具对象（几百个工具是几 MB），有人不带 `have` 来要列表时才从文件读出来发送；只有磁盘写不进去时才把列表留在内存里。订阅：收到 `notifications/tools/list_changed` 后 50 毫秒内（合并连发的通知）重新 `tools/list`，同时替换内存副本和磁盘缓存，所以下一次浏览、`find` 或调用就能看到变化；刷新失败时丢弃副本与磁盘缓存，下一次请求重新向 server 拉取。旧版协议里这是 server 推送的通知，无状态协议里是 `subscriptions/listen` 流上的事件（同一个处理入口，见下节）。内存副本的有效期与磁盘缓存相同：24 小时，server 在 `tools/list` 结果里给了更短的 `ttlMs` 时取更短者（[discovery.md](discovery.md#缓存)）。stdio server 因空闲被停止后订阅随之结束，之后只靠 TTL。
 - 凭证解析结果与 OAuth token 刷新。
 - 截断结果的游标。daemon 与进程内模式一样把游标写入用户缓存目录（`cursors/`，目录 0700、文件 0600，内容已脱敏，TTL 30 分钟，按文件修改时间清理），所以 daemon 空闲退出（10 分钟）不会让游标提前失效；只有 TTL 到期或 id 不存在才报告过期（退出码 3）。`via more` 先问已经在运行的 daemon（不会为它拉起新的），再看缓存目录。
 - 编译好的 JSON Schema（见下「校验」）。
@@ -102,7 +102,7 @@ type ErrorInfo = {
 
 | 请求 | 行为 |
 | --- | --- |
-| `list` | 返回 `{ tools, fetchedAt, fromCache, features? }`，`features` 是 `{ resources, prompts }`（server 是否声明了这两种能力，缓存里没有记录时省略）。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5。`have` 是 CLI 手里已有预构建目录的那份列表的 `fetchedAt`：daemon 的列表恰好是这一份时，应答为 `{ unchanged: true, fetchedAt, fromCache: true, features? }`，不带 `tools`（凭证与信任检查照常先做；带 `refresh` 时忽略 `have`）。CLI 只在磁盘缓存里的列表也是这一份时才带 `have`，收到 `unchanged` 后需要工具时从那个缓存文件读，所以浏览类命令不必让 daemon 把整份列表再传一遍 |
+| `list` | 返回 `{ tools, fetchedAt, fromCache, features?, protocol? }`，`features` 是 `{ resources, prompts }`（server 是否声明了这两种能力，缓存里没有记录时省略），`protocol` 是 `{ version, stateful }`（最近一次连接协商出的协议版本与连接是否有状态，同样记在缓存里，没有记录时省略）。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5。`have` 是 CLI 手里已有预构建目录的那份列表的 `fetchedAt`：daemon 的列表恰好是这一份时，应答为 `{ unchanged: true, fetchedAt, fromCache: true, features?, protocol? }`，不带 `tools`（凭证与信任检查照常先做；带 `refresh` 时忽略 `have`）。CLI 只在磁盘缓存里的列表也是这一份时才带 `have`，收到 `unchanged` 后需要工具时从那个缓存文件读，所以浏览类命令不必让 daemon 把整份列表再传一遍 |
 | `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样 |
 | `resources-list` | 返回 `{ resources, templates }`：`resources/list` 与 `resources/templates/list` 分页拉全（server 没有实现模板方法时 `templates` 为空）。不缓存。server 没有声明 `resources` 能力时不发请求，退出码 3 |
 | `resource-read` | 返回 `{ contents }`（`resources/read` 的原始结果：`text` 或 base64 的 `blob`）。server 不认识这个 URI（`-32002`，或把它报告为 `-32602` 的 server）退出码 3，信息带 server 的说明；没有声明 `resources` 时同 `resources-list` |
@@ -111,7 +111,7 @@ type ErrorInfo = {
 | `validate` | 编译 JSON Schema（按内容缓存）并校验 `data`，返回 ajv 的错误与 `format` 警告；`compileOnly` 只编译。这样 CLI 进程不加载 ajv |
 | `redact` | 把 daemon 已知的凭证值换成 `***`，只在已有连接时发，不为它拉起 daemon。`text` 是 CLI 拼好的文字（错误、校验警告），只替换 8 个字符以上的凭证；`value` 是 CLI 回显的内容（`--dry-run` 的 `args`，任意 JSON），其中每个字符串里的任何长度的凭证都替换，键与结构不变（[脱敏的范围](output.md#脱敏的范围)） |
 | `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录；记录落在用户缓存目录，不随 daemon 退出而丢失 |
-| `status` | 返回 pid、版本、socket、运行时间、距空闲退出的时间、请求数、游标数、内存和各会话（server 名、传输、是否连接、子进程 pid、目录中的工具数、调用数、空闲时间）。不含 URL、参数和任何凭证 |
+| `status` | 返回 pid、版本、socket、运行时间、距空闲退出的时间、请求数、游标数、内存和各会话（server 名、传输、是否连接、子进程 pid、协商出的协议、目录中的工具数、调用数、空闲时间）。不含 URL、参数和任何凭证 |
 | `shutdown` | 先停止监听、删除 socket，应答，处理完在途请求后退出。带 `force: true` 时应答后放弃在途请求（关闭会话与 stdio 子进程，它们的 CLI 看到连接中断）立即退出；`via daemon stop` 在 5 秒宽限之后发它 |
 
 约定：
@@ -120,6 +120,21 @@ type ErrorInfo = {
 - 协议中不得出现解析后的凭证值：server 定义里只有引用；`env:` 的差异只以摘要交换；`call` 的结果、进度和错误在 daemon 内先脱敏。CLI 在 daemon 模式下本地不解析凭证，脱敏靠 daemon 的结果和 `redact`。
 - `auth` 请求的 `login` 不经过 daemon：登录需要浏览器或终端交互，由 CLI 在自己的进程里完成并写入共用存储（[auth.md](auth.md#oauth)）；daemon 里的会话在下一次请求前读取存储，所以新的登录、登出和刷新结果无需通知。
 - 未知消息类型返回 `exitCode: 7` 的错误，不断开连接。
+
+## 协议版本与无状态连接
+
+MCP 的 `2026-07-28` 把协议改成无状态：没有 `initialize` 握手，没有 server 端会话和会话 ID，每个请求自己带协议版本、客户端信息和能力。via 用官方 SDK v2 同时支持新旧两代（[ADR 0017](../adr/0017-protocol-versions-newest-first-with-fallback.md)），**用户不需要配置**；旧版 server 上的行为与迁移前相同。
+
+- **协商：新版本优先，自动回退。** 建立连接时先发 `server/discover`（探测）。server 在 `supportedVersions` 里给出 `2026-07-28` 就按新协议谈；探测被拒绝（HTTP 400、404、405 或 JSON-RPC 错误，旧 server 对陌生方法的常见答复，**不算错误**）时，在同一条连接上退回 `initialize` 握手，取 server 接受的最新旧版本（`2025-11-25` 至 `2024-10-07`）。401 和 403 是真的鉴权问题，按[鉴权错误](auth.md#调用时的行为)报告；5xx 与网络错误也如实报告，不当成旧 server。
+- **stdio 的探测。** SDK 在 server 进程的一个副本上探测，探测完了才启动真正的进程，所以一次探测多启动一个进程；探测 3 秒没有应答就当作旧版 server（有些旧 server 对握手前的请求不作答）。为了不让每个旧版 stdio server 都被启动两次，目录缓存记着上次协商出的版本（`protocol`）：缓存新鲜且记录的是旧版协议时，直接用普通的 `initialize` 握手、不探测，失败（超时除外）才再用探测试一次；daemon 里同一个会话重连时沿用上次的结果。缓存为空或过期后重新探测。HTTP 的探测只多一个请求，不需要这个记录。
+- **无状态连接。** 请求头带 `MCP-Protocol-Version` 与 `Mcp-Method`（方法名，路由用），请求的 `_meta` 带版本、客户端信息和 via 声明的能力；`serverInfo` 从响应的 `_meta` 读取。daemon 只保留连接和缓存：不发 `Mcp-Session-Id`，关闭时没有会话要终止，连接断了下次请求重新协商。via 从不把会话 ID 存到磁盘，所以升级后没有「过期的会话 ID」要丢弃。
+- **有状态是什么意思。** `via servers`、`via doctor` 和协议的 `ProtocolInfo.stateful` 里：新协议连接是无状态的；旧协议下 stdio 进程本身就是会话，HTTP server 只有分配了会话 ID 才有状态（没有分配的，如无状态部署的旧 server，算无状态）。
+- **变更通知。** 旧协议里 server 推送 `notifications/tools/list_changed`；新协议里 client 在连接上开一条 `subscriptions/listen` 流，server 把变更事件发在这条流上。两者进同一个处理入口（上节的刷新）。daemon 在 server 声明了 `tools.listChanged` 时订阅；流被对端意外断开时按 1 秒起翻倍（最长 30 秒）的间隔重新订阅，成功后当作可能错过了事件，立即刷新一次目录。server 主动结束（正常关闭）的流不重订。进程内模式不订阅。
+- **缓存提示。** 新协议的 `tools/list` 结果可带 `ttlMs`（建议的有效期，毫秒）。正数取与 24 小时中较短者；`0` 或没有视为没有给出提示（SDK 构造的 server 默认发 `0`），沿用 24 小时。提示随目录缓存一起保存（[discovery.md](discovery.md#缓存)）。`cacheScope` 不处理：via 的缓存本来就是每个用户一份。
+- **roots。** 新协议里 server 不再向 client 发 `roots/list` 请求，而是在调用结果里返回「需要输入」（`input_required`），client 回答后重试；SDK 用 via 注册的同一个 `roots/list` 处理器自动应答，所以 `roots` 的配置、声明条件（没配置就不声明）和 `listChanged: false` 都不变（[config.md](config.md#roots)、[ADR 0010](../adr/0010-mcp-resources-prompts-and-roots.md)）。`roots` 能力在 `2026-07-28` 里已标为弃用（至少保留十二个月），到移除时再处理。
+- **日志级别。** 新协议去掉了 `logging/setLevel`。via 在任何版本上都不发它（daemon 不转发 server 的日志，stdio 的 stderr 另有处理），所以没有要改的。
+- **结果的处理。** 列表、资源和 prompt 的结果仍由 via 宽松地取用（一个畸形条目不让整次操作失败）。新协议的 `tools/call` 走 SDK 的 `callTool()`：它按工具声明的 `x-mcp-header` 把参数镜像进 `Mcp-Param-*` 请求头（缺了头的调用会被 server 拒绝），SDK 的输出校验被关掉，结果仍按 server 给的样子显示。
+- **固定版本。** `protocolVersion`（[config.md](config.md#serversname)）固定一个版本：server 不支持就报错（退出码 6），不回退。
 
 ## 校验
 

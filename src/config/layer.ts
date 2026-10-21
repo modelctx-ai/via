@@ -5,6 +5,7 @@
 import type { ConfigDiagnostic, DiagnosticCode, DiagnosticLevel } from './diagnostics';
 import { isPlainObject, ownEntries, type ServerDef } from './model';
 import { parseCredentialRef } from './credentials';
+import { isProtocolVersion, PROTOCOL_VERSIONS } from '../protocol-versions';
 import type { AuthConfig, SemanticSearchConfig } from './types';
 
 /** `sources` as written: `auto`, `false`, or a list of framework ids and file paths. */
@@ -26,7 +27,7 @@ export type SemanticLayer = Pick<SemanticSearchConfig, 'url' | 'model' | 'auth'>
   Partial<Pick<SemanticSearchConfig, 'timeout' | 'indexTimeout' | 'dimensions'>>;
 
 const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'output', 'daemon', 'search']);
-const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise', 'roots']);
+const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise', 'roots', 'protocolVersion']);
 
 const typeName = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'list' : typeof v);
 
@@ -286,6 +287,10 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
       case 'timeout': def.timeout = num(r, path, value, 'number', name); break;
       case 'concurrency': def.concurrency = num(r, path, value, 'integer', name); break;
       case 'budget': def.budget = num(r, path, value, 'integer', name); break;
+      case 'protocolVersion':
+        if (typeof value === 'string' && isProtocolVersion(value)) def.protocolVersion = value;
+        else r.invalid(path, `one of ${PROTOCOL_VERSIONS.join(', ')}`, name);
+        break;
       case 'auth': def.auth = auth(r, path, value, name); break;
       case 'confirm':
         if (value === 'destructive' || value === 'never') def.confirm = value;

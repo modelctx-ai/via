@@ -2,18 +2,9 @@
 // output schemas, progress, a long result and failing tools. Plain ESM like mock-server.mjs.
 // With `features` it also serves resources (text, JSON, blob, several contents, a long text, templates,
 // two list pages) and prompts; the feature `roots` adds the tool `list_roots`, which asks the client for its roots.
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import {
-  CallToolRequestSchema,
-  ErrorCode,
-  GetPromptRequestSchema,
-  ListPromptsRequestSchema,
-  ListResourceTemplatesRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  McpError,
-  ReadResourceRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { buildServer } from './flavors.mjs';
+
+const INVALID_PARAMS = -32602;
 
 const object = (properties = {}, required = []) => ({ type: 'object', properties, required });
 const str = (description) => ({ type: 'string', description });
@@ -103,21 +94,22 @@ export function createCliState() {
 }
 
 /**
- * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots'> }} options
+ * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number }} options
+ *   `flavor` picks the protocol generation (flavors.mjs); `notifier` is the stateless handler's change publisher.
  */
-export function createCliServer({ state, authorization, features = [] }) {
+export function createCliServer({ state, authorization, features = [], flavor = 'legacy', notifier, ttlMs }) {
   const capabilities = { tools: {}, ...(features.includes('resources') ? { resources: {} } : {}), ...(features.includes('prompts') ? { prompts: {} } : {}) };
-  const server = new Server({ name: 'cli-fixture', version: '0.0.0' }, { capabilities });
+  const table = {};
   const secret = authorization ?? process.env.FIXTURE_SECRET ?? '<none>';
 
   if (features.includes('resources')) {
     // Two pages, to prove that the client follows `nextCursor`.
-    server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
-      return request.params?.cursor === 'page-2' ? { resources: RESOURCES.slice(3) } : { resources: RESOURCES.slice(0, 3), nextCursor: 'page-2' };
-    });
-    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: TEMPLATES }));
-    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      const { uri } = request.params;
+    table['resources/list'] = async (params) => {
+      return params.cursor === 'page-2' ? { resources: RESOURCES.slice(3) } : { resources: RESOURCES.slice(0, 3), nextCursor: 'page-2' };
+    };
+    table['resources/templates/list'] = async () => ({ resourceTemplates: TEMPLATES });
+    table['resources/read'] = async (params, h) => {
+      const { uri } = params;
       state.reads.push(uri);
       switch (uri) {
         case 'file:///project/README.md':
@@ -135,21 +127,21 @@ export function createCliServer({ state, authorization, features = [] }) {
         case 'file:///project/logs/2026-10-20.log':
           return { contents: [{ uri, mimeType: 'text/plain', text: 'started\nstopped' }] };
         case 'file:///project/odd':
-          throw new McpError(ErrorCode.InvalidParams, 'Invalid URI');
+          h.fail(INVALID_PARAMS, 'Invalid URI');
         default:
-          throw new McpError(-32002, `Resource not found: ${uri}`);
+          h.fail(-32002, `Resource not found: ${uri}`);
       }
-    });
+    };
   }
 
   if (features.includes('prompts')) {
-    server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: state.promptList ?? PROMPTS }));
-    server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      const { name, arguments: args = {} } = request.params;
+    table['prompts/list'] = async () => ({ prompts: state.promptList ?? PROMPTS });
+    table['prompts/get'] = async (params, h) => {
+      const { name, arguments: args = {} } = params;
       state.prompts.push({ name, args });
       switch (name) {
         case 'review':
-          if (args.code === undefined) throw new McpError(ErrorCode.InvalidParams, 'Missing required argument: code');
+          if (args.code === undefined) h.fail(INVALID_PARAMS, 'Missing required argument: code');
           return { description: 'Review', messages: [{ role: 'user', content: { type: 'text', text: `Please review this ${args.lang ?? 'code'}:\n${args.code}` } }] };
         case 'greet_user':
           return { messages: [{ role: 'user', content: { type: 'text', text: `Hello, ${args.name}!` } }] };
@@ -162,18 +154,19 @@ export function createCliServer({ state, authorization, features = [] }) {
             ],
           };
         default:
-          throw new McpError(ErrorCode.InvalidParams, `Unknown prompt: ${name}`);
+          h.fail(INVALID_PARAMS, `Unknown prompt: ${name}`);
       }
-    });
+    };
   }
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
+  table['tools/list'] = async () => {
     state.listCalls += 1;
-    return { tools: features.includes('roots') ? [...state.tools, ROOTS_TOOL] : state.tools };
-  });
+    // `ttlMs`: the freshness hint a stateless server sends with its tool list.
+    return { tools: features.includes('roots') ? [...state.tools, ROOTS_TOOL] : state.tools, ...(flavor === 'modern' && ttlMs !== undefined ? { ttlMs } : {}) };
+  };
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-    const { name, arguments: args = {} } = request.params;
+  table['tools/call'] = async (params, h) => {
+    const { name, arguments: args = {} } = params;
     state.calls.push({ name, args });
     switch (name) {
       case 'issue_read':
@@ -201,18 +194,18 @@ export function createCliServer({ state, authorization, features = [] }) {
       case 'whoami':
         return { content: [{ type: 'text', text: `authorization: ${authorization ?? '<none>'}` }] };
       case 'list_roots': {
-        // A server asking its client: over stdio only (the HTTP fixture answers each request on a fresh server).
-        const roots = server.getClientCapabilities()?.roots;
+        // A server asking its client: over stdio only on the old protocol (the HTTP fixture answers each request on a fresh server).
+        const roots = h.clientCapabilities()?.roots;
         if (!roots) return { content: [{ type: 'text', text: 'roots: the client did not declare the capability' }] };
-        const listed = await server.listRoots();
+        const listed = await h.listRoots();
         return { content: [{ type: 'text', text: [`roots (listChanged: ${roots.listChanged === true}):`, ...listed.roots.map((r) => `${r.uri} ${r.name ?? ''}`.trimEnd())].join('\n') }] };
       }
       case 'echo_text':
         return { content: [{ type: 'text', text: `echo: ${args.message}` }] };
       case 'run_job': {
-        const token = extra._meta?.progressToken;
+        const token = h.progressToken;
         if (token !== undefined) {
-          await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: token, progress: 1, total: 2, message: 'halfway' } });
+          await h.notify({ method: 'notifications/progress', params: { progressToken: token, progress: 1, total: 2, message: 'halfway' } });
           // The SDK delivers notifications asynchronously: a response in the same read could overtake them.
           await new Promise((resolve) => setTimeout(resolve, 50));
         }
@@ -240,7 +233,7 @@ export function createCliServer({ state, authorization, features = [] }) {
       default:
         throw new Error(`unknown tool: ${name}`);
     }
-  });
+  };
 
-  return server;
+  return buildServer(flavor, { name: 'cli-fixture', version: '0.0.0' }, capabilities, table, notifier ? { notifier } : {});
 }

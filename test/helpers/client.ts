@@ -1,6 +1,5 @@
 import { createServer, type IncomingHttpHeaders, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { fileURLToPath } from 'node:url';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CredentialError,
@@ -8,13 +7,18 @@ import {
   type CredentialResolver,
   type ServerConfig,
 } from '../../src/config/types';
+import { modernEndpoint } from '../fixtures/mcp/modern-http.mjs';
+import { defaultGeneration, fixtureScript, type Generation } from './generation';
 import { createMockServer, createState } from '../fixtures/mcp/mock-server.mjs';
+
+export type { Generation };
 
 /** Obviously fake values; never real credentials. */
 export const FAKE_TOKEN = 'fake-token-for-tests';
 export const FAKE_KEY = 'fake-api-key-for-tests';
 
-export const STDIO_SERVER = fileURLToPath(new URL('../fixtures/mcp/stdio-server.mjs', import.meta.url));
+/** The stdio fixture in the default protocol generation (generation.ts). */
+export const STDIO_SERVER = fixtureScript('stdio-server', defaultGeneration());
 
 /** Resolves `env:NAME` from a given map, anything else is a literal. Records what it returned. */
 export class FakeResolver implements CredentialResolver {
@@ -38,10 +42,10 @@ export class FakeResolver implements CredentialResolver {
   }
 }
 
-export function stdioServer(overrides: Partial<ServerConfig> & { env?: Record<string, string>; args?: string[]; command?: string } = {}): ServerConfig {
-  const { env, args, command, ...rest } = overrides;
+export function stdioServer(overrides: Partial<ServerConfig> & { env?: Record<string, string>; args?: string[]; command?: string; protocol?: Generation } = {}): ServerConfig {
+  const { env, args, command, protocol, ...rest } = overrides;
   return baseConfig({
-    transport: { type: 'stdio', command: command ?? process.execPath, args: args ?? [STDIO_SERVER], env: env ?? {} },
+    transport: { type: 'stdio', command: command ?? process.execPath, args: args ?? [protocol === undefined ? STDIO_SERVER : fixtureScript('stdio-server', protocol)], env: env ?? {} },
     ...rest,
   });
 }
@@ -76,6 +80,10 @@ export interface MockHttp {
   requests: IncomingHttpHeaders[];
   /** Requests rejected with 401. */
   rejected: number;
+  /** Stateless servers: publish `notifications/tools/list_changed` to every open `subscriptions/listen` stream. */
+  notifyToolsChanged(): void;
+  /** Cut every open connection (a `subscriptions/listen` stream among them) without a goodbye. */
+  dropConnections(): void;
   close(): Promise<void>;
 }
 
@@ -83,11 +91,30 @@ export interface MockHttp {
  * Streamable HTTP mock on an ephemeral localhost port. Requests need
  * `Authorization: Bearer <token>` when `token` is given, otherwise they get 401.
  */
-export async function startHttpServer(options: { token?: string; pageSize?: number; status?: number; echoAuth?: boolean } = {}): Promise<MockHttp> {
+export async function startHttpServer(options: { token?: string; pageSize?: number; status?: number; echoAuth?: boolean; protocol?: Generation; ttlMs?: number } = {}): Promise<MockHttp> {
+  const generation = options.protocol ?? defaultGeneration();
   const state = createState();
-  const result: MockHttp = { url: '', requests: [], rejected: 0, close: async () => undefined };
+  const result: MockHttp = { url: '', requests: [], rejected: 0, notifyToolsChanged: () => undefined, dropConnections: () => undefined, close: async () => undefined };
+  const modern = generation === 'modern' ? modernEndpoint((notifier) => createMockServer({ pageSize: options.pageSize ?? 0, state, flavor: 'modern', notifier, ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}) })) : undefined;
+  if (modern) result.notifyToolsChanged = () => modern.notifier.toolsChanged();
 
   const http: HttpServer = createServer((req, res) => {
+    if (modern) {
+      // The stateless endpoint reads the body itself; only the checks below come first.
+      if (options.status) {
+        const body = options.echoAuth ? `forced failure for ${String(req.headers.authorization)}` : 'forced failure';
+        res.writeHead(options.status, { 'content-type': 'text/plain' }).end(body);
+        return;
+      }
+      if (options.token !== undefined && req.headers.authorization !== `Bearer ${options.token}`) {
+        result.rejected += 1;
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('unauthorized');
+        return;
+      }
+      result.requests.push(req.headers);
+      void modern.handle(req, res);
+      return;
+    }
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
@@ -124,10 +151,13 @@ export async function startHttpServer(options: { token?: string; pageSize?: numb
 
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
   result.url = `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`;
-  result.close = () =>
-    new Promise<void>((resolve) => {
+  result.dropConnections = () => http.closeAllConnections();
+  result.close = async () => {
+    await modern?.close().catch(() => undefined);
+    await new Promise<void>((resolve) => {
       http.closeAllConnections();
       http.close(() => resolve());
     });
+  };
   return result;
 }

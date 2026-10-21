@@ -1,14 +1,15 @@
 // One MCP session per server over stdio or Streamable HTTP. The SDK is imported lazily, on the first
 // connection, so nothing here costs CLI cold start (implementation.md, "启动速度").
-import type { Client, ClientOptions, FetchLike, StandardSchemaV1, Transport } from '@modelcontextprotocol/client';
+import type { Client, ClientOptions, FetchLike, McpSubscription, StandardSchemaV1, SubscriptionFilter, Transport } from '@modelcontextprotocol/client';
 import pkg from '../../package.json';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { GetPromptResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
+import type { GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
 import type { McpTool } from '../catalog/types';
 import { createRedactor } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
 import { ClientError, internal, mapError, noFeature, notFoundServer, resourceNotFound, timedOut, untrustedServer, type Phase } from './errors';
 import { prepareStdioCommand } from '../platform/command';
+import { isModernProtocolVersion } from '../protocol-versions';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
 import type { ViaOAuthProvider } from './oauth/provider';
@@ -27,6 +28,12 @@ export interface CallOptions {
 
 export interface ListOptions {
   timeoutMs?: number;
+  /**
+   * The server's own cache hint for what is being listed: `ttlMs` of a stateless-protocol `tools/list`
+   * result, called only for a positive value (a server that sends `0` or nothing gave no usable hint:
+   * discovery.md, "缓存").
+   */
+  onTtl?: (ttlMs: number) => void;
   /** Something the person should know about, caused by this operation (see `SessionOptions.onWarning`). */
   onWarning?: (message: string) => void;
 }
@@ -37,8 +44,10 @@ export interface SessionOptions {
   /** Clock for token expiry; tests inject one. */
   now?: () => number;
   /**
-   * The server sent `notifications/tools/list_changed` (the daemon refreshes its catalog on it).
-   * Runs on the connection that received it; must not throw.
+   * The tool list may have changed: the server sent `notifications/tools/list_changed` (a push on the old
+   * protocol, an event on the `subscriptions/listen` stream of the stateless one), or that stream dropped
+   * and was opened again, so events may have been missed. The daemon refreshes its catalog on it. Runs on
+   * the connection that received it; must not throw.
    */
   onToolsChanged?: () => void;
   /**
@@ -47,6 +56,11 @@ export interface SessionOptions {
    * given once per session.
    */
   onWarning?: (message: string) => void;
+  /**
+   * What is known about the protocol this server spoke before this session connected (the catalog cache
+   * remembers it). Only a stdio server is asked: see `McpSession.open`.
+   */
+  knownProtocol?: (server: ServerConfig) => ProtocolInfo | undefined;
   /** Base of relative `roots` entries and the meaning of `~`: the CLI's working directory and home (config.md, `roots`). */
   roots?: { cwd: string; home: string };
 }
@@ -64,10 +78,45 @@ const MAX_LIST_PAGES = 1000;
 const STDERR_KEEP = 4096;
 /** Ceiling for the best-effort HTTP session termination on close. */
 const TERMINATE_WAIT_MS = 1000;
+/**
+ * How long the `server/discover` probe of a stdio server may stay unanswered before it counts as a server
+ * of the old protocol: some never answer a request that comes before `initialize`, and waiting out the
+ * whole connect timeout would make every such server slow to start. HTTP has no such limit: silence there
+ * is an outage, not an answer.
+ */
+const STDIO_PROBE_TIMEOUT_MS = 3000;
+/** Delays between attempts to open the `subscriptions/listen` stream again after it dropped. */
+const RELISTEN_FIRST_MS = 1000;
+const RELISTEN_MAX_MS = 30_000;
+
+/**
+ * How the connection settles on a protocol version (config.md, `protocolVersion`; daemon.md, "协议版本与无状态连接").
+ * Unpinned: newest first, automatically. The probe is `server/discover`; a server that answers it speaks the
+ * stateless protocol, any other answer falls back to the `initialize` handshake on the same connection. A
+ * stdio probe runs on a short-lived copy of the server process, so the real one starts once the protocol is
+ * known (the SDK's choice; a server that dies on a request before `initialize` is then simply an old server).
+ * Pinned: that version or an error. A stateless pin must be offered by the probe; an older pin is the
+ * plain handshake that offers nothing else and rejects another counter-offer.
+ */
+function negotiation(pin: string | undefined, stdio: boolean): Pick<ClientOptions, 'versionNegotiation' | 'supportedProtocolVersions'> {
+  const probe = stdio ? { timeoutMs: STDIO_PROBE_TIMEOUT_MS } : {};
+  if (pin === undefined) return { versionNegotiation: { mode: 'auto', probe } };
+  if (isModernProtocolVersion(pin)) return { versionNegotiation: { mode: { pin }, probe } };
+  return { versionNegotiation: { mode: 'legacy' }, supportedProtocolVersions: [pin] };
+}
+
+/** A connection being made; `close()` abandons it. */
+interface Attempt {
+  aborted: boolean;
+  controller: AbortController;
+  client?: Client;
+}
 
 interface Handle {
   client: Client;
   closed: boolean;
+  /** What the handshake (or the probe) settled on. */
+  protocol: ProtocolInfo;
   stderr: () => string;
   /** Process id of the stdio child. */
   pid?: () => number | null;
@@ -113,6 +162,8 @@ export class McpSession {
   /** Where warnings go: the operation that started last (the one that most likely caused it). */
   private warnSink?: (message: string) => void;
   private warnedSave = false;
+  /** What the last connection of this session negotiated (kept across reconnects). */
+  private lastProtocol?: ProtocolInfo;
   /** Abandons the connection being made (`close()` while connecting). */
   private abortConnect?: () => void;
 
@@ -135,10 +186,18 @@ export class McpSession {
     return this.handle.pid?.() ?? undefined;
   }
 
+  /** The negotiated protocol version and whether the connection is stateful; undefined while not connected. */
+  protocol(): ProtocolInfo | undefined {
+    return this.handle && !this.handle.closed ? this.handle.protocol : undefined;
+  }
+
   /** `tools/list`, following `nextCursor` until the server stops returning one. */
   listTools(options: ListOptions = {}): Promise<McpTool[]> {
     return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), options.onWarning, (handle, left) =>
-      this.pages<McpTool>(handle, 'tools/list', 'tools', left, (e): e is McpTool => hasString(e, 'name')),
+      this.pages<McpTool>(handle, 'tools/list', 'tools', left, (e): e is McpTool => hasString(e, 'name'), (page) => {
+        const ttl = page.ttlMs;
+        if (typeof ttl === 'number' && Number.isFinite(ttl) && ttl > 0) options.onTtl?.(ttl);
+      }),
     );
   }
 
@@ -210,7 +269,13 @@ export class McpSession {
         return this.request(handle, 'request', timeoutMs, async () => {
           const params = { name: rawName, arguments: args ?? {} };
           const send = { timeout: left(), ...(options.onProgress ? { onprogress: options.onProgress } : {}) };
-          const raw: unknown = await handle.client.request({ method: 'tools/call', params }, RAW, send);
+          // The stateless protocol has the SDK mirror tool arguments the tool declared with `x-mcp-header`
+          // into request headers (a server refuses the call without them); on the old protocol the result
+          // is taken as the server sent it.
+          const raw: unknown =
+            handle.client.getProtocolEra() === 'modern'
+              ? await handle.client.callTool(params, send)
+              : await handle.client.request({ method: 'tools/call', params }, RAW, send);
           if (typeof raw !== 'object' || raw === null) throw new Error('tools/call returned a non-object result');
           return raw as ToolCallResult;
         });
@@ -339,9 +404,10 @@ export class McpSession {
   }
 
   private connect(): Promise<Handle> {
-    const attempt: { aborted: boolean; client?: Client } = { aborted: false };
+    const attempt: Attempt = { aborted: false, controller: new AbortController() };
     const abort = (): void => {
       attempt.aborted = true;
+      attempt.controller.abort(); // ends a protocol probe in progress (the SDK would otherwise finish it first)
       void attempt.client?.close().catch(() => undefined); // kills a half-started child
     };
     this.abortConnect = abort;
@@ -350,7 +416,7 @@ export class McpSession {
     });
   }
 
-  private async open(attempt: { aborted: boolean; client?: Client }): Promise<Handle> {
+  private async open(attempt: Attempt): Promise<Handle> {
     const { server } = this;
     // Checks that must pass before anything is spawned or sent.
     if (server.disabled) throw notFoundServer(server.name, []);
@@ -367,6 +433,24 @@ export class McpSession {
       throw mapError(err, { server, phase: 'connect', timeoutMs, redact: this.redactor() });
     }
 
+    // Probing a stdio server starts it twice (the SDK probes a copy), which is slow for a server that
+    // takes seconds to start and wrong for one with side effects at startup. So a stdio server that was
+    // last seen speaking the old protocol is connected with the plain handshake and no probe; if that
+    // fails for a reason other than a timeout, it is tried once more with the probe (it may have moved on).
+    const known = resolved.type === 'stdio' && server.protocolVersion === undefined ? (this.lastProtocol ?? this.options.knownProtocol?.(server)) : undefined;
+    const skipProbe = known !== undefined && known.version !== '' && !isModernProtocolVersion(known.version);
+    try {
+      return await this.establish(attempt, resolved, authFetch, skipProbe);
+    } catch (err) {
+      if (!skipProbe || attempt.aborted || !(err instanceof ClientError) || err.retryable) throw err;
+      return this.establish(attempt, resolved, authFetch, false);
+    }
+  }
+
+  /** Make the client and its transport and connect them: one try, `legacy` meaning "plain handshake, no probe". */
+  private async establish(attempt: Attempt, resolved: ResolvedConnection, authFetch: FetchLike | undefined, legacy: boolean): Promise<Handle> {
+    const { server } = this;
+    const timeoutMs = this.defaultTimeoutMs();
     let stderrBuf = '';
     let client: Client | undefined;
     let handle: Handle | undefined;
@@ -381,6 +465,7 @@ export class McpSession {
         {
           capabilities: roots.length > 0 ? { roots: { listChanged: false } } : {},
           jsonSchemaValidator: LENIENT_VALIDATOR,
+          ...negotiation(server.protocolVersion, resolved.type === 'stdio'),
           // Only a signal: via lists again itself (the daemon's catalog refresh), not the SDK.
           ...(onToolsChanged ? { listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: () => onToolsChanged() } } } : {}),
         },
@@ -390,6 +475,7 @@ export class McpSession {
       let transport: Transport;
       let terminate: (() => Promise<void>) | undefined;
       let pid: (() => number | null) | undefined;
+      let sessionId: (() => string | undefined) | undefined;
 
       if (resolved.type === 'stdio') {
         const { StdioClientTransport } = await import('@modelcontextprotocol/client/stdio');
@@ -420,22 +506,61 @@ export class McpSession {
         const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/client');
         const http = new StreamableHTTPClientTransport(url, { requestInit: { headers: resolved.headers }, ...(authFetch ? { fetch: authFetch } : {}) });
         terminate = () => http.terminateSession();
+        sessionId = () => http.sessionId;
         transport = http;
       }
 
-      const created: Handle = { client, closed: false, stderr: () => stderrBuf, ...(pid ? { pid } : {}), ...(terminate ? { terminate } : {}) };
+      const created: Handle = { client, closed: false, protocol: { version: '', stateful: false }, stderr: () => stderrBuf, ...(pid ? { pid } : {}), ...(terminate ? { terminate } : {}) };
       handle = created;
       client.onclose = () => {
         created.closed = true;
       };
       if (attempt.aborted) throw new Error('the session was closed while connecting');
-      await client.connect(transport, { timeout: timeoutMs });
+      await client.connect(transport, { timeout: timeoutMs, signal: attempt.controller.signal, ...(legacy ? { prior: { kind: 'legacy' as const } } : {}) });
+      const modern = client.getProtocolEra() === 'modern';
+      // A stdio process is a session of its own; an HTTP server of the old protocol has one if it handed out an id.
+      created.protocol = { version: client.getNegotiatedProtocolVersion() ?? '', stateful: !modern && (resolved.type === 'stdio' || sessionId?.() !== undefined) };
+      if (onToolsChanged) this.watchListen(created, client.autoOpenedSubscription);
+      this.lastProtocol = created.protocol;
       return created;
     } catch (err) {
       const mapped = mapError(err, { server, phase: 'connect', timeoutMs, redact: this.redactor(), stderrTail: stderrBuf });
       if (client) await client.close().catch(() => undefined); // kills a half-started child
       if (handle) handle.closed = true;
       throw mapped;
+    }
+  }
+
+  /**
+   * On the stateless protocol list changes arrive on a `subscriptions/listen` stream the SDK opened at
+   * connect. The SDK never opens it again after a drop, and without it the catalog would silently stop
+   * following the server, so a stream that ends without the server saying goodbye is opened again with a
+   * growing delay (1 s to 30 s), and the daemon is told to refresh: events may have been missed meanwhile.
+   */
+  private watchListen(handle: Handle, subscription: McpSubscription | undefined): void {
+    if (!subscription) return;
+    void subscription.closed.then((reason) => {
+      if (reason === 'remote' && !handle.closed) void this.relisten(handle, subscription.honoredFilter);
+    });
+  }
+
+  private async relisten(handle: Handle, filter: SubscriptionFilter): Promise<void> {
+    let delay = RELISTEN_FIRST_MS;
+    while (!handle.closed) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delay).unref());
+      if (handle.closed) return;
+      try {
+        const next = await handle.client.listen(filter, { timeout: this.defaultTimeoutMs() });
+        if (handle.closed) {
+          await next.close().catch(() => undefined);
+          return;
+        }
+        this.watchListen(handle, next);
+        this.options.onToolsChanged?.();
+        return;
+      } catch {
+        delay = Math.min(delay * 2, RELISTEN_MAX_MS);
+      }
     }
   }
 

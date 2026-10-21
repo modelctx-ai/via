@@ -4,10 +4,10 @@
 // the error mapping; this layer adds lifetime (idle stop, exclusive servers), the catalog and its
 // refresh on `list_changed`, and redaction of what goes back over the socket.
 import type { McpTool } from '../catalog/types';
-import { CATALOG_TTL_MS, CatalogCache } from '../cli/catalog-cache';
+import { CATALOG_TTL_MS, CatalogCache, effectiveTtl } from '../cli/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { GetPromptResult, ListResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
+import type { GetPromptResult, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
@@ -73,6 +73,10 @@ interface Entry {
   toolCount?: number;
   /** What the server declared at `initialize`, once known. */
   features?: ServerFeatures;
+  /** What the last connection negotiated, once known. */
+  protocol?: ProtocolInfo;
+  /** The server's own freshness hint for the list (stateless protocol); the shorter of it and 24 hours applies. */
+  ttlMs?: number;
   calls: number;
   active: number;
   lastUsed: number;
@@ -130,8 +134,8 @@ export class SessionManager {
     try {
       if (!options.refresh) {
         const now = this.options.now();
-        if (entry.fetchedAt !== undefined && now - entry.fetchedAt <= CATALOG_TTL_MS) {
-          const features = entry.features ? { features: entry.features } : {};
+        if (entry.fetchedAt !== undefined && now - entry.fetchedAt <= effectiveTtl(CATALOG_TTL_MS, entry.ttlMs)) {
+          const features = { ...(entry.features ? { features: entry.features } : {}), ...(entry.protocol ? { protocol: entry.protocol } : {}) };
           if (options.have === entry.fetchedAt) return { unchanged: true, fetchedAt: entry.fetchedAt, fromCache: true, ...features };
           if (entry.tools) return { tools: entry.tools, fetchedAt: entry.fetchedAt, fromCache: true, ...features };
         }
@@ -140,7 +144,10 @@ export class SessionManager {
         if (hit) {
           entry.fetchedAt = hit.fetchedAt;
           if (hit.features) entry.features = hit.features;
-          const features = entry.features ? { features: entry.features } : {};
+          if (hit.protocol) entry.protocol = hit.protocol;
+          if (hit.ttlMs !== undefined) entry.ttlMs = hit.ttlMs;
+          else delete entry.ttlMs;
+          const features = { ...(entry.features ? { features: entry.features } : {}), ...(entry.protocol ? { protocol: entry.protocol } : {}) };
           if (options.have === hit.fetchedAt) return { unchanged: true, fetchedAt: hit.fetchedAt, fromCache: true, ...features };
           const tools = hit.tools;
           entry.toolCount = tools.length;
@@ -150,9 +157,10 @@ export class SessionManager {
         delete entry.tools;
         delete entry.fetchedAt;
       }
-      const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs, ...(options.onWarning ? { onWarning: options.onWarning } : {}) });
-      this.store(entry, tools);
-      return { tools, fetchedAt: entry.fetchedAt!, fromCache: false, ...(entry.features ? { features: entry.features } : {}) };
+      let ttlMs: number | undefined;
+      const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs, onTtl: (ms) => void (ttlMs = ms), ...(options.onWarning ? { onWarning: options.onWarning } : {}) });
+      this.store(entry, tools, ttlMs);
+      return { tools, fetchedAt: entry.fetchedAt!, fromCache: false, ...(entry.features ? { features: entry.features } : {}), ...(entry.protocol ? { protocol: entry.protocol } : {}) };
     } finally {
       this.end(entry);
     }
@@ -216,6 +224,8 @@ export class SessionManager {
       };
       const pid = e.session.pid;
       if (pid !== undefined) status.pid = pid;
+      const protocol = e.session.protocol();
+      if (protocol) status.protocol = protocol;
       const count = e.toolCount ?? e.tools?.length ?? (e.fetchedAt !== undefined ? this.cache.read(e.original)?.tools.length : undefined);
       if (count !== undefined) status.tools = count;
       return status;
@@ -305,6 +315,7 @@ export class SessionManager {
     // `server.roots` is already absolute here (`effectiveServer`), so no base directory is needed.
     entry.session = new McpSession(server, this.options.resolver, {
       onToolsChanged: () => this.toolsChanged(entry),
+      knownProtocol: () => this.cache.read(entry.original)?.protocol,
       now: this.options.now,
       ...(this.oauthStore ? { oauthStore: this.oauthStore } : {}),
       roots: { cwd: target.cwd, home: this.options.home },
@@ -359,12 +370,20 @@ export class SessionManager {
     entry.idleTimer.unref();
   }
 
-  private store(entry: Entry, tools: McpTool[]): void {
+  private store(entry: Entry, tools: McpTool[], ttlMs?: number): void {
     entry.fetchedAt = this.options.now();
     entry.toolCount = tools.length;
     entry.features = entry.session.features() ?? entry.features;
+    entry.protocol = entry.session.protocol() ?? entry.protocol;
+    if (ttlMs !== undefined) entry.ttlMs = ttlMs;
+    else delete entry.ttlMs;
     // Keep the list in memory only if it could not be written to disk.
-    const written = this.cache.write(entry.original, tools, { fetchedAt: entry.fetchedAt, ...(entry.features ? { features: entry.features } : {}) });
+    const written = this.cache.write(entry.original, tools, {
+      fetchedAt: entry.fetchedAt,
+      ...(entry.features ? { features: entry.features } : {}),
+      ...(entry.protocol ? { protocol: entry.protocol } : {}),
+      ...(ttlMs !== undefined ? { ttlMs } : {}),
+    });
     if (written === undefined) entry.tools = tools;
     else delete entry.tools;
   }
@@ -388,8 +407,9 @@ export class SessionManager {
     entry.refreshing = true;
     this.begin(entry);
     try {
-      const tools = await entry.session.listTools({ timeoutMs: entry.server.timeout * 1000 });
-      this.store(entry, tools);
+      let ttlMs: number | undefined;
+      const tools = await entry.session.listTools({ timeoutMs: entry.server.timeout * 1000, onTtl: (ms) => void (ttlMs = ms) });
+      this.store(entry, tools, ttlMs);
     } catch {
       // The copy is known to be out of date and cannot be renewed now: forget it so the next list asks the server.
       delete entry.tools;

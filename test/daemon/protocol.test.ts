@@ -284,7 +284,7 @@ describe('catalog', () => {
       const first = await list(conn, t);
       const at = first.result.fetchedAt;
       const same = await list(conn, t, { have: at });
-      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true, features: { resources: false, prompts: false } });
+      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true, features: { resources: false, prompts: false }, protocol: { version: expect.stringMatching(/^\d{4}-\d\d-\d\d$/), stateful: expect.any(Boolean) } });
       const other = await list(conn, t, { have: at - 1 });
       expect(other.result).toMatchObject({ fetchedAt: at, fromCache: true });
       expect((other.result as ListedTools).tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));

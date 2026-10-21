@@ -5,12 +5,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingHttpHeaders, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { afterEach } from 'vitest';
 import { run } from '../../src/cli/run';
 import { createCliServer, createCliState, type CliState } from '../fixtures/mcp/cli-server.mjs';
+import { modernEndpoint } from '../fixtures/mcp/modern-http.mjs';
+import { defaultGeneration, fixtureScript, type Generation } from '../helpers/generation';
 
 /**
  * Variables a child process needs in order to start properly on Windows (`SystemRoot` above all);
@@ -39,23 +40,46 @@ export function homeEnv(home: string): Record<string, string> {
   };
 }
 
-export const CLI_STDIO_SERVER = fileURLToPath(new URL('../fixtures/mcp/cli-stdio-server.mjs', import.meta.url));
+/** The CLI stdio fixture in the default protocol generation (helpers/generation.ts). */
+export const CLI_STDIO_SERVER = fixtureScript('cli-stdio-server', defaultGeneration());
 
 /** Obviously fake; the credential scan must never find it in a snapshot. */
 export const FAKE_TOKEN = 'fake-gh-token-for-cli-tests-0001';
+
+export type { Generation };
 
 export interface FixtureServer {
   url: string;
   state: CliState;
   requests: IncomingHttpHeaders[];
+  /** Stateless servers: publish `notifications/tools/list_changed` to every open `subscriptions/listen` stream. */
+  notifyToolsChanged(): void;
   close(): Promise<void>;
 }
 
 /** Streamable HTTP fixture; requests need `Authorization: Bearer <token>` when `token` is set. */
-export async function startFixtureServer(options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots'> } = {}): Promise<FixtureServer> {
+export async function startFixtureServer(options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots'>; protocol?: Generation; ttlMs?: number } = {}): Promise<FixtureServer> {
   const state = createCliState();
-  const result: FixtureServer = { url: '', state, requests: [], close: async () => undefined };
+  const generation = options.protocol ?? defaultGeneration();
+  const result: FixtureServer = { url: '', state, requests: [], notifyToolsChanged: () => undefined, close: async () => undefined };
+  // The stateless endpoint builds a server per request itself; the credential the request carried reaches it through `authorization`.
+  let currentAuthorization: string | undefined;
+  const modern =
+    generation === 'modern'
+      ? modernEndpoint((notifier) => createCliServer({ state, flavor: 'modern', notifier, ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}), ...(options.features ? { features: options.features } : {}), ...(currentAuthorization ? { authorization: currentAuthorization } : {}) }))
+      : undefined;
+  if (modern) result.notifyToolsChanged = () => modern.notifier.toolsChanged();
   const http: HttpServer = createServer((req, res) => {
+    if (modern) {
+      if (options.token !== undefined && req.headers.authorization !== `Bearer ${options.token}`) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('unauthorized');
+        return;
+      }
+      result.requests.push(req.headers);
+      currentAuthorization = req.headers.authorization;
+      void modern.handle(req, res);
+      return;
+    }
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
@@ -83,11 +107,13 @@ export async function startFixtureServer(options: { token?: string; features?: A
   });
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
   result.url = `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`;
-  result.close = () =>
-    new Promise<void>((resolve) => {
+  result.close = async () => {
+    await modern?.close().catch(() => undefined);
+    await new Promise<void>((resolve) => {
       http.closeAllConnections();
       http.close(() => resolve());
     });
+  };
   return result;
 }
 

@@ -79,6 +79,11 @@ export interface ServerConfig {
   /** Concurrent requests per server; default 4. */
   concurrency: number;
   budget?: number;
+  /**
+   * Pins the MCP protocol version (config.md, `protocolVersion`): a server that does not support it is
+   * an error, not a fallback. Absent: newest first, falling back automatically.
+   */
+  protocolVersion?: string;
   noise: string[];
   /**
    * Directories the server may work in, as written (paths or `file://` URIs; config.md, `roots`).

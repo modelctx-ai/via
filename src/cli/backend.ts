@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import type { CallOptions, McpClient } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ServerFeatures, ToolCallResult } from '../protocol';
+import type { ProtocolInfo, ServerFeatures, ToolCallResult } from '../protocol';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor, redactValue } from '../render/redact';
@@ -28,6 +28,8 @@ export interface Listing {
   rawBytes?: number;
   /** Resources and prompts the server declared; absent when not known (an older cache entry). */
   features?: ServerFeatures;
+  /** The protocol the list was fetched over; absent when not known (an older cache entry). */
+  protocol?: ProtocolInfo;
 }
 
 export interface ListingOptions {
@@ -103,9 +105,10 @@ export class InProcessBackend implements Backend {
   /** The client that talks to servers, made on first use: browsing a cached catalog never needs it. */
   private client(): Promise<McpClient> {
     this.clientLoading ??= import('../client').then(({ InProcessClient }) => {
-      const { servers, resolver, now, oauthStore, onWarning, roots } = this.options;
+      const { servers, resolver, now, oauthStore, onWarning, roots, cache } = this.options;
       return (this.loaded = new InProcessClient(servers, resolver, {
         now,
+        knownProtocol: (server) => cache.read(server)?.protocol,
         ...(oauthStore ? { oauthStore } : {}),
         ...(onWarning ? { onWarning } : {}),
         ...(roots ? { roots } : {}),
@@ -137,6 +140,7 @@ export class InProcessBackend implements Backend {
           fromCache: true,
           rawBytes: hit.rawBytes,
           ...(hit.features ? { features: hit.features } : {}),
+          ...(hit.protocol ? { protocol: hit.protocol } : {}),
           get tools(): McpTool[] {
             return hit.tools;
           },
@@ -144,11 +148,13 @@ export class InProcessBackend implements Backend {
       }
     }
     const client = await this.client();
-    const tools = await client.listTools(server.name, { timeoutMs });
+    let ttlMs: number | undefined;
+    const tools = await client.listTools(server.name, { timeoutMs, onTtl: (ms) => void (ttlMs = ms) });
     const features = client.features(server.name);
+    const protocol = client.protocol(server.name);
     const fetchedAt = now();
-    const rawBytes = cache.write(server, tools, { fetchedAt, ...(features ? { features } : {}) });
-    return { tools, fetchedAt, fromCache: false, ...(rawBytes !== undefined ? { rawBytes } : {}), ...(features ? { features } : {}) };
+    const rawBytes = cache.write(server, tools, { fetchedAt, ...(features ? { features } : {}), ...(protocol ? { protocol } : {}), ...(ttlMs !== undefined ? { ttlMs } : {}) });
+    return { tools, fetchedAt, fromCache: false, ...(rawBytes !== undefined ? { rawBytes } : {}), ...(features ? { features } : {}), ...(protocol ? { protocol } : {}) };
   }
 
   listTools: McpClient['listTools'] = async (server, options) => (await this.client()).listTools(server, options);
@@ -165,6 +171,10 @@ export class InProcessBackend implements Backend {
   features(server: string): ServerFeatures | undefined {
     // No client yet means no session, so nothing has been declared.
     return this.loaded?.features(server);
+  }
+
+  protocol(server: string): ProtocolInfo | undefined {
+    return this.loaded?.protocol(server);
   }
 
   compiler(): undefined {
@@ -305,6 +315,10 @@ export class FallbackBackend implements Backend {
 
   getPrompt: McpClient['getPrompt'] = (server, name, args, options) =>
     this.run((b) => b.getPrompt(server, name, args, options), { idempotent: true, what: `getting a prompt of ${server}` });
+
+  protocol(server: string): ProtocolInfo | undefined {
+    return this.current.protocol(server);
+  }
 
   features(server: string): ServerFeatures | undefined {
     return this.current.features(server);

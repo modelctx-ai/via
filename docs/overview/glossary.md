@@ -10,6 +10,7 @@
 | **资源模板** | MCP 资源的 URI 模板（RFC 6570，如 `file:///logs/{date}.log`），调用方替换占位符后用 `via read` 读取。 |
 | **prompt（MCP prompt）** | server 提供的带参数消息模板（`prompts/list`、`prompts/get`），用 `via prompts` 访问。与 `via prompt`（生成给 agent 的说明）无关。 |
 | **roots** | client 声明给 server 的目录列表（MCP 的 `roots` 能力）。via 默认不声明，按 server 用配置的 `roots` 字段开启。 |
+| **协议版本（protocol version）** | 一次 MCP 连接协商出的协议修订，形如 `2026-07-28`、`2025-11-25`。`2026-07-28` 起协议无状态（没有 `initialize` 握手和 server 端会话），via 默认新版本优先、自动回退，`protocolVersion` 可以固定；「有状态」的含义见 [daemon.md](../spec/daemon.md#协议版本与无状态连接)。 |
 | **动作（verb）** | 从原始名拆出的动词部分，如 `create`、`create-or-update`。 |
 | **工具引用** | 定位一个工具的写法。命令行形式 `linear issue:create`，单字符串形式 `linear/issue:create`。 |
 | **元工具（meta-tool）** | `via serve` 暴露给没有 shell 的 agent 的固定工具（`via_browse`、`via_find`、`via_call` 等），每个对应一条 CLI 命令；与下游 server 的工具不同，它们不随目录变化。 |

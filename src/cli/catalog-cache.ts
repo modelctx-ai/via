@@ -11,7 +11,7 @@ import type { McpTool } from '../catalog/types';
 import { parseCredentialRef } from '../config/credentials';
 import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
-import type { ServerFeatures } from '../protocol';
+import type { ProtocolInfo, ServerFeatures } from '../protocol';
 
 /** Default time to live of a cached `tools/list` (discovery.md). */
 export const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -22,6 +22,10 @@ const CACHE_VERSION = 1;
 interface CacheFile {
   version: number;
   fetchedAt: number;
+  /** The server's own freshness hint for the list (`ttlMs` of a stateless-protocol result); absent when it gave none. */
+  ttlMs?: number;
+  /** What the connection that fetched the list negotiated; absent in files written before it was recorded. */
+  protocol?: ProtocolInfo;
   tools: McpTool[];
   /** What the server declared at `initialize`; absent in files written before it was recorded. */
   features?: ServerFeatures;
@@ -34,10 +38,25 @@ export interface CacheEntry {
   /** The tools; parsed on first access, so a command that does not need them never pays for them. */
   readonly tools: McpTool[];
   features?: ServerFeatures;
+  /** The protocol the list was fetched over (`via servers` shows it without connecting). */
+  protocol?: ProtocolInfo;
+  /** The server's own freshness hint stored with the list, if it gave one. */
+  ttlMs?: number;
 }
 
 /** What `write` below puts first in every file, so `read` can learn the age without parsing the tools. */
-const FILE_HEAD = /^\{"version":(\d+),"fetchedAt":(\d+),(?:"features":(\{[^{}]*\}),)?"tools":(?=\[)/;
+const FILE_HEAD = /^\{"version":(\d+),"fetchedAt":(\d+),(?:"ttlMs":(\d+),)?(?:"protocol":(\{[^{}]*\}),)?(?:"features":(\{[^{}]*\}),)?"tools":(?=\[)/;
+
+/** How long a cached list may be used: via's own 24 hours, or less when the server said so (discovery.md, "缓存"). */
+export function effectiveTtl(defaultMs: number, serverMs: number | undefined): number {
+  return serverMs !== undefined && serverMs > 0 ? Math.min(defaultMs, serverMs) : defaultMs;
+}
+
+/** Protocol info as stored: a version string and a boolean, otherwise it does not count. */
+function validProtocol(value: unknown): ProtocolInfo | undefined {
+  const p = value as Partial<ProtocolInfo> | null | undefined;
+  return typeof p?.version === 'string' && p.version !== '' && typeof p.stateful === 'boolean' ? { version: p.version, stateful: p.stateful } : undefined;
+}
 
 /** Features as stored: both flags must be booleans, otherwise the entry counts as written before they were recorded. */
 function validFeatures(value: unknown): ServerFeatures | undefined {
@@ -83,7 +102,9 @@ function computeKey(server: ServerConfig): string {
         : auth.type === 'oauth'
           ? { type: 'oauth', scopes: auth.scopes ?? [], clientId: auth.clientId ?? null }
           : { type: 'none' };
-  return sha256Hex(JSON.stringify({ v: CACHE_VERSION, transport: transportPart, auth: authPart })).slice(0, 32);
+  // The pin belongs to the key: a list fetched under another protocol version says nothing about this one. Added only when set, so existing keys stay.
+  const pin = server.protocolVersion === undefined ? {} : { pin: server.protocolVersion };
+  return sha256Hex(JSON.stringify({ v: CACHE_VERSION, transport: transportPart, auth: authPart, ...pin })).slice(0, 32);
 }
 
 export class CatalogCache {
@@ -108,13 +129,16 @@ export class CatalogCache {
         // parsed only if somebody reads it.
         if (Number(head[1]) !== CACHE_VERSION) return undefined;
         const fetchedAt = Number(head[2]);
-        if (this.now() - fetchedAt > this.ttlMs) return undefined;
+        if (this.now() - fetchedAt > effectiveTtl(this.ttlMs, head[3] ? Number(head[3]) : undefined)) return undefined;
         let tools: McpTool[] | undefined;
-        const features = head[3] ? validFeatures(JSON.parse(head[3])) : undefined;
+        const features = head[5] ? validFeatures(JSON.parse(head[5])) : undefined;
+        const protocol = head[4] ? validProtocol(JSON.parse(head[4])) : undefined;
         return {
           fetchedAt,
           rawBytes: text.length,
+          ...(head[3] ? { ttlMs: Number(head[3]) } : {}),
           ...(features ? { features } : {}),
+          ...(protocol ? { protocol } : {}),
           get tools(): McpTool[] {
             return (tools ??= JSON.parse(text.slice(head[0].length, -1)) as McpTool[]);
           },
@@ -122,9 +146,10 @@ export class CatalogCache {
       }
       const data = JSON.parse(text) as Partial<CacheFile>;
       if (data.version !== CACHE_VERSION || typeof data.fetchedAt !== 'number' || !Array.isArray(data.tools)) return undefined;
-      if (this.now() - data.fetchedAt > this.ttlMs) return undefined;
+      if (this.now() - data.fetchedAt > effectiveTtl(this.ttlMs, typeof data.ttlMs === 'number' ? data.ttlMs : undefined)) return undefined;
       const features = validFeatures(data.features);
-      return { tools: data.tools, fetchedAt: data.fetchedAt, rawBytes: text.length, ...(features ? { features } : {}) };
+      const protocol = validProtocol(data.protocol);
+      return { tools: data.tools, fetchedAt: data.fetchedAt, rawBytes: text.length, ...(typeof data.ttlMs === 'number' ? { ttlMs: data.ttlMs } : {}), ...(features ? { features } : {}), ...(protocol ? { protocol } : {}) };
     } catch {
       return undefined;
     }
@@ -136,8 +161,8 @@ export class CatalogCache {
    * and the report agree (the prebuilt-catalog cache is keyed by it). Returns the length of the
    * text written, or undefined when nothing could be written.
    */
-  write(server: ServerConfig, tools: McpTool[], options: { fetchedAt?: number; features?: ServerFeatures } = {}): number | undefined {
-    const { fetchedAt = this.now(), features } = options;
+  write(server: ServerConfig, tools: McpTool[], options: { fetchedAt?: number; features?: ServerFeatures; protocol?: ProtocolInfo; ttlMs?: number } = {}): number | undefined {
+    const { fetchedAt = this.now(), features, protocol, ttlMs } = options;
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       try {
@@ -147,8 +172,8 @@ export class CatalogCache {
       }
       const file = this.file(server);
       const tmp = `${file}.${process.pid}.tmp`;
-      // `features` goes before `tools`: the tools array is the end of the text (see FILE_HEAD).
-      const body: CacheFile = { version: CACHE_VERSION, fetchedAt, ...(features ? { features } : {}), tools };
+      // Everything but `tools` goes before it: the tools array is the end of the text (see FILE_HEAD).
+      const body: CacheFile = { version: CACHE_VERSION, fetchedAt, ...(ttlMs !== undefined && ttlMs > 0 ? { ttlMs: Math.round(ttlMs) } : {}), ...(protocol ? { protocol } : {}), ...(features ? { features } : {}), tools };
       const text = JSON.stringify(body);
       writeFileSync(tmp, text, { mode: 0o600 });
       renameSync(tmp, file);

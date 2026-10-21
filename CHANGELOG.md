@@ -8,6 +8,13 @@
 
 ### Added
 
+- 支持 MCP `2026-07-28` 的无状态协议，新版本优先、自动回退（路线图 e2，[ADR 0017](docs/adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](docs/spec/daemon.md#协议版本与无状态连接)）：建立连接时先发 `server/discover`，server 支持 `2026-07-28` 就按新协议谈（无 `initialize`、无会话 ID，请求带 `MCP-Protocol-Version` 与 `Mcp-Method` 头，`serverInfo` 读自响应的 `_meta`），被拒绝（旧 server 对陌生方法的 4xx）时在同一条连接上退回 `initialize` 握手（`2025-11-25` 至 `2024-10-07`）；用户不需要配置，旧版 server 上的行为不变。要点：
+  - 变更通知：新协议下 daemon 订阅 `subscriptions/listen` 流，与旧协议的 `notifications/tools/list_changed` 进同一个刷新入口；流意外断开时按 1 秒到 30 秒的退避重订，重订成功后立即刷新一次目录。
+  - server 在 `tools/list` 结果里给的 `ttlMs` 与 24 小时的目录 TTL 取较短者，随缓存保存；`0` 或缺省视为没有提示（SDK 构造的 server 默认发 `0`，照字面当作立刻过期会让浏览命令每次都连接 server）。
+  - 目录缓存文件记下协商出的 `protocol`（`{version, stateful}`）和 `ttlMs`，都是可缺省的新字段，旧文件照常读取。stdio server 据此跳过协议探测：SDK 在 server 进程的副本上探测，对旧版 stdio server 等于每次连接多启动一个进程，所以缓存新鲜且记录是旧协议时直接握手（失败，超时除外，才再探测一次）；缓存为空或过期后的第一次连接仍会多启动一个进程。stdio 的探测 3 秒无应答视为旧版 server。
+  - `roots` 在新协议里经 `input_required` 由 SDK 用同一个处理器应答，配置与声明条件不变；`logging/setLevel` 被新协议去掉，via 从不发它；无状态连接没有会话要终止、也没有会话 ID 存盘。
+  - 新协议的 `tools/call` 走 SDK 的 `callTool()`，按 `x-mcp-header` 镜像 `Mcp-Param-*` 请求头；结果仍按 server 给的样子显示。
+  - 配置新增 `servers.<name>.protocolVersion`（取值、语义与可见性见 config.md、cli.md，路线图 e3）；daemon 的 `list` 应答与 `status` 多了可选的 `protocol`。
 - `via serve`（路线图 c5，[ADR 0016](docs/adr/0016-via-serve-meta-tools-over-stdio.md)）：以 stdio MCP server 运行，向没有 shell 的 agent（Claude Desktop、IDE 聊天面板等）暴露七个固定的元工具 `via_browse`、`via_find`、`via_call`、`via_more`、`via_resources`、`via_read`、`via_prompts`。每次调用在进程内执行一次对应的 CLI 命令并捕获输出，所以命名、参数解析、`deny`、`--yes`、本地校验、渲染、游标与脱敏都与命令行相同；结果是 stdout 与 stderr 两段文本，`structuredContent.exitCode` 给出退出码，非 0 时 `isError`。以 `-` 开头的字符串参数和 `via_browse` 里的内置子命令名会被拒绝（退出码 2），模型无法借参数设置选项或运行 `via trust`、`via auth`。七个工具的定义约 730 token。cli.md 新增「via serve」一节，agent-integration.md 新增「没有 shell 的 agent」，愿景的适用边界、路线图与术语表随之更新，`open-questions.md` 移除该条。
 - 读取框架配置时，命令行是 `via serve` 的条目（如 `npx -y @modelctx-ai/via serve`、`/usr/local/bin/via serve`）不进入目录，`via servers` 给出 info 级诊断 `self-reference`，避免 via 拉起自己（config.md「校验与诊断」）。
 - `-h` 给出调用示例（路线图 f4，[arguments.md](docs/spec/arguments.md#调用示例)）：在 `alias:` 行之前加一行 `example: via github issue:read --owner text --repo text --issue-number 1 --method get`，按 `inputSchema` 生成、可直接粘贴。必填参数全写，可选参数补到共 3 个；值取 `enum`/`const`、`examples`、`default`，否则按类型与 `format` 生成；嵌套 object 写成点号路径，标量数组重复 flag，对象数组、tuple、自由 object 写 JSON；nullable 取非 null 分支，本地 `$ref` 展开（递归 schema 有深度上限）。每个词按[引号规则](docs/spec/output.md#可粘贴的命令行)引用，server 给出的值没有安全写法时换用下一个候选；示例只在 `-h` 里，错误信息里的 `usage:` 不变。每个工具约多 20 到 40 个 token。测试对夹具里全部工具的示例用真实的 shell 与解析器、校验器逐条检查。不涉及动词表与规范写法。
