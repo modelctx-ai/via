@@ -25,6 +25,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          # 仓库所有者的 GitHub 登录名：只自动合并此账号开的 PR。
+          OWNER: ticoAg
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
@@ -33,10 +35,11 @@ jobs:
             echo "no pull request attached to this run; nothing to do"
             exit 0
           fi
-          # 只对仍指向本次 CI 所测 commit 的 PR 开启，避免旧 run 作用于新 push。
-          current=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid,state --jq 'if .state == "OPEN" then .headRefOid else "" end')
+          # 只合并仓库所有者自己从本仓库分支提的 PR（排除 fork 与其他协作者），
+          # 且仍指向本次 CI 所测 commit，避免旧 run 作用于新 push。
+          current=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json author,headRefOid,state,isCrossRepository --jq "if .state == \"OPEN\" and (.isCrossRepository | not) and .author.login == \"$OWNER\" then .headRefOid else \"\" end")
           if [ "$current" != "$HEAD_SHA" ]; then
-            echo "PR #$PR_NUMBER head moved or PR is closed; skipping"
+            echo "PR #$PR_NUMBER is not an open same-repo PR by the owner at this commit; skipping"
             exit 0
           fi
           gh pr merge "$PR_NUMBER" --repo "$REPO" --auto --squash --match-head-commit "$HEAD_SHA"
