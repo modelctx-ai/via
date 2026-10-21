@@ -1,0 +1,21 @@
+# Client scenarios of @modelcontextprotocol/conformance that via does not pass yet (docs/development/testing.md,
+# "官方一致性测试"). CI fails on a scenario that fails and is not listed here (a regression), and on one that passes and
+# is still listed (remove the entry). Each entry is a gap with an owner in docs/roadmap.md, not a decision.
+client:
+  # e7: CIMD (a client id that is a URL to a metadata document) is not implemented; via registers dynamically.
+  - auth/basic-cimd
+  # e7: a pre-registered client is public (`clientId` only); there is nowhere to configure its secret yet, and
+  # the scenario expects HTTP Basic client authentication.
+  - auth/pre-registration
+  # e7: step-up authorization (a 403 `insufficient_scope` on a call asks for a new login with more scope) is not
+  # implemented; via reports the 403 and tells the person to log in again.
+  - auth/scope-step-up
+  # The SDK checks the issuer of the authorization server metadata strictly (RFC 8414 3.3); the 2025-03-26 scenario
+  # serves metadata whose issuer differs from the URL it was fetched from.
+  - auth/2025-03-26-oauth-metadata-backcompat
+  # e5: via does not implement elicitation (and never samples: it does not call a model).
+  - elicitation-sep1034-client-defaults
+  # e7: the OAuth client-credentials extension and cross-app access (headless / enterprise grants).
+  - auth/client-credentials-jwt
+  - auth/client-credentials-basic
+  - auth/cross-app-access-complete-flow

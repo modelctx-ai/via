@@ -151,6 +151,7 @@ $ node bench/replay-server.mjs --tools test/fixtures/tools/github.json \
 
 - 默认是 Streamable HTTP（无状态、JSON 响应），监听就绪后在 stdout 打印一行 JSON；`--stdio` 改为 stdio。
 - `--server` 决定使用任务文件里哪个 server 的 `calls`，默认取夹具文件名。
+- 协议：默认讲 `initialize` 握手的旧协议（官方 SDK 1.x）；`--protocol 2026-07-28`（模块选项 `protocol`）改讲无状态协议（SDK 2.x，只认 `server/discover`，只会握手的客户端被拒绝），HTTP 与 stdio 都支持。环境变量 `VIA_REPLAY_PROTOCOL=2026-07-28` 让 `bench:tokens` 与 `bench:eval` 在无状态的回放 server 上运行（原生一列的 client 也相应先探测再回退）。结果与协议无关，所以两代 server 的数字应当一致。
 - `GET /__replay/calls` 返回已收到的调用日志：`[{ "tool", "args", "matched" }]`，agent 评测用它核对模型到底调了什么。
 
 作为模块使用：

@@ -61,6 +61,9 @@ describe('suite files', () => {
   });
 });
 
+// The replay server speaks either generation of the protocol (bench/replay-server.mjs); the answers do not depend on it.
+const PROTOCOLS = [['the initialize handshake', undefined], ['the stateless protocol', '2026-07-28']] as const;
+
 describe('replay server', () => {
   const closers: Array<() => Promise<void>> = [];
   afterEach(async () => {
@@ -68,7 +71,7 @@ describe('replay server', () => {
   });
 
   async function connect(url: string): Promise<Client> {
-    const client = new Client({ name: 'bench-test', version: '0.0.0' });
+    const client = new Client({ name: 'bench-test', version: '0.0.0' }, { versionNegotiation: { mode: 'auto' } });
     await client.connect(new StreamableHTTPClientTransport(new URL(url)));
     closers.push(() => client.close());
     return client;
@@ -81,13 +84,14 @@ describe('replay server', () => {
     expect(matchArgs({ a: { b: 1 } }, { a: { b: 1, c: 2 } })).toBe(true);
   });
 
-  it('serves the fixture tools/list and the canned results, and fails everything else with isError', async () => {
+  it.each(PROTOCOLS)('serves the fixture tools/list and the canned results, and fails everything else with isError over %s', async (_label, protocol) => {
     const tools = readTools(`${root}test/fixtures/tools/linear.json`);
     const task = loadSuite(root, ['linear-my-work']).tasks[0]!;
     const calls = cannedCalls([task], 'linear', `${root}bench`);
-    const running = await startReplayHttp({ name: 'linear', tools, calls });
+    const running = await startReplayHttp({ name: 'linear', tools, calls, ...(protocol ? { protocol } : {}) });
     closers.push(running.close);
     const client = await connect(running.url);
+    expect(client.getNegotiatedProtocolVersion()).toBe(protocol ?? '2025-11-25');
 
     expect((await client.listTools()).tools.map((t) => t.name)).toEqual(tools.map((t) => t.name));
 
@@ -111,10 +115,10 @@ describe('replay server', () => {
     expect(over.map((e) => e.tool)).toEqual(['get_issue', 'no_such_tool', 'list_teams']);
   });
 
-  it('can be re-targeted while running (the benchmark swaps canned calls per task)', async () => {
+  it.each(PROTOCOLS)('can be re-targeted while running (the benchmark swaps canned calls per task) over %s', async (_label, protocol) => {
     const tools = readTools(`${root}test/fixtures/tools/cloudflare.json`);
     const calls = [{ tool: 'whoami', result: { content: [{ type: 'text', text: 'first' }] } }];
-    const running = await startReplayHttp({ name: 'cloudflare', tools, calls });
+    const running = await startReplayHttp({ name: 'cloudflare', tools, calls, ...(protocol ? { protocol } : {}) });
     closers.push(running.close);
     const client = await connect(running.url);
     expect(JSON.stringify((await client.callTool({ name: 'whoami', arguments: {} })).content)).toContain('first');

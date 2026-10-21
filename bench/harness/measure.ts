@@ -3,7 +3,7 @@
 // is measured in bytes; `estimateTokens` turns bytes into tokens at report time.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cannedCalls, startReplayHttp, type ReplayCall, type ReplayLogEntry } from '../replay-server.mjs';
+import { cannedCalls, replayProtocolFromEnv, startReplayHttp, type ReplayCall, type ReplayLogEntry } from '../replay-server.mjs';
 import { normalizeOutput, type Exec } from './exec';
 import type { LoadedSuite } from './load';
 import { measureInjection, measureNativeCalls, type InjectionMeasure, type NativeMeasure } from './native';
@@ -114,7 +114,8 @@ export async function measureSuite(options: MeasureOptions): Promise<SuiteMeasur
     for (const name of loaded.suite.mounted) {
       const calls: ReplayCall[] = [];
       const entries: ReplayLogEntry[] = [];
-      const running = await startReplayHttp({ name, tools: loaded.tools.get(name)!, calls, log: entries });
+      const protocol = replayProtocolFromEnv();
+      const running = await startReplayHttp({ name, tools: loaded.tools.get(name)!, calls, log: entries, ...(protocol ? { protocol } : {}) });
       servers.set(name, { calls, log: entries, close: running.close });
       urls[name] = running.url;
     }

@@ -2,7 +2,7 @@
 // and, for the CLI conditions, a sandbox (isolated HOME) whose `via` and `mcp2cli` configuration
 // points at those servers. Every run gets its own, so runs can go in parallel and each call log
 // belongs to exactly one run.
-import { cannedCalls, startReplayHttp, type ReplayLogEntry } from '../replay-server.mjs';
+import { cannedCalls, replayProtocolFromEnv, startReplayHttp, type ReplayLogEntry } from '../replay-server.mjs';
 import type { LoadedSuite } from '../harness/load';
 import type { RunnerFactory, Runners } from '../harness/measure';
 import { createSandbox, type Sandbox } from '../harness/sandbox';
@@ -32,7 +32,8 @@ export async function createEnv(options: { loaded: LoadedSuite; task: Task; cond
   try {
     for (const name of loaded.suite.mounted) {
       const log: ReplayLogEntry[] = [];
-      const running = await startReplayHttp({ name, tools: loaded.tools.get(name)!, calls: cannedCalls([task], name, loaded.benchDir), log });
+      const protocol = replayProtocolFromEnv();
+      const running = await startReplayHttp({ name, tools: loaded.tools.get(name)!, calls: cannedCalls([task], name, loaded.benchDir), log, ...(protocol ? { protocol } : {}) });
       logs.set(name, log);
       closers.push(running.close);
       urls[name] = running.url;

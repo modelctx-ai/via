@@ -32,6 +32,36 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  # 两代协议（docs/development/testing.md「两代协议」）：模拟 server 默认讲旧协议的 `initialize` 握手；
+  # 这里把它们换成 `2026-07-28` 的无状态协议，再跑一遍依赖 server 的套件（CLI、daemon、client、基准）。
+  stateless:
+    name: check (stateless protocol)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:stateless
+
+  # 官方一致性测试（docs/development/testing.md「官方一致性测试」）：套件起一个专用 server，运行
+  # test/conformance/client.mjs（它驱动打包后的 via），按 server 看到的请求判定。已知不过的场景记在
+  # test/conformance/expected-failures.yml：新增失败、或已经修好却没从清单里删掉，都让这个任务失败。
+  conformance:
+    name: conformance (client scenarios)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:conformance
+
   # Windows 支持（docs/spec/daemon.md、security.md）：同一套检查在 Windows 上跑一遍。
   # 换行由仓库根的 .gitattributes 固定为 LF，快照与夹具不受 runner 的 core.autocrlf 影响。
   windows:

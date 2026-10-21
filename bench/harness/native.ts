@@ -25,7 +25,8 @@ export interface InjectionMeasure {
 }
 
 async function withClient<T>(url: string, fn: (client: Client) => Promise<T>): Promise<T> {
-  const client = new Client({ name: 'via-bench-native', version: '0.0.0' });
+  // Either generation of replay server (VIA_REPLAY_PROTOCOL): probe, fall back to the handshake.
+  const client = new Client({ name: 'via-bench-native', version: '0.0.0' }, { versionNegotiation: { mode: 'auto' } });
   await client.connect(new StreamableHTTPClientTransport(new URL(url)));
   try {
     return await fn(client);

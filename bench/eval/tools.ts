@@ -41,7 +41,7 @@ export async function nativeTools(env: EvalEnv): Promise<AgentTools> {
   const close = async (): Promise<void> => void (await Promise.all([...clients.values()].map((c) => c.close().catch(() => undefined))));
   try {
     for (const [server, url] of Object.entries(env.urls)) {
-      const client = new Client({ name: 'via-bench-eval', version: '0.0.0' });
+      const client = new Client({ name: 'via-bench-eval', version: '0.0.0' }, { versionNegotiation: { mode: 'auto' } });
       await client.connect(new StreamableHTTPClientTransport(new URL(url)));
       clients.set(server, client);
       for (const tool of (await client.listTools()).tools as ReplayTool[]) {
