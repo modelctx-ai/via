@@ -15,7 +15,10 @@ const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060
 
 /** A word that needs no quoting in any of the three shells (ASCII; see {@link isPlain} for the rest). */
 const PLAIN_ASCII = /^[A-Za-z0-9_./-][A-Za-z0-9_./:+=@-]*$/;
-const PLAIN_ASCII_WINDOWS = /^[A-Za-z0-9_./\\-][A-Za-z0-9_./\\:+=@-]*$/;
+// Windows also takes `\` anywhere and `~` after the first character: 8.3 short names
+// (`C:\Users\RUNNER~1\…`) are common in temp paths, and neither PowerShell nor cmd.exe gives a
+// `~` inside a word any meaning (a leading one can expand to the home directory in PowerShell).
+const PLAIN_ASCII_WINDOWS = /^[A-Za-z0-9_./\\-][A-Za-z0-9_./\\:+=@~-]*$/;
 const NON_ASCII = /[^\u0000-\u007f]/;
 /** Compiled on first use: Unicode property escapes are expensive to build and nearly every word is ASCII. */
 let plainUnicode: RegExp | undefined;
@@ -25,7 +28,7 @@ function isPlain(text: string, windows: boolean): boolean {
   if (!NON_ASCII.test(text)) return (windows ? PLAIN_ASCII_WINDOWS : PLAIN_ASCII).test(text);
   // Letters and digits of any script are ordinary word characters in every shell.
   plainUnicode ??= /^[\p{L}\p{N}_./-][\p{L}\p{N}_./:+=@-]*$/u;
-  plainUnicodeWindows ??= /^[\p{L}\p{N}_./\\-][\p{L}\p{N}_./\\:+=@-]*$/u;
+  plainUnicodeWindows ??= /^[\p{L}\p{N}_./\\-][\p{L}\p{N}_./\\:+=@~-]*$/u;
   return (windows ? plainUnicodeWindows : plainUnicode).test(text);
 }
 

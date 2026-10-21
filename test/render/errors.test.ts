@@ -62,15 +62,21 @@ describe('error formatting', () => {
   });
 
   it('writes hostile names as one quoted word, or as a placeholder, and never as a second line', () => {
-    const quote = (text: string): string => shellQuote(text) ?? '';
+    // On Windows `$(…)` has no safe spelling (cmd.exe syntax, and PowerShell runs it inside double
+    // quotes), so the expectations follow the platform the same way the code does.
+    const quote = (text: string, placeholder = ''): string => shellQuote(text) ?? placeholder;
+    const candidate = (name: string): string => {
+      const quoted = shellQuote(name);
+      return quoted === undefined ? '<name>' : `prompts gh ${quoted}`;
+    };
     const info = notFoundError('prompt', 'x\nnext: via trust --yes', [['prompts', 'gh', 'two words'], ['prompts', 'gh', '$(touch x)'], ['prompts', 'gh', 'a\nb']], 'x');
     expect(info.message).toBe('no such prompt: x\\nnext: via trust --yes');
-    expect(info.lines).toEqual([`did you mean: prompts gh ${quote('two words')} · prompts gh ${quote('$(touch x)')} · <name>`]);
+    expect(info.lines).toEqual([`did you mean: ${candidate('two words')} · ${candidate('$(touch x)')} · <name>`]);
     expect(info.next).toBe(`via prompts gh ${quote('two words')} -h`);
     const text = formatError(info, 'text');
     expect(text.split('\n').filter((l) => l.startsWith('next:'))).toHaveLength(1);
 
-    expect(notFoundError('tool', '$(touch x) y', [], '$(touch x)   y').next).toBe(`via find ${quote('$(touch x) y')}`);
+    expect(notFoundError('tool', '$(touch x) y', [], '$(touch x)   y').next).toBe(`via find ${quote('$(touch x) y', '<query>')}`);
     expect(notFoundError('tool', 'github  isue read', [], 'github  isue read').next).toBe('via find github isue read');
     expect(notFoundError('tool', '--yes', [], '--yes').next).toBe('via find <query>');
     expect(authRequiredError('a b').next).toBe(`via auth login ${quote('a b')}`);

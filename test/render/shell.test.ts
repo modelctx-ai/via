@@ -81,6 +81,9 @@ describe('shellQuote on POSIX', () => {
 describe('shellQuote on Windows', () => {
   it('leaves a path alone and double-quotes what both PowerShell and cmd.exe read the same way', () => {
     expect(shellQuote('C:\\Users\\Me\\x.json', 'win32')).toBe('C:\\Users\\Me\\x.json');
+    expect(shellQuote('C:\\Users\\RUNNER~1\\x.json', 'win32')).toBe('C:\\Users\\RUNNER~1\\x.json');
+    expect(shellQuote('~\\x.json', 'win32')).toBe('"~\\x.json"');
+    expect(shellQuote('/tmp/RUNNER~1', 'linux')).toBe("'/tmp/RUNNER~1'");
     expect(shellQuote('C:\\Users\\Me Too\\x.json', 'win32')).toBe('"C:\\Users\\Me Too\\x.json"');
     expect(shellQuote('rust mcp', 'win32')).toBe('"rust mcp"');
     expect(shellQuote("it's here", 'win32')).toBe('"it\'s here"');
@@ -143,8 +146,10 @@ describe('shellArg, shellWord and shellWords', () => {
 
   it('quote each word of a reference and give up on the whole reference when one word cannot be written', () => {
     expect(shellWords('github issue:read')).toBe('github issue:read');
-    expect(shellWords('github  $(x)', { placeholder: 'ref' })).toBe("github '$(x)'");
-    expect(shellWords(['prompts', 'github', 'review code'])).toBe("prompts github 'review code'");
+    expect(shellWords('github  $(x)', { placeholder: 'ref', platform: 'linux' })).toBe("github '$(x)'");
+    expect(shellWords('github  $(x)', { placeholder: 'ref', platform: 'win32' })).toBe('<ref>');
+    expect(shellWords(['prompts', 'github', 'review code'], { platform: 'linux' })).toBe("prompts github 'review code'");
+    expect(shellWords(['prompts', 'github', 'review code'], { platform: 'win32' })).toBe('prompts github "review code"');
     expect(shellWords(['prompts', 'github', 'a\nb'], { placeholder: 'ref' })).toBe('<ref>');
     expect(shellWords('  ', { placeholder: 'ref' })).toBe('<ref>');
     expect(shellWords('github -x', { positional: true })).toBe('<name>');
