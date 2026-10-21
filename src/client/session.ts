@@ -152,10 +152,12 @@ const RAW: StandardSchemaV1<unknown, unknown> = {
 };
 
 /**
- * The SDK's `callTool()` checks `structuredContent` against the tool's `outputSchema`. via shows a
- * result as the server sent it, as it did before the SDK upgrade, so this validator accepts everything.
+ * The SDK's `callTool()` checks the result against the tool's `outputSchema` and throws when
+ * `structuredContent` is missing, does not match, or the schema does not compile. via shows a result
+ * as the server sent it and only warns about a mismatch (arguments.md, "输出校验"; done in the CLI),
+ * so this provider hands the SDK no validator at all: with none, `callTool()` skips every check.
  */
-const LENIENT_VALIDATOR = { getValidator: () => (input: unknown) => ({ valid: true, data: input, errorMessage: undefined }) } as unknown as NonNullable<ClientOptions['jsonSchemaValidator']>;
+const LENIENT_VALIDATOR = { getValidator: () => undefined } as unknown as NonNullable<ClientOptions['jsonSchemaValidator']>;
 
 /**
  * A lazily connected session to one server. Operations are limited to `ServerConfig.concurrency`

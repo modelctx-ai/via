@@ -62,6 +62,13 @@ describe.each(['legacy', 'modern'] as const)('%s server', (generation) => {
       expect((await s.callTool('structured', undefined)).structuredContent).toEqual({ items: [{ id: 1 }, { id: 2 }] });
     });
 
+    it('returns a result that ignores its outputSchema as the server sent it (the CLI only warns)', async () => {
+      const s = await connect();
+      await s.listTools();
+      expect(textOf(await s.callTool('typed_text', undefined))).toBe('count: 3');
+      expect((await s.callTool('typed_wrong', undefined)).structuredContent).toEqual({ count: 'three' });
+    });
+
     it('maps a failure of the server to exit 6 with its text', async () => {
       const s = await connect();
       await s.listTools();

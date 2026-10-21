@@ -9,6 +9,18 @@ export const TOOLS = [
   { name: 'echo', description: 'Echo a message', inputSchema: object({ message: { type: 'string' } }, ['message']) },
   { name: 'fail', description: 'Always returns isError', inputSchema: object() },
   { name: 'structured', description: 'Returns structuredContent', inputSchema: object() },
+  {
+    name: 'typed_text',
+    description: 'Declares an outputSchema but answers with text only',
+    inputSchema: object(),
+    outputSchema: { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] },
+  },
+  {
+    name: 'typed_wrong',
+    description: 'Declares an outputSchema and answers with structuredContent that breaks it',
+    inputSchema: object(),
+    outputSchema: { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] },
+  },
   { name: 'slow', description: 'Answers after ms milliseconds', inputSchema: object({ ms: { type: 'number' } }) },
   { name: 'read_env', description: 'Reads a variable from the server environment', inputSchema: object({ name: { type: 'string' } }, ['name']) },
   { name: 'busy', description: 'Holds a slot for 100 ms, tracking concurrency', inputSchema: object() },
@@ -54,6 +66,10 @@ export function createMockServer({ pageSize = 0, state = createState(), flavor =
             content: [{ type: 'text', text: '{"items":[{"id":1},{"id":2}]}' }],
             structuredContent: { items: [{ id: 1 }, { id: 2 }] },
           };
+        case 'typed_text':
+          return text('count: 3');
+        case 'typed_wrong':
+          return { content: [{ type: 'text', text: '{"count":"three"}' }], structuredContent: { count: 'three' } };
         case 'slow':
           await sleep(Number(args.ms ?? 1000));
           return text('done');
