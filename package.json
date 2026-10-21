@@ -1,8 +1,16 @@
 {
   "name": "@modelctx/via",
-  "version": "0.0.0",
+  "version": "0.3.0",
   "description": "Call MCP servers as `via <provider> <resource>:<verb>` with on-demand discovery.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modelctx-ai/via.git"
+  },
+  "homepage": "https://github.com/modelctx-ai/via#readme",
+  "bugs": {
+    "url": "https://github.com/modelctx-ai/via/issues"
+  },
   "type": "module",
   "bin": {
     "via": "dist/via.js"
@@ -19,6 +27,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "prepack": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

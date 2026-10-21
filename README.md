@@ -6,7 +6,7 @@ Turn the tools of any MCP server into a command line that agents discover and ca
 
 **MCP for providers, CLI for consumers.** Agent frameworks stop mounting MCP servers and stop loading hundreds of tool schemas into the context window. When an agent needs a tool, it uses `via` in the shell to browse, read the usage, and call it. via handles authentication and output formatting for every server the same way.
 
-> Status: roadmap 0.1–0.3 is implemented (direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, single-file executables), but via is not on npm yet, so you need to [install from source](#install). The version is still `0.0.0`; commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior.
+> Status: 0.3.0 is released (`npm install -g @modelctx/via`). Roadmap 0.1–0.3 is in this version: direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, and single-file executables. Commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior.
 >
 > The documentation under `docs/` is written in Chinese.
 
@@ -66,15 +66,13 @@ via linear issue:create --team ENG --title "$title" --description "From acme/api
 Requires Node.js 20 or later (22 recommended).
 
 ```bash
-git clone https://github.com/modelctx-ai/via.git
-cd via
-npm ci
-npm run build
-npm link          # puts via on your PATH
+npm install -g @modelctx/via
 via --version
 ```
 
-Once released, via will be available through `npm install -g @modelctx/via` and as single-file executables on GitHub Releases that do not need Node.js. Platform notes, including Windows and the single-file builds, are in the [getting-started guide](docs/guides/getting-started.md#1-安装).
+Single-file executables that do not need Node.js are attached to the [GitHub Release](https://github.com/modelctx-ai/via/releases/latest). Platform notes, including Windows and those builds, are in the [getting-started guide](docs/guides/getting-started.md#1-安装).
+
+To work on via itself: `git clone https://github.com/modelctx-ai/via.git && cd via && npm ci && npm run build && npm link`.
 
 ## Getting started
 
