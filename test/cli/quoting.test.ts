@@ -118,7 +118,7 @@ describe('names that servers supply', () => {
     },
   ];
 
-  it('are normalised in the listings, so a name cannot carry shell syntax into a suggestion', async () => {
+  it.skipIf(!posix)('are normalised in the listings, so a name cannot carry shell syntax into a suggestion', async () => {
     const { srv, sb } = await setup();
     srv.state.tools.push(...(hostileTools as never[]));
     const root = await sb.via(['gh']);

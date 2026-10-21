@@ -169,7 +169,8 @@ describe('via serve', () => {
 });
 
 describe('hints returned by via serve (output.md, "可粘贴的命令行")', () => {
-  it('quote what the agent sent in the next: command, as the CLI does', async () => {
+  // the expected hints are written the way a POSIX shell needs them (Windows quoting: test/render/shell.test.ts)
+  it.skipIf(process.platform === 'win32')('quote what the agent sent in the next: command, as the CLI does', async () => {
     const { client } = await setup();
     const bad = await call(client, 'via_browse', { path: 'gh $(touch' });
     expect(bad.isError).toBe(true);
