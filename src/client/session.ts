@@ -10,6 +10,7 @@ import { resolveConnection, type ResolvedConnection } from './credentials';
 import { ClientError, internal, mapError, noFeature, notFoundServer, resourceNotFound, timedOut, untrustedServer, type Phase } from './errors';
 import { prepareStdioCommand } from '../platform/command';
 import { isModernProtocolVersion } from '../protocol-versions';
+import { proxyFetch } from '../proxy';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
 import type { ViaOAuthProvider } from './oauth/provider';
@@ -61,6 +62,12 @@ export interface SessionOptions {
    * remembers it). Only a stdio server is asked: see `McpSession.open`.
    */
   knownProtocol?: (server: ServerConfig) => ProtocolInfo | undefined;
+  /**
+   * The environment whose proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`) this session's HTTP
+   * requests follow (config.md, "代理"): the CLI's in-process, the daemon's own in the daemon. Default: none,
+   * so a library caller is never surprised by a proxy it did not ask for.
+   */
+  env?: Readonly<Record<string, string | undefined>>;
   /** Base of relative `roots` entries and the meaning of `~`: the CLI's working directory and home (config.md, `roots`). */
   roots?: { cwd: string; home: string };
 }
@@ -504,7 +511,9 @@ export class McpSession {
           throw internal(`invalid url for ${server.provider}: not a URL`);
         }
         const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/client');
-        const http = new StreamableHTTPClientTransport(url, { requestInit: { headers: resolved.headers }, ...(authFetch ? { fetch: authFetch } : {}) });
+        // Through the proxy the environment asks for, if any; the OAuth fetch (made in `oauthFetch`) wraps the same one.
+        const send = authFetch ?? this.proxied();
+        const http = new StreamableHTTPClientTransport(url, { requestInit: { headers: resolved.headers }, ...(send ? { fetch: send } : {}) });
         terminate = () => http.terminateSession();
         sessionId = () => http.sessionId;
         transport = http;
@@ -574,6 +583,7 @@ export class McpSession {
       const track = (value: string): void => this.resolver.track?.(value);
       this.oauth = createCallProvider(this.server, this.options.oauthStore ?? createOAuthStore(), {
         track,
+        ...(this.proxied() ? { fetch: this.proxied()! } : {}),
         ...(this.options.now ? { now: this.options.now } : {}),
         onSaveFailed: (reason) => {
           if (this.warnedSave) return;
@@ -585,7 +595,12 @@ export class McpSession {
       });
     }
     await this.oauth.requireLogin();
-    return this.oauth.createFetch();
+    return this.oauth.createFetch(this.proxied());
+  }
+
+  /** A `fetch` through the configured proxy, or undefined when the environment names none. */
+  private proxied(): FetchLike | undefined {
+    return this.options.env ? proxyFetch(this.options.env, { track: (value) => this.resolver.track?.(value) }) : undefined;
   }
 
   private warn(message: string): void {

@@ -37,6 +37,11 @@ export interface DoctorInput {
   catalogWarnings?: readonly CatalogWarning[];
   /** Home directory; paths below it are shown as `~/…`. */
   home?: string;
+  /**
+   * The effective HTTP proxy, one line per part, userinfo already hidden (`describeProxy`); empty when none
+   * is set. Absent: not reported (config.md, "代理").
+   */
+  proxy?: readonly string[];
 }
 
 export interface DoctorOutput {
@@ -161,6 +166,13 @@ function renderServers(rows: readonly Row[], home: string | undefined, pins: Rea
     }
   }
   return lines;
+}
+
+// proxy --------------------------------------------------------------------------------------
+
+function renderProxy(lines: readonly string[]): string[] {
+  if (lines.length === 0) return ['proxy     none'];
+  return lines.map((line, i) => `${i === 0 ? 'proxy     ' : '          '}${line}`);
 }
 
 // frameworks ---------------------------------------------------------------------------------
@@ -303,7 +315,7 @@ export function renderDoctor(input: DoctorInput): DoctorOutput {
   const rows = collectRows(input);
   const config = renderConfigProblems(input);
   const pins = new Map(input.config.servers.flatMap((s) => (s.protocolVersion !== undefined ? [[s.name, s.protocolVersion] as const] : [])));
-  const sections = [renderServers(rows, input.home, pins), renderFrameworks(input), renderSecrets(input.config, input.home)];
+  const sections = [renderServers(rows, input.home, pins), ...(input.proxy ? [renderProxy(input.proxy)] : []), renderFrameworks(input), renderSecrets(input.config, input.home)];
   if (config.length > 0) sections.push(config);
 
   let exitCode: number = ExitCode.Ok;

@@ -137,6 +137,10 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
   const { server } = ctx;
   const provider = server.provider;
   const loginNext = `via auth login ${provider}`;
+  // A proxy variable that cannot be used (config.md, "代理"): the environment's mistake, not the server's.
+  if (err instanceof Error && err.name === 'ProxyConfigError') {
+    return new ClientError({ exitCode: ExitCode.Usage, message: `cannot reach ${provider}: ${clean(err.message, ctx)}`, next: 'fix the proxy variable, or unset it (via doctor shows what is in effect)' });
+  }
   if (ctx.phase === 'connect' && server.protocolVersion !== undefined && refusesVersion(err)) return pinRefused(err, server.protocolVersion, ctx);
 
   // OAuth layer (matched by name: it lives next to the lazily loaded SDK).

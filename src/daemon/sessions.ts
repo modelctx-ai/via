@@ -316,6 +316,8 @@ export class SessionManager {
     entry.session = new McpSession(server, this.options.resolver, {
       onToolsChanged: () => this.toolsChanged(entry),
       knownProtocol: () => this.cache.read(entry.original)?.protocol,
+      // Proxy variables come from the daemon's own environment, like `env:` credentials (config.md, "代理").
+      env: this.options.env,
       now: this.options.now,
       ...(this.oauthStore ? { oauthStore: this.oauthStore } : {}),
       roots: { cwd: target.cwd, home: this.options.home },

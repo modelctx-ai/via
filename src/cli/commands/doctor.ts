@@ -4,6 +4,7 @@ import { shellWord } from '../../render/shell';
 import { ClientError } from '../../client/errors';
 import type { App } from '../app';
 import { buildProviderTable, statusOf } from '../directory';
+import { describeProxy, proxySettings } from '../../proxy';
 import { renderDoctor, type ServerProbe } from '../doctor';
 
 export async function doctorCommand(app: App): Promise<number> {
@@ -31,7 +32,7 @@ export async function doctorCommand(app: App): Promise<number> {
     }),
   );
 
-  const out = renderDoctor({ config, frameworks: BUNDLED_FRAMEWORKS, probes, catalogWarnings: table.warnings, home: app.io.home });
+  const out = renderDoctor({ config, frameworks: BUNDLED_FRAMEWORKS, probes, catalogWarnings: table.warnings, home: app.io.home, proxy: describeProxy(proxySettings(app.io.env)) });
   app.out(`${out.text}\n`);
   return out.exitCode;
 }

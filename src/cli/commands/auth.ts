@@ -1,9 +1,11 @@
 // `via auth login|status|logout` (auth.md, "OAuth"). Login is the only place an authorization
 // happens; calls never start one. This file is the terminal side: it resolves the provider,
 // wires the person-facing I/O into the flow in client/oauth/, and prints the outcome.
+import type { FetchLike } from '@modelcontextprotocol/client';
 import type { LoginIO, LoginStatus, LoginTarget } from '../../client/oauth';
 import type { ServerConfig } from '../../config';
 import { userConfigHint } from '../../config/paths';
+import { proxyFetch } from '../../proxy';
 import { ExitCode } from '../../render/exit-codes';
 import { shellArg } from '../../render/shell';
 import { alignRows } from '../../render/width';
@@ -61,6 +63,12 @@ function loginFailure(error: unknown): unknown {
   return error;
 }
 
+/** OAuth requests go through the proxy the environment asks for (config.md, "代理"); none set: the plain `fetch`. */
+function proxied(app: App, resolver: { track?: (value: string) => void }): { fetch?: FetchLike } {
+  const send = proxyFetch(app.io.env, { track: (value) => resolver.track?.(value) });
+  return send ? { fetch: send } : {};
+}
+
 async function login(app: App, argv: readonly string[]): Promise<number> {
   const { flags, positionals } = parseLocal('auth login', argv, [{ name: 'manual', value: false }]);
   if (positionals.length !== 1) throw usageFailure(USAGE, 'via auth -h');
@@ -86,6 +94,7 @@ async function login(app: App, argv: readonly string[]): Promise<number> {
       io,
       track: (value) => resolver.track?.(value),
       now: app.io.now,
+      ...proxied(app, resolver),
     });
   } catch (error) {
     throw loginFailure(error);
@@ -186,7 +195,7 @@ async function logout(app: App, argv: readonly string[]): Promise<number> {
   const { performLogout } = await import('../../client/oauth');
   let result: Awaited<ReturnType<typeof performLogout>>;
   try {
-    result = await performLogout({ target, store: await app.oauthStore() });
+    result = await performLogout({ target, store: await app.oauthStore(), ...proxied(app, await app.resolver()) });
   } catch (error) {
     const reason = error instanceof Error ? error.message.split('\n')[0] : 'unknown error';
     throw fail(ExitCode.Internal, `cannot delete the saved login of ${entry.name}: ${reason}`, 'via doctor');

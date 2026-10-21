@@ -105,10 +105,11 @@ export class InProcessBackend implements Backend {
   /** The client that talks to servers, made on first use: browsing a cached catalog never needs it. */
   private client(): Promise<McpClient> {
     this.clientLoading ??= import('../client').then(({ InProcessClient }) => {
-      const { servers, resolver, now, oauthStore, onWarning, roots, cache } = this.options;
+      const { servers, resolver, now, oauthStore, onWarning, roots, cache, env } = this.options;
       return (this.loaded = new InProcessClient(servers, resolver, {
         now,
         knownProtocol: (server) => cache.read(server)?.protocol,
+        env,
         ...(oauthStore ? { oauthStore } : {}),
         ...(onWarning ? { onWarning } : {}),
         ...(roots ? { roots } : {}),

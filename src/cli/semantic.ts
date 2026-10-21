@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { Catalog } from '../catalog';
 import { semanticScores, type SemanticResult } from '../catalog/semantic';
 import type { SemanticSearchConfig } from '../config';
+import { proxyFetch } from '../proxy';
 import type { App } from './app';
 
 /** Authentication headers of the embedding endpoint; credential references are resolved here, in memory. */
@@ -17,6 +18,12 @@ async function authHeaders(app: App, config: SemanticSearchConfig): Promise<Reco
   const headers: Record<string, string> = {};
   for (const [name, ref] of Object.entries(auth.headers)) headers[name.toLowerCase()] = await resolver.resolve(ref, config.origin);
   return headers;
+}
+
+/** The embedding request goes through the proxy the environment asks for (config.md, "代理"); none set: the plain `fetch`. */
+function proxied(app: App): { fetch?: typeof fetch } {
+  const send = proxyFetch(app.io.env);
+  return send ? { fetch: send as typeof fetch } : {};
 }
 
 /** Embedding scores for `query` against every tool of the catalog; see `semanticScores` for the failure contract. */
@@ -31,6 +38,6 @@ export function semanticFind(app: App, config: SemanticSearchConfig, catalog: Ca
       timeoutMs: config.timeout * 1000,
       indexTimeoutMs: config.indexTimeout * 1000,
     },
-    { headers: () => authHeaders(app, config), cacheDir: join(app.cacheDir, 'embeddings') },
+    { headers: () => authHeaders(app, config), cacheDir: join(app.cacheDir, 'embeddings'), ...proxied(app) },
   );
 }

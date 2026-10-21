@@ -7,6 +7,7 @@
 | 用途 | 包 |
 | --- | --- |
 | MCP client（stdio、Streamable HTTP、OAuth） | `@modelcontextprotocol/client`（官方 TypeScript SDK v2，client 端自带 OAuth 流程支持；是目前唯一支持 `2026-07-28` 无状态协议的官方实现，见下「MCP SDK」） |
+| 出站 HTTP 代理 | `undici` 的 `ProxyAgent`（仅在设置了代理变量时按需加载；锁在 7.x：Node 内置的 `fetch` 带的 undici 版本拒绝 8.x 的 dispatcher） |
 | `via serve` 的 MCP server | `@modelcontextprotocol/server`（同一代 SDK 的 server 端） |
 | 固定子命令解析 | 全局选项可以出现在任何位置（包括工具参数之间），0.1 用 `cli/options.ts` 里的小解析器先取走它们，不引入 `commander`；工具参数由 schema 驱动的自定义解析器处理 |
 | schema 校验 | `ajv` |
