@@ -14,7 +14,7 @@ import { run } from '../../src/cli/run';
 import { pathContext, userCacheDir } from '../../src/config/paths';
 import { daemonPaths, type DaemonPaths } from '../../src/daemon/paths';
 import type { DaemonStatus } from '../../src/protocol';
-import { makeSandbox, SYSTEM_ENV, useCleanup, type CliResult, type Sandbox } from '../cli/helpers';
+import { makeSandbox, removeSandbox, SYSTEM_ENV, useCleanup, type CliResult, type Sandbox } from '../cli/helpers';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const recordPid = pathToFileURL(fileURLToPath(new URL('./record-pid.mjs', import.meta.url))).href;
@@ -207,7 +207,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
     try {
       await stop();
     } finally {
-      rmSync(runtime, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      await removeSandbox(runtime);
     }
   });
   return {

@@ -151,32 +151,44 @@ export function useCleanup(fn: () => Promise<void> | void): void {
 }
 
 /**
- * Remove a sandbox directory. On Windows a directory that is some process's working directory
- * cannot be removed (EBUSY); the error then lists the processes started in the last two minutes,
- * so the one that was left running can be named instead of guessed.
+ * Remove a sandbox directory, retrying while Windows still reports it busy: a directory that a
+ * process has only just left (its working directory, or a server killed a moment ago) is briefly
+ * locked. Node's own `maxRetries` does not cover this: `rmSync` retries only the top directory and
+ * only for "not empty", and throws an EBUSY from an entry inside it at once. If the directory is
+ * still busy at the deadline, the error lists the processes started in the last two minutes, so
+ * the one left running can be named instead of guessed.
  */
-function removeSandbox(root: string): void {
-  try {
-    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-  } catch (error) {
-    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EBUSY') throw error;
-    let processes: string;
+export async function removeSandbox(dir: string, deadlineMs = 10_000): Promise<void> {
+  const deadline = Date.now() + deadlineMs;
+  for (;;) {
     try {
-      processes = execFileSync(
-        'powershell.exe',
-        ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process | Where-Object { $_.CreationDate -gt (Get-Date).AddMinutes(-2) } | ForEach-Object { "$($_.ProcessId) parent=$($_.ParentProcessId) $($_.Name) $($_.CommandLine)" }'],
-        { encoding: 'utf8', timeout: 15_000 },
-      );
-    } catch (listing) {
-      processes = `(could not list processes: ${(listing as Error).message})`;
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EBUSY' && code !== 'EPERM' && code !== 'ENOTEMPTY') throw error;
+      if (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      if (process.platform !== 'win32') throw error;
+      let processes: string;
+      try {
+        processes = execFileSync(
+          'powershell.exe',
+          ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process | Where-Object { $_.CreationDate -gt (Get-Date).AddMinutes(-2) } | ForEach-Object { "$($_.ProcessId) parent=$($_.ParentProcessId) $($_.Name) $($_.CommandLine)" }'],
+          { encoding: 'utf8', timeout: 15_000 },
+        );
+      } catch (listing) {
+        processes = `(could not list processes: ${(listing as Error).message})`;
+      }
+      throw new Error(`${(error as Error).message}\nprocesses started in the last two minutes:\n${processes}`, { cause: error });
     }
-    throw new Error(`${(error as Error).message}\nprocesses started in the last two minutes:\n${processes}`, { cause: error });
   }
 }
 
 export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN }): Sandbox {
   const root = mkdtempSync(join(tmpdir(), 'via-cli-'));
-  // Retries: on Windows a directory that a process only just left (or antivirus is scanning) is briefly busy.
   cleanups.push(() => removeSandbox(root));
   const home = join(root, 'home');
   const project = join(root, 'project');
