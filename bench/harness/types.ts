@@ -26,7 +26,7 @@ export interface CannedCall {
   isError?: boolean;
 }
 
-/** One command line of a scripted session. The first word is the program (`via` or `mcp2cli`). */
+/** One command line of a scripted session. The first word is the program (`via`, `mcp2cli` or `mcpc`). */
 export interface Step {
   run: string;
   /** Expected exit code; 0 when absent. */
@@ -67,6 +67,8 @@ export interface Task {
   calls: CannedCall[];
   via: Step[];
   mcp2cli?: Step[];
+  /** Includes the `mcpc connect` commands: a session must exist before the first call. */
+  mcpc?: Step[];
   /** Success criteria for the agent evaluation; the token benchmark does not read them. */
   success?: Success;
 }
@@ -77,4 +79,5 @@ export interface Suite {
   mounted: string[];
   tasks: string[];
   mcp2cli: { skill: string; version: string };
+  mcpc: { skill: string; version: string };
 }

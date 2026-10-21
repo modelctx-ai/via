@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadSuite } from '../harness/load';
-import { makeRunners, probeMcp2cli, viaVersion } from '../harness/runners';
+import { makeRunners, probeMcp2cli, probeMcpc, viaVersion } from '../harness/runners';
 import { summarize } from './aggregate';
 import { createAnthropicClient, DEFAULT_MODEL } from './anthropic';
 import { fakeModelFactory } from './fake';
@@ -26,6 +26,7 @@ export interface EvalArgs {
   fake: boolean;
   via: string;
   mcp2cli: string | false;
+  mcpc: string | false;
   help: boolean;
 }
 
@@ -33,7 +34,7 @@ export const USAGE = `usage: npm run bench:eval -- [options]
 
   --trials <n>         runs per task and condition (default 3)
   --task <text>        only tasks whose id contains the text (repeatable)
-  --condition <name>   native, via or mcp2cli (repeatable or comma-separated; default all)
+  --condition <name>   native, via, mcp2cli or mcpc (repeatable or comma-separated; default all)
   --model <id>         model to evaluate (default ${DEFAULT_MODEL})
   --max-turns <n>      model turns per run (default 25)
   --max-tokens <n>     output token limit of one reply (default 16000)
@@ -45,6 +46,8 @@ export const USAGE = `usage: npm run bench:eval -- [options]
   --via <path>         the built CLI (default dist/via.js)
   --mcp2cli <path>     mcp2cli executable (default: \`mcp2cli\` on PATH)
   --no-mcp2cli         leave out the mcp2cli condition
+  --mcpc <path>        mcpc executable (default: \`mcpc\` on PATH)
+  --no-mcpc            leave out the mcpc condition
 
 Needs ANTHROPIC_API_KEY (and honors ANTHROPIC_BASE_URL) unless --fake-model is given.
 `;
@@ -62,6 +65,7 @@ export function parseArgs(argv: string[]): EvalArgs {
     fake: false,
     via: 'dist/via.js',
     mcp2cli: 'mcp2cli',
+    mcpc: 'mcpc',
     help: false,
   };
   const value = (i: number): string => {
@@ -80,7 +84,7 @@ export function parseArgs(argv: string[]): EvalArgs {
     else if (arg === '--task') args.tasks.push(value(i++));
     else if (arg === '--condition') {
       for (const name of value(i++).split(',')) {
-        if (!(CONDITIONS as readonly string[]).includes(name)) throw new Error(`unknown condition: ${name} (native, via, mcp2cli)`);
+        if (!(CONDITIONS as readonly string[]).includes(name)) throw new Error(`unknown condition: ${name} (native, via, mcp2cli, mcpc)`);
         if (!args.conditions.includes(name as Condition)) args.conditions.push(name as Condition);
       }
     } else if (arg === '--model') args.model = value(i++);
@@ -97,6 +101,8 @@ export function parseArgs(argv: string[]): EvalArgs {
     else if (arg === '--via') args.via = value(i++);
     else if (arg === '--mcp2cli') args.mcp2cli = value(i++);
     else if (arg === '--no-mcp2cli') args.mcp2cli = false;
+    else if (arg === '--mcpc') args.mcpc = value(i++);
+    else if (arg === '--no-mcpc') args.mcpc = false;
     else if (arg === '--help' || arg === '-h') args.help = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
@@ -161,6 +167,25 @@ export async function main(argv: string[], io: { stdout: (s: string) => void; st
       io.stderr(`mcp2cli condition skipped: ${mcp2cliSkipped}\n`);
     }
   }
+  let mcpc: { bin: string; version: string } | undefined;
+  let mcpcSkipped: string | undefined;
+  if (conditions.includes('mcpc')) {
+    if (args.mcpc === false) {
+      mcpcSkipped = 'disabled with --no-mcpc';
+    } else {
+      const probe = await probeMcpc(args.mcpc);
+      if ('version' in probe) {
+        mcpc = { bin: args.mcpc, version: probe.version };
+        if (probe.version !== loaded.suite.mcpc.version) io.stderr(`note: mcpc ${probe.version} is installed, the vendored skill is from ${loaded.suite.mcpc.version}\n`);
+      } else {
+        mcpcSkipped = probe.skipped;
+      }
+    }
+    if (!mcpc) {
+      conditions = conditions.filter((c) => c !== 'mcpc');
+      io.stderr(`mcpc condition skipped: ${mcpcSkipped}\n`);
+    }
+  }
   if (conditions.length === 0) throw new Error('no condition left to run');
 
   let model: ModelFactory;
@@ -182,7 +207,7 @@ export async function main(argv: string[], io: { stdout: (s: string) => void; st
     maxTurns: args.maxTurns,
     maxTokens: args.maxTokens,
     concurrency: args.concurrency,
-    runners: makeRunners({ viaBin, ...(mcp2cli ? { mcp2cli } : {}) }),
+    runners: makeRunners({ viaBin, ...(mcp2cli ? { mcp2cli } : {}), ...(mcpc ? { mcpc } : {}) }),
     model,
     log: (line) => io.stderr(`${line}\n`),
   });
@@ -203,8 +228,10 @@ export async function main(argv: string[], io: { stdout: (s: string) => void; st
     conditions,
     ...(mcp2cli ? { mcp2cliVersion: mcp2cli.version } : {}),
     ...(mcp2cliSkipped ? { mcp2cliSkipped } : {}),
+    ...(mcpc ? { mcpcVersion: mcpc.version } : {}),
+    ...(mcpcSkipped ? { mcpcSkipped } : {}),
   };
-  const summary = summarize(runs, { conditions, taskOrder: meta.tasks, fake: args.fake, ...(mcp2cliSkipped ? { mcp2cliSkipped } : {}) });
+  const summary = summarize(runs, { conditions, taskOrder: meta.tasks, fake: args.fake, ...(mcp2cliSkipped ? { mcp2cliSkipped } : {}), ...(mcpcSkipped ? { mcpcSkipped } : {}) });
   io.stdout(formatConsole(runs, summary, meta));
 
   if (out !== undefined) {

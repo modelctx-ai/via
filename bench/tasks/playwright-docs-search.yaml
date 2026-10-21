@@ -40,6 +40,15 @@ mcp2cli:
   - run: mcp2cli @playwright browser-click --help
   - run: mcp2cli @playwright browser-click --element "Rate limits result" --ref e73
 
+mcpc:
+  - run: mcpc connect ./mcp.json:playwright @playwright
+  - run: mcpc @playwright tools-get browser_navigate
+  - run: mcpc @playwright tools-call browser_navigate url:=https://docs.acme.test/
+  - run: mcpc @playwright tools-get browser_type
+  - run: mcpc @playwright tools-call browser_type element:="Search docs" ref:=e8 text:="rate limit" submit:=true
+  - run: mcpc @playwright tools-get browser_click
+  - run: mcpc @playwright tools-call browser_click element:="Rate limits result" ref:=e73
+
 # Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
 success:
   require:

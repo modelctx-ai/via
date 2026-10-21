@@ -1,6 +1,7 @@
 // Aggregating run records per condition and per task, and deciding roadmap gate 1:
 // the task success rate with via is not lower than with native MCP, and not lower than with
-// mcp2cli (docs/roadmap.md).
+// mcp2cli (docs/roadmap.md). mcpc is a further control: its comparison with via is reported next
+// to the gate but is not part of it.
 import { CONDITIONS, type Condition, type RunRecord } from './types';
 
 export const mean = (xs: readonly number[]): number => (xs.length === 0 ? 0 : xs.reduce((n, x) => n + x, 0) / xs.length);
@@ -84,6 +85,8 @@ export interface Summary {
   conditions: ConditionSummary[];
   tasks: TaskSummary[];
   gate: Gate;
+  /** Comparisons the gate does not ask for (via against mcpc); same shape, never decide the gate. */
+  extra: Comparison[];
 }
 
 export function summarizeCondition(condition: Condition, runs: readonly RunRecord[]): ConditionSummary {
@@ -107,6 +110,16 @@ export function summarizeCondition(condition: Condition, runs: readonly RunRecor
   };
 }
 
+function compare(via: ConditionSummary, other: ConditionSummary): Comparison {
+  return {
+    versus: other.condition,
+    via: { successes: via.successes, runs: via.runs, rate: via.rate },
+    other: { successes: other.successes, runs: other.runs, rate: other.rate },
+    holds: via.rate >= other.rate,
+    withinNoise: via.interval[0] <= other.interval[1] && other.interval[0] <= via.interval[1],
+  };
+}
+
 export function gateOf(conditions: readonly ConditionSummary[], options: { fake: boolean; mcp2cliSkipped?: string }): Gate {
   const byName = new Map(conditions.map((c) => [c.condition, c] as const));
   const via = byName.get('via');
@@ -127,13 +140,7 @@ export function gateOf(conditions: readonly ConditionSummary[], options: { fake:
       );
       continue;
     }
-    comparisons.push({
-      versus,
-      via: { successes: via.successes, runs: via.runs, rate: via.rate },
-      other: { successes: other.successes, runs: other.runs, rate: other.rate },
-      holds: via.rate >= other.rate,
-      withinNoise: via.interval[0] <= other.interval[1] && other.interval[0] <= via.interval[1],
-    });
+    comparisons.push(compare(via, other));
   }
   const holds = comparisons.length > 0 && comparisons.every((c) => c.holds);
   if (comparisons.some((c) => c.withinNoise)) notes.push('some intervals overlap: at this sample size a difference in either direction is within noise; raise --trials for a firmer answer');
@@ -141,7 +148,7 @@ export function gateOf(conditions: readonly ConditionSummary[], options: { fake:
   return { evaluated: !options.fake && comparisons.length > 0, complete, holds, comparisons, notes };
 }
 
-export function summarize(runs: readonly RunRecord[], options: { conditions: readonly Condition[]; taskOrder: readonly string[]; fake: boolean; mcp2cliSkipped?: string }): Summary {
+export function summarize(runs: readonly RunRecord[], options: { conditions: readonly Condition[]; taskOrder: readonly string[]; fake: boolean; mcp2cliSkipped?: string; mcpcSkipped?: string }): Summary {
   const conditions = options.conditions.map((c) => summarizeCondition(c, runs));
   const tasks: TaskSummary[] = options.taskOrder
     .filter((task) => runs.some((r) => r.task === task))
@@ -153,5 +160,8 @@ export function summarize(runs: readonly RunRecord[], options: { conditions: rea
       }
       return { task, cells };
     });
-  return { conditions, tasks, gate: gateOf(conditions, options) };
+  const via = conditions.find((c) => c.condition === 'via');
+  const mcpc = conditions.find((c) => c.condition === 'mcpc');
+  const extra = !options.fake && via && via.runs > 0 && mcpc && mcpc.runs > 0 ? [compare(via, mcpc)] : [];
+  return { conditions, tasks, gate: gateOf(conditions, options), extra };
 }

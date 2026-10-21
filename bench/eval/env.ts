@@ -29,6 +29,7 @@ export async function createEnv(options: { loaded: LoadedSuite; task: Task; cond
   const closers: Array<() => Promise<void>> = [];
   const urls: Record<string, string> = {};
   let sandbox: Sandbox | undefined;
+  let runners: Runners | undefined;
   try {
     for (const name of loaded.suite.mounted) {
       const log: ReplayLogEntry[] = [];
@@ -38,13 +39,16 @@ export async function createEnv(options: { loaded: LoadedSuite; task: Task; cond
       closers.push(running.close);
       urls[name] = running.url;
     }
-    let runners: Runners | undefined;
     if (condition !== 'native') {
       sandbox = createSandbox(urls);
       runners = await options.runners(sandbox);
       if (condition === 'mcp2cli') {
         if (!runners.mcp2cli) throw new Error('the mcp2cli condition needs an mcp2cli runner');
         await runners.mcp2cli.prepare(urls);
+      }
+      if (condition === 'mcpc') {
+        if (!runners.mcpc) throw new Error('the mcpc condition needs an mcpc runner');
+        await runners.mcpc.prepare(urls);
       }
     }
     const owned = sandbox;
@@ -55,11 +59,14 @@ export async function createEnv(options: { loaded: LoadedSuite; task: Task; cond
       calls: () => [...logs].flatMap(([server, log]) => log.map((entry) => ({ server, tool: entry.tool, args: entry.args, matched: entry.matched }))),
       unmatched: () => [...logs.values()].reduce((n, log) => n + log.filter((entry) => !entry.matched).length, 0),
       close: async () => {
+        // mcpc sessions are background processes: close them before the sandbox that holds their sockets goes away.
+        await runners?.mcpc?.cleanup().catch(() => undefined);
         owned?.cleanup();
         await Promise.all(closers.map((close) => close()));
       },
     };
   } catch (error) {
+    await runners?.mcpc?.cleanup().catch(() => undefined);
     sandbox?.cleanup();
     await Promise.all(closers.map((close) => close()));
     throw error;

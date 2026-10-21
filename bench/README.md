@@ -1,22 +1,22 @@
 # bench：token 基准的任务集与回放 server
 
-比较同一组任务在三种方式下放进模型上下文的 token：原生 MCP 注入、`via`、[mcp2cli](https://github.com/knowsuchagency/mcp2cli)。方法与口径见 [测试与评测](../docs/development/testing.md#token-基准)，0.1 的结果在 [results/0.1.md](results/0.1.md)。
+比较同一组任务在四种方式下放进模型上下文的 token：原生 MCP 注入、`via`、[mcp2cli](https://github.com/knowsuchagency/mcp2cli)、[mcpc](https://github.com/apify/mcpc)。方法与口径见 [测试与评测](../docs/development/testing.md#token-基准)；结果在 [results/](results/)：0.1（原生、via、mcp2cli）是 [0.1.md](results/0.1.md)，0.4 加上 mcpc 一列后是 [0.4-tokens.md](results/0.4-tokens.md)。
 
-任务文件与回放 server 是通用的，不绑定基准：[agent 评测](#agent-评测)（让模型在原生 MCP、mcp2cli、via 三种环境里完成同一批任务）直接复用它们。
+任务文件与回放 server 是通用的，不绑定基准：[agent 评测](#agent-评测)（让模型在原生 MCP、mcp2cli、mcpc、via 四种环境里完成同一批任务）直接复用它们。
 
 ## 目录
 
 | 路径 | 内容 |
 | --- | --- |
-| `suite.yaml` | 挂载哪些 server、跑哪些任务、mcp2cli 对照的版本 |
-| `tasks/<id>.yaml` | 一个任务：目标、原生调用序列、回放用的返回值、via 与 mcp2cli 的命令序列 |
+| `suite.yaml` | 挂载哪些 server、跑哪些任务、mcp2cli 与 mcpc 对照的版本 |
+| `tasks/<id>.yaml` | 一个任务：目标、原生调用序列、回放用的返回值、via、mcp2cli 与 mcpc 的命令序列 |
 | `recordings/<任务>/` | 任务里 `resultFile` / `textFile` 引用的返回值（合成数据，见下） |
 | `replay-server.mjs` | 回放 MCP server（官方 SDK 的 server 端，纯 ESM，无需构建） |
 | `schema/` | `suite.yaml` 与任务文件的 JSON Schema（draft-07） |
-| `harness/` | 基准的实现：加载与校验、沙箱、原生与命令序列的测量、报告；`runners.ts` 是两个脚本共用的 `via` / `mcp2cli` 运行器 |
-| `eval/` | agent 评测的实现：模型循环、三种条件的工具、成功判定、汇总与报告 |
-| `vendor/mcp2cli/` | mcp2cli 的 skill 原文（对照一列的「说明文本」），附来源与许可 |
-| `results/` | 结果：token 基准 `<版本>.md/.json`，agent 评测 `eval-<日期>.md/.json` |
+| `harness/` | 基准的实现：加载与校验、沙箱、原生与命令序列的测量、报告；`runners.ts` 是两个脚本共用的 `via` / `mcp2cli` / `mcpc` 运行器 |
+| `eval/` | agent 评测的实现：模型循环、四种条件的工具、成功判定、汇总与报告 |
+| `vendor/mcp2cli/`、`vendor/mcpc/` | 两个对照程序的 skill 原文（对照列的「说明文本」），附来源与许可（MIT、Apache-2.0） |
+| `results/` | 结果：token 基准 `<版本>.md/.json`（0.4 起为 `<版本>-tokens.md/.json`），agent 评测 `eval-<日期>.md/.json`，拆分统计 `<版本>-split.md` |
 
 脚本入口是 `scripts/bench-tokens.ts`（token 基准）和 `scripts/bench-eval.ts`（agent 评测）。
 
@@ -25,8 +25,8 @@
 ```console
 $ npm run build
 $ npm run bench:tokens                      # 打印表格
-$ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 .md 与 .json
-$ npm run bench:tokens -- --task triage --show --no-mcp2cli       # 只跑一个任务并打印每条命令的输出
+$ npm run bench:tokens -- --out bench/results/0.4-tokens --release 0.4   # 同时写 .md 与 .json
+$ npm run bench:tokens -- --task triage --show --no-mcp2cli --no-mcpc   # 只跑一个任务并打印每条命令的输出
 ```
 
 选项：
@@ -37,11 +37,13 @@ $ npm run bench:tokens -- --task triage --show --no-mcp2cli       # 只跑一个
 | `--via <路径>` | 被测的 CLI，默认 `dist/via.js`（必须先 `npm run build`） |
 | `--mcp2cli <路径>` | mcp2cli 可执行文件，默认取 PATH 上的 `mcp2cli` |
 | `--no-mcp2cli` | 不跑 mcp2cli 一列 |
+| `--mcpc <路径>` | mcpc 可执行文件，默认取 PATH 上的 `mcpc` |
+| `--no-mcpc` | 不跑 mcpc 一列 |
 | `--show` | 把每条命令和它的输出打到 stderr，写任务时用 |
 | `--out <前缀>` | 写 `<前缀>.md` 和 `<前缀>.json` |
 | `--release <标签>` | markdown 标题里的版本标签，默认 `dev` |
 
-全程离线：回放 server 监听本机端口，via 与 mcp2cli 用临时 HOME 里生成的配置（`sources: false`，只有这些 server），不会读开发者自己的框架配置、凭证或缓存。
+全程离线：回放 server 监听本机端口，via、mcp2cli 与 mcpc 用临时 HOME 里生成的配置（`sources: false`，只有这些 server），不会读开发者自己的框架配置、凭证或缓存。
 
 ### mcp2cli 一列
 
@@ -53,6 +55,21 @@ $ uv tool install mcp2cli==3.8.0      # 版本见 suite.yaml
 
 对照一列用 mcp2cli 的 `bake` 为每个 server 建一个别名（`@github`、`@linear` ……，属于一次性配置，不计入），命令里用别名；说明文本是 `vendor/mcp2cli/SKILL.md` 加一行告诉 agent 有哪些别名（`Servers: @github @linear …`，对应 `via prompt` 里的 Providers 一行）。
 
+### mcpc 一列
+
+同样是可选的一列：脚本启动时执行 `mcpc --version`，能运行才有这一列并记录版本，找不到（或 Node.js 低于 mcpc 要求的 22.12）就打印原因并跳过，不伪造数字。安装方式：
+
+```console
+$ npm install -g @apify/mcpc@0.7.0    # 版本见 suite.yaml；需要 Node.js 22.12+
+```
+
+mcpc 与 via 的判断相同（agent 经 shell 用 MCP），但工具名原样、结果保持 MCP 的 JSON 形状，所以它是检验 via 自己的设计（`resource:verb` 拆分、按 schema 生成的参数、紧凑渲染）最直接的对照。口径：
+
+- **说明文本**是 `mcpc help --skill` 的输出（`vendor/mcpc/SKILL.md`，原文，附 Apache-2.0 声明）加一行 `Servers (entries of ./mcp.json, not connected yet): github linear …`（`harness/instructions.ts`）。mcpc 没有一次性调用，调用前必须 `mcpc connect <server> @名字` 建一个会话，所以**不预先建会话**：沙箱的工作目录里写好 `mcp.json`（`{"mcpServers": {名字: {"url": …}}}`，一次性配置，不计入），任务的第一步就是 `mcpc connect ./mcp.json:github @github`，这条命令和它打印的工具概览计入成本。
+- **命令序列**按「合理的 agent 路径」手写：`connect`（输出就是该 server 的工具列表，含参数签名，截断到三个参数）→ 每个要用的、有参数的工具先 `tools-get` 一次看完整 schema → `tools-call`，参数写成 `键:=值`（值按 JSON 解析，不是 JSON 就是字符串；数组写 `labels:='["bug"]'`）。无参数的工具（`whoami`）不先 `tools-get`；跨 server 的任务按需 `connect`。结果用默认的人类可读输出，不加 `--json`（后者更长，且 skill 把它定位为给脚本用）。
+- 每个任务结束后关闭它建的会话（`mcpc close`，不计入）：mcpc 为每个会话留一个后台 bridge 进程，沙箱状态放在沙箱里的 `MCPC_HOME_DIR`，进程不会比运行活得更久。
+- 与其他列一样核对回放 server 的调用日志：mcpc 发出的 `tools/call` 必须与原生的完全一致。
+
 ## suite.yaml
 
 ```yaml
@@ -61,9 +78,10 @@ fixtures: test/fixtures/tools      # 每个 server 的 tools/list，文件名即
 mounted: [github, linear, notion, playwright, cloudflare]   # 每一列都挂载的 server
 tasks: [github-triage-bugs, ...]   # tasks/<id>.yaml，按此顺序汇报
 mcp2cli: { skill: bench/vendor/mcp2cli/SKILL.md, version: 3.8.0 }
+mcpc: { skill: bench/vendor/mcpc/SKILL.md, version: 0.7.0 }
 ```
 
-`mounted` 是三种方式共同的前提：原生每轮注入全部 server 的工具定义，via 与 mcp2cli 都配置了全部 server，任务只用到其中一部分。
+`mounted` 是各种方式共同的前提：原生每轮注入全部 server 的工具定义，via、mcp2cli 与 mcpc 都配置了全部 server，任务只用到其中一部分。
 
 ## 任务文件
 
@@ -91,6 +109,11 @@ via:                               # via 的命令序列，每条是一轮
 mcp2cli:                           # 同样的任务用 mcp2cli 完成（可省略）
   - run: mcp2cli @github --search issue
 
+mcpc:                              # 同样的任务用 mcpc 完成（可省略）；第一步必须是 connect
+  - run: mcpc connect ./mcp.json:github @github
+  - run: mcpc @github tools-get list_issues
+  - run: mcpc @github tools-call list_issues owner:=acme repo:=api labels:='["bug"]'
+
 success:                           # agent 评测怎样判定成功（token 基准不读；评测要求每个任务都有）
   require:
     - { server: github, tool: list_issues, args: { owner: acme, repo: api, labels: { $contains: bug } } }
@@ -102,10 +125,10 @@ success:                           # agent 评测怎样判定成功（token 基�
 
 规则：
 
-- `run` 是一行命令，按 POSIX 风格切词（单引号、双引号、反斜杠），**不经过 shell**：切出的词直接作为 `via` 或 `mcp2cli` 的 argv，所以第一个词必须是 `via` / `mcp2cli`。YAML 里命令含 `: ` 时用 `>-` 折叠写法。
+- `run` 是一行命令，按 POSIX 风格切词（单引号、双引号、反斜杠），**不经过 shell**：切出的词直接作为 `via`、`mcp2cli` 或 `mcpc` 的 argv，所以第一个词必须是 `via` / `mcp2cli` / `mcpc`。`mcpc` 的 `@会话` 必须先被前面的 `mcpc connect … @会话` 建立，加载时核对。YAML 里命令含 `: ` 时用 `>-` 折叠写法。
 - `native.rounds[].args` 用原始 MCP 工具名和原始参数名；加载时按该工具的 `inputSchema` 校验。
 - 每个原生调用都要在 `calls` 里有对应条目（同 server、同工具）。
-- 三种方式必须做同样的事：测量时会核对回放 server 的调用日志，via 与 mcp2cli 发出的 `tools/call`（工具名与参数）必须与 native 的完全一致，并且每个调用都命中了某个返回值。不一致就报错，不会悄悄比较不同的工作量。
+- 各种方式必须做同样的事：测量时会核对回放 server 的调用日志，via、mcp2cli 与 mcpc 发出的 `tools/call`（工具名与参数）必须与 native 的完全一致，并且每个调用都命中了某个返回值。不一致就报错，不会悄悄比较不同的工作量。
 
 ### `success`（agent 评测的判定标准）
 
@@ -174,23 +197,23 @@ const running = await startReplayHttp({ name: 'github', tools: readTools('test/f
 - **轮数**：`native.rounds` 的轮数加最后回答的一轮；
 - **调用与结果**：模型写出的调用块（名称加参数的 JSON），加未渲染的原始结果文本。
 
-via 与 mcp2cli 两列真实运行命令，计入：说明文本（`via prompt` 的输出一次；mcp2cli 的 skill 一次）、每条命令的文本、以及它打印到 stdout 和 stderr 的全部内容。元信息行里的耗时、端口、沙箱路径归一为常量，让字节数可复现。token 一律按 4 字节约 1 token 估算，与 `via doctor` 用的是同一个常量（`BYTES_PER_TOKEN`）。
+via、mcp2cli 与 mcpc 三列真实运行命令，计入：说明文本（`via prompt` 的输出一次；mcp2cli、mcpc 的 skill 各一次）、每条命令的文本、以及它打印到 stdout 和 stderr 的全部内容。元信息行里的耗时、端口、沙箱路径归一为常量，让字节数可复现。token 一律按 4 字节约 1 token 估算，与 `via doctor` 用的是同一个常量（`BYTES_PER_TOKEN`）。
 
 ## 新增任务
 
 1. 在 `tasks/` 写任务文件，返回值放 `recordings/<id>/`，把 id 加进 `suite.yaml`。
-2. `npm run bench:tokens -- --task <id> --show` 看每条命令的真实输出，调整命令直到都以预期退出码结束、三种方式的调用一致。
-3. 写 `success` 块，`npm run bench:eval -- --fake-model --task <id>` 验证三个条件的脚本都满足它。
+2. `npm run bench:tokens -- --task <id> --show` 看每条命令的真实输出，调整命令直到都以预期退出码结束、各种方式的调用一致。
+3. 写 `success` 块，`npm run bench:eval -- --fake-model --task <id>` 验证各条件的脚本都满足它。
 4. `npm test` 里的 `test/bench/` 会校验任务文件、回放 server，并在进程内跑完所有 via 命令。
 
 ## agent 评测
 
-门槛 1 的后半（[路线图](../docs/roadmap.md#门槛)）：让真实模型在三种条件下完成同一批任务，比较任务成功率、token、轮数和错误调用。方法与口径见 [测试与评测](../docs/development/testing.md#agent-评测)。
+门槛 1 的后半（[路线图](../docs/roadmap.md#门槛)）：让真实模型在四种条件下完成同一批任务，比较任务成功率、token、轮数和错误调用。方法与口径见 [测试与评测](../docs/development/testing.md#agent-评测)。
 
 ```console
 $ npm run build
 $ export ANTHROPIC_API_KEY=...                    # 也支持 ANTHROPIC_BASE_URL
-$ npm run bench:eval                              # 9 个任务 × 3 个条件 × 3 次，结果写 bench/results/eval-<日期>.md/.json
+$ npm run bench:eval                              # 9 个任务 × 4 个条件 × 3 次，结果写 bench/results/eval-<日期>.md/.json
 $ npm run bench:eval -- --trials 10 --concurrency 6
 $ npm run bench:eval -- --task triage --condition via,native --trials 1   # 先小跑一次看看
 $ npm run bench:eval -- --fake-model              # 不要密钥：脚本化的模型，只验证流水线
@@ -202,7 +225,7 @@ $ npm run bench:eval -- --fake-model              # 不要密钥：脚本化的�
 | --- | --- |
 | `--trials <n>` | 每个任务、每个条件的运行次数，默认 3。模型有随机性，门槛的结论至少要几十次运行才站得住 |
 | `--task <文本>` | 只跑 id 含该文本的任务，可重复 |
-| `--condition <名>` | `native`、`via`、`mcp2cli`，可重复或逗号分隔，默认全部；mcp2cli 不在 PATH 上时跳过并说明原因 |
+| `--condition <名>` | `native`、`via`、`mcp2cli`、`mcpc`，可重复或逗号分隔，默认全部；mcp2cli、mcpc 不在 PATH 上时跳过并说明原因 |
 | `--model <id>` | 被评测的模型，默认 `claude-opus-5-5`（`eval/anthropic.ts` 的 `DEFAULT_MODEL`） |
 | `--max-turns <n>` | 每次运行最多的模型轮数，默认 25；用完仍想调用工具记为未成功 |
 | `--max-tokens <n>` | 单次回复的输出上限，默认 16000 |
@@ -211,15 +234,16 @@ $ npm run bench:eval -- --fake-model              # 不要密钥：脚本化的�
 | `--effort <级别>` | `low` … `max`，默认用模型自己的默认值；三个条件一致 |
 | `--cache` | 对话前缀的自动提示缓存；输入 token 仍按「未缓存 + 缓存读 + 缓存写」全部计入，缓存读写另列 |
 | `--fake-model` | 脚本化的模型（见下），不需要密钥 |
-| `--via <路径>`、`--mcp2cli <路径>`、`--no-mcp2cli` | 与 `bench:tokens` 相同 |
+| `--via <路径>`、`--mcp2cli <路径>`、`--no-mcp2cli`、`--mcpc <路径>`、`--no-mcpc` | 与 `bench:tokens` 相同 |
 
-### 三种条件
+### 四种条件
 
 同一份任务描述（任务文件的 `goal`）、同一段系统提示骨架，差别只在各自的工具与说明文本：
 
 1. **native**：全部挂载 server 的 `tools/list`（取自回放 server，不是手写的）按 `mcp__<server>__<工具>` 暴露为模型工具，模型的调用经官方 MCP SDK client 转发给回放 server。
 2. **via**：模型只有一个 `shell` 工具，说明文本是当次沙箱里 `via prompt` 的输出。命令按 POSIX 风格切词，作为 `dist/via.js` 的 argv 在沙箱 HOME 里运行（`sources: false`，配置只有这些回放 server；与 token 基准相同，进程内模式，不留后台 daemon），返回 stdout、stderr 和退出码。
 3. **mcp2cli**：同一个 `shell` 工具，只能运行 `mcp2cli …`；说明文本是 `vendor/mcp2cli/SKILL.md` 原文加一行 `Servers: @github @linear …`（对应 `via prompt` 的 Providers 一行）。每次运行先为每个 server 做一次 `bake create`（一次性配置，不计入）。
+4. **mcpc**：同一个 `shell` 工具，只能运行 `mcpc …`；说明文本是 `vendor/mcpc/SKILL.md` 原文加一行 `Servers (entries of ./mcp.json, not connected yet): github linear …`。沙箱工作目录里有 `mcp.json`，模型自己 `mcpc connect ./mcp.json:<server> @<名字>` 建会话（这些命令和它们的输出像其他命令一样计入 token 与轮数）；运行结束时关闭它建的全部会话。
 
 `shell` 工具没有真实的 shell：不是 `via` / `mcp2cli` 开头的命令、`|` `&&` `;` `>` 之类的 shell 语法、没闭合的引号，都直接拒绝（退出码 127，计一次错误调用）。
 
@@ -237,14 +261,14 @@ Rules:
 - When the task is complete, stop calling tools and reply with a short final answer: what you did and the key facts you found.
 ```
 
-之后：native 条件什么都不加（工具定义本身就是说明）；via 与 mcp2cli 条件各加一句「你唯一的工具是 `shell`，它运行 `via` / `mcp2cli` 命令」，接着是上面说的说明文本。用户消息就是任务的 `goal`（折成一行）。`shell` 工具的描述见 `shellTool`。
+之后：native 条件什么都不加（工具定义本身就是说明）；via、mcp2cli 与 mcpc 条件各加一句「你唯一的工具是 `shell`，它运行 `via` / `mcp2cli` / `mcpc` 命令」，接着是上面说的说明文本。用户消息就是任务的 `goal`（折成一行）。`shell` 工具的描述见 `shellTool`。
 
 ### 每次运行记录什么
 
 成功与否和各项检查的结果、结束状态（`completed`、`max_turns`、`truncated`、`refused`、`error`）、API `usage` 按轮累加的输入 / 输出 / 缓存读 / 缓存写 token、模型轮数、工具调用数、**错误调用数**（非零退出码、MCP `isError`，或回放 server 没有对应返回值的调用——在 CLI 条件下，一条命令触发了没有返回值的上游调用也算）、耗时、最终回答，以及每次工具调用（截断到 1500 字符的输出）。API 或 harness 出错的运行记为未成功并单独计数。只有 `completed`（模型自己停下并给出回答）且所有检查通过才算成功。
 
-汇总每个条件：成功次数与成功率（95% Wilson 区间）、输入 / 输出 / 总 token 的均值与中位数、轮数、工具调用、错误调用、耗时；再给每个任务在三个条件下的成功次数。最后打印**门槛 1** 是否成立：via 的成功率不低于 native，且不低于 mcp2cli（点估计；区间重叠时注明差异在噪声之内）。mcp2cli 缺失时只做与 native 的比较，并标明「比较不完整」。
+汇总每个条件：成功次数与成功率（95% Wilson 区间）、输入 / 输出 / 总 token 的均值与中位数、轮数、工具调用、错误调用、耗时；再给每个任务在三个条件下的成功次数。最后打印**门槛 1** 是否成立：via 的成功率不低于 native，且不低于 mcp2cli（点估计；区间重叠时注明差异在噪声之内）。mcp2cli 缺失时只做与 native 的比较，并标明「比较不完整」。via 与 mcpc 的比较单独列出（「不属于门槛」），不影响门槛的判定：门槛按路线图的定义只问 native 与 mcp2cli。
 
 ### `--fake-model`
 
-脚本化的模型：按任务文件的 `native.rounds`、`via`、`mcp2cli` 步骤逐轮回放（`{cursor}` 取自上一步的输出），最后给出含 `answer` 关键事实的回答。它走完真实的循环、回放 server、沙箱、工具执行、判定、汇总和报告，用来验证流水线，**不衡量任何模型**：token 是字节数估算，成功率必然是 100%，门槛显示「未评估」。输出带醒目标注，也拒绝写入 `bench/results/`（默认不写文件；要保存请 `--out` 到别处）。`npm test` 里的冒烟测试用它跑通 native 与 via（以及 mcp2cli，未安装时跳过），另有测试用本地假的 Messages API 验证真实客户端的请求形状与 usage 记账。
+脚本化的模型：按任务文件的 `native.rounds`、`via`、`mcp2cli`、`mcpc` 步骤逐轮回放（`{cursor}` 取自上一步的输出），最后给出含 `answer` 关键事实的回答。它走完真实的循环、回放 server、沙箱、工具执行、判定、汇总和报告，用来验证流水线，**不衡量任何模型**：token 是字节数估算，成功率必然是 100%，门槛显示「未评估」。输出带醒目标注，也拒绝写入 `bench/results/`（默认不写文件；要保存请 `--out` 到别处）。`npm test` 里的冒烟测试用它跑通 native 与 via（以及 mcp2cli、mcpc，未安装时各自跳过），另有测试用本地假的 Messages API 验证真实客户端的请求形状与 usage 记账。

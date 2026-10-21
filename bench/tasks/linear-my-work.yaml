@@ -43,6 +43,15 @@ mcp2cli:
   - run: mcp2cli @linear update-issue --help
   - run: mcp2cli @linear update-issue --id PLT-300 --state Done
 
+mcpc:
+  - run: mcpc connect ./mcp.json:linear @linear
+  - run: mcpc @linear tools-get list_my_issues
+  - run: mcpc @linear tools-call list_my_issues state:="In Progress" limit:=10
+  - run: mcpc @linear tools-get get_issue
+  - run: mcpc @linear tools-call get_issue id:=PLT-300
+  - run: mcpc @linear tools-get update_issue
+  - run: mcpc @linear tools-call update_issue id:=PLT-300 state:=Done
+
 # Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
 # PLT-300 and PLT-328 are both High; either is a correct pick.
 success:

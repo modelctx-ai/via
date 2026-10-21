@@ -2,7 +2,7 @@
 //
 // native: every mounted server's tools, exposed one-to-one as model tools and forwarded to the
 //         replay servers with the official MCP SDK client.
-// via / mcp2cli: one `shell` tool that runs only that program. The command line is split
+// via / mcp2cli / mcpc: one `shell` tool that runs only that program. The command line is split
 //         POSIX-style and handed to the program as argv; no shell is involved anywhere.
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { Exec } from '../harness/exec';
@@ -10,7 +10,7 @@ import { injectedTool, nativeToolName, resultText } from '../harness/native';
 import { splitCommand } from '../harness/shell';
 import type { ReplayTool } from '../replay-server.mjs';
 import type { EvalEnv } from './env';
-import { SHELL_TOOL, shellTool } from './prompts';
+import { SHELL_TOOL, shellTool, type CliProgram } from './prompts';
 import type { ToolDef } from './types';
 
 /** Results larger than this are cut, identically in every condition (a safety net, not a design choice). */
@@ -81,8 +81,8 @@ export function formatCommandResult(result: { code: number; stdout: string; stde
   return `${clip(result.stdout + stderr)}\n[exit code: ${result.code}]`;
 }
 
-/** The via or mcp2cli condition: one `shell` tool bound to `program`. */
-export function cliTools(program: 'via' | 'mcp2cli', exec: Exec, env: EvalEnv): AgentTools {
+/** The via, mcp2cli or mcpc condition: one `shell` tool bound to `program`. */
+export function cliTools(program: CliProgram, exec: Exec, env: EvalEnv): AgentTools {
   return {
     defs: [shellTool(program)],
     async close() {},

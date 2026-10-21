@@ -1,0 +1,1705 @@
+{
+  "schema": 1,
+  "estimator": {
+    "bytesPerToken": 4
+  },
+  "via": "0.3.1",
+  "node": "v22.22.0",
+  "mounted": [
+    "github",
+    "linear",
+    "notion",
+    "playwright",
+    "cloudflare"
+  ],
+  "injection": {
+    "bytesPerTurn": 45821,
+    "tokensPerTurn": 11455,
+    "servers": {
+      "github": {
+        "tools": 54,
+        "bytes": 19615
+      },
+      "linear": {
+        "tools": 22,
+        "bytes": 5512
+      },
+      "notion": {
+        "tools": 65,
+        "bytes": 14849
+      },
+      "playwright": {
+        "tools": 22,
+        "bytes": 4951
+      },
+      "cloudflare": {
+        "tools": 4,
+        "bytes": 898
+      }
+    }
+  },
+  "viaPromptBytes": 862,
+  "mcp2cli": {
+    "version": "3.8.0",
+    "fixedBytes": 16189
+  },
+  "mcpc": {
+    "version": "0.7.0",
+    "fixedBytes": 13955
+  },
+  "tasks": [
+    {
+      "id": "github-triage-bugs",
+      "title": "Triage the oldest open bug",
+      "goal": "In acme/api, list the open issues labeled \"bug\" (oldest first), read the oldest one, and ask the reporter for logs and the Redis version in a comment.\n",
+      "native": {
+        "turns": 4,
+        "injectionBytes": 45821,
+        "callBytes": 557,
+        "resultBytes": 17469,
+        "totalBytes": 201310,
+        "totalTokens": 50328,
+        "calls": [
+          {
+            "tool": "mcp__github__list_issues",
+            "callBytes": 159,
+            "resultBytes": 14938
+          },
+          {
+            "tool": "mcp__github__issue_read",
+            "callBytes": 106,
+            "resultBytes": 1671
+          },
+          {
+            "tool": "mcp__github__add_issue_comment",
+            "callBytes": 292,
+            "resultBytes": 860
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 7649,
+        "totalBytes": 8511,
+        "totalTokens": 2128,
+        "steps": [
+          {
+            "command": "via github",
+            "commandBytes": 10,
+            "stdoutBytes": 905,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github issue",
+            "commandBytes": 16,
+            "stdoutBytes": 604,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github issue:list --owner acme --repo api --state OPEN --labels bug --order-by CREATED_AT --direction ASC --per-page 10",
+            "commandBytes": 123,
+            "stdoutBytes": 2583,
+            "stderrBytes": 66,
+            "exit": 0
+          },
+          {
+            "command": "via github issue:read -h",
+            "commandBytes": 24,
+            "stdoutBytes": 335,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github issue:read --method get --owner acme --repo api --issue-number 214",
+            "commandBytes": 77,
+            "stdoutBytes": 1466,
+            "stderrBytes": 44,
+            "exit": 0
+          },
+          {
+            "command": "via github issue-comment",
+            "commandBytes": 24,
+            "stdoutBytes": 268,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github issue-comment:add --owner acme --repo api --issue-number 214 --body \"Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed.\"",
+            "commandBytes": 265,
+            "stdoutBytes": 789,
+            "stderrBytes": 50,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 22582,
+        "totalBytes": 38771,
+        "totalTokens": 9693,
+        "steps": [
+          {
+            "command": "mcp2cli @github --search issue",
+            "commandBytes": 30,
+            "stdoutBytes": 954,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github list-issues --help",
+            "commandBytes": 34,
+            "stdoutBytes": 980,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github list-issues --owner acme --repo api --state OPEN --labels '[\"bug\"]' --order-by CREATED_AT --direction ASC --per-page 10",
+            "commandBytes": 135,
+            "stdoutBytes": 15870,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github issue-read --help",
+            "commandBytes": 33,
+            "stdoutBytes": 867,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github issue-read --method get --owner acme --repo api --issue-number 214",
+            "commandBytes": 82,
+            "stdoutBytes": 1777,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github add-issue-comment --help",
+            "commandBytes": 40,
+            "stdoutBytes": 598,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github add-issue-comment --owner acme --repo api --issue-number 214 --body \"Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed.\"",
+            "commandBytes": 270,
+            "stdoutBytes": 912,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 24119,
+        "totalBytes": 38074,
+        "totalTokens": 9519,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:github @github",
+            "commandBytes": 38,
+            "stdoutBytes": 4161,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-get list_issues",
+            "commandBytes": 34,
+            "stdoutBytes": 508,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call list_issues owner:=acme repo:=api state:=OPEN labels:='[\"bug\"]' orderBy:=CREATED_AT direction:=ASC perPage:=10",
+            "commandBytes": 134,
+            "stdoutBytes": 15064,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-get issue_read",
+            "commandBytes": 33,
+            "stdoutBytes": 524,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call issue_read method:=get owner:=acme repo:=api issue_number:=214",
+            "commandBytes": 86,
+            "stdoutBytes": 1796,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-get add_issue_comment",
+            "commandBytes": 40,
+            "stdoutBytes": 435,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call add_issue_comment owner:=acme repo:=api issue_number:=214 body:=\"Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed.\"",
+            "commandBytes": 274,
+            "stdoutBytes": 992,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "github-find-code",
+      "title": "Find a class and read its file",
+      "goal": "Find where RateLimiter is defined in acme/api and read that file.\n",
+      "native": {
+        "turns": 3,
+        "injectionBytes": 45821,
+        "callBytes": 212,
+        "resultBytes": 6194,
+        "totalBytes": 143869,
+        "totalTokens": 35967,
+        "calls": [
+          {
+            "tool": "mcp__github__search_code",
+            "callBytes": 93,
+            "resultBytes": 4542
+          },
+          {
+            "tool": "mcp__github__get_file_contents",
+            "callBytes": 119,
+            "resultBytes": 1652
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 5257,
+        "totalBytes": 6119,
+        "totalTokens": 1530,
+        "steps": [
+          {
+            "command": "via github",
+            "commandBytes": 10,
+            "stdoutBytes": 905,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github code",
+            "commandBytes": 15,
+            "stdoutBytes": 170,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github code:search --query \"RateLimiter repo:acme/api\" --per-page 5",
+            "commandBytes": 71,
+            "stdoutBytes": 2030,
+            "stderrBytes": 66,
+            "exit": 0
+          },
+          {
+            "command": "via github file-content",
+            "commandBytes": 23,
+            "stdoutBytes": 176,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github file-content:get --owner acme --repo api --path src/middleware/rate_limiter.ts",
+            "commandBytes": 89,
+            "stdoutBytes": 1652,
+            "stderrBytes": 50,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 8717,
+        "totalBytes": 24906,
+        "totalTokens": 6227,
+        "steps": [
+          {
+            "command": "mcp2cli @github --search code",
+            "commandBytes": 29,
+            "stdoutBytes": 230,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github search-code --help",
+            "commandBytes": 34,
+            "stdoutBytes": 573,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github search-code --query \"RateLimiter repo:acme/api\" --per-page 5",
+            "commandBytes": 76,
+            "stdoutBytes": 4797,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github --search file",
+            "commandBytes": 29,
+            "stdoutBytes": 644,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github get-file-contents --help",
+            "commandBytes": 40,
+            "stdoutBytes": 517,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github get-file-contents --owner acme --repo api --path src/middleware/rate_limiter.ts",
+            "commandBytes": 95,
+            "stdoutBytes": 1653,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 11703,
+        "totalBytes": 25658,
+        "totalTokens": 6415,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:github @github",
+            "commandBytes": 38,
+            "stdoutBytes": 4161,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-get search_code",
+            "commandBytes": 34,
+            "stdoutBytes": 390,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call search_code query:=\"RateLimiter repo:acme/api\" perPage:=5",
+            "commandBytes": 81,
+            "stdoutBytes": 4668,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-get get_file_contents",
+            "commandBytes": 40,
+            "stdoutBytes": 407,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call get_file_contents owner:=acme repo:=api path:=src/middleware/rate_limiter.ts",
+            "commandBytes": 100,
+            "stdoutBytes": 1784,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "github-pr-summary",
+      "title": "Summarize a pull request",
+      "goal": "Summarize acme/api PR #482: its description, the files it changes and where review stands.\n",
+      "native": {
+        "turns": 2,
+        "injectionBytes": 45821,
+        "callBytes": 347,
+        "resultBytes": 9303,
+        "totalBytes": 101292,
+        "totalTokens": 25323,
+        "calls": [
+          {
+            "tool": "mcp__github__pull_request_read",
+            "callBytes": 111,
+            "resultBytes": 2589
+          },
+          {
+            "tool": "mcp__github__pull_request_read",
+            "callBytes": 117,
+            "resultBytes": 4878
+          },
+          {
+            "tool": "mcp__github__pull_request_read",
+            "callBytes": 119,
+            "resultBytes": 1836
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 6931,
+        "totalBytes": 7793,
+        "totalTokens": 1948,
+        "steps": [
+          {
+            "command": "via github",
+            "commandBytes": 10,
+            "stdoutBytes": 905,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github pull-request",
+            "commandBytes": 23,
+            "stdoutBytes": 980,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github pull-request:read -h",
+            "commandBytes": 31,
+            "stdoutBytes": 383,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github pull-request:read --method get --owner acme --repo api --pull-number 482",
+            "commandBytes": 83,
+            "stdoutBytes": 2409,
+            "stderrBytes": 51,
+            "exit": 0
+          },
+          {
+            "command": "via github pull-request:read --method get_files --owner acme --repo api --pull-number 482",
+            "commandBytes": 89,
+            "stdoutBytes": 809,
+            "stderrBytes": 68,
+            "exit": 0
+          },
+          {
+            "command": "via github pull-request:read --method get_reviews --owner acme --repo api --pull-number 482",
+            "commandBytes": 91,
+            "stdoutBytes": 931,
+            "stderrBytes": 68,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 12714,
+        "totalBytes": 28903,
+        "totalTokens": 7226,
+        "steps": [
+          {
+            "command": "mcp2cli @github --search pull",
+            "commandBytes": 29,
+            "stdoutBytes": 1690,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github pull-request-read --help",
+            "commandBytes": 40,
+            "stdoutBytes": 980,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github pull-request-read --method get --owner acme --repo api --pull-number 482",
+            "commandBytes": 88,
+            "stdoutBytes": 2764,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github pull-request-read --method get_files --owner acme --repo api --pull-number 482",
+            "commandBytes": 94,
+            "stdoutBytes": 4998,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github pull-request-read --method get_reviews --owner acme --repo api --pull-number 482",
+            "commandBytes": 96,
+            "stdoutBytes": 1935,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 14706,
+        "totalBytes": 28661,
+        "totalTokens": 7165,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:github @github",
+            "commandBytes": 38,
+            "stdoutBytes": 4161,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-get pull_request_read",
+            "commandBytes": 40,
+            "stdoutBytes": 481,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call pull_request_read method:=get owner:=acme repo:=api pullNumber:=482",
+            "commandBytes": 91,
+            "stdoutBytes": 2721,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call pull_request_read method:=get_files owner:=acme repo:=api pullNumber:=482",
+            "commandBytes": 97,
+            "stdoutBytes": 5010,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call pull_request_read method:=get_reviews owner:=acme repo:=api pullNumber:=482",
+            "commandBytes": 99,
+            "stdoutBytes": 1968,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "linear-create-issue",
+      "title": "File a bug in a team",
+      "goal": "File a high-priority bug in the Platform team's Linear, assigned to me, about the rate limiter failing closed when Redis is down.\n",
+      "native": {
+        "turns": 3,
+        "injectionBytes": 45821,
+        "callBytes": 346,
+        "resultBytes": 1428,
+        "totalBytes": 139237,
+        "totalTokens": 34809,
+        "calls": [
+          {
+            "tool": "mcp__linear__list_teams",
+            "callBytes": 63,
+            "resultBytes": 819
+          },
+          {
+            "tool": "mcp__linear__create_issue",
+            "callBytes": 283,
+            "resultBytes": 609
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 2302,
+        "totalBytes": 3164,
+        "totalTokens": 791,
+        "steps": [
+          {
+            "command": "via linear",
+            "commandBytes": 10,
+            "stdoutBytes": 355,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via linear team:list --query Platform",
+            "commandBytes": 37,
+            "stdoutBytes": 413,
+            "stderrBytes": 63,
+            "exit": 0
+          },
+          {
+            "command": "via linear issue",
+            "commandBytes": 16,
+            "stdoutBytes": 543,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via linear issue:create --title \"Rate limiter fails closed when Redis is down\" --team Platform --description \"Every request returns 500 while Redis is unreachable. The limiter should fail open and log a warning.\" --priority 2 --assignee me --labels Bug",
+            "commandBytes": 252,
+            "stdoutBytes": 568,
+            "stderrBytes": 45,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 5060,
+        "totalBytes": 21249,
+        "totalTokens": 5312,
+        "steps": [
+          {
+            "command": "mcp2cli @linear --list",
+            "commandBytes": 22,
+            "stdoutBytes": 1969,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear list-teams --help",
+            "commandBytes": 33,
+            "stdoutBytes": 356,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear list-teams --query Platform",
+            "commandBytes": 43,
+            "stdoutBytes": 882,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear create-issue --help",
+            "commandBytes": 35,
+            "stdoutBytes": 817,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear create-issue --title \"Rate limiter fails closed when Redis is down\" --team Platform --description \"Every request returns 500 while Redis is unreachable. The limiter should fail open and log a warning.\" --priority 2 --assignee me --labels '[\"Bug\"]'",
+            "commandBytes": 263,
+            "stdoutBytes": 640,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 4692,
+        "totalBytes": 18647,
+        "totalTokens": 4662,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:linear @linear",
+            "commandBytes": 38,
+            "stdoutBytes": 1886,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-get list_teams",
+            "commandBytes": 33,
+            "stdoutBytes": 270,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-call list_teams query:=Platform",
+            "commandBytes": 50,
+            "stdoutBytes": 944,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-get create_issue",
+            "commandBytes": 35,
+            "stdoutBytes": 435,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-call create_issue title:=\"Rate limiter fails closed when Redis is down\" team:=Platform description:=\"Every request returns 500 while Redis is unreachable. The limiter should fail open and log a warning.\" priority:=2 assignee:=me labels:='[\"Bug\"]'",
+            "commandBytes": 265,
+            "stdoutBytes": 736,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "linear-my-work",
+      "title": "Review my work and close one issue",
+      "goal": "List the Linear issues assigned to me that are in progress, read the most urgent one, and mark it done.\n",
+      "native": {
+        "turns": 4,
+        "injectionBytes": 45821,
+        "callBytes": 215,
+        "resultBytes": 6515,
+        "totalBytes": 190014,
+        "totalTokens": 47504,
+        "calls": [
+          {
+            "tool": "mcp__linear__list_my_issues",
+            "callBytes": 81,
+            "resultBytes": 4851
+          },
+          {
+            "tool": "mcp__linear__get_issue",
+            "callBytes": 58,
+            "resultBytes": 1014
+          },
+          {
+            "tool": "mcp__linear__update_issue",
+            "callBytes": 76,
+            "resultBytes": 650
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 5503,
+        "totalBytes": 6365,
+        "totalTokens": 1591,
+        "steps": [
+          {
+            "command": "via linear",
+            "commandBytes": 10,
+            "stdoutBytes": 355,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via linear my-issue",
+            "commandBytes": 19,
+            "stdoutBytes": 141,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via linear my-issue:list --state \"In Progress\" --limit 10",
+            "commandBytes": 57,
+            "stdoutBytes": 2544,
+            "stderrBytes": 68,
+            "exit": 0
+          },
+          {
+            "command": "via linear issue",
+            "commandBytes": 16,
+            "stdoutBytes": 543,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via linear issue:get --id PLT-300",
+            "commandBytes": 33,
+            "stdoutBytes": 975,
+            "stderrBytes": 42,
+            "exit": 0
+          },
+          {
+            "command": "via linear issue:update --id PLT-300 --state Done",
+            "commandBytes": 49,
+            "stdoutBytes": 606,
+            "stderrBytes": 45,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 10607,
+        "totalBytes": 26796,
+        "totalTokens": 6699,
+        "steps": [
+          {
+            "command": "mcp2cli @linear --list",
+            "commandBytes": 22,
+            "stdoutBytes": 1969,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear list-my-issues --help",
+            "commandBytes": 37,
+            "stdoutBytes": 442,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear list-my-issues --state \"In Progress\" --limit 10",
+            "commandBytes": 63,
+            "stdoutBytes": 5102,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear get-issue --help",
+            "commandBytes": 32,
+            "stdoutBytes": 304,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear get-issue --id PLT-300",
+            "commandBytes": 38,
+            "stdoutBytes": 1061,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear update-issue --help",
+            "commandBytes": 35,
+            "stdoutBytes": 765,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear update-issue --id PLT-300 --state Done",
+            "commandBytes": 54,
+            "stdoutBytes": 683,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 10075,
+        "totalBytes": 24030,
+        "totalTokens": 6008,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:linear @linear",
+            "commandBytes": 38,
+            "stdoutBytes": 1886,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-get list_my_issues",
+            "commandBytes": 37,
+            "stdoutBytes": 318,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-call list_my_issues state:=\"In Progress\" limit:=10",
+            "commandBytes": 69,
+            "stdoutBytes": 4980,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-get get_issue",
+            "commandBytes": 32,
+            "stdoutBytes": 254,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-call get_issue id:=PLT-300",
+            "commandBytes": 45,
+            "stdoutBytes": 1138,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-get update_issue",
+            "commandBytes": 35,
+            "stdoutBytes": 406,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-call update_issue id:=PLT-300 state:=Done",
+            "commandBytes": 60,
+            "stdoutBytes": 777,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "notion-update-doc",
+      "title": "Find a page and record a decision",
+      "goal": "Find the \"Q3 Roadmap\" page in Notion, read it, and add a decision under \"Open questions\": per-tenant limits will be exposed in the public API docs.\n",
+      "native": {
+        "turns": 4,
+        "injectionBytes": 45821,
+        "callBytes": 450,
+        "resultBytes": 3003,
+        "totalBytes": 186737,
+        "totalTokens": 46684,
+        "calls": [
+          {
+            "tool": "mcp__notion__notion-search",
+            "callBytes": 82,
+            "resultBytes": 1579
+          },
+          {
+            "tool": "mcp__notion__notion-fetch",
+            "callBytes": 90,
+            "resultBytes": 1280
+          },
+          {
+            "tool": "mcp__notion__notion-update-page",
+            "callBytes": 278,
+            "resultBytes": 144
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 5987,
+        "totalBytes": 6849,
+        "totalTokens": 1712,
+        "steps": [
+          {
+            "command": "via notion",
+            "commandBytes": 10,
+            "stdoutBytes": 1048,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via notion search -h",
+            "commandBytes": 20,
+            "stdoutBytes": 303,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via notion search --query \"Q3 roadmap\" --page-size 5",
+            "commandBytes": 52,
+            "stdoutBytes": 1618,
+            "stderrBytes": 40,
+            "exit": 0
+          },
+          {
+            "command": "via notion fetch --id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701",
+            "commandBytes": 58,
+            "stdoutBytes": 1283,
+            "stderrBytes": 39,
+            "exit": 0
+          },
+          {
+            "command": "via notion page",
+            "commandBytes": 15,
+            "stdoutBytes": 735,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via notion page:update -h",
+            "commandBytes": 25,
+            "stdoutBytes": 317,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via notion page:update --page-id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 --command insert_content_after --old-str \"- Who owns the on-call runbook for the new queue?\" --new-str \"- Decision: per-tenant limits will be exposed in the public API docs.\"",
+            "commandBytes": 244,
+            "stdoutBytes": 136,
+            "stderrBytes": 44,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 6170,
+        "totalBytes": 22359,
+        "totalTokens": 5590,
+        "steps": [
+          {
+            "command": "mcp2cli @notion --search search",
+            "commandBytes": 31,
+            "stdoutBytes": 353,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @notion notion-search --help",
+            "commandBytes": 36,
+            "stdoutBytes": 853,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @notion notion-search --query \"Q3 roadmap\" --page-size 5",
+            "commandBytes": 64,
+            "stdoutBytes": 1640,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @notion notion-fetch --help",
+            "commandBytes": 35,
+            "stdoutBytes": 472,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @notion notion-fetch --id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701",
+            "commandBytes": 70,
+            "stdoutBytes": 1289,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @notion notion-update-page --help",
+            "commandBytes": 41,
+            "stdoutBytes": 880,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @notion notion-update-page --page-id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 --command insert_content_after --old-str \"- Who owns the on-call runbook for the new queue?\" --new-str \"- Decision: per-tenant limits will be exposed in the public API docs.\"",
+            "commandBytes": 256,
+            "stdoutBytes": 150,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 9834,
+        "totalBytes": 23789,
+        "totalTokens": 5947,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:notion @notion",
+            "commandBytes": 38,
+            "stdoutBytes": 4576,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @notion tools-get notion-search",
+            "commandBytes": 36,
+            "stdoutBytes": 459,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @notion tools-call notion-search query:=\"Q3 roadmap\" page_size:=5",
+            "commandBytes": 70,
+            "stdoutBytes": 1707,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @notion tools-get notion-fetch",
+            "commandBytes": 35,
+            "stdoutBytes": 352,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @notion tools-call notion-fetch id:=2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701",
+            "commandBytes": 77,
+            "stdoutBytes": 1407,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @notion tools-get notion-update-page",
+            "commandBytes": 41,
+            "stdoutBytes": 499,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @notion tools-call notion-update-page page_id:=2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 command:=insert_content_after old_str:=\"- Who owns the on-call runbook for the new queue?\" new_str:=\"- Decision: per-tenant limits will be exposed in the public API docs.\"",
+            "commandBytes": 260,
+            "stdoutBytes": 277,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "playwright-docs-search",
+      "title": "Search a docs site in the browser",
+      "goal": "Open docs.acme.test, search for \"rate limit\" and open the \"Rate limits\" result.\n",
+      "native": {
+        "turns": 4,
+        "injectionBytes": 45821,
+        "callBytes": 299,
+        "resultBytes": 7993,
+        "totalBytes": 191576,
+        "totalTokens": 47894,
+        "calls": [
+          {
+            "tool": "mcp__playwright__browser_navigate",
+            "callBytes": 86,
+            "resultBytes": 2309
+          },
+          {
+            "tool": "mcp__playwright__browser_type",
+            "callBytes": 119,
+            "resultBytes": 2780
+          },
+          {
+            "tool": "mcp__playwright__browser_click",
+            "callBytes": 94,
+            "resultBytes": 2904
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 9025,
+        "totalBytes": 9887,
+        "totalTokens": 2472,
+        "steps": [
+          {
+            "command": "via playwright",
+            "commandBytes": 14,
+            "stdoutBytes": 423,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via playwright browser:navigate --url https://docs.acme.test/",
+            "commandBytes": 61,
+            "stdoutBytes": 2309,
+            "stderrBytes": 54,
+            "exit": 0
+          },
+          {
+            "command": "via playwright browser-type -h",
+            "commandBytes": 30,
+            "stdoutBytes": 191,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via playwright browser-type --element \"Search docs\" --ref e8 --text \"rate limit\" --submit",
+            "commandBytes": 89,
+            "stdoutBytes": 2780,
+            "stderrBytes": 50,
+            "exit": 0
+          },
+          {
+            "command": "via playwright browser:click --element \"Rate limits result\" --ref e73",
+            "commandBytes": 69,
+            "stdoutBytes": 2904,
+            "stderrBytes": 51,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 11565,
+        "totalBytes": 27754,
+        "totalTokens": 6939,
+        "steps": [
+          {
+            "command": "mcp2cli @playwright --list",
+            "commandBytes": 26,
+            "stdoutBytes": 1787,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @playwright browser-navigate --help",
+            "commandBytes": 43,
+            "stdoutBytes": 285,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @playwright browser-navigate --url https://docs.acme.test/",
+            "commandBytes": 66,
+            "stdoutBytes": 2310,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @playwright browser-type --help",
+            "commandBytes": 39,
+            "stdoutBytes": 521,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @playwright browser-type --element \"Search docs\" --ref e8 --text \"rate limit\" --submit",
+            "commandBytes": 94,
+            "stdoutBytes": 2781,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @playwright browser-click --help",
+            "commandBytes": 40,
+            "stdoutBytes": 594,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @playwright browser-click --element \"Rate limits result\" --ref e73",
+            "commandBytes": 74,
+            "stdoutBytes": 2905,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 11536,
+        "totalBytes": 25491,
+        "totalTokens": 6373,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:playwright @playwright",
+            "commandBytes": 46,
+            "stdoutBytes": 1733,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @playwright tools-get browser_navigate",
+            "commandBytes": 43,
+            "stdoutBytes": 233,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @playwright tools-call browser_navigate url:=https://docs.acme.test/",
+            "commandBytes": 73,
+            "stdoutBytes": 2444,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @playwright tools-get browser_type",
+            "commandBytes": 39,
+            "stdoutBytes": 381,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @playwright tools-call browser_type element:=\"Search docs\" ref:=e8 text:=\"rate limit\" submit:=true",
+            "commandBytes": 103,
+            "stdoutBytes": 2911,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @playwright tools-get browser_click",
+            "commandBytes": 40,
+            "stdoutBytes": 374,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @playwright tools-call browser_click element:=\"Rate limits result\" ref:=e73",
+            "commandBytes": 80,
+            "stdoutBytes": 3036,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "cloudflare-dns-records",
+      "title": "List DNS records of a zone",
+      "goal": "List the DNS records of the acme.test zone in the Acme Production Cloudflare account.\n",
+      "native": {
+        "turns": 4,
+        "injectionBytes": 45821,
+        "callBytes": 473,
+        "resultBytes": 4643,
+        "totalBytes": 188400,
+        "totalTokens": 47100,
+        "calls": [
+          {
+            "tool": "mcp__cloudflare__whoami",
+            "callBytes": 45,
+            "resultBytes": 293
+          },
+          {
+            "tool": "mcp__cloudflare__search",
+            "callBytes": 186,
+            "resultBytes": 697
+          },
+          {
+            "tool": "mcp__cloudflare__execute",
+            "callBytes": 242,
+            "resultBytes": 3653
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 3281,
+        "totalBytes": 4143,
+        "totalTokens": 1036,
+        "steps": [
+          {
+            "command": "via cloudflare",
+            "commandBytes": 14,
+            "stdoutBytes": 43,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via cloudflare whoami",
+            "commandBytes": 21,
+            "stdoutBytes": 297,
+            "stderrBytes": 43,
+            "exit": 0
+          },
+          {
+            "command": "via cloudflare search -h",
+            "commandBytes": 24,
+            "stdoutBytes": 216,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via cloudflare search --code \"return Object.entries(spec.paths).filter(([p]) => p.includes('dns_records')).map(([p, v]) => ({ path: p, methods: Object.keys(v) }))\"",
+            "commandBytes": 163,
+            "stdoutBytes": 622,
+            "stderrBytes": 40,
+            "exit": 0
+          },
+          {
+            "command": "via cloudflare execute -h",
+            "commandBytes": 25,
+            "stdoutBytes": 226,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via cloudflare execute --account-id 023e105f4ecef8ad9ca31a8372d0c353 --code \"const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });\"",
+            "commandBytes": 218,
+            "stdoutBytes": 1263,
+            "stderrBytes": 66,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 6867,
+        "totalBytes": 23056,
+        "totalTokens": 5764,
+        "steps": [
+          {
+            "command": "mcp2cli @cloudflare --list",
+            "commandBytes": 26,
+            "stdoutBytes": 451,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @cloudflare whoami",
+            "commandBytes": 26,
+            "stdoutBytes": 315,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @cloudflare search --help",
+            "commandBytes": 33,
+            "stdoutBytes": 370,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @cloudflare search --code \"return Object.entries(spec.paths).filter(([p]) => p.includes('dns_records')).map(([p, v]) => ({ path: p, methods: Object.keys(v) }))\"",
+            "commandBytes": 168,
+            "stdoutBytes": 751,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @cloudflare execute --help",
+            "commandBytes": 34,
+            "stdoutBytes": 519,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @cloudflare execute --account-id 023e105f4ecef8ad9ca31a8372d0c353 --code \"const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });\"",
+            "commandBytes": 223,
+            "stdoutBytes": 3951,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 7078,
+        "totalBytes": 21033,
+        "totalTokens": 5258,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:cloudflare @cloudflare",
+            "commandBytes": 46,
+            "stdoutBytes": 842,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @cloudflare tools-call whoami",
+            "commandBytes": 34,
+            "stdoutBytes": 418,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @cloudflare tools-get search",
+            "commandBytes": 33,
+            "stdoutBytes": 315,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @cloudflare tools-call search code:=\"return Object.entries(spec.paths).filter(([p]) => p.includes('dns_records')).map(([p, v]) => ({ path: p, methods: Object.keys(v) }))\"",
+            "commandBytes": 175,
+            "stdoutBytes": 822,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @cloudflare tools-get execute",
+            "commandBytes": 34,
+            "stdoutBytes": 352,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @cloudflare tools-call execute accountId:=023e105f4ecef8ad9ca31a8372d0c353 code:=\"const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });\"",
+            "commandBytes": 228,
+            "stdoutBytes": 3779,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "cross-issue-to-pr",
+      "title": "Link a Linear issue to its GitHub PR",
+      "goal": "Read Linear issue PLT-300, find the open GitHub pull request in acme/api that fixes it, and comment the PR link on the Linear issue.\n",
+      "native": {
+        "turns": 4,
+        "injectionBytes": 45821,
+        "callBytes": 302,
+        "resultBytes": 3494,
+        "totalBytes": 187080,
+        "totalTokens": 46770,
+        "calls": [
+          {
+            "tool": "mcp__linear__get_issue",
+            "callBytes": 58,
+            "resultBytes": 597
+          },
+          {
+            "tool": "mcp__github__search_pull_requests",
+            "callBytes": 112,
+            "resultBytes": 2649
+          },
+          {
+            "tool": "mcp__linear__create_comment",
+            "callBytes": 132,
+            "resultBytes": 248
+          }
+        ]
+      },
+      "via": {
+        "fixedBytes": 862,
+        "sessionBytes": 5235,
+        "totalBytes": 6097,
+        "totalTokens": 1524,
+        "steps": [
+          {
+            "command": "via find \"get linear issue\"",
+            "commandBytes": 27,
+            "stdoutBytes": 1456,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via linear issue:get --id PLT-300",
+            "commandBytes": 33,
+            "stdoutBytes": 556,
+            "stderrBytes": 42,
+            "exit": 0
+          },
+          {
+            "command": "via find \"search pull requests\"",
+            "commandBytes": 31,
+            "stdoutBytes": 1738,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via github pull-request:search --query \"repo:acme/api is:pr is:open PLT-300\" --per-page 5",
+            "commandBytes": 89,
+            "stdoutBytes": 555,
+            "stderrBytes": 73,
+            "exit": 0
+          },
+          {
+            "command": "via linear comment",
+            "commandBytes": 18,
+            "stdoutBytes": 233,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "via linear comment:create --issue-id PLT-300 --body \"Fix is in review: https://github.com/acme/api/pull/487\"",
+            "commandBytes": 108,
+            "stdoutBytes": 229,
+            "stderrBytes": 47,
+            "exit": 0
+          }
+        ]
+      },
+      "mcp2cli": {
+        "fixedBytes": 16189,
+        "sessionBytes": 9345,
+        "totalBytes": 25534,
+        "totalTokens": 6384,
+        "steps": [
+          {
+            "command": "mcp2cli @linear --list",
+            "commandBytes": 22,
+            "stdoutBytes": 1969,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear get-issue --help",
+            "commandBytes": 32,
+            "stdoutBytes": 304,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear get-issue --id PLT-300",
+            "commandBytes": 38,
+            "stdoutBytes": 628,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github --search pull",
+            "commandBytes": 29,
+            "stdoutBytes": 1690,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github search-pull-requests --help",
+            "commandBytes": 43,
+            "stdoutBytes": 736,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @github search-pull-requests --query \"repo:acme/api is:pr is:open PLT-300\" --per-page 5",
+            "commandBytes": 95,
+            "stdoutBytes": 2837,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear create-comment --help",
+            "commandBytes": 37,
+            "stdoutBytes": 512,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcp2cli @linear create-comment --issue-id PLT-300 --body \"Fix is in review: https://github.com/acme/api/pull/487\"",
+            "commandBytes": 113,
+            "stdoutBytes": 260,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      },
+      "mcpc": {
+        "fixedBytes": 13955,
+        "sessionBytes": 11419,
+        "totalBytes": 25374,
+        "totalTokens": 6344,
+        "steps": [
+          {
+            "command": "mcpc connect ./mcp.json:linear @linear",
+            "commandBytes": 38,
+            "stdoutBytes": 1886,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-get get_issue",
+            "commandBytes": 32,
+            "stdoutBytes": 254,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-call get_issue id:=PLT-300",
+            "commandBytes": 45,
+            "stdoutBytes": 721,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc connect ./mcp.json:github @github",
+            "commandBytes": 38,
+            "stdoutBytes": 4161,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-get search_pull_requests",
+            "commandBytes": 43,
+            "stdoutBytes": 437,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @github tools-call search_pull_requests query:=\"repo:acme/api is:pr is:open PLT-300\" perPage:=5",
+            "commandBytes": 100,
+            "stdoutBytes": 2784,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-get create_comment",
+            "commandBytes": 37,
+            "stdoutBytes": 348,
+            "stderrBytes": 0,
+            "exit": 0
+          },
+          {
+            "command": "mcpc @linear tools-call create_comment issueId:=PLT-300 body:=\"Fix is in review: https://github.com/acme/api/pull/487\"",
+            "commandBytes": 118,
+            "stdoutBytes": 377,
+            "stderrBytes": 0,
+            "exit": 0
+          }
+        ]
+      }
+    }
+  ],
+  "totals": {
+    "id": "total",
+    "title": "total",
+    "native": 382379,
+    "via": 14732,
+    "mcp2cli": 59834,
+    "mcpc": 57691
+  }
+}

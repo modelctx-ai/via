@@ -46,6 +46,16 @@ mcp2cli:
   - run: >-
       mcp2cli @cloudflare execute --account-id 023e105f4ecef8ad9ca31a8372d0c353 --code "const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });"
 
+mcpc:
+  - run: mcpc connect ./mcp.json:cloudflare @cloudflare
+  - run: mcpc @cloudflare tools-call whoami
+  - run: mcpc @cloudflare tools-get search
+  - run: >-
+      mcpc @cloudflare tools-call search code:="return Object.entries(spec.paths).filter(([p]) => p.includes('dns_records')).map(([p, v]) => ({ path: p, methods: Object.keys(v) }))"
+  - run: mcpc @cloudflare tools-get execute
+  - run: >-
+      mcpc @cloudflare tools-call execute accountId:=023e105f4ecef8ad9ca31a8372d0c353 code:="const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });"
+
 # Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
 # The production account is the one the zone lives in; the staging account must not be used.
 success:

@@ -1,10 +1,11 @@
 // Runs the suite: replay servers for every mounted server, a sandbox, then per task the native
-// calls, the scripted via session and (when available) the scripted mcp2cli session. Everything
-// is measured in bytes; `estimateTokens` turns bytes into tokens at report time.
+// calls, the scripted via session and (when available) the scripted mcp2cli and mcpc sessions.
+// Everything is measured in bytes; `estimateTokens` turns bytes into tokens at report time.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cannedCalls, replayProtocolFromEnv, startReplayHttp, type ReplayCall, type ReplayLogEntry } from '../replay-server.mjs';
 import { normalizeOutput, type Exec } from './exec';
+import { serversLine } from './instructions';
 import type { LoadedSuite } from './load';
 import { measureInjection, measureNativeCalls, type InjectionMeasure, type NativeMeasure } from './native';
 import { createSandbox, type Sandbox } from './sandbox';
@@ -20,7 +21,7 @@ export interface StepMeasure {
   exit: number;
 }
 
-/** A CLI column (via or mcp2cli): fixed instruction text plus the scripted session. */
+/** A CLI column (via, mcp2cli or mcpc): fixed instruction text plus the scripted session. */
 export interface SessionMeasure {
   /** Instruction text the agent starts with, counted once. */
   fixedBytes: number;
@@ -36,16 +37,18 @@ export interface TaskMeasure {
   native: NativeMeasure & { injectionBytes: number; totalBytes: number };
   via: SessionMeasure & { totalBytes: number };
   mcp2cli?: SessionMeasure & { totalBytes: number };
+  mcpc?: SessionMeasure & { totalBytes: number };
 }
 
 export interface SuiteMeasure {
   injection: InjectionMeasure;
   viaPromptBytes: number;
   mcp2cli?: { version: string; fixedBytes: number };
+  mcpc?: { version: string; fixedBytes: number };
   tasks: TaskMeasure[];
 }
 
-/** What the caller supplies per sandbox: how to run `via` and, optionally, `mcp2cli`. */
+/** What the caller supplies per sandbox: how to run `via` and, optionally, `mcp2cli` and `mcpc`. */
 export interface Runners {
   via: Exec;
   mcp2cli?: {
@@ -53,6 +56,14 @@ export interface Runners {
     version: string;
     /** One-time setup (baking server aliases); not counted. */
     prepare(urls: Readonly<Record<string, string>>): Promise<void>;
+  };
+  mcpc?: {
+    exec: Exec;
+    version: string;
+    /** One-time setup (the list of servers `mcpc connect` can name); not counted. The `connect` commands are the task's first steps and are counted. */
+    prepare(urls: Readonly<Record<string, string>>): Promise<void>;
+    /** Closes the sessions a run opened so no bridge process outlives it; not counted. */
+    cleanup(): Promise<void>;
   };
 }
 
@@ -110,6 +121,7 @@ export async function measureSuite(options: MeasureOptions): Promise<SuiteMeasur
   const servers = new Map<string, { calls: ReplayCall[]; log: ReplayLogEntry[]; close(): Promise<void> }>();
   const urls: Record<string, string> = {};
   let sandbox: Sandbox | undefined;
+  let runners: Runners | undefined;
   try {
     for (const name of loaded.suite.mounted) {
       const calls: ReplayCall[] = [];
@@ -120,8 +132,9 @@ export async function measureSuite(options: MeasureOptions): Promise<SuiteMeasur
       urls[name] = running.url;
     }
     sandbox = createSandbox(urls);
-    const runners = await options.runners(sandbox);
+    runners = await options.runners(sandbox);
     if (runners.mcp2cli) await runners.mcp2cli.prepare(urls);
+    if (runners.mcpc) await runners.mcpc.prepare(urls);
 
     const injection = await measureInjection(urls);
 
@@ -134,8 +147,12 @@ export async function measureSuite(options: MeasureOptions): Promise<SuiteMeasur
     if (runners.mcp2cli) {
       const skill = readFileSync(join(loaded.root, loaded.suite.mcp2cli.skill), 'utf8');
       // The agent also has to be told which aliases exist; via gets that from `via prompt`.
-      const aliases = `Servers: ${loaded.suite.mounted.map((s) => `@${s}`).join(' ')}\n`;
-      mcp2cliFixed = bytesOf(skill) + bytesOf(aliases);
+      mcp2cliFixed = bytesOf(skill) + bytesOf(`${serversLine('mcp2cli', loaded.suite.mounted)}\n`);
+    }
+    let mcpcFixed: number | undefined;
+    if (runners.mcpc) {
+      const skill = readFileSync(join(loaded.root, loaded.suite.mcpc.skill), 'utf8');
+      mcpcFixed = bytesOf(skill) + bytesOf(`${serversLine('mcpc', loaded.suite.mounted)}\n`);
     }
 
     const tasks: TaskMeasure[] = [];
@@ -185,16 +202,31 @@ export async function measureSuite(options: MeasureOptions): Promise<SuiteMeasur
         verify('mcp2cli');
         mcp2cli = { fixedBytes: mcp2cliFixed!, sessionBytes: sessionBytes(steps), steps, totalBytes: mcp2cliFixed! + sessionBytes(steps) };
       }
-      tasks.push({ id: task.id, title: task.title, goal: task.goal, native, via, ...(mcp2cli ? { mcp2cli } : {}) });
+      // mcpc: the scripted steps start with `mcpc connect`, so session setup is part of the cost.
+      // The sessions are closed after each task (not counted) so every task starts from none.
+      let mcpc: TaskMeasure['mcpc'];
+      if (runners.mcpc && task.mcpc) {
+        arm();
+        try {
+          const steps = await runSession(`${task.id} mcpc`, 'mcpc', task.mcpc, runners.mcpc.exec, sandbox.root, options.trace);
+          verify('mcpc');
+          mcpc = { fixedBytes: mcpcFixed!, sessionBytes: sessionBytes(steps), steps, totalBytes: mcpcFixed! + sessionBytes(steps) };
+        } finally {
+          await runners.mcpc.cleanup();
+        }
+      }
+      tasks.push({ id: task.id, title: task.title, goal: task.goal, native, via, ...(mcp2cli ? { mcp2cli } : {}), ...(mcpc ? { mcpc } : {}) });
     }
 
     return {
       injection,
       viaPromptBytes,
       ...(runners.mcp2cli ? { mcp2cli: { version: runners.mcp2cli.version, fixedBytes: mcp2cliFixed! } } : {}),
+      ...(runners.mcpc ? { mcpc: { version: runners.mcpc.version, fixedBytes: mcpcFixed! } } : {}),
       tasks,
     };
   } finally {
+    await runners?.mcpc?.cleanup().catch(() => undefined);
     sandbox?.cleanup();
     await Promise.all([...servers.values()].map((s) => s.close()));
   }

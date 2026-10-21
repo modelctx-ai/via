@@ -21,6 +21,8 @@ export interface EvalMeta {
   conditions: Condition[];
   mcp2cliVersion?: string;
   mcp2cliSkipped?: string;
+  mcpcVersion?: string;
+  mcpcSkipped?: string;
 }
 
 export const FAKE_BANNER = 'SCRIPTED MODEL (--fake-model): pipeline check only. These numbers are NOT an evaluation of any model; token counts are byte estimates.';
@@ -90,7 +92,11 @@ export function formatConsole(runs: readonly RunRecord[], summary: Summary, meta
   }
   out.push('');
   if (meta.mcp2cliSkipped) out.push(`mcp2cli: skipped (${meta.mcp2cliSkipped})`, '');
+  if (meta.mcpcSkipped) out.push(`mcpc: skipped (${meta.mcpcSkipped})`, '');
   out.push(...gateLines(summary.gate), '');
+  for (const c of summary.extra) {
+    out.push(`not part of the gate: via ${percent(c.via.rate)} (${c.via.successes}/${c.via.runs}) ${c.holds ? '>=' : '<'} ${c.versus} ${percent(c.other.rate)} (${c.other.successes}/${c.other.runs})${c.withinNoise ? '  [intervals overlap]' : ''}`, '');
+  }
   const failed = runs.filter((r) => !r.success);
   if (failed.length > 0) {
     out.push(`${failed.length} unsuccessful run(s):`);
@@ -124,7 +130,8 @@ export function formatMarkdown(runs: readonly RunRecord[], summary: Summary, met
   lines.push(`- ${meta.tasks.length} 个任务 × ${meta.trials} 次，共 ${runs.length} 次运行；每次最多 ${meta.maxTurns} 轮，单次回复最多 ${fmt(meta.maxTokens)} 输出 token`);
   lines.push(`- via ${meta.via}，Node.js ${meta.node}`);
   lines.push(`- 挂载的 server：${meta.mounted.join('、')}`);
-  lines.push(meta.mcp2cliVersion ? `- 对照：mcp2cli ${meta.mcp2cliVersion}` : `- 对照：mcp2cli 未运行（${meta.mcp2cliSkipped ?? '不可用'}）`, '');
+  lines.push(meta.mcp2cliVersion ? `- 对照：mcp2cli ${meta.mcp2cliVersion}` : `- 对照：mcp2cli 未运行（${meta.mcp2cliSkipped ?? '不可用'}）`);
+  lines.push(meta.mcpcVersion ? `- 对照：mcpc ${meta.mcpcVersion}` : `- 对照：mcpc 未运行（${meta.mcpcSkipped ?? '不可用'}）`, '');
 
   lines.push('## 总览', '');
   lines.push(...table(SUMMARY_HEAD, summaryRows(summary)));
@@ -151,6 +158,21 @@ export function formatMarkdown(runs: readonly RunRecord[], summary: Summary, met
     if (gate.notes.length > 0) lines.push('');
   }
 
+  if (summary.extra.length > 0) {
+    lines.push('### 与 mcpc 的对比（不属于门槛）', '');
+    lines.push(
+      ...table(
+        ['对比', 'via', '对照', '结果'],
+        summary.extra.map((c) => [
+          `via vs ${c.versus}`,
+          `${percent(c.via.rate)} (${c.via.successes}/${c.via.runs})`,
+          `${percent(c.other.rate)} (${c.other.successes}/${c.other.runs})`,
+          `${c.holds ? '不低于' : '低于'}${c.withinNoise ? '（区间重叠）' : ''}`,
+        ]),
+      ),
+    );
+  }
+
   lines.push('## 各任务成功次数', '');
   const conditions = summary.conditions.map((c) => c.condition);
   lines.push(...table(['任务', ...conditions], summary.tasks.map((t) => [t.task, ...conditions.map((c) => (t.cells[c] ? `${t.cells[c]!.successes}/${t.cells[c]!.runs}` : '-'))])));
@@ -172,7 +194,7 @@ export function formatMarkdown(runs: readonly RunRecord[], summary: Summary, met
   lines.push(
     '- 成功率是「完成任务」的比例，任务由回放 server 的调用日志判定：必需的调用（工具加参数子集）已被回放 server 回答、禁止的调用从未发出、写操作不超过规定次数，只读任务另查最终回答是否提到关键事实。判定标准见任务文件的 `success` 块。',
     '- 返回值是合成数据，且同一工具的返回值不随参数变化（除非任务按参数区分）。它能检验「模型会不会找到并正确调用工具」，不能检验真实 server 的行为差异。',
-    '- 三个条件共用同一份任务描述、同一段系统提示骨架（见 [bench/README.md](../README.md#系统提示)），差别只在各自的工具和说明文本。',
+    '- 各条件共用同一份任务描述、同一段系统提示骨架（见 [bench/README.md](../README.md#系统提示)），差别只在各自的工具和说明文本。',
     '- 样本量小时差异可能只是噪声；总览里给出 95% Wilson 区间，区间重叠就不要把差异当结论，增加 `--trials`。',
     '- 模型的采样有随机性，同一组任务多跑几次的结果不会完全一样；不同模型的结论不能互相替代。',
     '',

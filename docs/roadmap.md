@@ -95,7 +95,7 @@ flowchart LR
 
 | 门槛 | 条件 | 状态 |
 | --- | --- | --- |
-| 门槛 1（0.1 → 0.2） | token 基准与 agent 评测跑通，任务成功率不低于原生 MCP，且不低于 mcp2cli | 未过关：token 基准已发布（[0.1](../bench/results/0.1.md)），agent 评测（`npm run bench:eval`）已实现但还没有发布成功率结果 |
+| 门槛 1（0.1 → 0.2） | token 基准与 agent 评测跑通，任务成功率不低于原生 MCP，且不低于 mcp2cli | 未过关：token 基准已发布（[0.1](../bench/results/0.1.md)，[0.4](../bench/results/0.4-tokens.md) 起含 mcpc 一列），agent 评测（`npm run bench:eval`）已实现但还没有发布成功率结果 |
 | 门槛 2（0.2 → 0.3） | 热 daemon 调用开销达到[性能目标](development/testing.md#性能目标)，OAuth 在主流远程 server 上验证通过 | 部分达到：热 daemon 的额外开销远低于 15 ms；冷启动的几项和 daemon 内存在目标线上或略超（[perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md)）；OAuth 在真实远程 server 上的验证还没有记录 |
 
 ## 0.4：验证、协议对齐与补齐
@@ -105,7 +105,7 @@ flowchart LR
 ### 验证与打磨
 
 - **d1 发布 agent 评测结果**：用 `npm run bench:eval` 在 token 基准的同一组任务上跑原生 MCP、via、mcp2cli 三组，结果写进 `bench/results/`。这是门槛 1 的条件，也是「省 token 不降成功率」的直接证据；结果不达标时先改拆分、浏览与渲染，而不是继续加功能。
-  - 对照组加入 [mcpc](https://github.com/apify/mcpc)，与 mcp2cli 一样是可选的一列（PATH 上有才运行并记录版本，说明文本取自 `mcpc help --skill`，`connect` 建会话的命令计入成本）。mcpc 与 via 的判断相同（agent 经 shell 用 MCP），但工具名原样、结果保持 MCP 的 JSON 形状，是检验 via 自己的设计（`resource:verb` 拆分、按 schema 生成的参数、紧凑渲染）最直接的对照（[愿景](overview/vision.md#与相近工具的区别)）。token 基准（`bench:tokens`）同样加这一列。
+  - 对照组加入 [mcpc](https://github.com/apify/mcpc)，与 mcp2cli 一样是可选的一列（PATH 上有才运行并记录版本，说明文本取自 `mcpc help --skill`，`connect` 建会话的命令计入成本）。mcpc 与 via 的判断相同（agent 经 shell 用 MCP），但工具名原样、结果保持 MCP 的 JSON 形状，是检验 via 自己的设计（`resource:verb` 拆分、按 schema 生成的参数、紧凑渲染）最直接的对照（[愿景](overview/vision.md#与相近工具的区别)）。token 基准（`bench:tokens`）同样加这一列。**状态**：两个脚本里的 mcpc 一列已实现（`--mcpc` / `--no-mcpc`，缺失即跳过；说明文本 `bench/vendor/mcpc/`；`connect` 命令计入成本），token 基准的结果在 [0.4-tokens](../bench/results/0.4-tokens.md)（mcpc 合计约为 native 的 15%，与 mcp2cli 同一量级，约为 via 的四倍）；agent 评测的 mcpc 条件已用 `--fake-model` 验证流水线，成功率结果仍待有 `ANTHROPIC_API_KEY` 的环境运行。
 - **d2 OAuth 实测记录**：在 Linear、Notion 等主流远程 server 上走一遍 `via auth login`、调用、刷新、`via auth logout`，记录到 `bench/results/` 或对应的 [provider 指南](guides/providers/)，补齐门槛 2。
 - **d3 重新标定性能目标**：按 [perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md#目标重新标定的建议未改规范里的数字) 的建议，由维护者决定是否把冷启动改成相对 `node -e 0` 的增量、把 `find` 的库路径与整进程分开、daemon 内存改看匿名内存；决定后同步 [testing.md](development/testing.md#性能目标)。
 - **d4 单文件分发**：macOS 公证与 Windows 签名；交叉编译产物在 Intel macOS、Windows、musl 上的实测；决定单文件是否成为默认推荐的安装方式（[待定问题](open-questions.md)）；提供 Homebrew formula（macOS 与 Linux），装单文件可执行或自带 Node 的 npm 包，取决于前一项的结论。

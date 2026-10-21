@@ -49,6 +49,16 @@ mcp2cli:
   - run: >-
       mcp2cli @github add-issue-comment --owner acme --repo api --issue-number 214 --body "Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed."
 
+mcpc:
+  - run: mcpc connect ./mcp.json:github @github
+  - run: mcpc @github tools-get list_issues
+  - run: mcpc @github tools-call list_issues owner:=acme repo:=api state:=OPEN labels:='["bug"]' orderBy:=CREATED_AT direction:=ASC perPage:=10
+  - run: mcpc @github tools-get issue_read
+  - run: mcpc @github tools-call issue_read method:=get owner:=acme repo:=api issue_number:=214
+  - run: mcpc @github tools-get add_issue_comment
+  - run: >-
+      mcpc @github tools-call add_issue_comment owner:=acme repo:=api issue_number:=214 body:="Thanks for the report. Could you attach the server log around the failing request and say which Redis version you run? That will tell us whether the limiter should fail open or closed."
+
 # Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
 success:
   require:
