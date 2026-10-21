@@ -69,9 +69,12 @@ export const isWindows = process.platform === 'win32';
 
 export interface DaemonSandbox {
   sb: Sandbox;
-  /** Short private directory holding `via.sock` (`XDG_RUNTIME_DIR`); on Windows it holds the profile directories. */
+  /** Short private directory: `via.sock` on Linux (`XDG_RUNTIME_DIR`), the profile directories on Windows. */
   runtime: string;
-  /** The socket file; on Windows the pipe-name prefix (`\\.\pipe\via-<user>`), the real name adds a digest of the token. */
+  /**
+   * The socket file (macOS: in the sandbox's user cache directory); on Windows the pipe-name prefix
+   * (`\\.\pipe\via-<user>`), the real name adds a digest of the token.
+   */
   socket: string;
   /** Daemon files (`.token`, `.lock`, `.log`) and the platform they were computed for. */
   paths: DaemonPaths;
@@ -102,7 +105,9 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
   const runtime = mkdtempSync(join(tmpdir(), 'via-rt-'));
   // Every daemon started with the default command appends its pid here (record-pid.mjs).
   const pidLog = join(runtime, 'daemon-pids');
-  const platform: NodeJS.Platform = isWindows ? 'win32' : 'linux';
+  // The host's own platform: the daemon is a real process that computes its directories (cache,
+  // cursors, OAuth logins) from `process.platform`, so the in-process CLI must agree with it.
+  const platform = process.platform;
   const user = `via-test-${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
   // OAuth logins go to files in the sandbox, never to the real keychain.
   const sandboxEnv: Record<string, string | undefined> = isWindows
@@ -120,9 +125,13 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
         ...env,
       }
     : { PATH: process.env.PATH, XDG_RUNTIME_DIR: runtime, VIA_NO_DAEMON: '0', VIA_OAUTH_STORE: 'file', VIA_TEST_PID_LOG: pidLog, ...env };
-  const paths = daemonPaths(pathContext({ home: sb.home, env: sandboxEnv, platform }));
-  const socket = isWindows ? paths.socket : join(runtime, 'via.sock');
-  const cacheDir = isWindows ? userCacheDir(pathContext({ home: sb.home, env: sandboxEnv, platform })) : sb.cacheDir;
+  const ctx = pathContext({ home: sb.home, env: sandboxEnv, platform });
+  // Linux: `<runtime>/via.sock`; macOS ignores XDG_RUNTIME_DIR and keeps it in the user cache directory.
+  const paths = daemonPaths(ctx);
+  const socket = paths.socket;
+  // A test may plant a socket there before any daemon has made the directory.
+  if (!paths.pipe) mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+  const cacheDir = userCacheDir(ctx);
   const processEnv = (): Record<string, string> => {
     const out: Record<string, string> = { HOME: sb.home };
     for (const [name, value] of Object.entries(sandboxEnv)) if (value !== undefined) out[name] = value;

@@ -102,7 +102,6 @@ beforeAll(() => {
   // directory, so a home inside the repo (and therefore inside the developer's home) would pick up
   // their own MCP configs as project-scope files.
   home = mkdtempSync(join(tmpdir(), 'via-dist-home-'));
-  mkdirSync(home, { recursive: true });
   const out = join(dir, 'out');
   const build = spawnSync(process.execPath, [join(root, 'node_modules', 'tsup', 'dist', 'cli-default.js'), '--out-dir', out, '--silent'], { cwd: root, encoding: 'utf8', timeout: 60_000 });
   if (build.status !== 0) throw new Error(`tsup failed: ${build.stderr || build.stdout}`);
@@ -179,7 +178,7 @@ describe('built dist/via.js', () => {
       expect(r.code).toBe(0);
       for (const name of ['from-yaml', 'from-json', 'from-jsonc', 'from-toml']) expect(r.stdout).toContain(name);
     } finally {
-      for (const d of ['.config', '.cursor', '.codex', vscodeUserConfig.split('/').slice(0, -4).join('/')]) rmSync(join(home, d), { recursive: true, force: true });
+      for (const d of ['.config', '.cursor', '.codex', 'Library']) rmSync(join(home, d), { recursive: true, force: true });
     }
   });
 
