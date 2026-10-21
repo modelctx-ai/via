@@ -1,6 +1,6 @@
 # 参与贡献
 
-via 处于预发布阶段（路线图 0.1–0.3 已实现，尚未发布），最有价值的贡献是：在真实的 MCP server 和 agent 框架上试用并报告问题、补充真实 server 的拆分案例、指出设计里的漏洞、推进[路线图](docs/roadmap.md)与[待定问题](docs/open-questions.md)。
+via 已经实现路线图 0.1–0.3，但还没有发布。现在最有价值的贡献是：在真实的 MCP server 和 agent 框架上试用并报告问题、补充真实 server 的拆分案例、指出设计里的漏洞、推进[路线图](docs/roadmap.md)与[待定问题](docs/open-questions.md)。
 
 本地开发：`npm ci` 安装依赖，`npm run typecheck`、`npm test`、`npm run build` 是提交前要跑的检查（CI 同样运行这三项）。
 

@@ -4,17 +4,17 @@
 
 **MCP 做提供方协议，CLI 做消费方接口。** agent 框架不再挂载 MCP，也不再把成百上千个工具的 schema 塞进上下文；需要工具时，agent 在 shell 里用 `via` 逐级发现、查看用法、调用，鉴权和输出格式由 via 统一处理。
 
-> **状态：预发布，尚未发布到 npm。** 路线图 0.1–0.3 的功能已经实现（直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行），目前需要[从源码安装](#安装)。版本号仍是 `0.0.0`，命令与输出在 1.0 之前可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
+> 状态：路线图 0.1–0.3 已经实现（直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行），但还没有发布到 npm，需要[从源码安装](#安装)。版本号仍是 `0.0.0`，1.0 之前命令与输出可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
 
 ## 为什么需要 via
 
-- **上下文被 schema 占满**：框架接入 MCP 时会预先注入所有工具定义，server 一多，任务还没开始就占掉几万 token。
-- **鉴权各配一遍**：每个框架各自保存 server 地址和凭证，轮换一次要改所有地方。
-- **输出冗长**：工具返回的原始 JSON 键名逐行重复，截断和翻页各家各做。
+- 框架接入 MCP 时会预先注入所有工具定义，server 一多，任务还没开始就占掉几万 token。
+- 每个框架各自保存 server 地址和凭证，轮换一次要改所有地方。
+- 工具返回的原始 JSON 键名逐行重复，截断和翻页各家各做。
 
 via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，按 server 注入凭证，以 `provider → 资源 → 动作` 的命令形态暴露工具，并用一套统一规则渲染输出。agent 上下文里只剩一段约 150 token 的使用说明。
 
-在 [token 基准](bench/results/0.1.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），via 的总占用约为原生 MCP 注入方式的 4%。这是按脚本化命令序列估算的；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。真实模型的成功率评测（`npm run bench:eval`）尚未发布结果。
+在 [token 基准](bench/results/0.1.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），via 消耗的 token 约为原生 MCP 注入方式的 4%。这个数字按脚本化的命令序列估算；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。真实模型的成功率评测（`npm run bench:eval`）尚未发布结果。
 
 ## 先看一眼
 
@@ -72,13 +72,17 @@ via --version
 
 ## 快速上手
 
-**1. 检查现有配置。** via 自动读取 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Gemini CLI、GitHub Copilot CLI、Devin Desktop / Windsurf、Antigravity、Amp 里已经配好的 MCP server，不需要重新配置，也从不写入这些文件：
+### 1. 检查现有配置
+
+via 自动读取 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Gemini CLI、GitHub Copilot CLI、Devin Desktop / Windsurf、Antigravity、Amp 里已经配好的 MCP server，不需要重新配置，也从不写入这些文件：
 
 ```bash
 via doctor        # server 状态、仍在注入 schema 的框架与 token 估算、明文凭证告警
 ```
 
-**2. 补齐鉴权。** OAuth 型 server 由 via 自己授权一次（不读取其他客户端存下的 token）；API key 写成凭证引用，放进 `~/.config/via/config.yaml`：
+### 2. 补齐鉴权
+
+OAuth 型 server 由 via 自己授权一次（不读取其他客户端存下的 token）；API key 写成凭证引用，放进 `~/.config/via/config.yaml`：
 
 ```bash
 via auth login linear      # 配置里写 auth: oauth；无浏览器环境加 --manual
@@ -94,7 +98,7 @@ servers:
 deny: ["^github/.*:delete$"]                   # 不想让 agent 碰的工具
 ```
 
-**3. 发现与调用。**
+### 3. 发现与调用
 
 ```bash
 via                                   # 所有 provider，按域分组
@@ -104,14 +108,16 @@ via linear issue:create -h            # 参数用法
 via find "create issue"               # 跨 provider 搜索
 ```
 
-**4. 交给 agent。** 把 `via prompt` 的输出放进 AGENTS.md、CLAUDE.md 或 skill，再按 `via doctor` 的提示在框架里关闭 MCP 注入（过渡期两边可以并存）：
+### 4. 交给 agent
+
+把 `via prompt` 的输出放进 AGENTS.md、CLAUDE.md 或 skill，再按 `via doctor` 的提示在框架里关闭 MCP 注入（过渡期两边可以并存）：
 
 ```bash
 via prompt                  # 打印说明和域摘要
 via prompt --out AGENTS.md  # 或写入文件
 ```
 
-完整流程见[快速上手](docs/guides/getting-started.md)与[与 agent 框架集成](docs/guides/agent-integration.md)。
+详细步骤见[快速上手](docs/guides/getting-started.md)与[与 agent 框架集成](docs/guides/agent-integration.md)。
 
 ## 常用命令
 
@@ -131,12 +137,12 @@ via prompt --out AGENTS.md  # 或写入文件
 
 ## 安全须知
 
-- **via 不是网关**。它与 agent 以同一用户运行，解决的是「方便」和「省上下文」，只能降低凭证意外暴露的概率，不能防止有意读取。需要权限隔离和审计时，在 via 背后接一个网关（例如 [Asterlane](https://github.com/komiyoo/asterlane)），via 把它当作普通 MCP server。
+- via 不是网关：它与 agent 以同一用户运行，只能降低凭证意外暴露的概率，挡不住有意的读取。需要权限隔离和审计时，在 via 背后接一个网关（例如 [Asterlane](https://github.com/komiyoo/asterlane)），via 把它当作普通 MCP server。
 - 配置里只存凭证引用；解析后的凭证值在所有输出中替换为 `***`。
-- 标记为破坏性的工具需要 `--yes`；`deny` 规则优先于一切。
+- 标记为破坏性的工具需要 `--yes`；被 `deny` 规则匹配的工具不出现在列表里，也无法调用。
 - 项目级配置（`.via.yaml`、仓库里的 `.mcp.json` 等）中的命令和端点首次使用前需要你在终端里执行 `via trust` 确认；不要让 agent 替你运行。
 
-完整的威胁模型见[安全模型](docs/spec/security.md)。
+威胁模型见[安全模型](docs/spec/security.md)。
 
 ## 文档
 
