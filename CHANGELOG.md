@@ -11,6 +11,11 @@
 - `via serve`（路线图 c5，[ADR 0016](docs/adr/0016-via-serve-meta-tools-over-stdio.md)）：以 stdio MCP server 运行，向没有 shell 的 agent（Claude Desktop、IDE 聊天面板等）暴露七个固定的元工具 `via_browse`、`via_find`、`via_call`、`via_more`、`via_resources`、`via_read`、`via_prompts`。每次调用在进程内执行一次对应的 CLI 命令并捕获输出，所以命名、参数解析、`deny`、`--yes`、本地校验、渲染、游标与脱敏都与命令行相同；结果是 stdout 与 stderr 两段文本，`structuredContent.exitCode` 给出退出码，非 0 时 `isError`。以 `-` 开头的字符串参数和 `via_browse` 里的内置子命令名会被拒绝（退出码 2），模型无法借参数设置选项或运行 `via trust`、`via auth`。七个工具的定义约 730 token。cli.md 新增「via serve」一节，agent-integration.md 新增「没有 shell 的 agent」，愿景的适用边界、路线图与术语表随之更新，`open-questions.md` 移除该条。
 - 读取框架配置时，命令行是 `via serve` 的条目（如 `npx -y @modelctx-ai/via serve`、`/usr/local/bin/via serve`）不进入目录，`via servers` 给出 info 级诊断 `self-reference`，避免 via 拉起自己（config.md「校验与诊断」）。
 
+### Fixed
+
+- 叶子工具与资源同名、而叶子的原始名本身就是这个名字时，叶子调不到（实测于 Anysearch：`search` 是叶子，`batch_search` 拆成 `search:batch`）。原来叶子改名为 `kebab(原始名)`，结果还是 `search`，`via anysearch search` 打开的是资源，`via call anysearch/search` 报「is a resource, not a tool」，provider 视图却仍列出 `tools: search`。现在这种情况下资源让出名字，它的工具按规则 6 退回为叶子工具（naming.md 新增规则 7）。cli.md「解析顺序」随之改写。**影响规范写法**：只影响有这种碰撞的 server，被让出的资源下的工具从 `资源:动作` 变为叶子，例如 Anysearch 的 `search:batch` → `batch-search`；原来那个叶子从调不到变为可以用原名调用。动词表与单数化规则没有变化；测试夹具里的真实 server 工具列表拆分结果不变。已缓存的目录按规则指纹自动失效。
+- `readOnlyHint` 与 `destructiveHint` 同时为 true 时没有优先级：帮助行同时标 read-only 与 destructive (needs --yes)，调用要 `--yes`，超时后又按只读自动重试（实测于 Anysearch 的 `extract`、`sub-domain:get`、`search:batch`）。现在按 MCP 的定义以 `readOnlyHint` 为准：这样的工具是只读的，不要 `--yes`，帮助与视图只标 `read-only`；超时重试与 daemon 回退本来就看 `readOnlyHint`，行为不变（arguments.md「危险操作」、discovery.md）。只给了 `destructiveHint: true` 的工具仍然需要 `--yes`。
+
 ### Changed
 
 - `serve` 成为内置子命令的保留字。名字恰好是 `serve` 的 server 需要在配置里用 `alias` 改名，改名前不出现在任何视图里（cli.md「内置子命令」）。动词表与单数化规则没有变化，其余规范写法不受影响。

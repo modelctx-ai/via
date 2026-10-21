@@ -97,7 +97,7 @@ issue:search   query, [owner], [repo]                  Search issues
 - 每个工具一行：动作、签名、截断到 60 字符的描述（取描述的第一个非空行）。
 - 签名中必填参数在前，可选参数加方括号，参数名统一为 kebab-case；各组内按 schema 中 `properties` 的顺序。
 - 签名最多显示 6 个参数，必填参数一个不省略，其余可选参数以 `…` 表示，完整参数用 `-h` 查看。
-- 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后（[arguments.md](arguments.md#危险操作)）。
+- 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后，两者都声明时只标 `[read-only]`（[arguments.md](arguments.md#危险操作)）。
 
 ## 搜索
 

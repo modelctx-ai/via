@@ -195,6 +195,7 @@ next: via github issue:list -h
   error: gh file:delete is destructive and was not run
   next: rerun with --yes to confirm
   ```
+- `readOnlyHint: true` 的工具不算破坏性，即使同时声明了 `destructiveHint: true`：MCP 规定 `destructiveHint` 只在 `readOnlyHint` 为 false 时有意义。这样的工具按只读处理：不需要 `--yes`，帮助与视图只标 `read-only`，超时或连接错误后照常自动重试一次（见下文「调用过程」）。
 - 可在配置中按 server 设置 `confirm: never` 关闭这一检查。
 - `readOnlyHint` 在帮助和资源视图中标注，方便 agent 判断。
 - `--dry-run` 只打印解析结果：规范写法、目标 server、最终参数（凭证打码），不发起调用，退出码 0。

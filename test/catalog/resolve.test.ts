@@ -78,14 +78,22 @@ describe('resolveTarget (cli.md, "解析顺序")', () => {
   });
 
   it('prefers the resource when a resource and a leaf share a name; the leaf stays reachable by raw name', () => {
-    const tools: McpTool[] = [{ name: 'list_search' }, { name: 'search_search' }, { name: 'search' }];
-    // `list_search` -> resource `search` (verb list); `search` -> leaf named `search`.
-    const c = buildCatalog([{ provider: 'acme', tools }]);
-    const p = c.providers[0]!;
-    expect(p.resources.map((r) => r.name)).toContain('search');
+    const tools: McpTool[] = [{ name: 'list_search' }, { name: 'acme_search' }];
+    // `list_search` -> resource `search` (verb list); `acme_search` -> leaf `search`, renamed `acme-search`.
+    const p = buildCatalog([{ provider: 'acme', tools }]).providers[0]!;
     expect(resolveTarget(p, 'search').kind).toBe('resource');
-    const byRaw = resolveTarget(p, 'search_search');
-    expect(byRaw.kind).toBe('tool');
+    const byRaw = resolveTarget(p, 'acme_search');
+    expect(byRaw.kind === 'tool' && byRaw.tool.name).toBe('acme-search');
+  });
+
+  it('resolves a leaf whose raw name is the resource name: the resource yielded (naming.md, rule 7)', () => {
+    const tools: McpTool[] = [{ name: 'list_search' }, { name: 'search_search' }, { name: 'search' }];
+    const p = buildCatalog([{ provider: 'acme', tools }]).providers[0]!;
+    expect(p.resources).toEqual([]);
+    const leaf = resolveTarget(p, 'search');
+    expect(leaf.kind === 'tool' && leaf.tool.rawName).toBe('search');
+    const other = resolveTarget(p, 'search_search');
+    expect(other.kind === 'tool' && other.tool.name).toBe('search-search');
   });
 
   it('reports ambiguous prefixes with candidates', () => {
