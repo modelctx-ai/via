@@ -1,0 +1,366 @@
+{
+  "schema": 1,
+  "totals": {
+    "servers": 15,
+    "tools": 231,
+    "leaves": 51
+  },
+  "servers": [
+    {
+      "server": "cloudflare",
+      "tools": 4,
+      "split": 0,
+      "leaves": [
+        {
+          "raw": "search",
+          "name": "search",
+          "reason": "verb-only"
+        },
+        {
+          "raw": "execute",
+          "name": "execute",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "docs",
+          "name": "docs",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "whoami",
+          "name": "whoami",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "context7",
+      "tools": 2,
+      "split": 2,
+      "leaves": []
+    },
+    {
+      "server": "exa",
+      "tools": 8,
+      "split": 4,
+      "leaves": [
+        {
+          "raw": "crawling_exa",
+          "name": "crawling",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "company_research_exa",
+          "name": "company-research",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "deep_researcher_start",
+          "name": "deep-researcher-start",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "deep_researcher_check",
+          "name": "deep-researcher-check",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "filesystem",
+      "tools": 14,
+      "split": 13,
+      "leaves": [
+        {
+          "raw": "directory_tree",
+          "name": "directory-tree",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "github",
+      "tools": 54,
+      "split": 53,
+      "leaves": [
+        {
+          "raw": "request_copilot_review",
+          "name": "request-copilot-review",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "gmail",
+      "tools": 8,
+      "split": 8,
+      "leaves": []
+    },
+    {
+      "server": "google-drive",
+      "tools": 6,
+      "split": 4,
+      "leaves": [
+        {
+          "raw": "search",
+          "name": "search",
+          "reason": "verb-only"
+        },
+        {
+          "raw": "share_file",
+          "name": "share-file",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "linear",
+      "tools": 22,
+      "split": 22,
+      "leaves": []
+    },
+    {
+      "server": "notion",
+      "tools": 65,
+      "split": 55,
+      "leaves": [
+        {
+          "raw": "notion-search",
+          "name": "search",
+          "reason": "verb-only"
+        },
+        {
+          "raw": "notion-fetch",
+          "name": "fetch",
+          "reason": "verb-only"
+        },
+        {
+          "raw": "notion-set-comment-reaction",
+          "name": "set-comment-reaction",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "notion-set-discussion-resolved",
+          "name": "set-discussion-resolved",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "notion-check-mcp-next-steps",
+          "name": "check-mcp-next-steps",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "notion-convert-page-to-skill",
+          "name": "convert-page-to-skill",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "notion-spawn-session",
+          "name": "spawn-session",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "notion-stop-session",
+          "name": "stop-session",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "notion-wait-session",
+          "name": "wait-session",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "notion-show-advanced-analysis-next-steps",
+          "name": "show-advanced-analysis-next-steps",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "playwright",
+      "tools": 22,
+      "split": 7,
+      "leaves": [
+        {
+          "raw": "browser_resize",
+          "name": "browser-resize",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_console_messages",
+          "name": "browser-console-messages",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_handle_dialog",
+          "name": "browser-handle-dialog",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_evaluate",
+          "name": "browser-evaluate",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_fill_form",
+          "name": "browser-fill-form",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_press_key",
+          "name": "browser-press-key",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_type",
+          "name": "browser-type",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_network_requests",
+          "name": "browser-network-requests",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_take_screenshot",
+          "name": "browser-take-screenshot",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_snapshot",
+          "name": "browser-snapshot",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_drag",
+          "name": "browser-drag",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_hover",
+          "name": "browser-hover",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_select_option",
+          "name": "browser-select-option",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_tabs",
+          "name": "browser-tabs",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "browser_wait_for",
+          "name": "browser-wait-for",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "postgres",
+      "tools": 1,
+      "split": 0,
+      "leaves": [
+        {
+          "raw": "query",
+          "name": "query",
+          "reason": "verb-only"
+        }
+      ]
+    },
+    {
+      "server": "puppeteer",
+      "tools": 7,
+      "split": 0,
+      "leaves": [
+        {
+          "raw": "puppeteer_navigate",
+          "name": "navigate",
+          "reason": "verb-only"
+        },
+        {
+          "raw": "puppeteer_screenshot",
+          "name": "screenshot",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "puppeteer_click",
+          "name": "click",
+          "reason": "verb-only"
+        },
+        {
+          "raw": "puppeteer_fill",
+          "name": "fill",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "puppeteer_select",
+          "name": "select",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "puppeteer_hover",
+          "name": "hover",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "puppeteer_evaluate",
+          "name": "evaluate",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "slack",
+      "tools": 8,
+      "split": 6,
+      "leaves": [
+        {
+          "raw": "slack_post_message",
+          "name": "post-message",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "slack_reply_to_thread",
+          "name": "reply-to-thread",
+          "reason": "no-verb"
+        }
+      ]
+    },
+    {
+      "server": "sqlite",
+      "tools": 6,
+      "split": 6,
+      "leaves": []
+    },
+    {
+      "server": "tavily",
+      "tools": 4,
+      "split": 0,
+      "leaves": [
+        {
+          "raw": "tavily-search",
+          "name": "search",
+          "reason": "verb-only"
+        },
+        {
+          "raw": "tavily-extract",
+          "name": "extract",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "tavily-crawl",
+          "name": "crawl",
+          "reason": "no-verb"
+        },
+        {
+          "raw": "tavily-map",
+          "name": "map",
+          "reason": "no-verb"
+        }
+      ]
+    }
+  ]
+}

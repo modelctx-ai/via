@@ -106,11 +106,11 @@ $ npm run bench:tokens -- --out bench/results/0.4-tokens --release 0.4   # 同�
 
 | | native | via | mcp2cli | mcpc |
 | --- | ---: | ---: | ---: | ---: |
-| 九个任务合计（token，估算） | 382,379 | 14,732 | 59,834 | 57,691 |
+| 九个任务合计（token，估算） | 382,379 | 14,731 | 59,834 | 57,691 |
 | 相对 native | 100% | 4% | 16% | 15% |
-| 去掉 native 的工具注入后 | 15,813 | 14,732 | 59,834 | 57,691 |
+| 去掉 native 的工具注入后 | 15,813 | 14,731 | 59,834 | 57,691 |
 
-via 比 0.1 的 14,210 多出的 522 token 来自说明块变长（`via prompt` 由约 157 增至约 216 token，[ADR 0013](../adr/0013-agent-instructions-are-a-marked-block.md)），九个任务各算一次。mcpc 的总量与 mcp2cli 同一量级（两者都平铺原始工具名、输出保持 JSON 形状），约为 via 的四倍；其中每个任务的 `connect` 就要付该 server 工具概览的成本（github 的 54 个工具约 1,040 token，linear 约 470）。
+via 比 0.1 的 14,210 多出的 521 token 主要来自说明块变长（`via prompt` 由约 157 增至约 216 token，[ADR 0013](../adr/0013-agent-instructions-are-a-marked-block.md)），九个任务各算一次。mcpc 的总量与 mcp2cli 同一量级（两者都平铺原始工具名、输出保持 JSON 形状），约为 via 的四倍；其中每个任务的 `connect` 就要付该 server 工具概览的成本（github 的 54 个工具约 1,040 token，linear 约 470）。
 
 读这些数字时要注意（完整说明在结果文件里）：
 

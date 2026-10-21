@@ -948,14 +948,14 @@
       },
       "via": {
         "fixedBytes": 862,
-        "sessionBytes": 5987,
-        "totalBytes": 6849,
-        "totalTokens": 1712,
+        "sessionBytes": 5945,
+        "totalBytes": 6807,
+        "totalTokens": 1702,
         "steps": [
           {
             "command": "via notion",
             "commandBytes": 10,
-            "stdoutBytes": 1048,
+            "stdoutBytes": 1006,
             "stderrBytes": 0,
             "exit": 0
           },
@@ -1149,14 +1149,14 @@
       },
       "via": {
         "fixedBytes": 862,
-        "sessionBytes": 9025,
-        "totalBytes": 9887,
-        "totalTokens": 2472,
+        "sessionBytes": 9060,
+        "totalBytes": 9922,
+        "totalTokens": 2481,
         "steps": [
           {
             "command": "via playwright",
             "commandBytes": 14,
-            "stdoutBytes": 423,
+            "stdoutBytes": 458,
             "stderrBytes": 0,
             "exit": 0
           },
@@ -1698,7 +1698,7 @@
     "id": "total",
     "title": "total",
     "native": 382379,
-    "via": 14732,
+    "via": 14731,
     "mcp2cli": 59834,
     "mcpc": 57691
   }
