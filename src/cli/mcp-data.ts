@@ -5,6 +5,7 @@ import type { JsonSchema, McpTool } from '../catalog/types';
 import { extractParams, formatSignature, shortDescription } from '../catalog/signature';
 import type { GetPromptResult, McpPrompt, ReadResourceResult, ResourceListing } from '../protocol';
 import type { ContentBlock, OutputFormat, ToolResult } from '../render/types';
+import { shellWords, visibleText } from '../render/shell';
 import { alignRows } from '../render/width';
 
 // Resources ------------------------------------------------------------------------------
@@ -25,7 +26,7 @@ export function resourceListing(listing: ResourceListing, provider: string, form
     lines.push('templates:', ...alignRows(listing.templates.map((t) => row(t.uriTemplate, t))));
   }
   if (listing.resources.length + listing.templates.length > 0) {
-    lines.push(`→ via read ${provider} <uri>${listing.templates.length > 0 ? ' (replace the {placeholders} of a template)' : ''}`);
+    lines.push(`→ via read ${shellWords(provider)} <uri>${listing.templates.length > 0 ? ' (replace the {placeholders} of a template)' : ''}`);
   }
   return { content: [{ type: 'text', text: lines.join('\n') }] };
 }
@@ -70,12 +71,12 @@ export function promptListing(prompts: readonly McpPrompt[], provider: string, f
   if (format === 'json') return { content: [], structuredContent: prompts };
   if (prompts.length === 0) return { content: [{ type: 'text', text: '(no prompts)' }] };
   const rows = prompts.map((p) => {
-    const row = [p.name, formatSignature(extractParams(promptTool(p).inputSchema))];
+    const row = [visibleText(p.name), formatSignature(extractParams(promptTool(p).inputSchema))];
     const description = p.description ? shortDescription(p.description) : '';
     if (description) row.push(description);
     return row;
   });
-  return { content: [{ type: 'text', text: [...alignRows(rows), `→ via prompts ${provider} <name> -h for usage`].join('\n') }] };
+  return { content: [{ type: 'text', text: [...alignRows(rows), `→ via prompts ${shellWords(provider)} <name> -h for usage`].join('\n') }] };
 }
 
 /**

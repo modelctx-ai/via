@@ -4,7 +4,7 @@
 import type { App } from './app';
 import { matchBuiltin } from './builtins';
 import { makeEnv, type CliEnv } from './env';
-import { CliFailure } from './failure';
+import { CliFailure, usageFailure } from './failure';
 import { COMMAND_USAGE, HELP } from './help';
 import { extractGlobals, type GlobalOptions } from './options';
 import { formatError } from '../render/errors';
@@ -35,6 +35,7 @@ export async function run(argv: readonly string[], overrides: Partial<CliEnv> = 
 async function dispatch(app: App, options: GlobalOptions, words: string[]): Promise<number> {
   const first = words[0];
   if (first === undefined) {
+    if (options.schemaSnapshot !== undefined) throw usageFailure('--schema-snapshot applies to a tool call or its usage (-h), not to a listing', 'via call -h');
     if (options.help) {
       app.out(HELP);
       return ExitCode.Ok;
@@ -45,6 +46,10 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
   const builtin = matchBuiltin(first);
   if (builtin !== undefined) {
     const argv = words.slice(1);
+    // A check that cannot run must not look like one that passed.
+    if (options.schemaSnapshot !== undefined && builtin !== 'call') {
+      throw usageFailure(`--schema-snapshot applies to a tool call or its usage (-h), not to via ${builtin}`, 'via call -h');
+    }
     if (builtin === 'help') {
       const topic = argv[0] === undefined ? undefined : matchBuiltin(argv[0]);
       app.out(topic && topic !== 'help' ? `${COMMAND_USAGE[topic]}\n` : HELP);

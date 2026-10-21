@@ -23,6 +23,7 @@ commands:
 
 options:
   -o text|json|raw  --full  --all  --yes  --dry-run  --no-validate  --timeout <seconds>  -h
+  --schema-snapshot <file>  --schema-mode compatible|strict
 
 docs: docs/spec/cli.md
 `;
@@ -35,7 +36,7 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   servers: 'usage: via servers',
   sync: 'usage: via sync [<provider>]',
   doctor: 'usage: via doctor',
-  prompt: 'usage: via prompt [--out <file> | --check <file>] [--replace]',
+  prompt: 'usage: via prompt [--skill] [--out <file> | --check <file>] [--replace]',
   batch: 'usage: via batch [--concurrency <n>]  (JSON Lines on stdin: {"tool":"<provider>/<resource>:<verb>","args":{…}})',
   auth: 'usage: via auth login <provider> [--manual] | via auth status [<provider>] | via auth logout <provider>',
   trust: 'usage: via trust [<path>] [--dry-run] | via trust <path> --yes (scripts only: needs VIA_ALLOW_NONINTERACTIVE_TRUST=1) | via trust --list | via trust --revoke <path>',

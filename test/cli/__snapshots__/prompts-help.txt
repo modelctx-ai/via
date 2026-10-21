@@ -3,3 +3,4 @@ usage: via prompts gh review --code <str> [--lang <str>]
 Review a piece of code
   --code   The code to review
   --lang   Programming language
+example: via prompts gh review --code text --lang text

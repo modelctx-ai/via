@@ -1,6 +1,7 @@
 import { formatSignature, shortDescription } from './signature';
 import type { CatalogTool, ProviderCatalog, ResourceGroup } from './types';
 import type { SearchHit } from './search';
+import { shellArg, shellWords, visibleText } from '../render/shell';
 import { alignRows } from '../render/width';
 
 // Browse views (discovery.md, "浏览视图"). Pure functions returning the text to print.
@@ -87,18 +88,18 @@ export function renderProvider(provider: ProviderCatalog, options: ProviderViewO
   const shown = options.all ? provider.resources : provider.resources.slice(0, maxRows);
   const lines = alignRows(shown.map((g) => [g.name, verbList(g)]));
   const hidden = provider.resources.length - shown.length;
-  if (hidden > 0) lines.push(`… ${hidden} more · via ${provider.provider} --all`);
+  if (hidden > 0) lines.push(`… ${hidden} more · via ${shellWords(provider.provider)} --all`);
   if (provider.leaves.length > 0) {
     const maxLeaves = options.maxLeaves ?? DEFAULT_MAX_LEAVES;
     const leaves = options.all ? provider.leaves : provider.leaves.slice(0, maxLeaves);
     const names = leaves.map((t) => `${t.name}${marker(t)}`);
     const cut = provider.leaves.length - leaves.length;
-    if (cut > 0) names.push(`… ${cut} more · via ${provider.provider} --all`);
+    if (cut > 0) names.push(`… ${cut} more · via ${shellWords(provider.provider)} --all`);
     lines.push(`tools: ${names.join(' · ')}`);
   }
   if (provider.tools.length === 0) lines.push('(no tools)');
   if (options.also && options.also.length > 0) lines.push(`also: ${options.also.join(' · ')}`);
-  if (provider.tools.length > 0 && provider.resources.length > 0) lines.push(`→ via ${provider.provider} <resource> for signatures`);
+  if (provider.tools.length > 0 && provider.resources.length > 0) lines.push(`→ via ${shellWords(provider.provider)} <resource> for signatures`);
   return lines.join('\n');
 }
 
@@ -126,12 +127,12 @@ function toolRows(label: (t: CatalogTool) => string, tools: readonly CatalogTool
 /** `via <provider> <resource>` — one row per tool: verb, signature, short description. */
 export function renderResource(provider: ProviderCatalog, group: ResourceGroup): string {
   const lines = toolRows((t) => t.name, group.tools);
-  lines.push(`→ via ${provider.provider} ${group.name}:<verb> -h for usage`);
+  lines.push(`→ via ${shellWords(provider.provider)} ${shellArg(group.name, { placeholder: 'resource' })}:<verb> -h for usage`);
   return lines.join('\n');
 }
 
 /** `via find` results: like the resource view, with the provider prefix. */
 export function renderFind(hits: readonly SearchHit[], query: string): string {
-  if (hits.length === 0) return `no tools match "${query}"\n→ via to list providers`;
+  if (hits.length === 0) return `no tools match "${visibleText(query)}"\n→ via to list providers`;
   return toolRows((t) => t.ref, hits.map((h) => h.tool)).join('\n');
 }

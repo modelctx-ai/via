@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { BLOCK_BEGIN, BLOCK_END } from '../../src/cli/prompt';
+import { BLOCK_BEGIN, BLOCK_END, SKILL_MARKER } from '../../src/cli/prompt';
 import { portableTable } from '../helpers/portable';
 import { FAKE_TOKEN, ghConfig, makeSandbox, normalize, startFixtureServer, useCleanup } from './helpers';
 
@@ -209,6 +209,100 @@ describe('via prompt', () => {
     const text = read(sb);
     expect(text.startsWith(BLOCK_BEGIN)).toBe(true);
     expect(text).not.toContain('Keep diffs small.');
+  });
+});
+
+describe('via prompt --skill', () => {
+  const skillPath = (sb: ReturnType<typeof makeSandbox>) => join(sb.project, 'skills', 'via', 'SKILL.md');
+  const read = (sb: ReturnType<typeof makeSandbox>) => readFileSync(skillPath(sb), 'utf8');
+  const OUT = join('skills', 'via', 'SKILL.md');
+
+  it('prints a SKILL.md to stdout: frontmatter, then the text of the marked block, and writes no file', async () => {
+    const { sb } = await setup();
+    const skill = await sb.via(['prompt', '--skill']);
+    expect(skill.code).toBe(0);
+    expect(skill.stderr).toBe('');
+    expect(skill.stdout.startsWith('---\nname: via\ndescription: ')).toBe(true);
+    expect(skill.stdout).toContain('\nallowed-tools: Bash(via:*)\n---\n\n');
+    expect(skill.stdout).toContain(SKILL_MARKER);
+    expect(skill.stdout).not.toContain(BLOCK_BEGIN);
+    // the body is the block's text, word for word
+    const block = (await sb.via(['prompt'])).stdout;
+    const inner = block.slice(block.indexOf('\n\n') + 2, block.lastIndexOf('\n\n'));
+    expect(skill.stdout.endsWith(`\n\n${inner}\n`)).toBe(true);
+    expect(existsSync(skillPath(sb))).toBe(false);
+  });
+
+  it('--out writes the whole file where it is told to, and refreshes it on the next run', async () => {
+    const { sb } = await setup();
+    mkdirSync(join(sb.project, 'skills', 'via'), { recursive: true });
+    const first = await sb.via(['prompt', '--skill', '--out', OUT]);
+    expect(first.code).toBe(0);
+    expect(first.stdout).toBe('');
+    expect(normalize(first.stderr)).toMatch(/^· wrote skills[\\/]via[\\/]SKILL\.md · \d+ bytes\n$/);
+    expect(read(sb)).toBe((await sb.via(['prompt', '--skill'])).stdout);
+
+    writeFileSync(skillPath(sb), read(sb).replace('`via more <cursor>`', '`via more <id>`'));
+    const again = await sb.via(['prompt', '--skill', '--out', OUT]);
+    expect(again.code).toBe(0);
+    expect(normalize(again.stderr)).toMatch(/^· updated skills[\\/]via[\\/]SKILL\.md · \d+ bytes\n$/);
+    expect(read(sb)).toContain('`via more <cursor>`');
+  });
+
+  it('does not make the directory, and says what to run', async () => {
+    const { sb } = await setup();
+    const r = await sb.via(['prompt', '--skill', '--out', OUT]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/^error: cannot write skills[\\/]via[\\/]SKILL\.md: its directory does not exist\nnext: mkdir -p /);
+    expect(existsSync(join(sb.project, 'skills'))).toBe(false);
+  });
+
+  it('does not overwrite a file that is not a skill written by via, unless --yes', async () => {
+    const { sb } = await setup();
+    mkdirSync(join(sb.project, 'skills', 'via'), { recursive: true });
+    const mine = '---\nname: via\ndescription: my own notes\n---\n\nKeep this.\n';
+    writeFileSync(skillPath(sb), mine);
+    const refused = await sb.via(['prompt', '--skill', '--out', OUT]);
+    expect(refused.code).toBe(5);
+    expect(refused.stderr).toContain('is not a skill written by via prompt --skill');
+    expect(refused.stderr).toContain('next: rerun with --yes to replace it');
+    expect(read(sb)).toBe(mine);
+    const check = await sb.via(['prompt', '--skill', '--check', OUT]);
+    expect(check.code).toBe(5);
+    expect(read(sb)).toBe(mine);
+
+    const replaced = await sb.via(['prompt', '--skill', '--out', OUT, '--yes']);
+    expect(replaced.code).toBe(0);
+    expect(read(sb)).toContain(SKILL_MARKER);
+  });
+
+  it('--check is 0 when current, 1 when missing or out of date', async () => {
+    const { sb } = await setup();
+    mkdirSync(join(sb.project, 'skills', 'via'), { recursive: true });
+    const missing = await sb.via(['prompt', '--skill', '--check', OUT]);
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain('does not exist');
+    expect(missing.stderr).toContain(`next: via prompt --skill --out ${OUT}`);
+
+    await sb.via(['prompt', '--skill', '--out', OUT]);
+    const ok = await sb.via(['prompt', '--skill', '--check', OUT]);
+    expect(ok.code).toBe(0);
+    expect(normalize(ok.stderr)).toMatch(/^· skills[\\/]via[\\/]SKILL\.md is up to date\n$/);
+
+    writeFileSync(skillPath(sb), read(sb).replace('Providers: ', 'Providers: stale · '));
+    const stale = await sb.via(['prompt', '--skill', '--check', OUT]);
+    expect(stale.code).toBe(1);
+    expect(stale.stderr).toContain('is an out-of-date via skill');
+    // the marked block is not what --skill compares: a block file is stale for it, and the other way round
+    writeFileSync(join(sb.project, 'AGENTS.md'), (await sb.via(['prompt'])).stdout);
+    expect((await sb.via(['prompt', '--skill', '--check', 'AGENTS.md'])).code).toBe(5);
+  });
+
+  it('--replace has no meaning with --skill', async () => {
+    const { sb } = await setup();
+    const r = await sb.via(['prompt', '--skill', '--out', OUT, '--replace']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('--replace has no effect with --skill');
   });
 });
 

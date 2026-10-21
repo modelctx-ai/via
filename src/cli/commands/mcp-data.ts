@@ -8,6 +8,7 @@ import { notFoundError } from '../../render/errors';
 import { ExitCode } from '../../render/exit-codes';
 import { FileMediaSink } from '../../render/media';
 import { renderOptions, renderToolResult } from '../../render/pipeline';
+import { shellArg, shellWords, visibleText } from '../../render/shell';
 import { redactProtocol } from '../../render/redact';
 import { defaultNoise } from '../../render/rules';
 import type { ToolResult } from '../../render/types';
@@ -36,7 +37,7 @@ const safe = <T>(app: App, value: T): T => redactProtocol(value, app.redact) as 
  * Render `result` (built from a result that went through `safe`) as a tool result is rendered and
  * print it; the exit code of the command.
  */
-async function print(app: App, entry: ProviderEntry, ref: string, started: number, result: ToolResult): Promise<number> {
+async function print(app: App, entry: ProviderEntry, ref: string, started: number, result: ToolResult, refWords?: readonly string[]): Promise<number> {
   const config = await app.config();
   const { server } = entry;
   const rendered = await renderToolResult(
@@ -50,7 +51,7 @@ async function print(app: App, entry: ProviderEntry, ref: string, started: numbe
       secrets: app.secrets(),
       redacted: true,
     }),
-    { ref, elapsedMs: app.io.now() - started, media: new FileMediaSink(join(app.cacheDir, 'media')), cursors: (await app.backend()).cursors(), now: app.io.now },
+    { ref, ...(refWords ? { refWords } : {}), elapsedMs: app.io.now() - started, media: new FileMediaSink(join(app.cacheDir, 'media')), cursors: (await app.backend()).cursors(), now: app.io.now },
   );
   app.out(rendered.stdout);
   app.err(rendered.stderr);
@@ -59,7 +60,7 @@ async function print(app: App, entry: ProviderEntry, ref: string, started: numbe
 
 const noOptions = (command: string, argv: readonly string[]): void => {
   const flag = argv.find((a) => a.startsWith('-'));
-  if (flag !== undefined) throw usageFailure(`via ${command}: unknown option ${flag}`, `via ${command} -h`);
+  if (flag !== undefined) throw usageFailure(`via ${command}: unknown option ${visibleText(flag)}`, `via ${command} -h`);
 };
 
 /** `via resources <provider>` */
@@ -97,7 +98,8 @@ export async function promptsCommand(app: App, argv: readonly string[]): Promise
   const prompt = findPrompt(prompts, name, entry.name);
   const tool = promptTool(prompt);
   const ref = `prompts ${entry.name} ${prompt.name}`;
-  const ctx = { provider: entry.name, ref, rawName: prompt.name, readOnly: true, destructive: false };
+  const refWords = ['prompts', entry.name, prompt.name];
+  const ctx = { provider: entry.name, ref, refWords, rawName: prompt.name, readOnly: true, destructive: false };
   if (app.options.help) {
     // The last line of a tool's help (alias, read-only, destructive) means nothing for a prompt.
     app.out(`${formatToolHelp(tool, ctx).split('\n').slice(0, -1).join('\n')}\n`);
@@ -108,7 +110,7 @@ export async function promptsCommand(app: App, argv: readonly string[]): Promise
   // Prompt arguments are strings; with --no-validate other JSON may have slipped through.
   const args = Object.fromEntries(Object.entries(parsed.args).map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)]));
   const result = await backend.getPrompt(entry.server.name, prompt.name, args, { timeoutMs });
-  return print(app, entry, ref, started, promptResult(safe(app, result), app.options.format));
+  return print(app, entry, ref, started, promptResult(safe(app, result), app.options.format), refWords);
 }
 
 /** The prompt `input` names: the name as listed, else the same name leniently written, else a unique prefix. */
@@ -120,12 +122,13 @@ function findPrompt(prompts: readonly McpPrompt[], input: string, provider: stri
   if (prefixed.length === 1) return prefixed[0]!;
   if (prefixed.length > 1) {
     const names = prefixed.map((p) => p.name);
-    throw new CliFailure({ code: ExitCode.NotFound, message: `ambiguous prompt: ${input}`, lines: [`candidates: ${names.join(' · ')}`], next: `via prompts ${provider} ${names[0]} -h` });
+    const commands = names.map((n) => shellWords(['prompts', provider, n]));
+    throw new CliFailure({ code: ExitCode.NotFound, message: `ambiguous prompt: ${visibleText(input)}`, lines: [`candidates: ${names.map((n) => shellArg(n, { placeholder: 'name' })).join(' · ')}`], next: `via ${commands[0]} -h` });
   }
   const suggestions = didYouMean(wanted, prompts.map((p) => normalizeInput(p.name)))
     .map((n) => prompts.find((p) => normalizeInput(p.name) === n)!.name)
-    .map((n) => `prompts ${provider} ${n}`);
+    .map((n) => ['prompts', provider, n]);
   const info = notFoundError('prompt', input, suggestions, input);
-  if (suggestions.length === 0) info.next = `via prompts ${provider}`;
+  if (suggestions.length === 0) info.next = `via prompts ${shellWords(provider)}`;
   throw new CliFailure(info);
 }

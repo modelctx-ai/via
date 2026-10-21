@@ -59,7 +59,7 @@ schema 中的 anyOf/oneOf 分支能由已给出的字段唯一确定时，自动
 
 ### 与全局选项重名
 
-工具参数与全局选项重名时（例如参数名为 `full`、`yes`、`timeout`），用 `--p.full` 显式指定为工具参数；不加前缀时按全局选项处理。
+工具参数与全局选项重名时（例如参数名为 `full`、`yes`、`timeout`、`schema-snapshot`），用 `--p.full` 显式指定为工具参数；不加前缀时按全局选项处理。
 
 ## 帮助
 
@@ -73,6 +73,7 @@ usage: via github issue:read --owner <str> --repo <str> --issue-number <num>
 
 Get issue details
   --method   get: Get issue details · get_comments: Get issue comments · …
+example: via github issue:read --owner text --repo text --issue-number 1 --method get
 alias: issue_read · read-only
 ```
 
@@ -80,7 +81,24 @@ alias: issue_read · read-only
 - usage 行超过 120 列时按 80 列折行，续行缩进 9 格，每个参数不拆开；错误信息里的 usage 最多列出 8 个可选参数，其余写成 `[…]`，完整列表见 `-h`。
 - 类型写法：string `<str>`、number/integer `<num>`、object/array `<json>`、boolean 只写开关；enum 直接写 `a|b|c`（超过 60 个字符时退回类型，完整列表放在参数行）。与全局选项重名的参数显示为 `--p.<name>`。
 - 参数行只列有描述、默认值或需要说明的参数；多行描述压成一行，列表项以 ` · ` 连接，放不下时以 ` · …` 结尾。标量数组注明「repeat the flag or pass a JSON array」。
-- 末尾显示原始名、只读或危险标记。
+- 末尾显示原始名、只读或危险标记；其上一行是[调用示例](#调用示例)。
+
+### 调用示例
+
+`-h` 在 `alias:` 行之前给出一行 `example:`，是按 `inputSchema` 生成、可以直接粘贴运行的调用（`via prompts <provider> <名称> -h` 同样有，写的是 prompt 的参数）。agent 读了它就知道嵌套对象、对象数组、tuple 该怎么写，不必再去翻映射规则；这行文字会进入 agent 的上下文，所以只给一条、尽量短（上例约 25 个 token）。错误信息里的 `usage:` 不带它。
+
+- **选哪些参数**：所有必填参数，之后补可选参数，直到共 3 个；必填参数已有 3 个以上时只写必填。可选参数的值是空容器（`'{}'`、`'[]'`，没有教学意义），或补上它会让整行超过 200 个字符时，跳过。没有参数的工具不显示。必填参数连一个可写的值都没有，或只写必填就超过 400 个字符时，整行不显示。
+- **取什么值**：`enum`/`const` 的第一个值；其次 `examples` 的第一个、`default`（长度超过 60 字符的不用；boolean 不用 `default`，直接写开关）；都没有时按类型生成：string 写 `text`（有 `format` 时写该格式的合法值：`date-time`、`date`、`time`、`email`、`uri`、`hostname`、`ipv4`），integer/number 取 `minimum`（`exclusiveMinimum` 加 1；不超过 `maximum`，默认 1），boolean 写 `--flag`。
+- **写成什么形态**，与[映射规则](#映射规则)一致：
+  - 声明了字段的 object：点号路径，只写必填字段（没有必填字段时写第一个声明的字段），最多嵌套 3 层：`--filter.state open --filter.range.from 2026-01-15`；
+  - 标量数组：重复的 flag 写一项：`--tag text`；
+  - 对象数组、tuple（`prefixItems`，或数组形式的 `items`）、没有声明字段的 object：整体写 JSON，用引号包住：`--pages '[{"title":"text"}]'`、`--point '[1,1]'`；
+  - nullable（`type: ["string", "null"]`、`anyOf`/`oneOf` 带 `null` 分支）：写非 null 分支的值，`anyOf`/`oneOf` 取第一个非 null 分支；
+  - 本地 `$ref` 展开，对象字段最多展开 4 层，到顶的数组写 `[]`、对象写 `{}`，自引用的 schema 不会无限展开；
+  - 值以 `-` 开头时写成 `--name=-5`（否则会被当成选项）。
+- **安全**：整行是一条可粘贴的命令，每个词都遵循[可粘贴的命令行](output.md#可粘贴的命令行)的引用规则，值来自 server 的 schema 也不例外：`enum`/`default`/`examples` 里的值没有安全写法（含换行、控制字符，或引号加 shell 语法字符），或以 `@` 开头（会被读成文件）、等于 `-`（会被读成 stdin）时，换用下一个候选值，最终退回按类型生成的值；一个参数的所有可选值都不能写，则跳过它（必填时整行不显示）。参数名按[参数名](#参数名)的规则写；没有安全写法的原名（归一化后同名时保留的原名）加引号，不能引用的参数跳过。
+- **Windows**：PowerShell 与 `cmd.exe` 没有共同的、能带双引号的写法（[output.md](output.md#可粘贴的命令行)），所以需要 JSON 的参数（对象数组、tuple）在 Windows 上不写进示例；必填时整行不显示，改用 `--args @文件`。
+- 示例是为了展示写法，不保证业务上有意义（`text`、`1`）；但它按同一个解析器和校验器检查：测试对夹具里全部工具的示例逐条解析并校验，必须通过。
 
 ## 校验与报错
 
@@ -186,6 +204,73 @@ next: via github issue:list -h
 工具声明了 `outputSchema` 时，用它校验返回的 `structuredContent`。不匹配时照常渲染，只在 stderr 给出警告，不改变退出码。
 
 警告写成 `<tool> result does not match its outputSchema: items[0].id must be string`，最多 3 条，其余合并为一行计数；返回值可能含敏感内容，警告里不引用值，也不检查 `format`。`outputSchema` 无法编译时静默跳过。
+
+## schema 快照校验
+
+上游改了工具的 schema（加了必填参数、改了类型、去掉了输出字段），依赖旧写法的脚本和 CI 会在运行时才以难懂的方式失败。`--schema-snapshot` 让它们在发调用之前就发现：把工具**当前**的 `inputSchema`、`outputSchema` 与保存下来的快照比较，不兼容就不发调用。
+
+```console
+$ via github issue:read -h -o json > issue-read.snapshot.json      # 保存快照
+$ via github issue:read --owner acme --repo api --issue-number 1 --method get \
+      --schema-snapshot issue-read.snapshot.json                    # 兼容才会真的调用
+```
+
+**快照文件**是 `-h -o json` 的输出（工具详情），也接受 MCP 的工具对象本身（有 `inputSchema`/`outputSchema` 的 `tools/list` 条目）。详情是一个 JSON 对象：
+
+| 字段 | 内容 |
+| --- | --- |
+| `tool` | 规范写法，如 `github issue:read` |
+| `rawName` | 原始名 |
+| `description` | 工具描述（有则写） |
+| `readOnly`、`destructive` | 为真时才写 |
+| `inputSchema` | 输入 schema；工具没有声明时为 `{"type": "object"}` |
+| `outputSchema` | 输出 schema（有则写） |
+
+文件里有 `rawName`（或 `name`）时必须与要调用的工具一致，否则是用法错误（拿错了文件）。输出经脱敏后写出，格式 2 空格缩进。
+
+**选项**（全局选项，[cli.md](cli.md#全局选项)）：`--schema-snapshot <文件>`；`--schema-mode compatible|strict`，默认 `compatible`。选项名带 `snapshot` 而不是 `--schema`，是因为 `schema` 是常见的工具参数名（Notion 的 `notion-create-database`、各种 SQL 与结构化输出工具），全局选项会把它们抢走（只能写成 `--p.schema`），这会让原本能用的调用静默改变含义。
+
+**适用范围**：工具调用（`via <provider> <工具> …`、`via call`）和工具的 `-h`；`--dry-run` 先检查再打印。检查发生在参数解析之前，所以快照不兼容时看到的是快照的报告，而不是参数错误。`via batch`、浏览视图、`find` 等没有单个工具可比的命令带上它时退出码 2。
+
+**用的是现在的 schema**：本地缓存的 `tools/list` 超过 5 分钟（[schema 不可靠时](#schema-不可靠时)用的同一个阈值）时，先向 server 刷新再比较，因为目的就是发现 server 现在给出的是什么。刷新失败时用缓存比较，并在 stderr 写 `warning: could not refresh the tool list of <server>; the snapshot was compared with the cached schema`。刷新后工具已不存在：退出码 3，`gh stat:get is no longer offered by gh`。
+
+### 兼容档（`compatible`）
+
+判断标准：照快照写的调用和读结果的代码，在现在的 schema 下是否还成立。注释、描述、`default`、`examples` 等不影响调用的关键字不参与比较；`$ref` 先展开，`anyOf`/`oneOf` 按其类型集合与声明的字段比较，嵌套的 object 与数组元素逐层比较（最多 6 层）。
+
+| 变化 | 输入（调用） | 输出（结果） |
+| --- | --- | --- |
+| 新增字段 / 参数 | 可选：兼容；必填：**不兼容** | 兼容 |
+| 去掉字段 / 参数 | **不兼容** | 必填字段：**不兼容**；可选字段：兼容 |
+| 可选 ↔ 必填 | 可选变必填：**不兼容**；必填变可选：兼容 | 必填变可选：**不兼容**；可选变必填：兼容 |
+| 类型变化 | 现在的类型集合包含过去的（`string` → `string\|null`，`integer` → `number`）：兼容，否则**不兼容** | 现在的类型集合包含于过去的（`string\|null` → `string`）：兼容，否则**不兼容** |
+| `enum` / `const` | 取值只增不减：兼容；去掉旧值、或原本不限定现在限定了取值：**不兼容** | 现在的取值都在过去列出的范围内：兼容；出现新值：**不兼容** |
+| `outputSchema` | 新增：兼容；去掉：**不兼容** | — |
+| `inputSchema` 去掉 | 无参数可比，兼容 | — |
+
+输入侧的「去掉」包括可选参数：照旧写法调用的人还在传它，via 自己的解析器对封闭的 schema 也会报未知参数。
+
+### 严格档（`strict`）
+
+`inputSchema` 与 `outputSchema` 逐字相等：对象的键序、`required` 里的顺序不计，其余（包括描述、`default`、新增的可选参数）任何差异都是不兼容。工具的 `description`（不在这两个 schema 里）不参与。报告里的路径是 schema 内部的路径（`properties.loud`、`properties.owner.type`、`required`），最多收集 40 处，报告列出前 8 条。
+
+### 结果
+
+- **兼容**：照常继续（调用，或显示用法）。有兼容的变化时 stderr 一行 `warning: gh echo-text changed compatibly since the snapshot: --loud new optional parameter; …`（最多列 3 条，其余计数）。
+- **不兼容**：不发调用，stdout 为空，退出码 **2**，stderr：
+
+  ```console
+  error: gh echo-text: 2 breaking changes against issue.snapshot.json (compatible); nothing was sent
+    input   --lang     new required parameter
+    output  count      required field removed
+    (1 more change that is compatible)
+  next: via gh echo-text -h -o json
+  ```
+
+  `input` 一列的路径是命令行写法（`--filter.state`、`--pages[].title`），`output` 一列是字段路径（`owner.login`、`items[].id`）。最多列出 8 条，其余写成 `… N more`。`next:` 是重新生成快照的命令，确认变化是预期的之后用它更新文件。`-o json` 时同输出规范的错误对象，`details` 里每条不兼容的变化一个对象：`{"side": "input", "path": "--lang", "rule": "added", "message": "new required parameter"}`，`rule` 取 `added`、`removed`、`required`、`optional`、`type`、`enum`、`schema`（整个 schema 出现或消失）、`differs`（严格档）。
+- **快照本身有问题**：文件读不了、不是 JSON、不是工具快照、属于另一个工具、`--schema-mode` 不是这两个值：退出码 2，说明原因，`next:` 同样是重新保存快照的命令。
+
+**为什么是退出码 2**：[输出规范](output.md#退出码)里 2 是「参数或用法错误」，也就是本地在发出之前就判定「这条调用不能这样发」，且重试不会变好；快照不兼容正是这一类（调用写法与工具现状不符，要改的是调用或快照）。6（上游、传输错误）会被 agent 和脚本当作可重试的暂时故障，1 只用于工具自己返回 `isError`，5 是被拒绝，都不合适，所以没有新增退出码。需要区分「用法错误」与「快照不兼容」的脚本，看 `-o json` 的错误里的 `details`（有 `side`/`rule`）。
 
 ## 危险操作
 

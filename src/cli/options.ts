@@ -3,6 +3,7 @@
 import { usageFailure } from './failure';
 
 export type OutputFormat = 'text' | 'json' | 'raw';
+export type SchemaMode = 'compatible' | 'strict';
 
 export interface GlobalOptions {
   format: OutputFormat;
@@ -14,10 +15,14 @@ export interface GlobalOptions {
   /** `--timeout`, converted to milliseconds. */
   timeoutMs?: number;
   help: boolean;
+  /** `--schema-snapshot <file>`: compare the tool's schemas with this snapshot before calling it or showing its usage. */
+  schemaSnapshot?: string;
+  /** `--schema-mode`: how strictly (arguments.md, "schema 快照校验"). */
+  schemaMode: SchemaMode;
 }
 
 export function defaultOptions(): GlobalOptions {
-  return { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, help: false };
+  return { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, help: false, schemaMode: 'compatible' };
 }
 
 const FLAGS: Record<string, keyof Pick<GlobalOptions, 'full' | 'all' | 'yes' | 'dryRun' | 'noValidate' | 'help'>> = {
@@ -33,6 +38,11 @@ const FLAGS: Record<string, keyof Pick<GlobalOptions, 'full' | 'all' | 'yes' | '
 function parseFormat(value: string): OutputFormat {
   if (value === 'text' || value === 'json' || value === 'raw') return value;
   throw usageFailure(`-o must be text, json or raw (got ${JSON.stringify(value.slice(0, 40))})`);
+}
+
+function parseSchemaMode(value: string): SchemaMode {
+  if (value === 'compatible' || value === 'strict') return value;
+  throw usageFailure(`--schema-mode must be compatible or strict (got ${JSON.stringify(value.slice(0, 40))})`);
 }
 
 function parseTimeout(value: string): number {
@@ -56,6 +66,22 @@ export function extractGlobals(argv: readonly string[]): { options: GlobalOption
     const flag = FLAGS[token];
     if (flag) {
       options[flag] = true;
+      continue;
+    }
+    if (token === '--schema-snapshot' || token === '--schema-mode') {
+      const value = argv[i + 1];
+      if (value === undefined) throw usageFailure(`${token} needs a value`);
+      i += 1;
+      if (token === '--schema-mode') options.schemaMode = parseSchemaMode(value);
+      else options.schemaSnapshot = value;
+      continue;
+    }
+    if (token.startsWith('--schema-snapshot=')) {
+      options.schemaSnapshot = token.slice('--schema-snapshot='.length);
+      continue;
+    }
+    if (token.startsWith('--schema-mode=')) {
+      options.schemaMode = parseSchemaMode(token.slice('--schema-mode='.length));
       continue;
     }
     if (token === '-o' || token === '--timeout') {

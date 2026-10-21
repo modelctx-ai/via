@@ -5,7 +5,7 @@ export { shapeValue, type ShapeOptions, type Shaped, type ShapeKind } from './sh
 export { compileNoise, defaultNoise, defaultColumns, type NoiseData, type NoiseRules, type ColumnsData } from './rules';
 export { createRedactor, lazyRedactor, MIN_SCAN_LENGTH, redactProtocol, redactValue, REDACTED, scannerOf, type Redactor } from './redact';
 export { alignRows, displayWidth, padEndWidth, truncateChars } from './width';
-export { shellWord } from './shell';
+export { shellArg, shellQuery, shellQuote, shellWord, shellWords, visibleText, type ShellWordOptions } from './shell';
 export {
   MemoryCursorStore,
   CURSOR_TTL_MS,

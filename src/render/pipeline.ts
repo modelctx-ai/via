@@ -6,6 +6,7 @@ import { formatMetaLine, type MetaInfo } from './meta';
 import type { MediaSink } from './media';
 import { createRedactor, redactValue, scannerOf, type Redactor } from './redact';
 import { sanitizeText } from './sanitize';
+import { shellArg, shellWords, visibleText } from './shell';
 import { defaultColumns, defaultNoise, type ColumnsData, type NoiseRules } from './rules';
 import { shapeValue } from './shape';
 import type { ContentBlock, OutputFormat, ToolResult } from './types';
@@ -52,6 +53,8 @@ export function renderOptions(overrides: Partial<RenderOptions> = {}): RenderOpt
 export interface RenderContext {
   /** Canonical tool reference for the meta line. */
   ref: string;
+  /** The words of `ref` for a `next:` hint, when one of them may contain a space (a prompt name). */
+  refWords?: readonly string[];
   elapsedMs: number;
   media: MediaSink;
   cursors: CursorStore;
@@ -297,7 +300,7 @@ export async function renderToolResult(
     createdAt: now(),
   };
   meta.bytes = { shown, total: record.totalBytes };
-  if (page.next < bodyLines.length) meta.next = `via more ${await ctx.cursors.put(record)}`;
+  if (page.next < bodyLines.length) meta.next = `via more ${shellArg(await ctx.cursors.put(record), { placeholder: 'cursor', positional: true })}`;
   return { stdout: page.lines.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok, meta };
 }
 
@@ -312,7 +315,7 @@ export async function renderMore(
   if (!record) {
     const info: ErrorInfo = {
       code: ExitCode.NotFound,
-      message: `cursor ${id} not found or expired (cursors are kept for ${CURSOR_TTL_MS / 60000} minutes)`,
+      message: `cursor ${visibleText(id)} not found or expired (cursors are kept for ${CURSOR_TTL_MS / 60000} minutes)`,
       next: 'rerun the original command',
     };
     return { stdout: '', stderr: formatError(info, options.format, redact), exitCode: ExitCode.NotFound };
@@ -327,7 +330,7 @@ export async function renderMore(
   };
   if (page.next < record.lines.length) {
     const next: CursorRecord = { ...record, offset: page.next, shownBytes: shown, createdAt: (ctx.now ?? Date.now)() };
-    meta.next = `via more ${await ctx.cursors.put(next)}`;
+    meta.next = `via more ${shellArg(await ctx.cursors.put(next), { placeholder: 'cursor', positional: true })}`;
   }
   return {
     stdout: page.lines.map((l) => redact(l)).map((l) => `${l}\n`).join(''),
@@ -363,7 +366,7 @@ function upstreamError(
     code: ExitCode.ToolError,
     message: options.format === 'json' ? lines.join('\n') : lines[0]!,
     lines: options.format === 'json' ? undefined : lines.slice(1),
-    next: `via ${ctx.ref} -h`,
+    next: `via ${shellWords(ctx.refWords ?? ctx.ref)} -h`,
   };
   return { stdout: '', stderr: formatError(info, options.format, redact), exitCode: ExitCode.ToolError, error: info };
 }

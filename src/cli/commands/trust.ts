@@ -21,7 +21,7 @@ import {
 } from '../../config';
 import { ExitCode } from '../../render/exit-codes';
 import { shortenHome } from '../../config/paths';
-import { shellWord } from '../../render/shell';
+import { inertText, shellQuote, shellWord } from '../../render/shell';
 import { alignRows } from '../../render/width';
 import type { App } from '../app';
 import { fail, usageFailure } from '../failure';
@@ -41,11 +41,17 @@ function safe(text: string): string {
   return text.replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
-/** One word of a command line, quoted the way a shell would need it so that spaces stay visible. */
+/**
+ * One word of a command line, quoted the way the shell would need it so that spaces stay visible;
+ * one that no quoting can carry safely is shown as an inert escaped string instead.
+ */
 function word(text: string): string {
-  // A backslash is a path separator on Windows, and shown as is rather than doubled by JSON quoting.
-  const plain = process.platform === 'win32' ? /^[\w@%+=:,./\\~-]+$/ : /^[\w@%+=:,./~-]+$/;
-  return plain.test(text) ? text : safe(JSON.stringify(text));
+  return shellQuote(text) ?? inertText(text);
+}
+
+/** A root directory as written in the config (`~/notes` stays as typed); quoted like a word when it has spaces or the like. */
+function rootWord(text: string): string {
+  return /^[\w@%+=:,./\\~-]+$/.test(text) ? text : word(text);
 }
 
 const shorten = (path: string, home: string): string => shortenHome(path, home);
@@ -92,7 +98,7 @@ function describeServer(server: ServerConfig): string[] {
     if (Object.keys(transport.headers).length > 0) lines.push(`      headers: ${describeEntries(transport.headers)}`);
   }
   // Directories the server is told it may work in: part of what is being trusted (ADR 0010).
-  if (server.roots !== undefined && server.roots.length > 0) lines.push(`      roots: ${server.roots.map(word).join(', ')}`);
+  if (server.roots !== undefined && server.roots.length > 0) lines.push(`      roots: ${server.roots.map(rootWord).join(', ')}`);
   if (auth.type === 'bearer') lines.push(`      auth.bearer: ${describeRef(auth.bearer)}`);
   if (auth.type === 'headers') lines.push(`      auth.headers: ${describeEntries(auth.headers)}`);
   return lines;

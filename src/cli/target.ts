@@ -12,6 +12,7 @@ import {
 } from '../catalog';
 import { notFoundError } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
+import { shellWords, visibleText } from '../render/shell';
 import type { App } from './app';
 import { ALL_COMMANDS } from './builtins';
 import { matchingDeny, type ProviderEntry } from './directory';
@@ -28,13 +29,13 @@ function nameCatalog(entries: readonly ProviderEntry[]): Catalog {
 /** Find the provider the first argument names, or fail with candidates / did-you-mean (exit 3). */
 export async function resolveEntry(app: App, input: string): Promise<ProviderEntry> {
   const { entries } = await app.table();
-  if (input.startsWith('-')) throw usageFailure(`unknown option ${input}`, 'via -h');
+  if (input.startsWith('-')) throw usageFailure(`unknown option ${visibleText(input)}`, 'via -h');
   const result = resolveProvider(nameCatalog(entries), input);
   if (result.kind === 'provider') return entries.find((e) => e.name === result.provider.provider)!;
   if (result.kind === 'ambiguous') {
-    throw fail(ExitCode.NotFound, `ambiguous provider: ${input}`, `via ${result.candidates[0]} -h`, [`candidates: ${result.candidates.join(' · ')}`]);
+    throw fail(ExitCode.NotFound, `ambiguous provider: ${visibleText(input)}`, `via ${shellWords(result.candidates[0]!)} -h`, [`candidates: ${result.candidates.map((c) => shellWords(c)).join(' · ')}`]);
   }
-  if (entries.length === 0) throw fail(ExitCode.NotFound, `no such provider: ${input} (no servers are configured)`, 'via servers');
+  if (entries.length === 0) throw fail(ExitCode.NotFound, `no such provider: ${visibleText(input)} (no servers are configured)`, 'via servers');
   // Built-in names count as candidates too: `via sevrers` is more likely a typo than a provider.
   const suggestions = [...new Set([...result.suggestions, ...didYouMean(normalizeInput(input), ALL_COMMANDS.filter((c) => c !== 'help'))])].slice(0, 3);
   throw new CliFailure(notFoundError('provider', input, suggestions, input));
@@ -54,24 +55,24 @@ export function resolveInProvider(
   input: string,
 ): Target {
   const { visible } = views;
-  if (input.startsWith('-')) throw usageFailure(`unknown option ${input}`, `via ${visible.provider} -h`);
+  if (input.startsWith('-')) throw usageFailure(`unknown option ${visibleText(input)}`, `via ${shellWords(visible.provider)} -h`);
   const found = resolveTarget(visible, input);
   if (found.kind === 'tool') return { kind: 'tool', provider: visible, tool: found.tool };
   if (found.kind === 'resource') return { kind: 'resource', provider: visible, group: found.resource };
   if (found.kind === 'ambiguous') {
-    const candidates = found.candidates.map((c) => `${visible.provider} ${c}`);
-    throw fail(ExitCode.NotFound, `ambiguous name: ${input}`, `via ${candidates[0]} -h`, [`candidates: ${candidates.join(' · ')}`]);
+    const candidates = found.candidates.map((c) => shellWords([visible.provider, c]));
+    throw fail(ExitCode.NotFound, `ambiguous name: ${visibleText(input)}`, `via ${candidates[0]} -h`, [`candidates: ${candidates.join(' · ')}`]);
   }
   // `views.full` is built on first access: only a name that did not resolve gets here.
   const hidden = resolveTarget(views.full, input);
   if (hidden.kind === 'tool') {
     const rule = matchingDeny(hidden.tool, deny);
     if (rule) {
-      throw fail(ExitCode.Denied, `${hidden.tool.ref} is denied by ${rule}`, `via ${visible.provider}`);
+      throw fail(ExitCode.Denied, `${hidden.tool.ref} is denied by ${rule}`, `via ${shellWords(visible.provider)}`);
     }
   }
   throw new CliFailure(
-    notFoundError('tool', input, found.suggestions.map((s) => `${visible.provider} ${s}`), `${visible.provider} ${input.replace(':', ' ')}`),
+    notFoundError('tool', input, found.suggestions.map((s) => [visible.provider, s]), `${visible.provider} ${input.replace(':', ' ')}`),
   );
 }
 

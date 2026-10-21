@@ -81,9 +81,13 @@ flowchart LR
 | c3 resources、prompts 与 roots | 已实现 | [ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) |
 | c4 Windows 支持 | 已实现 | daemon 走命名管道（[ADR 0012](adr/0012-windows-pipe-name-and-batch-files.md)），CI 在 Windows 上跑完整检查 |
 | c5 `via serve` | 已实现，未发布 | stdio MCP server，七个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[cli.md](spec/cli.md#via-serve)） |
-| d1–d6 | 计划中（0.4） | 见[验证与打磨](#验证与打磨) |
+| d1–d5 | 计划中（0.4） | 见[验证与打磨](#验证与打磨) |
+| d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
 | e1–e9 | 计划中（0.4），必须做 | 见 [MCP 协议对齐](#mcp-协议对齐)；不依赖 d1 的评测结论，与验证同时开工 |
-| f1–f5 | 计划中（0.4） | 见[借鉴与补齐](#借鉴与补齐) |
+| f1 schema 快照校验 | 已实现，未发布 | `--schema-snapshot <文件>`、`--schema-mode compatible\|strict`（[arguments.md](spec/arguments.md#schema-快照校验)） |
+| f2、f3 | 计划中（0.4） | 见[借鉴与补齐](#借鉴与补齐) |
+| f4 `-h` 调用示例 | 已实现，未发布 | [arguments.md](spec/arguments.md#调用示例) |
+| f5 SKILL.md | 已实现，未发布 | `via prompt --skill`（[cli.md](spec/cli.md)） |
 
 ## 门槛
 
@@ -135,7 +139,7 @@ via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-1
 
 | 项 | 内容 | 涉及规范 |
 | --- | --- | --- |
-| f1 schema 快照校验 | 调用或查看用法时带 `--schema <文件>`：把当前工具的 `inputSchema`/`outputSchema` 和保存的快照（`-o json` 的工具详情）比较。分兼容与严格两档：兼容档允许新增可选参数、新增输出字段，必填参数的类型变化或删除必填输出字段算不兼容；不兼容时不发调用并以非零退出码报告差异。用于脚本和 CI 尽早发现上游的破坏性变更 | [cli.md](spec/cli.md)、[arguments.md](spec/arguments.md)、[output.md](spec/output.md) |
+| f1 schema 快照校验 | 调用或查看用法时带 `--schema-snapshot <文件>`（不用 `--schema`，它是一些工具的真实参数名）：把当前工具的 `inputSchema`/`outputSchema` 和保存的快照（`-o json` 的工具详情）比较。分兼容与严格两档：兼容档允许新增可选参数、新增输出字段，必填参数的类型变化或删除必填输出字段算不兼容；不兼容时不发调用并以非零退出码报告差异。用于脚本和 CI 尽早发现上游的破坏性变更 | [cli.md](spec/cli.md)、[arguments.md](spec/arguments.md)、[output.md](spec/output.md) |
 | f2 via 自身出站请求走代理 | via 发出的 HTTP 请求（MCP server、OAuth、embedding 检索）遵守 `HTTPS_PROXY`、`HTTP_PROXY`、`NO_PROXY`。现在这些变量只转发给 stdio 子进程（[config.md](spec/config.md)），via 自己的请求不走代理，公司网络里连不上远程 server。`via doctor` 显示生效的代理（隐藏 userinfo） | [config.md](spec/config.md)、[security.md](spec/security.md) |
 | f3 daemon 与 stdio server 日志 | 现在 stdio 子进程的 stderr 只在出错时取末尾几行拼进报错，`via.sock.log` 只在 daemon 启动失败时读取。改为按 server 分文件、按大小轮转的日志，`via daemon logs [<provider>]` 查看（`-n`、`--follow`、`--since`），内容同样脱敏，文件权限与缓存目录一致 | [daemon.md](spec/daemon.md)、[security.md](spec/security.md)、[cli.md](spec/cli.md) |
 | f4 `-h` 给出完整调用示例 | 用法里按 schema 生成一条可直接粘贴的调用示例，覆盖嵌套 object、对象数组、nullable、`$ref`、tuple；引号规则随 d6 | [arguments.md](spec/arguments.md)、[output.md](spec/output.md) |
