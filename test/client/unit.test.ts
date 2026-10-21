@@ -84,6 +84,21 @@ describe('Limiter', () => {
     expect(limiter.queued).toBe(0);
   });
 
+  it('gives up on a queued task after its wait, without running it or losing the slot', async () => {
+    const limiter = new Limiter(1);
+    let release!: () => void;
+    const first = limiter.run(() => new Promise<void>((r) => (release = r)));
+    let ran = false;
+    const late = limiter.run(async () => void (ran = true), { ms: 20, error: () => new Error('waited too long') });
+    await expect(late).rejects.toThrow('waited too long');
+    expect(limiter.queued).toBe(0);
+    release();
+    await first;
+    expect(ran).toBe(false);
+    expect(limiter.running).toBe(0);
+    expect(await limiter.run(async () => 'next')).toBe('next');
+  });
+
   it('keeps going after a failing task', async () => {
     const limiter = new Limiter(1);
     await expect(limiter.run(async () => Promise.reject(new Error('x')))).rejects.toThrow('x');

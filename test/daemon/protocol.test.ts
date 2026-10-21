@@ -623,6 +623,42 @@ describe('lifecycle timers', () => {
     expect((await slow).ok).toBe(true);
     await h.daemon.closed;
   });
+
+  it('shutdown with force answers, then abandons the requests in flight and exits at once', async () => {
+    const h = await startDaemon();
+    const conn = await h.connect();
+    const slow = conn.request({ type: 'call', ...target(stdioServer()), rawName: 'slow', args: { ms: 10_000 } });
+    const abandoned = expect(slow).rejects.toMatchObject({ name: 'DaemonUnavailable', sent: true });
+    await new Promise((r) => setTimeout(r, 300));
+    const other = await h.connect();
+    const started = Date.now();
+    expect(await other.request({ type: 'shutdown', force: true })).toMatchObject({ ok: true, result: { pid: process.pid } });
+    await h.daemon.closed;
+    expect(Date.now() - started).toBeLessThan(3000);
+    await abandoned;
+  });
+
+  it('keeps a record of itself while it lives when asked to (via daemon run), naming its state', async () => {
+    const h = await startDaemon({ record: true });
+    const file = join(h.paths.records, `${process.pid}.json`);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ pid: process.pid, state: 'running' });
+    if (!isWindows) expect(statSync(file).mode & 0o777).toBe(0o600);
+    const conn = await h.connect();
+    const slow = conn.request({ type: 'call', ...target(stdioServer()), rawName: 'slow', args: { ms: 400 } });
+    await new Promise((r) => setTimeout(r, 150));
+    h.daemon.drain();
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ pid: process.pid, state: 'stopping' });
+    await slow;
+    await h.daemon.closed;
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('removes its record when it finds another daemon already running', async () => {
+    const h = await startDaemon();
+    const second = new DaemonServer({ paths: h.paths, version: VERSION, idleTimeoutMs: 60_000, env: {}, home: h.home, platform: isWindows ? 'win32' : 'linux', record: true });
+    expect(await second.start()).toBe('running');
+    expect(existsSync(join(h.paths.records, `${process.pid}.json`))).toBe(false);
+  });
 });
 
 // The default Windows pipe is named after the start token. The flow is the same over a unix socket,
@@ -631,7 +667,7 @@ describe('derived endpoint', () => {
   function derivedPaths(): { root: string; paths: DaemonPaths } {
     const root = mkdtempSync(join(tmpdir(), 'via-dd-'));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-    return { root, paths: { dir: root, socket: join(root, 'v.sock'), lock: join(root, 'via.lock'), token: join(root, 'via.token'), log: join(root, 'via.log'), pipe: isWindows, derived: true } };
+    return { root, paths: { dir: root, socket: join(root, 'v.sock'), lock: join(root, 'via.lock'), token: join(root, 'via.token'), log: join(root, 'via.log'), records: join(root, 'via.pids'), pipe: isWindows, derived: true } };
   }
   // On Windows a derived path set needs a pipe prefix; the pipe flag is the real thing there.
   const prefixed = (paths: DaemonPaths): DaemonPaths => (isWindows ? { ...paths, socket: `\\\\.\\pipe\\via-test-${process.pid}-${Math.random().toString(16).slice(2, 8)}` } : paths);
@@ -741,6 +777,42 @@ describe('client', () => {
     await new Promise((r) => setTimeout(r, 100));
     await h.daemon.stop();
     await settled;
+  });
+
+  // One slow request must not condemn a connection that other requests (other servers) share.
+  it('fails only the request past its deadline when the daemon still answers, and keeps the connection', async () => {
+    const h = await startDaemon();
+    const conn = await h.connect();
+    const slow = conn.request({ type: 'call', ...target(stdioServer()), rawName: 'slow', args: { ms: 3000 } }, { deadlineMs: 300 });
+    await expect(slow).rejects.toMatchObject({ name: 'DaemonUnavailable', message: 'the via daemon did not answer in time', sent: true, requestOnly: true });
+    expect(conn.closed).toBe(false);
+    expect((await conn.request({ type: 'status' }, { deadlineMs: 2000 })).ok).toBe(true);
+  });
+
+  it('gives the connection up when the daemon does not answer status either', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'via-dc-'));
+    const paths = sandboxPaths(root, join(root, 'home'));
+    mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+    writeFileSync(paths.token, 'mute', { mode: 0o600 });
+    // Says hello, then never answers anything.
+    const { createServer } = await import('node:net');
+    const mute = createServer((socket) => {
+      socket.once('data', () => socket.write(encode({ type: 'hello', version: VERSION, ok: true, pid: 1 })));
+    });
+    await new Promise<void>((r) => mute.listen(endpointOf(paths, 'mute')!, () => r()));
+    cleanups.push(async () => {
+      await new Promise<void>((r) => mute.close(() => r()));
+      rmSync(root, { recursive: true, force: true });
+    });
+    const result = await DaemonConnection.connect(paths, VERSION);
+    if (!('conn' in result)) throw new Error('no connection');
+    const conn = result.conn;
+    const other = conn.request({ type: 'status' });
+    const started = Date.now();
+    await expect(conn.request({ type: 'status' }, { deadlineMs: 100 })).rejects.toMatchObject({ name: 'DaemonUnavailable', sent: true, requestOnly: false });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(2000); // the probe's own wait
+    await expect(other).rejects.toMatchObject({ name: 'DaemonUnavailable' });
+    expect(conn.closed).toBe(true);
   });
 });
 

@@ -137,6 +137,72 @@ describe('lifecycle', () => {
   });
 });
 
+describe('stopping', () => {
+  // A daemon that has taken `shutdown` removes its socket and finishes what is in flight. It is
+  // still a running process, so status must not call it "not running", and stop must end it.
+  it('reports a daemon that no longer listens but is finishing a request, and stop ends it', async () => {
+    const d = await daemonSandbox(config());
+    await d.via(['mock', 'pid']);
+    const pid = (await d.status())!.pid;
+    const running = d.via(['mock', 'slow', '--ms', '20000']);
+    await waitFor(async () => (await d.status())!.sessions[0]!.active === 1, 3000, 'the call to start');
+    const { DaemonConnection } = await import('../../src/daemon/client');
+    const asked = await DaemonConnection.connect(d.paths, VERSION);
+    if (!('conn' in asked)) throw new Error('no daemon');
+    expect((await asked.conn.request({ type: 'shutdown' })).ok).toBe(true);
+    asked.conn.close();
+
+    const status = await d.via(['daemon', 'status']);
+    expect(status.stdout).toBe(`daemon: stopping · pid ${pid} · finishing requests in flight\nsocket: ${d.idleSocketText}\n`);
+    const json = JSON.parse((await d.via(['daemon', 'status', '-o', 'json'])).stdout) as unknown;
+    expect(json).toEqual({ running: false, socket: d.idleSocketText, processes: [{ pid, state: 'stopping' }] });
+
+    const started = Date.now();
+    const stopped = await d.via(['daemon', 'stop']);
+    expect(stopped).toMatchObject({ code: 0, stdout: `daemon: stopped (pid ${pid}), requests in flight abandoned\n` });
+    expect(alive(pid)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(8000);
+    expect((await running).code).toBe(6);
+    expect((await d.via(['daemon', 'status'])).stdout).toBe(`daemon: not running\nsocket: ${d.idleSocketText}\n`);
+  });
+
+  it('gives requests in flight a grace period, then has the daemon abandon them', async () => {
+    const d = await daemonSandbox(config());
+    await d.via(['mock', 'pid']);
+    const pid = (await d.status())!.pid;
+    const running = d.via(['mock', 'slow', '--ms', '30000']);
+    await waitFor(async () => (await d.status())!.sessions[0]!.active === 1, 3000, 'the call to start');
+    const stopped = await d.via(['daemon', 'stop']);
+    expect(stopped).toMatchObject({ code: 0, stdout: `daemon: stopped (pid ${pid}), requests in flight abandoned\n` });
+    expect(alive(pid)).toBe(false);
+    const r = await running;
+    expect(r.code).toBe(6);
+    expect(r.stderr).toContain('lost the connection to the via daemon while calling slow; it may or may not have run');
+  }, 20_000);
+});
+
+describe('slow servers', () => {
+  // A server that never finishes its handshake is given its own timeout (60 s) to connect, but a
+  // list asked for with a shorter one fails on that budget, as an upstream error of that server:
+  // the daemon answered, so neither the connection nor the other servers fall back to in-process.
+  it('a server that hangs in its handshake fails on the list timeout and the daemon stays in use', async () => {
+    const hang = `  hang:\n    command: ${JSON.stringify(process.execPath)}\n    args: ["-e", "setInterval(() => {}, 1000)"]\n`;
+    const d = await daemonSandbox(`sources: false\nservers:\n${mockServerYaml('mock')}${hang}`);
+    const started = Date.now();
+    const r = await d.via(['--timeout', '1', 'find', 'echo']);
+    expect(Date.now() - started).toBeLessThan(8000);
+    expect(r.stdout).toContain('echo');
+    expect(r.stderr).not.toContain('continuing without the daemon');
+    expect(r.stderr).not.toContain('running it in this process');
+    const status = (await d.status())!;
+    expect(status.sessions.map((s) => s.server).sort()).toEqual(['hang', 'mock']);
+    // Stopping does not wait for the handshake that is still going on.
+    const stopping = Date.now();
+    expect((await d.via(['daemon', 'stop'])).stdout).toBe(`daemon: stopped (pid ${status.pid})\n`);
+    expect(Date.now() - stopping).toBeLessThan(5000);
+  });
+});
+
 describe('concurrency', () => {
   it('limits calls to one server across separate CLI processes', async () => {
     const d = await daemonSandbox(config('    concurrency: 2\n'));

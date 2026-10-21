@@ -20,6 +20,11 @@ export interface DaemonPaths {
   token: string;
   /** Where a detached daemon's stderr goes; read back when it fails to start. */
   log: string;
+  /**
+   * Directory where every daemon process for this socket keeps a record of itself while it lives
+   * (`records.ts`), so `via daemon status|stop` can find one that does not listen (yet, or any more).
+   */
+  records: string;
   /** True when `socket` is a named pipe. */
   pipe: boolean;
   /**
@@ -41,7 +46,16 @@ export function daemonPaths(ctx: PathContext, socketOverride?: string): DaemonPa
     if (socketOverride !== undefined) {
       // An explicit pipe: its files are named after it, so several daemons (tests) do not share them.
       const base = pipeBaseName(socketOverride);
-      return { dir, socket: socketOverride, lock: win32.join(dir, `${base}.lock`), token: win32.join(dir, `${base}.token`), log: win32.join(dir, `${base}.log`), pipe: true, derived: false };
+      return {
+        dir,
+        socket: socketOverride,
+        lock: win32.join(dir, `${base}.lock`),
+        token: win32.join(dir, `${base}.token`),
+        log: win32.join(dir, `${base}.log`),
+        records: win32.join(dir, `${base}.pids`),
+        pipe: true,
+        derived: false,
+      };
     }
     const user = pipeUserName(getEnv(ctx.env, 'USERNAME', 'win32') || safeUserName());
     return {
@@ -50,6 +64,7 @@ export function daemonPaths(ctx: PathContext, socketOverride?: string): DaemonPa
       lock: win32.join(dir, 'via.lock'),
       token: win32.join(dir, 'via.token'),
       log: win32.join(dir, 'via-daemon.log'),
+      records: win32.join(dir, 'via.pids'),
       pipe: true,
       derived: true,
     };
@@ -58,7 +73,7 @@ export function daemonPaths(ctx: PathContext, socketOverride?: string): DaemonPa
   const runtime = ctx.platform === 'linux' ? ctx.env.XDG_RUNTIME_DIR : undefined;
   const useRuntime = runtime !== undefined && runtime !== '' && isAbsolute(runtime);
   const socket = socketOverride ?? join(useRuntime ? runtime : userCacheDir(ctx), 'via.sock');
-  return { dir: dirname(socket), socket, lock: `${socket}.lock`, token: `${socket}.token`, log: `${socket}.log`, pipe: false, derived: false };
+  return { dir: dirname(socket), socket, lock: `${socket}.lock`, token: `${socket}.token`, log: `${socket}.log`, records: `${socket}.pids`, pipe: false, derived: false };
 }
 
 /**

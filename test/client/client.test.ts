@@ -169,12 +169,42 @@ describe('errors', () => {
 
   it('a call that outlasts its timeout fails with exit 6 and the session stays usable', async () => {
     const client = makeClient([stdioServer()]);
+    // Started first: the timeout covers starting the server too (see the next tests).
+    expect(textOf(await client.callTool('mock', 'echo', { message: 'warm' }))).toBe('echo: warm');
     const err = await failure(client.callTool('mock', 'slow', { ms: 3000 }, { timeoutMs: 200 }));
     expect(err.exitCode).toBe(6);
     expect(err.message).toContain('did not answer within 0.2s');
     expect(err.next).toBe('rerun with a larger --timeout');
     expect(err.retryable).toBe(true);
     expect(textOf(await client.callTool('mock', 'echo', { message: 'still here' }))).toBe('echo: still here');
+  });
+
+  // One budget per operation: a server that hangs in its handshake must not hold a caller (a CLI
+  // waiting on the daemon) for the server's own 60 s connect timeout.
+  it('a server that hangs in its handshake fails an operation within that operation\'s timeout', async () => {
+    const client = makeClient([stdioServer({ args: ['-e', 'setInterval(() => {}, 1000)'], timeout: 60 })]);
+    const started = Date.now();
+    const err = await failure(client.listTools('mock', { timeoutMs: 300 }));
+    expect(err.exitCode).toBe(6);
+    expect(err.message).toBe('timed out after 0.3s connecting to mock');
+    expect(err.retryable).toBe(true);
+    expect(Date.now() - started).toBeLessThan(3000);
+    // Closing does not wait for the abandoned handshake either: the child is killed.
+    const closing = Date.now();
+    await client.close();
+    expect(Date.now() - closing).toBeLessThan(3000);
+  });
+
+  it('a request queued behind a long call (concurrency) fails within its own timeout', async () => {
+    const client = makeClient([stdioServer({ concurrency: 1 })]);
+    expect(textOf(await client.callTool('mock', 'echo', { message: 'warm' }))).toBe('echo: warm');
+    const slow = client.callTool('mock', 'slow', { ms: 1500 });
+    const started = Date.now();
+    const err = await failure(client.callTool('mock', 'echo', { message: 'queued' }, { timeoutMs: 200 }));
+    expect(err.message).toBe('mock did not answer within 0.2s');
+    expect(Date.now() - started).toBeLessThan(1200);
+    await slow;
+    expect(textOf(await client.callTool('mock', 'echo', { message: 'after' }))).toBe('echo: after');
   });
 
   it('uses ServerConfig.timeout (seconds) when no per-call timeout is given', async () => {

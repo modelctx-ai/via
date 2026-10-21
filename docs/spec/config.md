@@ -108,7 +108,7 @@ search:
 | `disabled` | 全部 | `true` 时对 via 隐藏这个 server（不影响框架） |
 | `exclusive` | stdio | 独占资源；启动失败时提示可能与框架实例冲突 |
 | `confirm` | 全部 | `destructive`（默认）或 `never` |
-| `timeout` | 全部 | 调用超时，秒，默认 60 |
+| `timeout` | 全部 | 调用超时，秒，默认 60；包括排队与建立会话的时间（[arguments.md](arguments.md#调用过程)），建立会话本身也以它为上限 |
 | `concurrency` | 全部 | 同一 server 的并发上限，默认 4；`via batch` 同样遵守，超出的排队 |
 | `budget` | 全部 | 覆盖输出预算 |
 | `noise` | 全部 | 追加的噪声字段名或通配 |

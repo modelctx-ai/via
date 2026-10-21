@@ -30,6 +30,7 @@ import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/sanitize';
 import { redactValue } from '../render/redact';
 import { endpointOf, type DaemonPaths } from './paths';
+import { ProcessRecord, RECORD_TOUCH_MS } from './records';
 import { CREDENTIAL_TTL_MS, ExpiringResolver, SessionManager } from './sessions';
 import { envStamp } from './target';
 import { encode, LineDecoder, parseMessage } from './wire';
@@ -51,6 +52,8 @@ export interface DaemonOptions {
   cursorDir?: string;
   /** Replaces the default OAuth login store (tests). */
   oauthStore?: OAuthStore;
+  /** Keep a record of this process in `paths.records` (`via daemon run`; see records.ts). */
+  record?: boolean;
 }
 
 type State = 'new' | 'running' | 'draining' | 'stopped';
@@ -83,6 +86,8 @@ export class DaemonServer {
   private idleTimer?: NodeJS.Timeout;
   private idleDeadline?: number;
   private watchTimer?: NodeJS.Timeout;
+  private record?: ProcessRecord;
+  private recordTimer?: NodeJS.Timeout;
   private socketIno?: number;
   private token = '';
   /** What the server listens on: the socket path, or for a derived pipe its full name. */
@@ -98,6 +103,7 @@ export class DaemonServer {
     const cacheCtx = pathContext({ home: options.home, env: options.env, platform: options.platform });
     this.cursors = new FileCursorStore(options.cursorDir ?? join(userCacheDir(cacheCtx), 'cursors'), { now: this.now });
     this.closed = new Promise((resolve) => (this.resolveClosed = resolve));
+    if (options.record) this.record = new ProcessRecord(options.paths.records);
   }
 
   get paths(): DaemonPaths {
@@ -118,19 +124,32 @@ export class DaemonServer {
     const { paths } = this.options;
     // On Windows the directory only holds the token, lock and log; its privacy is the user profile's ACL.
     mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
-    const release = await acquireLock(paths.lock);
+    // Recorded before the lock: a daemon waiting for it, or binding, is already findable.
+    this.record?.write('starting');
+    this.recordTimer = setInterval(() => this.record?.touch(), RECORD_TOUCH_MS);
+    this.recordTimer.unref();
     try {
-      // A derived pipe is found through the token of the daemon that made it.
-      const existing = endpointOf(paths, readFileOrEmpty(paths.token));
-      if (existing !== undefined && (await isAlive(existing))) return 'running';
-      if (!paths.pipe && !paths.derived) rmSync(paths.socket, { force: true });
-      this.token = randomBytes(32).toString('hex');
-      this.endpoint = endpointOf(paths, this.token)!;
-      writeFileAtomic(paths.token, this.token);
-      await this.listen();
-    } finally {
-      release();
+      const release = await acquireLock(paths.lock);
+      try {
+        // A derived pipe is found through the token of the daemon that made it.
+        const existing = endpointOf(paths, readFileOrEmpty(paths.token));
+        if (existing !== undefined && (await isAlive(existing))) {
+          this.forget();
+          return 'running';
+        }
+        if (!paths.pipe && !paths.derived) rmSync(paths.socket, { force: true });
+        this.token = randomBytes(32).toString('hex');
+        this.endpoint = endpointOf(paths, this.token)!;
+        writeFileAtomic(paths.token, this.token);
+        await this.listen();
+      } finally {
+        release();
+      }
+    } catch (error) {
+      this.forget();
+      throw error;
     }
+    this.record?.write('running');
     this.state = 'running';
     this.startedAt = this.now();
     const ctx = pathContext({ home: this.options.home, env: this.options.env, platform: this.options.platform });
@@ -157,6 +176,7 @@ export class DaemonServer {
   drain(): void {
     if (this.state !== 'running') return;
     this.state = 'draining';
+    this.record?.write('stopping');
     this.closeListener();
     this.maybeFinishDrain();
   }
@@ -166,6 +186,7 @@ export class DaemonServer {
     if (this.state === 'stopped') return;
     const wasNew = this.state === 'new';
     this.state = 'stopped';
+    if (!wasNew) this.record?.write('stopping');
     clearTimeout(this.idleTimer);
     clearInterval(this.watchTimer);
     this.closeListener();
@@ -177,7 +198,14 @@ export class DaemonServer {
     this.connections.clear();
     if (!wasNew) await this.sessions.closeAll();
     this.removeToken();
+    this.forget();
     this.resolveClosed();
+  }
+
+  /** Remove this process's record: it is about to exit. */
+  private forget(): void {
+    clearInterval(this.recordTimer);
+    this.record?.remove();
   }
 
   // Socket ------------------------------------------------------------------------------
@@ -434,6 +462,8 @@ export class DaemonServer {
       case 'shutdown':
         // Stop listening before answering: the caller may start its successor as soon as it hears back.
         this.drain();
+        // `force`: abandon what is in flight and exit now, once this answer is on its way.
+        if (request.force === true) setImmediate(() => void this.stop());
         return { pid: process.pid };
       case 'batch':
       case 'auth':
