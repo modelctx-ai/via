@@ -1,6 +1,6 @@
 name: Auto merge
 
-# CI 在 PR 上成功后为该 PR 开启 squash 自动合并。
+# CI 在 PR 上成功后为该 PR 开启 squash 自动合并，合入后删除 PR 的分支。
 # 只在 CI 成功之后触发，而不是在 pull_request 上触发：没有 required status checks 时，
 # 自动合并会在 CI 还没跑完时就直接合入。
 on:
@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Enable squash auto-merge for the PR at this head commit
+        id: merge
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -43,3 +44,44 @@ jobs:
             exit 0
           fi
           gh pr merge "$PR_NUMBER" --repo "$REPO" --auto --squash --match-head-commit "$HEAD_SHA"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      # 仓库开着「Automatically delete head branches」，但由 GITHUB_TOKEN 完成的合并不会触发它，
+      # 所以在这里删。没有 required checks 时开启自动合并后几秒内就会合入；等不到合入
+      # （以后加了必需检查或评审）就留给人处理，不算失败。
+      - name: Delete the PR's branch once it is merged
+        if: steps.merge.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          state=""
+          for _ in $(seq 1 12); do
+            state=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq .state)
+            [ "$state" = "MERGED" ] && break
+            sleep 5
+          done
+          if [ "$state" != "MERGED" ]; then
+            echo "PR #$PR_NUMBER is $state, not merged yet; leaving its branch"
+            exit 0
+          fi
+          branch=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq .headRefName)
+          # 合入之后又推了新提交、或分支还是别的 PR 的基准时不删，免得丢掉还没合入的工作。
+          current=$(gh api "repos/$REPO/git/ref/heads/$branch" --jq .object.sha 2>/dev/null || true)
+          if [ -z "$current" ] || [ "$current" = "null" ]; then
+            echo "branch $branch is already gone"
+            exit 0
+          fi
+          if [ "$current" != "$HEAD_SHA" ]; then
+            echo "branch $branch moved past the merged commit ($current); leaving it"
+            exit 0
+          fi
+          if [ -n "$(gh pr list --repo "$REPO" --base "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "branch $branch is the base of an open PR; leaving it"
+            exit 0
+          fi
+          gh api -X DELETE "repos/$REPO/git/refs/heads/$branch"
+          echo "deleted branch $branch"
