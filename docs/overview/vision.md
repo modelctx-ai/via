@@ -42,7 +42,7 @@ via 是一个独立的 MCP client，以 CLI 形态让 agent 按需发现和调�
 | [mcporter](https://github.com/openclaw/mcporter) | 运行时调用 MCP 工具，另有 `generate-cli` 为每个 server 生成专属 CLI | via 不生成代码（[ADR 0008](../adr/0008-dynamic-dispatch-no-codegen.md)）；运行时调用部分的区别同 mcpc 一行 |
 | 网关（如 Asterlane） | 服务端托管凭证、划分权限、审计 | via 是本地 client，网关可以接在 via 背后（[ADR 0002](../adr/0002-standalone-client-not-gateway.md)） |
 
-「运行时分发、不注入 schema、省 token」不是 via 独有的，多 server 聚合、跨 server 搜索和读取框架配置也不是（mcpc 都有）。via 的差异在**统一的命名与渲染规则**：`resource:verb` 拆分、按 schema 生成的参数、去噪与截断游标、每步的 `next:` 提示，以及 `deny`、`--yes` 这类面向 agent 的护栏；其次是不需要建会话的聚合目录，和覆盖更多框架（含 Codex 的 TOML）的只读配置复用。这些是否真的减少 token 和错误调用，要由评测回答（[测试与评测](../development/testing.md#agent-评测)，对照组含 mcp2cli 与 mcpc，见[路线图 d1](../roadmap.md#04验证与打磨)）。协议覆盖不是 via 的差异点，但必须跟上官方规范（[路线图 0.5](../roadmap.md#05mcp-协议对齐)）。
+「运行时分发、不注入 schema、省 token」不是 via 独有的，多 server 聚合、跨 server 搜索和读取框架配置也不是（mcpc 都有）。via 的差异在**统一的命名与渲染规则**：`resource:verb` 拆分、按 schema 生成的参数、去噪与截断游标、每步的 `next:` 提示，以及 `deny`、`--yes` 这类面向 agent 的护栏；其次是不需要建会话的聚合目录，和覆盖更多框架（含 Codex 的 TOML）的只读配置复用。这些是否真的减少 token 和错误调用，要由评测回答（[测试与评测](../development/testing.md#agent-评测)，对照组含 mcp2cli 与 mcpc，见[路线图 d1](../roadmap.md#验证与打磨)）。协议覆盖不是 via 的差异点，但必须跟上官方规范（[路线图 0.4](../roadmap.md#mcp-协议对齐)）。
 
 ## 适用边界
 

@@ -1,6 +1,6 @@
 # 路线图
 
-先用 MVP 证明「不注入 schema、按需发现」既省 token 又不降低成功率；通过后再加 daemon 和 OAuth，最后做扩展。0.4 补齐验证证据；0.5 跟进官方 MCP 协议（必须做，可与 0.4 并行）；0.6 吸收同类工具里与 via 定位相符的做法。
+先用 MVP 证明「不注入 schema、按需发现」既省 token 又不降低成功率；通过后再加 daemon 和 OAuth，最后做扩展。0.4 一个版本里做三件事：补齐验证证据，跟进官方 MCP 协议（必须做），吸收同类工具里与 via 定位相符的做法。
 
 ## 当前状态（0.3.1）
 
@@ -37,7 +37,9 @@ flowchart LR
     c4["Windows 支持"]
     c5["via serve"]
   end
-  subgraph v04["0.4 验证与打磨"]
+  subgraph v04["0.4 验证、协议对齐与补齐"]
+    direction TB
+    subgraph v04d["验证与打磨"]
     direction TB
     d1["发布 agent 评测结果"]
     d2["OAuth 实测记录"]
@@ -45,8 +47,8 @@ flowchart LR
     d4["单文件分发：签名、公证、目标平台实测"]
     d5["拆分规则与截断预算的实测调整"]
     d6["next: 提示与示例命令的引号审计"]
-  end
-  subgraph v05["0.5 MCP 协议对齐"]
+    end
+    subgraph v04e["MCP 协议对齐"]
     direction TB
     e1["迁移到官方 TypeScript SDK v2"]
     e2["2026-07-28 无状态协议与自动回退"]
@@ -57,16 +59,17 @@ flowchart LR
     e7["授权规范对齐：CIMD、client credentials"]
     e8["官方一致性测试进 CI"]
     e9["completion 与 server 自述字段"]
-  end
-  subgraph v06["0.6 借鉴与补齐"]
+    end
+    subgraph v04f["借鉴与补齐"]
     direction TB
     f1["schema 快照校验"]
     f2["via 自身出站请求走代理"]
     f3["daemon 与 stdio server 日志"]
     f4["-h 给出完整调用示例"]
     f5["via prompt 输出 SKILL.md"]
+    end
   end
-  v01 --> g1 --> v02 --> g2 --> v03 --> v04 --> v05 --> v06
+  v01 --> g1 --> v02 --> g2 --> v03 --> v04
 ```
 
 | 项 | 状态 | 说明 |
@@ -78,9 +81,9 @@ flowchart LR
 | c3 resources、prompts 与 roots | 已实现 | [ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) |
 | c4 Windows 支持 | 已实现 | daemon 走命名管道（[ADR 0012](adr/0012-windows-pipe-name-and-batch-files.md)），CI 在 Windows 上跑完整检查 |
 | c5 `via serve` | 已实现，未发布 | stdio MCP server，七个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[cli.md](spec/cli.md#via-serve)） |
-| d1–d6 | 计划中 | 见 [0.4](#04验证与打磨) |
-| e1–e9 | 计划中，必须做 | 见 [0.5](#05mcp-协议对齐)；不依赖 0.4 的评测结论，可以并行开工 |
-| f1–f5 | 计划中 | 见 [0.6](#06借鉴与补齐) |
+| d1–d6 | 计划中（0.4） | 见[验证与打磨](#验证与打磨) |
+| e1–e9 | 计划中（0.4），必须做 | 见 [MCP 协议对齐](#mcp-协议对齐)；不依赖 d1 的评测结论，与验证同时开工 |
+| f1–f5 | 计划中（0.4） | 见[借鉴与补齐](#借鉴与补齐) |
 
 ## 门槛
 
@@ -89,9 +92,11 @@ flowchart LR
 | 门槛 1（0.1 → 0.2） | token 基准与 agent 评测跑通，任务成功率不低于原生 MCP，且不低于 mcp2cli | 未过关：token 基准已发布（[0.1](../bench/results/0.1.md)），agent 评测（`npm run bench:eval`）已实现但还没有发布成功率结果 |
 | 门槛 2（0.2 → 0.3） | 热 daemon 调用开销达到[性能目标](development/testing.md#性能目标)，OAuth 在主流远程 server 上验证通过 | 部分达到：热 daemon 的额外开销远低于 15 ms；冷启动的几项和 daemon 内存在目标线上或略超（[perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md)）；OAuth 在真实远程 server 上的验证还没有记录 |
 
-## 0.4：验证与打磨
+## 0.4：验证、协议对齐与补齐
 
-0.4 不加新命令，先把 0.1–0.3 欠下的证据补齐，再按证据调整默认值。
+0.4 包括三组：补齐 0.1–0.3 欠下的证据并按证据调整默认值（d），跟进官方 MCP 协议（e），吸收同类工具的做法（f）。d 与 e 同时开工，互不依赖；f 穿插进行。三组都完成才发布 0.4。
+
+### 验证与打磨
 
 - **d1 发布 agent 评测结果**：用 `npm run bench:eval` 在 token 基准的同一组任务上跑原生 MCP、via、mcp2cli 三组，结果写进 `bench/results/`。这是门槛 1 的条件，也是「省 token 不降成功率」的直接证据；结果不达标时先改拆分、浏览与渲染，而不是继续加功能。
   - 对照组加入 [mcpc](https://github.com/apify/mcpc)，与 mcp2cli 一样是可选的一列（PATH 上有才运行并记录版本，说明文本取自 `mcpc help --skill`，`connect` 建会话的命令计入成本）。mcpc 与 via 的判断相同（agent 经 shell 用 MCP），但工具名原样、结果保持 MCP 的 JSON 形状，是检验 via 自己的设计（`resource:verb` 拆分、按 schema 生成的参数、紧凑渲染）最直接的对照（[愿景](overview/vision.md#与相近工具的区别)）。token 基准（`bench:tokens`）同样加这一列。
@@ -101,9 +106,9 @@ flowchart LR
 - **d5 拆分规则与截断预算**：在真实 server 上统计拆分失败（退回叶子工具）的比例、调整动词表；用 d1 的评测确定截断预算的默认值（现在是 8 KB）。动词表的改动按 CHANGELOG 的约定写明影响哪些规范写法。
 - **d6 引号审计**：`next:` 提示、`-h` 的用法行和 `--dry-run` 回显里拼出的命令行含有来自 server 的文本（工具名、参数名、枚举值、默认值、URI）和用户输入。逐处核对：复制粘贴这些命令时不会触发 shell 展开或执行（POSIX shell 的 `$`、反引号、`\`，PowerShell 与 `cmd.exe` 各自的转义），不能安全引用的值不出现在可粘贴的命令里。mcpc 修过同类问题（[apify/mcpc#450](https://github.com/apify/mcpc/pull/450)，反斜杠转义缺失导致粘贴的提示可执行命令）。结论写进 [output.md](spec/output.md) 与 [security.md](spec/security.md)，补测试。
 
-## 0.5：MCP 协议对齐
+### MCP 协议对齐
 
-via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-11-25`；`2026-07-28` 把 MCP 改成无状态协议（没有 `initialize` 握手和 server 端会话），只有官方 TypeScript SDK v2（`@modelcontextprotocol/client`，目前 2.3.1）支持。OAuth 登录的探测请求还写死了 `2025-06-18`（`src/client/oauth/login.ts`）。`2025-11-25` 本身也有几项 via 没有覆盖：tasks、elicitation、completion。新版协议的 server 会越来越多，这一组必须做，不等 0.4 的评测结论。
+via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-11-25`；`2026-07-28` 把 MCP 改成无状态协议（没有 `initialize` 握手和 server 端会话），只有官方 TypeScript SDK v2（`@modelcontextprotocol/client`，目前 2.3.1）支持。OAuth 登录的探测请求还写死了 `2025-06-18`（`src/client/oauth/login.ts`）。`2025-11-25` 本身也有几项 via 没有覆盖：tasks、elicitation、completion。新版协议的 server 会越来越多，这一组必须做，不等 d1 的评测结论。
 
 原则：
 
@@ -124,7 +129,7 @@ via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-1
 | e8 一致性测试 | 把官方 `@modelcontextprotocol/conformance` 的 client 场景接进 CI；回放 server 增加 `2026-07-28` 模式，e2e 测试对新旧两代 server 各跑一遍 | [testing.md](development/testing.md) |
 | e9 completion 与 server 自述字段 | `completion/complete` 用于 prompt 参数和资源模板参数的取值提示；`serverInfo` 的 `description`、`websiteUrl` 和 `initialize` 的 `instructions` 是否进入 provider 视图或 `find` 的检索，要在 token 预算内权衡（[待定问题](open-questions.md)） | [discovery.md](spec/discovery.md)、[output.md](spec/output.md) |
 
-## 0.6：借鉴与补齐
+### 借鉴与补齐
 
 以下几项来自与 [mcpc](https://github.com/apify/mcpc)（0.7.0）的对比，选的是 via 还没有、又不违背 via 定位的做法。via 已经有的（stdin 与文件传参、stdio 子进程的环境变量白名单、钥匙串不可用时退回文件、项目配置的信任）不再列出。
 
