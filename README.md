@@ -18,6 +18,8 @@ Turn the tools of any MCP server into a command line that agents discover and ca
 
 via is a standalone MCP client. It reads the MCP configuration your frameworks already have (read-only), injects credentials per server, exposes tools as `provider → resource → verb` commands, and renders all output with one set of rules. The agent's context holds only a usage note of about 150 tokens.
 
+![How via works: the agent runs via in the shell and gets compact output back; the via CLI hands the call to a local daemon, which reads framework MCP configs and credentials and talks MCP to the servers over stdio or HTTP](docs/assets/how-it-works.svg)
+
 On the 9 tasks of the [token benchmark](bench/results/0.1.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), via used about 4% of the tokens that native MCP injection used. The figure is estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading. Success rates from the live-model evaluation (`npm run bench:eval`) have not been published yet.
 
 ## A quick look
