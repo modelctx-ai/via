@@ -68,7 +68,7 @@ MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[AD
 - `windows-latest`（Node 22）上执行同样四步，再用空的用户目录运行 `dist/via.js`（`--version`、浏览、`doctor`、`daemon status`）；
 - `auto-merge.yml`：CI 在仓库所有者从本仓库分支开的 PR 上通过后，开启 squash 自动合并，合入后删除该 PR 的分支（合入后分支又有新提交，或它是其他打开的 PR 的基准时保留）。合并用的是 `GITHUB_TOKEN`，所以仓库的「自动删除分支」设置不会生效，删除由这个工作流完成；同样因为是 `GITHUB_TOKEN`，合入 `main` 的提交不会再触发 `main` 上的 CI。
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
-- 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，同时把 `@modelctx-ai/via` 发到 npm（发布前再跑一遍 typecheck 与测试）；不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。
+- 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，同时把 `@modelctx-ai/via` 发到 npm（发布前再跑一遍 typecheck 与测试）；不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。npm 发布成功后 `homebrew` 任务用 registry 上的 tarball 渲染 Homebrew formula 并附到 Release（[实现说明](implementation.md#homebrew)）；`test/packaging/homebrew.test.ts` 在日常 CI 里检查模板与渲染脚本，Homebrew 本身（`brew audit`、`brew install`）不在 CI 里运行。
 
 ## token 基准
 

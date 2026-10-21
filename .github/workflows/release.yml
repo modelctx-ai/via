@@ -6,6 +6,8 @@ name: Release
 # 不跑冒烟测试，只构建。
 # v* 标签同时把 @modelctx-ai/via 发到 npm。npm 上的 trusted publisher 登记的是这个文件名（release.yml）。
 # 手动触发只重做单文件产物，不重复发 npm。
+# npm 发布成功、Release 建好之后，homebrew 任务用 registry 上的 tarball 生成 Homebrew formula（via.rb）并附到 Release；
+# 它不需要任何密钥，也不推送到 tap：把 via.rb 放进 tap 仓库是手工的一步（docs/development/implementation.md，「Homebrew」）。
 on:
   push:
     tags: ['v*']
@@ -122,3 +124,29 @@ jobs:
             exit 1
           fi
       - run: npm publish
+
+  # Homebrew formula：装 npm 包（依赖 Homebrew 的 node），不装单文件可执行；理由见 implementation.md「Homebrew」。
+  # 校验和取自 registry 上的 tarball（脚本会先核对 registry 给出的 sha512 完整性），Homebrew 下载的正是这个文件。
+  # 只生成并附到 Release，不推送到 tap 仓库，因此不需要额外的密钥。
+  homebrew:
+    name: render the Homebrew formula
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [publish, npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: render via.rb
+        run: node scripts/render-homebrew.mjs --version "${GITHUB_REF_NAME#v}" --out via.rb
+      - run: cat via.rb
+      - name: ruby syntax check
+        run: ruby -c via.rb
+      - name: upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" via.rb --clobber

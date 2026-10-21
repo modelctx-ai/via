@@ -100,6 +100,8 @@ npm install -g @modelctx-ai/via
 via --version
 ```
 
+macOS 和 Linux 上可以用 Homebrew 安装同一个 npm 包（连带 Homebrew 的 `node`）：`brew install modelctx-ai/tap/via`。formula 随每个版本生成，手工合入 tap，所以可能比 npm 晚几天。
+
 不依赖 Node.js 的单文件可执行版本在 [GitHub Release](https://github.com/modelctx-ai/via/releases/latest)。各平台的说明（含 Windows 与单文件版本）见[快速上手](docs/guides/getting-started.md#1-安装)。
 
 开发 via 本身：`git clone https://github.com/modelctx-ai/via.git && cd via && npm ci && npm run build && npm link`。

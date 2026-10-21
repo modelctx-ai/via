@@ -100,6 +100,8 @@ npm install -g @modelctx-ai/via
 via --version
 ```
 
+On macOS and Linux, Homebrew installs the same npm package (and Homebrew's `node`): `brew install modelctx-ai/tap/via`. The formula is generated for every release; it reaches the tap by hand, so it can trail npm by a few days.
+
 Single-file executables that do not need Node.js are attached to the [GitHub Release](https://github.com/modelctx-ai/via/releases/latest). Platform notes, including Windows and those builds, are in the [getting-started guide](docs/guides/getting-started.md#1-安装).
 
 To work on via itself: `git clone https://github.com/modelctx-ai/via.git && cd via && npm ci && npm run build && npm link`.

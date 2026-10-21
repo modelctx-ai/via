@@ -10,6 +10,15 @@
 npm install -g @modelctx-ai/via
 ```
 
+macOS 和 Linux 上也可以用 Homebrew（会同时装 Homebrew 的 `node`）：
+
+```bash
+brew install modelctx-ai/tap/via
+via --version
+```
+
+这个 formula 装的是同一个 npm 包；每个 Release 附带渲染好的 `via.rb`，tap 仓库（`modelctx-ai/homebrew-tap`）在手工合入之后才有新版本，所以 Homebrew 上的版本可能比 npm 晚几天。生成方式与取舍见[实现说明](../development/implementation.md#homebrew)。
+
 从源码安装（开发 via 本身时，需要 Node.js 20+）：
 
 ```bash
