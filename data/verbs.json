@@ -1,11 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "verbs": [
     "get", "list", "create", "update", "delete", "search", "send", "run",
     "fetch", "read", "write", "add", "remove", "merge", "trigger", "query",
     "move", "duplicate", "restore", "cancel", "navigate", "click",
     "push", "call", "describe", "batch", "enable", "disable", "fork",
-    "resolve", "unresolve"
+    "resolve", "unresolve", "edit", "modify", "append", "download", "upload",
+    "install", "close"
   ],
   "conjunctions": ["or", "and"],
   "singularExceptions": [

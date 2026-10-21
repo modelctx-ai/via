@@ -4,5 +4,5 @@ read_thread      →  thread:read
 send_message     →  message:send
 create_draft     →  draft:create
 list_labels      →  label:list
-modify_message   →  modify-message  (leaf)
+modify_message   →  message:modify
 delete_message   →  message:delete

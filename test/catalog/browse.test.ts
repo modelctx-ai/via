@@ -40,7 +40,8 @@ describe('via <provider>', () => {
 
   it('cuts a long tools: line of leaf tools', () => {
     const text = renderProvider(provider('playwright'));
-    expect(text).toContain('… 6 more · via playwright --all');
+    // 12 leaf names fit on the line; the rest are counted
+    expect(text).toContain(`… ${provider('playwright').leaves.length - 12} more · via playwright --all`);
     expect(renderProvider(provider('playwright'), { all: true })).not.toContain('…');
   });
 

@@ -1,11 +1,11 @@
-browser_close             →  browser-close  (leaf)
+browser_close             →  browser:close
 browser_resize            →  browser-resize  (leaf)
 browser_console_messages  →  browser-console-messages  (leaf)
 browser_handle_dialog     →  browser-handle-dialog  (leaf)
 browser_evaluate          →  browser-evaluate  (leaf)
-browser_file_upload       →  browser-file-upload  (leaf)
+browser_file_upload       →  browser-file:upload
 browser_fill_form         →  browser-fill-form  (leaf)
-browser_install           →  browser-install  (leaf)
+browser_install           →  browser:install
 browser_press_key         →  browser-press-key  (leaf)
 browser_type              →  browser-type  (leaf)
 browser_navigate          →  browser:navigate

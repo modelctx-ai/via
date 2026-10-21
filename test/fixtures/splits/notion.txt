@@ -24,7 +24,7 @@ notion-create-folder                      →  folder:create
 notion-update-folder                      →  folder:update
 notion-create-attachment                  →  attachment:create
 notion-create-file-upload                 →  file-upload:create
-notion-download-attachment                →  download-attachment  (leaf)
+notion-download-attachment                →  attachment:download
 notion-get-file-download-urls             →  file-download-url:get
 notion-get-users                          →  user:get
 notion-get-self                           →  self:get
@@ -39,10 +39,10 @@ notion-memory-search                      →  memory:search
 notion-get-tool-access                    →  tool-access:get
 notion-check-mcp-next-steps               →  check-mcp-next-steps  (leaf)
 notion-convert-page-to-skill              →  convert-page-to-skill  (leaf)
-notion-download-skill                     →  download-skill  (leaf)
+notion-download-skill                     →  skill:download
 notion-get-enabled-skills                 →  enabled-skill:get
 notion-update-enabled-skills              →  enabled-skill:update
-notion-upload-skill                       →  upload-skill  (leaf)
+notion-upload-skill                       →  skill:upload
 notion-calendar-list-calendars            →  calendar:list
 notion-calendar-list-calendar-resources   →  calendar-resource:list
 notion-calendar-list-contacts             →  calendar-contact:list

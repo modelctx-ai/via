@@ -58,7 +58,7 @@
     { "q": "search my inbox", "group": "synonym", "expect": ["gmail message:search"] },
     { "q": "read a mail", "group": "synonym", "expect": ["gmail message:read"] },
     { "q": "delete an email", "group": "synonym", "expect": ["gmail message:delete"] },
-    { "q": "add a tag to an email", "group": "synonym", "expect": ["gmail modify-message"] },
+    { "q": "add a tag to an email", "group": "synonym", "expect": ["gmail message:modify"] },
     { "q": "read an email conversation", "group": "synonym", "expect": ["gmail thread:read"] },
     { "q": "share a document with someone", "group": "synonym", "expect": ["google-drive share-file"] },
     { "q": "find a file in my drive", "group": "synonym", "expect": ["google-drive search", "google-drive file:list"] },
@@ -67,7 +67,7 @@
     { "q": "save content to a file", "group": "synonym", "expect": ["filesystem file:write"] },
     { "q": "list folder contents", "group": "synonym", "expect": ["filesystem directory:list"] },
     { "q": "locate files by pattern", "group": "synonym", "expect": ["filesystem file:search"] },
-    { "q": "modify part of a file", "group": "synonym", "expect": ["filesystem edit-file"] },
+    { "q": "modify part of a file", "group": "synonym", "expect": ["filesystem file:edit"] },
     { "q": "read many files at once", "group": "synonym", "expect": ["filesystem multiple-file:read"] },
     { "q": "file metadata", "group": "synonym", "expect": ["filesystem file-info:get"] },
     { "q": "open a url in the browser", "group": "synonym", "expect": ["playwright browser:navigate", "puppeteer navigate"] },
@@ -99,7 +99,7 @@
     { "q": "updated pull requests", "group": "phrase", "expect": ["github pull-request:update", "github pull-request-branch:update"] },
     { "q": "please show me my unread messages", "group": "phrase", "expect": ["gmail message:search", "gmail message:read"] },
     { "q": "get the workspace members", "group": "phrase", "expect": ["notion user:get", "linear user:list"] },
-    { "q": "download an attachment", "group": "phrase", "expect": ["notion download-attachment", "notion file-download-url:get"] },
-    { "q": "upload a file to a web page", "group": "phrase", "expect": ["playwright browser-file-upload"] }
+    { "q": "download an attachment", "group": "phrase", "expect": ["notion attachment:download", "notion file-download-url:get"] },
+    { "q": "upload a file to a web page", "group": "phrase", "expect": ["playwright browser-file:upload"] }
   ]
 }
