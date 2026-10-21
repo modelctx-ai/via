@@ -1,6 +1,6 @@
 # 数据文件
 
-规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`domains`、`domain-lexicon`、`noise`、`columns`、`synonyms` 的 schema 已经提供，测试会逐个校验。
+规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`stopwords`、`noise`、`columns`、`synonyms` 的 schema 已经提供，测试会逐个校验。
 
 ## verbs.json
 
@@ -26,68 +26,20 @@
 - `singularExceptions`：原样保留的词；`singularIrregular`：通用单数化规则处理不了的「复数 → 单数」。
 - 动词表的改动用 `npm run split-diff` 离线检查：用当前规则重新拆分 `test/fixtures/` 里的真实 `tools/list` 快照，与 `test/fixtures/splits/` 中入库的基线对比，列出规范写法的变化；确认后加 `--update` 更新基线。
 
-## domains.json
+## stopwords.json
 
-内置分类表与分域参数，供[分域](../spec/discovery.md#分域)使用。
-
-```json
-{
-  "version": 1,
-  "domains": {
-    "code":    { "servers": ["github", "gitlab", "sentry"] },
-    "search":  { "servers": ["exa", "tavily", "brave-search", "context7"] },
-    "browser": { "servers": ["playwright", "puppeteer", "chrome-devtools"] },
-    "data":    { "servers": ["postgres", "sqlite", "bigquery"] },
-    "docs":    { "servers": ["notion", "confluence", "google-drive"] },
-    "project": { "servers": ["linear", "jira", "asana"] },
-    "comm":    { "servers": ["slack", "gmail"] },
-    "fs":      { "servers": ["filesystem"] },
-    "cloud":   { "servers": ["cloudflare"] }
-  },
-  "match": ["alias", "package", "host"],
-  "heuristic": {
-    "threshold": 0.5,
-    "leadRatio": 1.5,
-    "signalWeights": { "param": 4, "resource": 3, "identity": 2, "description": 1 },
-    "minScore": 10,
-    "stopwords": ["the", "and", "with"],
-    "flatBelowProviders": 6
-  }
-}
-```
-
-- `servers` 中的条目按 `match` 列出的依据匹配：server 别名（整体相等）、包名（按词切分后连续包含）、URL 主机名（按词切分后连续包含）。
-- `heuristic` 中的数值是初始值，在真实 server 上调参后更新。
-- `minScore`：所有域的原始得分之和低于它时不下结论，归入 `other`，避免一两个弱信号就给出判定。
-- `stopwords`：打分时忽略的泛用英文词，只作用于工具描述；动词表里的词在描述中同样被忽略。
-
-## domain-lexicon.json
-
-分域词典，**由脚本生成，不手工编辑**：
-
-```bash
-npm run lexicon    # 等价于对 test/fixtures/tools/ 运行 scripts/build-lexicon.ts，写入 data/domain-lexicon.json
-```
-
-脚本只统计文件名（即 provider 别名）能在分类表中查到域的快照；`test/fixtures/other/` 下是分类表之外的样本，不参与生成。
+`via find` 建索引时，工具描述里要忽略的泛用英文词（[搜索](../spec/discovery.md#搜索)）。
 
 ```json
 {
   "version": 1,
-  "generatedFrom": "test/fixtures/tools/@sha256:<快照内容哈希前 12 位>",
-  "terms": {
-    "repo":     { "code": 0.92 },
-    "sql":      { "data": 0.95 },
-    "selector": { "browser": 0.9 },
-    "channel":  { "comm": 0.88 },
-    "query":    { "data": 0.3, "search": 0.3 }
-  }
+  "words": ["the", "and", "with", "about", "available"]
 }
 ```
 
-- 词来自三处：参数名、拆分出的资源名、工具描述（去掉停用词和动词）。描述里的词至少要在同一个域的两个工具里出现才算数。
-- 权重 = 该词在某个域的出现频率（含该词的工具占该域工具的比例）占它在所有域出现频率之和的份额，所以只出现在一个域的词权重接近 1，到处都有的词权重很低；最高权重低于 0.4 的词不收录。
-- 每个词只保留权重不低于 0.4 的域。
+- 只作用于工具描述的索引，不影响名称与参数名：那些位置上的词都值得检索。
+- 动词表里的词不需要写在这里：同一个词在多个工具里重复出现时，索引自然把它摊薄。
+- 新增词时在 `test/data.test.ts` 的约束下保持单个小写词，且不要与动词表重复。
 
 ## noise.json
 

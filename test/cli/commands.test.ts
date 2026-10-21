@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { BLOCK_BEGIN, BLOCK_END } from '../../src/cli/prompt';
 import { portableTable } from '../helpers/portable';
 import { FAKE_TOKEN, ghConfig, makeSandbox, normalize, startFixtureServer, useCleanup } from './helpers';
 
@@ -42,14 +43,11 @@ describe('via servers', () => {
     expect(r.stdout).toMatch(/error: .*invalid regular expression/);
   });
 
-  it('--why explains the domain decision', async () => {
+  it('takes no arguments', async () => {
     const { sb } = await setup();
-    const r = await sb.via(['servers', '--why', 'gh']);
-    expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(/^gh → code \(heuristic, [\d.]+\)\n/);
-    expect(r.stdout).toContain('next: set servers.gh.domain in ~/.config/via/config.yaml to override');
-    const bad = await sb.via(['servers', '--why']);
+    const bad = await sb.via(['servers', 'gh']);
     expect(bad.code).toBe(2);
+    expect(bad.stderr).toContain('via servers takes no arguments');
   });
 });
 
@@ -103,36 +101,114 @@ describe('via doctor', () => {
 });
 
 describe('via prompt', () => {
-  it('prints the instructions and domain summary to stdout and writes no file', async () => {
+  const agents = (sb: ReturnType<typeof makeSandbox>) => join(sb.project, 'AGENTS.md');
+  const read = (sb: ReturnType<typeof makeSandbox>) => readFileSync(agents(sb), 'utf8');
+  const USER_NOTE = '# My agents\n\nKeep diffs small.\n';
+
+  it('prints the marked block to stdout and writes no file', async () => {
     const { sb } = await setup();
     const r = await sb.via(['prompt']);
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain('# External tools (via)');
+    expect(r.stdout.startsWith(`${BLOCK_BEGIN}\n`)).toBe(true);
+    expect(r.stdout.trimEnd().endsWith(BLOCK_END)).toBe(true);
+    expect(r.stdout).toContain('## External tools (via)');
+    expect(r.stdout).toContain('is a CLI over the MCP servers already configured here');
+    expect(r.stdout).toContain('Prefer it over MCP tools you already have');
     expect(r.stdout).toContain('gh');
     expect(r.stdout.endsWith('\n')).toBe(true);
     expect(r.stderr).toBe('');
+    expect(existsSync(agents(sb))).toBe(false);
   });
 
-  it('--out writes the file (relative to the working directory) and keeps stdout empty', async () => {
+  it('--out creates the file (relative to the working directory) and keeps stdout empty', async () => {
     const { sb } = await setup();
     const r = await sb.via(['prompt', '--out', 'AGENTS.md']);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('');
     expect(normalize(r.stderr)).toMatch(/^· wrote AGENTS\.md · \d+ bytes\n$/);
-    const text = readFileSync(join(sb.project, 'AGENTS.md'), 'utf8');
-    expect(text).toContain('# External tools (via)');
-    expect(text.endsWith('\n')).toBe(true);
+    const text = read(sb);
+    expect(text.startsWith(BLOCK_BEGIN)).toBe(true);
+    expect(text.endsWith(`${BLOCK_END}\n`)).toBe(true);
   });
 
-  it('--out does not replace an existing file without --yes', async () => {
+  it('--out appends to a file that has no block and keeps every user byte', async () => {
     const { sb } = await setup();
-    writeFileSync(join(sb.project, 'AGENTS.md'), 'my own notes\n');
-    const refused = await sb.via(['prompt', '--out', 'AGENTS.md']);
+    writeFileSync(agents(sb), USER_NOTE);
+    const r = await sb.via(['prompt', '--out', 'AGENTS.md']);
+    expect(r.code).toBe(0);
+    expect(normalize(r.stderr)).toMatch(/^· appended to AGENTS\.md · \d+ bytes\n$/);
+    const text = read(sb);
+    expect(text.startsWith(USER_NOTE)).toBe(true);
+    expect(text).toContain(BLOCK_BEGIN);
+  });
+
+  it('--out refreshes only the block and keeps text written around it', async () => {
+    const { sb } = await setup();
+    writeFileSync(agents(sb), USER_NOTE);
+    await sb.via(['prompt', '--out', 'AGENTS.md']);
+    const first = read(sb);
+    writeFileSync(agents(sb), `${first}\n## Local notes\n\nRun the tests twice.\n`);
+    const r = await sb.via(['prompt', '--out', 'AGENTS.md']);
+    expect(r.code).toBe(0);
+    expect(normalize(r.stderr)).toMatch(/^· updated the via block in AGENTS\.md · \d+ bytes\n$/);
+    const text = read(sb);
+    expect(text.match(/<!-- via:begin/g)).toHaveLength(1);
+    expect(text.startsWith(USER_NOTE)).toBe(true);
+    expect(text.endsWith('## Local notes\n\nRun the tests twice.\n')).toBe(true);
+    expect(text.replace(/\n+## Local notes[\s\S]*$/, '\n')).toBe(first);
+  });
+
+  it('refuses markers it cannot trust and leaves the file alone', async () => {
+    const { sb } = await setup();
+    for (const broken of [`${BLOCK_BEGIN}\nhalf a block\n`, `${BLOCK_BEGIN}\na\n${BLOCK_END}\n${BLOCK_BEGIN}\nb\n${BLOCK_END}\n`]) {
+      writeFileSync(agents(sb), broken);
+      const r = await sb.via(['prompt', '--out', 'AGENTS.md']);
+      expect(r.code).toBe(5);
+      expect(r.stderr).toContain('unusable via block');
+      expect(r.stderr).toContain('fix the markers by hand');
+      expect(read(sb)).toBe(broken);
+    }
+  });
+
+  it('--check reports a missing or out-of-date block with exit 1, and 0 when current', async () => {
+    const { sb } = await setup();
+    const missing = await sb.via(['prompt', '--check', 'AGENTS.md']);
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain('has no via block');
+    expect(missing.stderr).toContain('next: via prompt --out AGENTS.md');
+
+    await sb.via(['prompt', '--out', 'AGENTS.md']);
+    const ok = await sb.via(['prompt', '--check', 'AGENTS.md']);
+    expect(ok.code).toBe(0);
+    expect(ok.stdout).toBe('');
+    expect(normalize(ok.stderr)).toBe('· AGENTS.md is up to date\n');
+
+    writeFileSync(agents(sb), read(sb).replace('`via more <cursor>`', '`via more <id>`'));
+    const stale = await sb.via(['prompt', '--check', 'AGENTS.md']);
+    expect(stale.code).toBe(1);
+    expect(stale.stderr).toContain('has an out-of-date via block');
+  });
+
+  it('--check needs a value and cannot be combined with --out', async () => {
+    const { sb } = await setup();
+    expect((await sb.via(['prompt', '--check'])).code).toBe(2);
+    expect((await sb.via(['prompt', '--check', 'AGENTS.md', '--out', 'AGENTS.md'])).code).toBe(2);
+    expect((await sb.via(['prompt', '--replace'])).code).toBe(2);
+  });
+
+  it('--replace makes the block the whole file, and still needs --yes', async () => {
+    const { sb } = await setup();
+    writeFileSync(agents(sb), USER_NOTE);
+    const refused = await sb.via(['prompt', '--out', 'AGENTS.md', '--replace']);
     expect(refused.code).toBe(5);
-    expect(readFileSync(join(sb.project, 'AGENTS.md'), 'utf8')).toBe('my own notes\n');
-    const replaced = await sb.via(['prompt', '--out', 'AGENTS.md', '--yes']);
+    expect(refused.stderr).toContain('already exists and was not overwritten');
+    expect(read(sb)).toBe(USER_NOTE);
+
+    const replaced = await sb.via(['prompt', '--out', 'AGENTS.md', '--replace', '--yes']);
     expect(replaced.code).toBe(0);
-    expect(readFileSync(join(sb.project, 'AGENTS.md'), 'utf8')).toContain('# External tools (via)');
+    const text = read(sb);
+    expect(text.startsWith(BLOCK_BEGIN)).toBe(true);
+    expect(text).not.toContain('Keep diffs small.');
   });
 });
 
@@ -152,7 +228,7 @@ describe('help and routing', () => {
     const general = await sb.via(['-h']);
     expect(general.code).toBe(0);
     expect(general.stdout).toContain('usage:');
-    expect((await sb.via(['find', '-h'])).stdout).toBe('usage: via find [<query>] [--domain <domain>] [-n <count>]\n');
+    expect((await sb.via(['find', '-h'])).stdout).toBe('usage: via find [<query>] [-n <count>]\n');
     expect((await sb.via(['help', 'servers'])).stdout).toContain('via servers');
   });
 

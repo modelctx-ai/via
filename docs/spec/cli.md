@@ -5,7 +5,7 @@
 ## 语法
 
 ```text
-via                                       状态 + 按域分组列出 provider
+via                                       状态 + 每个 provider 一行，带工具数
 via <provider> [--all]                    该 provider 的资源，动作内联列出
 via <provider> <resource>                 该资源下每个动作一行，带参数签名
 via <provider> <resource>:<verb> -h       用法
@@ -35,22 +35,22 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 - **与模型熟悉的 CLI 同构**：`gh issue create`、`kubectl get pods`、`heroku apps:create` 都是这种层级，模型见得最多。
 - **前缀即目录**：不需要单独的 `ls`，逐级补全就是逐级发现。
 - **资源与动作用冒号连接**：`via linear issue create "标题"` 里分不清 create 是动作还是位置参数；`issue:create` 一眼可知是工具。
-- **域不进命令路径**：域是推断出来的，写进路径会让命令不稳定，域名也可能与 provider 重名（[ADR 0006](../adr/0006-domain-is-a-view.md)）。域只用于 `via` 顶层的分组展示和 `via find --domain` 过滤。
+- **不引入分类层**：provider 就是配置里的 server，直接按名字列出。给它们套一层推断出来的分类（曾经的「域」）既不稳定也不必要，见 [ADR 0014](../adr/0014-drop-the-domain-view.md)。
 
 ## 内置子命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `via find <查询> [--domain <域>] [-n 10]` | 跨 provider 搜索工具，每条结果带参数签名 |
+| `via find <查询> [-n 10]` | 跨 provider 搜索工具，每条结果带参数签名 |
 | `via call <provider>/<resource>:<verb> --args '{…}'` | 显式调用，参数为 JSON、`@文件` 或 `-`（stdin），供脚本使用 |
 | `via more <游标>` | 续读被截断的结果 |
 | `via batch [--concurrency <n>]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出（[见下](#via-batch)） |
-| `via servers [--why <provider>]` | 列出 server、来源文件、传输方式、鉴权状态、域的判定依据 |
+| `via servers` | 列出 server、来源文件、传输方式、鉴权状态与备注 |
 | `via auth login <provider> [--manual]`<br>`via auth status [<provider>]`<br>`via auth logout <provider>` | OAuth 登录、状态、登出；`login --manual` 用于无头环境（[auth.md](auth.md)） |
 | `via trust [路径] [--dry-run]`、`via trust <路径> --yes` | 显示并信任项目级配置文件；`--list` 列出记录，`--revoke <路径>` 撤销（[security.md](security.md#via-trust)） |
 | `via sync [provider]` | 强制刷新工具目录缓存 |
 | `via doctor` | 检查连接与鉴权，检测各框架挂载的 MCP 并输出关闭提示 |
-| `via prompt [--out <文件>]` | 生成给 agent 的说明与域摘要 |
+| `via prompt [--out <文件> \| --check <文件>] [--replace]` | 生成给 agent 的说明与 provider 列表；`--out` 只刷新带标记的块，`--check` 比对是否过期 |
 | `via resources <provider>` | 列出 MCP 资源与资源模板（[见下](#mcp-资源与-prompt-命令)） |
 | `via read <provider> <uri>` | 读取一个 MCP 资源 |
 | `via prompts <provider> [<名称> [参数]]` | 列出 MCP prompt；带名称时取该 prompt，参数写法同工具 |
@@ -74,7 +74,11 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 - `via auth`：`login <provider> [--manual]`、`status [<provider>]`、`logout <provider>`，只用于 `auth: oauth` 的 HTTP server（provider 接受唯一前缀）。provider 未配置为 OAuth 退出码 2，并提示把 `servers.<name>.auth` 设为 `oauth`；项目级配置里未信任的 server 退出码 5（登录会把授权发往仓库指定的地址）。`login` 的等待时间默认 300 秒，`--timeout <秒>` 覆盖。其余行为见 [auth.md](auth.md#oauth)。
 - `via sync`：向各 server（或指定的 provider）重新拉取 `tools/list` 并更新缓存，每个 provider 一行（`gh  14 tools` 或 `linear  needs auth: …`）；有失败时退出码取其中最大的，并在 stderr 提示 `next: via doctor`。
 - `via doctor`：对每个 server 实时探测（不读缓存，成功后更新缓存），再输出检测结果；退出码取各项问题中最高的一个（见[退出码](output.md#退出码)）。
-- `via prompt --out <文件>`：路径相对当前目录；目标文件已存在时需要 `--yes` 才会覆盖（退出码 5），避免覆盖用户自己写的 AGENTS.md。成功后在 stderr 输出 `· wrote <文件> · N bytes`。
+- `via prompt`：输出一段带标记的说明块，`<!-- via:begin … -->` 到 `<!-- via:end -->` 之间是说明本身与 provider 列表（按字母序，[agent-integration.md](../guides/agent-integration.md#via-prompt给-agent-的说明)）。
+  - `--out <文件>`：路径相对当前目录。文件不存在时创建；已有标记块时只替换两个标记之间的内容，标记之外不动（输出 `· updated the via block in <文件> · N bytes`）；没有标记时追加到末尾、前面空一行（输出 `· appended to <文件> · N bytes`）；创建时输出 `· wrote <文件> · N bytes`。标记不成对或出现多对时拒绝，退出码 5，并提示手工修——位置猜错会写坏用户自己的文字。
+  - `--check <文件>`：只比对不写入。块与当前输出一致时退出码 0，stderr 输出 `· <文件> is up to date`；没有标记块或内容过期时退出码 1，`next:` 为 `via prompt --out <文件>`；标记不可用退出码 5。
+  - `--replace`：整份文件只留这个块（0.3 之前的 `--out` 行为），目标文件已存在时需要 `--yes`（退出码 5）。
+  - `--out` 与 `--check` 不能同时给，`--replace` 必须配 `--out`，否则退出码 2。
 
 ### MCP 资源与 prompt 命令
 

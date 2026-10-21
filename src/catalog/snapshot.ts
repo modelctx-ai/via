@@ -1,11 +1,11 @@
 // A built provider catalog as plain JSON, and back (discovery.md, "预构建缓存").
 //
-// Building a catalog (name splitting, signatures, domain scoring) and its search terms is
+// Building a catalog (name splitting, signatures) and its search terms is
 // deterministic but takes ~0.06 ms per tool in a process that has never run the code: 10-20 ms for
 // a few hundred tools, paid by every one-shot `via`. A snapshot keeps the derived data, so a later
 // process only parses it. It is split in two so that a command pays for what it shows:
 //
-//   head  what `via` (the root view) needs: how many tools are visible and the domain verdict;
+//   head  what `via` (the root view) needs: how many tools are visible;
 //   body  the visible tools (names, signatures, descriptions, hints) and their search terms, as a
 //         JSON *string* that is parsed when somebody asks for the tools, not when the head is read.
 //
@@ -18,7 +18,7 @@
 import { assembleProvider } from './provider';
 import { docTerms, type DocTerms } from './search';
 import type { CatalogRules } from './provider';
-import type { CatalogTool, DomainAssignment, McpTool, ParamInfo, ProviderCatalog } from './types';
+import type { CatalogTool, McpTool, ParamInfo, ProviderCatalog } from './types';
 
 /** `ProviderCatalog` plus what a restored one knows without restoring its tools. */
 export interface RestoredProvider extends ProviderCatalog {
@@ -31,7 +31,6 @@ export interface SnapshotHead {
   n: number;
   /** Number of visible tools (after `deny`). */
   count: number;
-  domain: DomainAssignment;
 }
 
 /** Flags of a stored tool. */
@@ -81,7 +80,7 @@ export function snapshotProvider(
     terms.set(tool, known);
     body.x.push([known.length, [...known.pairs]]);
   }
-  return { head: { n: source.length, count: provider.tools.length, domain: provider.domain }, body: JSON.stringify(body), terms };
+  return { head: { n: source.length, count: provider.tools.length }, body: JSON.stringify(body), terms };
 }
 
 function isParams(value: unknown): value is Array<[string, string, 0 | 1]> {
@@ -110,9 +109,8 @@ export function restoreProvider(
   rawCount?: number,
 ): { catalog: RestoredProvider; terms: RestoredTerms } | undefined {
   const h = head as Partial<SnapshotHead> | null;
-  if (!h || typeof body !== 'string' || typeof h.n !== 'number' || typeof h.count !== 'number' || typeof h.domain !== 'object' || h.domain === null) return undefined;
+  if (!h || typeof body !== 'string' || typeof h.n !== 'number' || typeof h.count !== 'number') return undefined;
   if (rawCount !== undefined && h.n !== rawCount) return undefined;
-  const domain = h.domain as DomainAssignment;
 
   let restored: { catalog: ProviderCatalog; terms: Map<CatalogTool, DocTerms> } | undefined;
   const restore = (): { catalog: ProviderCatalog; terms: Map<CatalogTool, DocTerms> } => {
@@ -155,11 +153,11 @@ export function restoreProvider(
       tools.push(tool);
       terms.set(tool, { length: known[0], pairs: known[1] });
     }
-    restored = { catalog: assembleProvider(provider, tools, domain), terms };
+    restored = { catalog: assembleProvider(provider, tools), terms };
     return restored;
   };
 
-  const catalog = { provider, domain, toolCount: h.count } as RestoredProvider;
+  const catalog = { provider, toolCount: h.count } as RestoredProvider;
   Object.defineProperties(catalog, {
     tools: { enumerable: true, get: () => restore().catalog.tools },
     resources: { enumerable: true, get: () => restore().catalog.resources },

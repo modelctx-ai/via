@@ -70,7 +70,6 @@ export interface ServerConfig {
   provider: string;
   transport: Transport;
   auth: AuthConfig;
-  domain?: string;
   rename: Record<string, string>;
   disabled: boolean;
   exclusive: boolean;

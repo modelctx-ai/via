@@ -1,20 +1,18 @@
 // Disk cache of built provider catalogs (discovery.md, "预构建缓存"). Next to the raw `tools/list`
 // of `catalog-cache.ts` it keeps what `buildProviderCatalog` derives from it, as a snapshot
 // (src/catalog/snapshot.ts), so a one-shot process parses JSON instead of re-running the naming,
-// signature, domain and search-term code on every tool - and, for a view that does not show the
-// schemas, never parses the raw list at all.
+// signature and search-term code on every tool - and, for a view that does not show the schemas,
+// never parses the raw list at all.
 //
 // A snapshot is reused only when all of these match what the current run would build from:
 //   - the rules fingerprint (version, data files and catalog code of the running build),
 //   - the raw list it was derived from: the `fetchedAt` of the listing (any refetch changes it) and
 //     the length of the cache file's text, or the number of tools when the list did not come from a
 //     cache file,
-//   - every other input of the build: provider name, aliases, `rename`, `deny`, identity, the
-//     server's `domain` and the top-level `domains`.
+//   - every other input of the build: provider name, aliases, `rename` and `deny`.
 // Anything else (a different file layout, a corrupt file, a snapshot that does not fit the raw list)
 // is a miss and the catalog is built as before. Nothing credential-bearing is stored: the file holds
-// names, parameter names, descriptions, domain verdicts and search terms of the tool list, like the
-// raw cache.
+// names, parameter names, descriptions and search terms of the tool list, like the raw cache.
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { restoreProvider, snapshotProvider, type RestoredTerms, type SnapshotHead } from '../catalog/snapshot';
@@ -26,7 +24,7 @@ import { stringHash } from '../hash';
 import { cacheKey } from './catalog-cache';
 
 /** Bumped when the file layout changes. */
-const VIEW_VERSION = 2;
+const VIEW_VERSION = 3;
 
 interface ViewFile {
   v: number;
@@ -84,9 +82,6 @@ function computeInputsHash(input: ProviderInput): string {
       aliases: input.aliases ?? [],
       rename: input.rename ?? {},
       deny: (input.deny ?? []).map((re) => [re.source, re.flags]),
-      identity: input.identity ?? null,
-      configDomain: input.configDomain ?? null,
-      customDomains: input.customDomains ?? {},
     }),
   );
 }

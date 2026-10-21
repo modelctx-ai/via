@@ -85,13 +85,6 @@ describe('SearchIndex ranking (discovery.md, "搜索")', () => {
     expect(index.search('qqqqzzzz')).toEqual([]);
   });
 
-  it('restricts to a domain with --domain', () => {
-    const hits = index.search('', { domain: 'search', limit: 50 });
-    expect(hits.length).toBeGreaterThan(0);
-    expect(new Set(hits.map((h) => h.tool.provider))).toEqual(new Set(['exa', 'context7', 'tavily']));
-    expect(index.search('issue', { domain: 'comm' })).toEqual([]);
-  });
-
   it('is deterministic', () => {
     expect(refs('create comment')).toEqual(refs('create comment'));
   });

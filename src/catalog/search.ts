@@ -27,8 +27,6 @@ export interface SearchHit {
 export interface SearchOptions {
   /** Maximum results; default 10. */
   limit?: number;
-  /** Only tools that belong to this domain (`via find --domain`). */
-  domain?: string;
   /**
    * Cosine similarity of the query to each tool, keyed by `CatalogTool.ref` (optional embedding
    * retrieval, ADR 0011). When present the BM25 and semantic rankings are fused with RRF inside each tier.
@@ -55,7 +53,6 @@ interface Doc {
   tool: CatalogTool;
   length: number;
   forms: string[];
-  domains: ProviderCatalog['domain']['domains'];
 }
 
 function cmp(a: string, b: string): number {
@@ -76,7 +73,7 @@ export function normalizeQuery(s: string): string {
 function termsOf(text: string, ignoreStopwords: boolean, rules: CatalogRules): string[] {
   const out: string[] = [];
   for (const w of tokenize(text)) {
-    if (ignoreStopwords && (w.length < 2 || rules.domains.stopwords.has(w))) continue;
+    if (ignoreStopwords && (w.length < 2 || rules.stopwords.has(w))) continue;
     out.push(singularize(w, rules.split));
   }
   return out;
@@ -132,7 +129,7 @@ export class SearchIndex {
   private add(tool: CatalogTool, provider: ProviderCatalog, known: DocTerms | undefined): void {
     const { length, pairs } = known ?? docTerms(tool, this.rules);
     const id = this.docs.length;
-    this.docs.push({ tool, length, forms: [normalizeQuery(tool.ref), normalizeQuery(tool.name)], domains: provider.domain.domains });
+    this.docs.push({ tool, length, forms: [normalizeQuery(tool.ref), normalizeQuery(tool.name)] });
     for (let i = 0; i < pairs.length; i += 2) {
       const term = pairs[i] as string;
       const list = this.postings.get(term);
@@ -141,16 +138,10 @@ export class SearchIndex {
     }
   }
 
-  private inDomain(doc: Doc, domain: string): boolean {
-    return doc.domains.some(
-      (d) => d.domain === domain && (d.resources === undefined || (doc.tool.resource !== null && d.resources.includes(doc.tool.resource))),
-    );
-  }
-
   /** Ranked search (discovery.md, "搜索"). An empty query lists every tool in canonical order. */
   search(query: string, options: SearchOptions = {}): SearchHit[] {
     const limit = options.limit ?? 10;
-    const candidates = this.docs.map((doc, id) => ({ doc, id })).filter(({ doc }) => !options.domain || this.inDomain(doc, options.domain));
+    const candidates = this.docs.map((doc, id) => ({ doc, id }));
 
     const q = normalizeQuery(query);
     if (q === '') {

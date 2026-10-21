@@ -4,7 +4,7 @@
 
 | 层 | 内容 | 方式 |
 | --- | --- | --- |
-| 拆分与分域 | 真实 server 的 `tools/list` 快照 → 规范写法、域 | 快照测试；规则变更时输出差异 |
+| 名称拆分 | 真实 server 的 `tools/list` 快照 → 规范写法 | 快照测试；规则变更时输出差异 |
 | 渲染 | 每种输出形状（表格、对象、文本、截断、媒体、错误） | vitest 快照，规则的任何变化在评审中显式可见 |
 | 检索质量 | `test/fixtures/search/` 里自然语言查询 → 期望规范名（调参集 `eval.json`、留出集 `heldout.json`），对 `test/fixtures/tools/` | recall@1、recall@5、MRR；`npm run eval:search` 打印词法基线与默认（同义词扩展）的对比，回归测试断言不低于基线并锁定实测下限；可选 embedding 检索用本机模拟端点（确定性假向量）测融合、缓存、超时退回与脱敏 |
 | 参数解析 | schema → 命令行参数的各条规则，含 anyOf 补齐、`@文件`、重名 | 单元测试 |
@@ -40,7 +40,7 @@
 
 `.github/workflows/ci.yml` 在每个 PR 和 `main` 的推送上运行：
 
-- Node 22、24 上执行 `npm ci`、`npm run typecheck`、`npm run build`、`npm test`（含快照、拆分基线、词典是否最新、凭证扫描）；
+- Node 22、24 上执行 `npm ci`、`npm run typecheck`、`npm run build`、`npm test`（含快照、拆分基线、数据文件校验、凭证扫描）；
 - `windows-latest`（Node 22）上执行同样四步，再用空的用户目录运行 `dist/via.js`（`--version`、浏览、`doctor`、`daemon status`）；
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
 - 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。
@@ -98,7 +98,7 @@ $ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 ma
 - 总 token（取自 API 返回的 `usage`，输入含缓存读写）；
 - 模型轮数、工具调用数与错误调用次数。
 
-这是验证「MCP 做提供方、CLI 做消费方」这一判断的关键证据，也是 0.1 → 0.2 的门槛（[路线图](../roadmap.md)）。与 mcp2cli 的对比单独验证 via 自己的设计：`resource:verb` 拆分、分域浏览和紧凑渲染相对于平铺的原始工具名和原样 JSON，是否减少了错误调用和发现轮数。拆分出错时模型可能更难找到工具，这一项要单独统计（逐任务的成功次数和未成功运行的检查明细就是为此保留的）。0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测以 HTTP 回放 server 为主，避免启动延迟干扰结论。
+这是验证「MCP 做提供方、CLI 做消费方」这一判断的关键证据，也是 0.1 → 0.2 的门槛（[路线图](../roadmap.md)）。与 mcp2cli 的对比单独验证 via 自己的设计：`resource:verb` 拆分、逐级浏览和紧凑渲染相对于平铺的原始工具名和原样 JSON，是否减少了错误调用和发现轮数。拆分出错时模型可能更难找到工具，这一项要单独统计（逐任务的成功次数和未成功运行的检查明细就是为此保留的）。0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测以 HTTP 回放 server 为主，避免启动延迟干扰结论。
 
 ### 怎么跑
 
@@ -149,7 +149,7 @@ mcp2cli 不在 PATH 上时这一条件跳过并在输出里说明，不伪造数
 
 ### 门槛 1 比较什么
 
-门槛 1 要求 via 的任务成功率**不低于**原生 MCP，**且不低于** mcp2cli。`bench:eval` 在汇总后打印这个判断：逐条件的成功次数 / 运行次数、点估计的比较，以及 95% Wilson 区间是否重叠。区间重叠时不要把差异当结论：增加 `--trials`，或看逐任务的成功次数和未成功运行的检查明细，判断是模型随机性还是 via 的某个设计（拆分、分域、渲染）确实让模型找不到工具。mcp2cli 缺失时比较标为不完整，不算门槛通过。token、轮数与错误调用不是门槛条件，但随结果一起记录：token 基准说明「几乎不占上下文」，这里说明「省下的上下文有没有换来更多弯路」。
+门槛 1 要求 via 的任务成功率**不低于**原生 MCP，**且不低于** mcp2cli。`bench:eval` 在汇总后打印这个判断：逐条件的成功次数 / 运行次数、点估计的比较，以及 95% Wilson 区间是否重叠。区间重叠时不要把差异当结论：增加 `--trials`，或看逐任务的成功次数和未成功运行的检查明细，判断是模型随机性还是 via 的某个设计（拆分、浏览、渲染）确实让模型找不到工具。mcp2cli 缺失时比较标为不完整，不算门槛通过。token、轮数与错误调用不是门槛条件，但随结果一起记录：token 基准说明「几乎不占上下文」，这里说明「省下的上下文有没有换来更多弯路」。
 
 ### 局限
 
@@ -197,7 +197,7 @@ npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调�
 
 几层只为加速而存在的缓存都有不依赖时间的测试，共同要求是：命中与未命中的输出完全相同，且不会把凭证值写到磁盘。
 
-- **预构建目录**（`test/cli/view-cache.test.ts`、`test/catalog/search.test.ts`）：还原出的目录与现算的逐项相等，用它建的索引对一组查询给出同样的命中、层级与分数；原始列表（`fetchedAt`、文件长度）、规则指纹（数据文件、版本）、各构建输入（别名、`rename`、`deny`、域）任一变化都使旧文件作废；损坏、被改写或版本不符的文件等同于未命中；缓存文件里不含字面量凭证。
+- **预构建目录**（`test/cli/view-cache.test.ts`、`test/catalog/search.test.ts`）：还原出的目录与现算的逐项相等，用它建的索引对一组查询给出同样的命中、层级与分数；原始列表（`fetchedAt`、文件长度）、规则指纹（数据文件、版本）、各构建输入（别名、`rename`、`deny`）任一变化都使旧文件作废；损坏、被改写或版本不符的文件等同于未命中；缓存文件里不含字面量凭证。
 - **配置解析缓存**（`test/config/parse-cache.test.ts`、`test/config/parse.test.ts`）：命中与直接解析的结果相等；文件改一个字节就换键；别名、转义、多行标量等表达不了的文档不写入；缓存目录里的文件不含配置里的任何字符串（用字面量令牌检查）；信任哈希仍取文件字节。
 - **cache 文件与 daemon**（`test/daemon/backend.test.ts`、`test/daemon/protocol.test.ts`）：`list` 带 `have` 时的 `unchanged` 应答、`have` 不符时照常发送、daemon 内存里不留解析后的列表，磁盘写不进去时才留。
 - **哈希**（`test/sha256.test.ts`）：纯 JS 实现与 `node:crypto` 逐例对照（空串、边界长度、多字节字符、64 KiB 前后）。

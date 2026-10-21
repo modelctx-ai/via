@@ -17,12 +17,12 @@ async function parse(text: string, cache?: ParseCache): Promise<unknown> {
 const cacheFiles = (dir: string): string[] => (readdirSync(dir, { withFileTypes: true }).length > 0 ? readdirSync(dir).filter((n) => n.endsWith('.json')) : []);
 
 const DOCUMENTS: Record<string, string> = {
-  plain: 'servers:\n  gh:\n    url: https://api.example.com/mcp\n    timeout: 30\n    disabled: false\n    domain: ~\n',
+  plain: 'servers:\n  gh:\n    url: https://api.example.com/mcp\n    timeout: 30\n    disabled: false\n    confirm: destructive\n',
   flow: 'servers: { a: { command: npx, args: [-y, "@x/y@1.2.3", "quoted"], env: { K: v } } }\n',
   quoted: "servers:\n  a:\n    url: 'http://127.0.0.1:1/mcp'\n    alias: \"name with spaces\"\n    empty: ''\n    also: \"\"\n",
   comments: '# top\nservers:   # trailing\n  a:  # x\n    url: http://h/mcp # why\n',
   numbers: 'a: 1\nb: -2\nc: 1.5\nd: 1e3\ne: 0x10\nf: 012\ng: true\nh: null\ni: ~\nj: yes\nk: "123"\n',
-  lists: 'deny:\n  - "^a/.*"\n  - ^b/x\ndomains:\n  work: [a, b]\n',
+  lists: 'deny:\n  - "^a/.*"\n  - ^b/x\noutput:\n  budget: 2048\n',
   empty: '',
   scalar: 'just text',
   unicode: 'servers:\n  café:\n    url: http://h/日本語\n    note: "emoji 😀"\n',

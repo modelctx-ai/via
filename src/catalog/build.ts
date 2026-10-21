@@ -35,8 +35,8 @@ export function normalizeProviderName(name: string): string {
 
 /**
  * Build the catalog from already-fetched `tools/list` results (discovery.md, steps 2-6).
- * Fetching and disk caching are the caller's job; splitting, domain inference and indexing are
- * recomputed here so rule upgrades never need a cache flush.
+ * Fetching and disk caching are the caller's job; splitting and indexing are recomputed here so
+ * rule upgrades never need a cache flush.
  */
 export function buildCatalog(
   inputs: readonly ProviderInput[],

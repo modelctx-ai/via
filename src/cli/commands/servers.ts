@@ -1,6 +1,5 @@
-// `via servers [--why <provider>]`: where each server comes from, how it connects, whether its
-// credentials resolve, and why a provider landed in its domain (cli.md, discovery.md).
-import { renderDomainWhy } from '../../catalog';
+// `via servers`: where each server comes from, how it connects, whether its credentials resolve
+// (cli.md, discovery.md).
 import { formatDiagnostic, type ServerConfig } from '../../config';
 import { shortenHome } from '../../config/paths';
 import { shellWord } from '../../render/shell';
@@ -10,7 +9,7 @@ import type { App } from '../app';
 import { authState } from '../auth-state';
 import { buildProviderTable } from '../directory';
 import { parseLocal } from '../options';
-import { openProvider } from './provider';
+import { usageFailure } from '../failure';
 
 /** The auth column: the method, and whether it would work (references only, never values). */
 async function authStatus(app: App, server: ServerConfig): Promise<string> {
@@ -36,12 +35,8 @@ function describeTransport(server: ServerConfig): string {
 }
 
 export async function serversCommand(app: App, argv: readonly string[]): Promise<number> {
-  const { flags } = parseLocal('servers', argv, [{ name: 'why', value: true }]);
-  if (typeof flags.why === 'string') {
-    const { entry, views } = await openProvider(app, flags.why);
-    app.out(`${renderDomainWhy(entry.name, views.visible.domain)}\n`);
-    return ExitCode.Ok;
-  }
+  const { positionals } = parseLocal('servers', argv, []);
+  if (positionals.length > 0) throw usageFailure('via servers takes no arguments', 'via servers -h');
 
   const config = await app.config({ allowErrors: true });
   const table = buildProviderTable(config.servers);

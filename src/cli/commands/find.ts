@@ -1,15 +1,12 @@
-// `via find <query> [--domain <domain>] [-n <count>]`
-import { normalizeInput, renderFind, SearchIndex } from '../../catalog';
+// `via find <query> [-n <count>]`
+import { renderFind, SearchIndex } from '../../catalog';
 import { ExitCode } from '../../render/exit-codes';
 import type { App } from '../app';
 import { usageFailure } from '../failure';
 import { parseLocal } from '../options';
 
 export async function findCommand(app: App, argv: readonly string[]): Promise<number> {
-  const { flags, positionals } = parseLocal('find', argv, [
-    { name: 'domain', value: true },
-    { name: 'limit', value: true, short: 'n' },
-  ]);
+  const { flags, positionals } = parseLocal('find', argv, [{ name: 'limit', value: true, short: 'n' }]);
   let limit = 10;
   if (flags.limit !== undefined) {
     limit = Number(flags.limit);
@@ -26,7 +23,6 @@ export async function findCommand(app: App, argv: readonly string[]): Promise<nu
 
   const hits = new SearchIndex(catalog, undefined, { precomputed: terms }).search(query, {
     limit,
-    ...(typeof flags.domain === 'string' ? { domain: normalizeInput(flags.domain) } : {}),
     ...(semantic?.scores ? { semantic: semantic.scores } : {}),
   });
   app.out(`${renderFind(hits, query)}\n`);

@@ -17,13 +17,11 @@ import { ALL_COMMANDS } from './builtins';
 import { matchingDeny, type ProviderEntry } from './directory';
 import { CliFailure, fail, usageFailure } from './failure';
 
-const OTHER_DOMAIN_STUB = { source: 'other' as const, domains: [{ domain: 'other' }] };
-
 /** Provider names only, enough for `resolveProvider` without fetching any tools. */
 function nameCatalog(entries: readonly ProviderEntry[]): Catalog {
   return {
     warnings: [],
-    providers: entries.map((e) => ({ provider: e.name, tools: [], resources: [], leaves: [], domain: OTHER_DOMAIN_STUB })),
+    providers: entries.map((e) => ({ provider: e.name, tools: [], resources: [], leaves: [] })),
   };
 }
 

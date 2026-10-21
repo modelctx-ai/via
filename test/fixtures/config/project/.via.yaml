@@ -7,7 +7,5 @@ servers:
   exa:
     timeout: 30
 deny: ["^proj/.*:delete$", "^github/.*:delete$"]
-domains:
-  research: [exa]
 output:
   budget: 2048

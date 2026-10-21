@@ -6,7 +6,7 @@
 
 - [愿景与定位](overview/vision.md)：要解决的问题、目标、非目标、设计原则
 - [架构](overview/architecture.md)：CLI、daemon、MCP server 三层与调用链路
-- [术语表](overview/glossary.md)：provider、资源、动作、叶子工具、域、游标等
+- [术语表](overview/glossary.md)：provider、资源、动作、叶子工具、游标等
 
 ### 规范（实现必须遵循）
 
@@ -14,7 +14,7 @@
 | --- | --- |
 | [cli.md](spec/cli.md) | 命令语法、内置子命令、全局选项、工具引用写法、名称解析 |
 | [naming.md](spec/naming.md) | 原始工具名拆成 `资源:动作` 的规则与稳定性约定 |
-| [discovery.md](spec/discovery.md) | 目录构建、缓存、分类表与启发式分域、浏览视图、搜索排序 |
+| [discovery.md](spec/discovery.md) | 目录构建、缓存、浏览视图、搜索排序 |
 | [arguments.md](spec/arguments.md) | schema 到命令行参数的映射、校验、危险操作、调用过程 |
 | [output.md](spec/output.md) | 渲染流程、输出格式、截断游标、错误与退出码 |
 | [config.md](spec/config.md) | 配置来源与合并、字段参考、凭证引用 |

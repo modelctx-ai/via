@@ -20,7 +20,7 @@ via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，
 
 在 [token 基准](bench/results/0.1.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），via 消耗的 token 约为原生 MCP 注入方式的 4%。这个数字按脚本化的命令序列估算；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。真实模型的成功率评测（`npm run bench:eval`）尚未发布结果。
 
-## 先看一眼
+## 概览
 
 ```console
 $ via
@@ -96,16 +96,16 @@ via auth login linear      # 配置里写 auth: oauth；无浏览器环境加 --
 servers:
   github:
     url: https://api.githubcopilot.com/mcp/
-    auth: { bearer: "keychain:via/github" }   # 也可以是 env:、file:、cmd:
-  exa:                                         # 定义来自框架配置，这里只补凭证
-    env: { EXA_API_KEY: "env:EXA_KEY" }
-deny: ["^github/.*:delete$"]                   # 不想让 agent 碰的工具
+    auth: { bearer: 'keychain:via/github' } # 也可以是 env:、file:、cmd:
+  exa: # 定义来自框架配置，这里只补凭证
+    env: { EXA_API_KEY: 'env:EXA_KEY' }
+deny: ['^github/.*:delete$'] # 不想让 agent 碰的工具
 ```
 
 ### 3. 发现与调用
 
 ```bash
-via                                   # 所有 provider，按域分组
+via                                   # 所有 provider 及其工具数
 via linear                            # 资源与动作
 via linear issue                      # 每个动作的签名
 via linear issue:create -h            # 参数用法
@@ -114,28 +114,30 @@ via find "create issue"               # 跨 provider 搜索
 
 ### 4. 交给 agent
 
-把 `via prompt` 的输出放进 AGENTS.md、CLAUDE.md 或 skill，再按 `via doctor` 的提示在框架里关闭 MCP 注入（过渡期两边可以并存）：
+把说明写进你已经在用的 AGENTS.md——via 只加一个带标记的块，文件其余部分不动——再按 `via doctor` 的提示在框架里关闭 MCP 注入（过渡期两边可以并存）：
 
 ```bash
-via prompt                  # 打印说明和域摘要
-via prompt --out AGENTS.md  # 或写入文件
+via prompt --out AGENTS.md       # 写进块；文件里已有块时只刷新它
+via prompt --check AGENTS.md     # 块过期时退出码 1，可放进 CI
 ```
+
+块里先说明 via 是什么，再要求 agent 需要外部工具时优先用 `via`，而不是它已经挂载的 MCP 工具。这份说明只维护一处：Claude Code 可以在 CLAUDE.md 里用 `@AGENTS.md` 引入，不必再攒一份。
 
 详细步骤见[快速上手](docs/guides/getting-started.md)与[与 agent 框架集成](docs/guides/agent-integration.md)。
 
 ## 常用命令
 
-| 命令 | 作用 |
-| --- | --- |
-| `via` · `via <provider>` · `via <provider> <资源>` | 逐级浏览；`-h` 查看单个工具的用法 |
-| `via <provider> <资源>:<动作> [--参数 值]` | 调用工具；`-o json` 输出 JSON，`--dry-run` 只打印将要发出的调用 |
-| `via find <查询>` | 跨 provider 搜索工具 |
-| `via more <游标>` | 续读被截断的输出 |
-| `via batch` | 从 stdin 读 JSON Lines，并发调用，按输入顺序输出 |
-| `via resources` · `via read` · `via prompts` | MCP resources 与 prompts |
-| `via auth login\|status\|logout` | OAuth 登录与状态 |
-| `via trust` | 放行项目级 `.via.yaml` 里的命令与端点 |
-| `via doctor` · `via servers` · `via sync` | 诊断、server 列表、刷新工具缓存 |
+| 命令                                               | 作用                                                            |
+| -------------------------------------------------- | --------------------------------------------------------------- |
+| `via` · `via <provider>` · `via <provider> <资源>` | 逐级浏览；`-h` 查看单个工具的用法                               |
+| `via <provider> <资源>:<动作> [--参数 值]`         | 调用工具；`-o json` 输出 JSON，`--dry-run` 只打印将要发出的调用 |
+| `via find <查询>`                                  | 跨 provider 搜索工具                                            |
+| `via more <游标>`                                  | 续读被截断的输出                                                |
+| `via batch`                                        | 从 stdin 读 JSON Lines，并发调用，按输入顺序输出                |
+| `via resources` · `via read` · `via prompts`       | MCP resources 与 prompts                                        |
+| `via auth login\|status\|logout`                   | OAuth 登录与状态                                                |
+| `via trust`                                        | 放行项目级 `.via.yaml` 里的命令与端点                           |
+| `via doctor` · `via servers` · `via sync`          | 诊断、server 列表、刷新工具缓存                                 |
 
 语法、全局选项与退出码见[命令规范](docs/spec/cli.md)和[输出规范](docs/spec/output.md)；更多组合写法见[组合用法](docs/guides/recipes.md)。
 
@@ -150,14 +152,14 @@ via prompt --out AGENTS.md  # 或写入文件
 
 ## 文档
 
-| 想了解 | 去看 |
-| --- | --- |
-| 为什么做、做什么、不做什么，与 mcp2cli 等工具的区别 | [愿景与定位](docs/overview/vision.md) |
-| 整体怎么组成 | [架构](docs/overview/architecture.md) |
-| 配置字段与凭证引用 | [配置](docs/spec/config.md)、[鉴权](docs/spec/auth.md) |
-| GitHub、Linear、Notion、Cloudflare 怎么用 | [Provider 指南](docs/guides/providers/) |
-| 接下来做什么 | [路线图](docs/roadmap.md)、[待定问题](docs/open-questions.md) |
-| 为什么这样决定 | [架构决策记录](docs/adr/) |
+| 想了解                                              | 去看                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| 为什么做、做什么、不做什么，与 mcp2cli 等工具的区别 | [愿景与定位](docs/overview/vision.md)                         |
+| 整体怎么组成                                        | [架构](docs/overview/architecture.md)                         |
+| 配置字段与凭证引用                                  | [配置](docs/spec/config.md)、[鉴权](docs/spec/auth.md)        |
+| GitHub、Linear、Notion、Cloudflare 怎么用           | [Provider 指南](docs/guides/providers/)                       |
+| 接下来做什么                                        | [路线图](docs/roadmap.md)、[待定问题](docs/open-questions.md) |
+| 为什么这样决定                                      | [架构决策记录](docs/adr/)                                     |
 
 完整索引见 [docs/README.md](docs/README.md)。
 

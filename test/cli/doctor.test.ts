@@ -30,7 +30,6 @@ function config(servers: ServerConfig[], diagnostics: LoadedConfig['diagnostics'
   return {
     servers,
     deny: [],
-    domains: {},
     output: { budget: 8192, cellWidth: 80 },
     daemon: { idleTimeout: 600, serverIdleTimeout: 300 },
     diagnostics,

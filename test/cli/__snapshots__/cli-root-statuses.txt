@@ -1,10 +1,10 @@
 8 providers · 70 tools · 1 needs auth (linear) · 1 failed (slack) · 1 untrusted (figma)
-code     github
-search   exa
-browser  playwright
-data     postgres
-docs     notion
-project  linear (needs auth)
-comm     slack (failed)
-other    figma (untrusted)
+exa         14 tools
+figma       untrusted
+github      14 tools
+linear      needs auth
+notion      14 tools
+playwright  14 tools
+postgres    14 tools
+slack       failed
 → via <provider> to browse · via find <query> to search

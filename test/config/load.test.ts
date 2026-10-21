@@ -43,7 +43,7 @@ describe('the sample tree (one config per framework)', () => {
   it('applies user, project and defaults on top of the framework definitions', async () => {
     const config = await loadFixture({ dataDir: tempDir() });
     const github = server(config, 'github');
-    expect(github).toMatchObject({ auth: { type: 'bearer', bearer: 'keychain:via/github' }, domain: 'code', timeout: 90, concurrency: 4, confirm: 'destructive', trusted: true });
+    expect(github).toMatchObject({ auth: { type: 'bearer', bearer: 'keychain:via/github' }, timeout: 90, concurrency: 4, confirm: 'destructive', trusted: true });
     expect(github.transport).toMatchObject({ url: 'https://api.githubcopilot.com/mcp/' });
     expect(relative(github.origin.path)).toBe('home/.claude.json');
 
@@ -80,10 +80,9 @@ describe('the sample tree (one config per framework)', () => {
     expect(config.servers.filter((s) => s.conflicts).map((s) => s.name)).toEqual(['exa']);
   });
 
-  it('merges deny from every layer, compiled and de-duplicated; domains and output by priority', async () => {
+  it('merges deny from every layer, compiled and de-duplicated; output and daemon by priority', async () => {
     const config = await loadFixture({ dataDir: tempDir() });
     expect(config.deny.map(String)).toEqual(['/^github\\/.*:delete$/', '/^notion\\/page:(delete|move)$/', '/^proj\\/.*:delete$/']);
-    expect(config.domains).toEqual({ research: ['exa'] });
     expect(config.output).toEqual({ budget: 2048, cellWidth: 80 });
     expect(config.daemon).toEqual({ idleTimeout: 300, serverIdleTimeout: 300 });
   });
@@ -416,7 +415,7 @@ describe('where files are looked up', () => {
 
   it('works with nothing on disk', async () => {
     const config = await makeTree({}).load();
-    expect(config).toMatchObject({ servers: [], deny: [], domains: {}, diagnostics: [], files: [] });
+    expect(config).toMatchObject({ servers: [], deny: [], diagnostics: [], files: [] });
     expect(config.output).toEqual(DEFAULTS.output);
     expect(config.daemon).toEqual(DEFAULTS.daemon);
   });

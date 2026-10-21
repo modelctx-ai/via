@@ -9,6 +9,7 @@ export type DiagnosticCode =
   | 'file-missing'
   | 'invalid-field'
   | 'unknown-field'
+  | 'removed-field'
   | 'invalid-server'
   | 'server-undefined'
   | 'cmd-forbidden'

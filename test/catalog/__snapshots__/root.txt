@@ -1,0 +1,17 @@
+15 providers · 231 tools · 1 needs auth (linear) · 1 failed (slack)
+cloudflare    4 tools
+context7      2 tools
+exa           8 tools
+filesystem    14 tools
+github        54 tools
+gmail         8 tools
+google-drive  6 tools
+linear        needs auth
+notion        65 tools
+playwright    22 tools
+postgres      1 tool
+puppeteer     7 tools
+slack         failed
+sqlite        6 tools
+tavily        4 tools
+→ via <provider> to browse · via find <query> to search

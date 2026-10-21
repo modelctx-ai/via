@@ -2,7 +2,6 @@ sources: auto
 servers:
   github:
     auth: { bearer: "keychain:via/github" }
-    domain: code
     timeout: 90
   exa:                       # defined by Claude Code and Cursor; only the credential is added
     env: { EXA_API_KEY: "env:EXA_KEY", EXA_LOG: debug }
@@ -22,7 +21,5 @@ servers:
   ghost:                     # overrides for a server nobody defines
     timeout: 5
 deny: ["^github/.*:delete$", "^notion/page:(delete|move)$"]
-domains:
-  research: [exa, context7]
 daemon:
   idleTimeout: 300

@@ -81,7 +81,7 @@ export function extractGlobals(argv: readonly string[]): { options: GlobalOption
 
 export interface LocalFlag {
   name: string;
-  /** Takes a value (`--domain code`, `--domain=code`). */
+  /** Takes a value (`--out AGENTS.md`, `--out=AGENTS.md`). */
   value: boolean;
   short?: string;
 }

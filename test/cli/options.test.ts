@@ -54,19 +54,19 @@ describe('extractGlobals', () => {
 });
 
 describe('parseLocal', () => {
-  const flags = [{ name: 'domain', value: true }, { name: 'limit', value: true, short: 'n' }, { name: 'quiet', value: false }];
+  const flags = [{ name: 'scope', value: true }, { name: 'limit', value: true, short: 'n' }, { name: 'quiet', value: false }];
 
   it('splits flags and positionals', () => {
-    expect(parseLocal('find', ['create', '--domain', 'code', 'issue', '-n', '3', '--quiet'], flags)).toEqual({
-      flags: { domain: 'code', limit: '3', quiet: true },
+    expect(parseLocal('find', ['create', '--scope', 'code', 'issue', '-n', '3', '--quiet'], flags)).toEqual({
+      flags: { scope: 'code', limit: '3', quiet: true },
       positionals: ['create', 'issue'],
     });
-    expect(parseLocal('find', ['--domain=code'], flags).flags).toEqual({ domain: 'code' });
+    expect(parseLocal('find', ['--scope=code'], flags).flags).toEqual({ scope: 'code' });
   });
 
   it('rejects unknown flags and missing values', () => {
     expect(() => parseLocal('find', ['--nope'], flags)).toThrow(CliFailure);
-    expect(() => parseLocal('find', ['--domain'], flags)).toThrow(CliFailure);
+    expect(() => parseLocal('find', ['--scope'], flags)).toThrow(CliFailure);
   });
 });
 

@@ -6,12 +6,12 @@ export const VERSION: string = pkg.version;
 export const HELP = `via ${VERSION}: call MCP servers as \`via <provider> <resource>:<verb>\`
 
 usage:
-  via                                        providers, grouped by domain
+  via                                        providers and their tool counts
   via <provider> [--all]                     resources and actions of a provider
   via <provider> <resource>                  actions of a resource, with signatures
   via <provider> <resource>:<verb> -h        usage of a tool
   via <provider> <resource>:<verb> [args]    call a tool
-  via find <query> [--domain <d>] [-n 10]    search tools across providers
+  via find <query> [-n 10]                   search tools across providers
   via batch [--concurrency <n>]              JSON Lines on stdin: concurrent calls, results in input order
   via resources <provider>                   resources and resource templates of a server
   via read <provider> <uri>                  read a resource
@@ -28,13 +28,13 @@ docs: docs/spec/cli.md
 
 /** Usage of each built-in subcommand, for \`via <command> -h\`. */
 export const COMMAND_USAGE: Readonly<Record<string, string>> = {
-  find: 'usage: via find [<query>] [--domain <domain>] [-n <count>]',
+  find: 'usage: via find [<query>] [-n <count>]',
   call: 'usage: via call <provider>/<resource>:<verb> [--args <json>|@file|-] [--<arg> <value>…]',
   more: 'usage: via more <cursor>',
-  servers: 'usage: via servers [--why <provider>]',
+  servers: 'usage: via servers',
   sync: 'usage: via sync [<provider>]',
   doctor: 'usage: via doctor',
-  prompt: 'usage: via prompt [--out <file>]',
+  prompt: 'usage: via prompt [--out <file> | --check <file>] [--replace]',
   batch: 'usage: via batch [--concurrency <n>]  (JSON Lines on stdin: {"tool":"<provider>/<resource>:<verb>","args":{…}})',
   auth: 'usage: via auth login <provider> [--manual] | via auth status [<provider>] | via auth logout <provider>',
   trust: 'usage: via trust [<path>] [--dry-run] | via trust <path> --yes (scripts only: needs VIA_ALLOW_NONINTERACTIVE_TRUST=1) | via trust --list | via trust --revoke <path>',

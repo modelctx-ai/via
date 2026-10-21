@@ -14,10 +14,7 @@
 | **工具引用** | 定位一个工具的写法。命令行形式 `linear issue:create`，单字符串形式 `linear/issue:create`。 |
 | **规范写法** | via 所有输出中使用的工具引用形式，由[拆分规则](../spec/naming.md)确定。 |
 | **叶子工具** | 拆不出资源或动作的工具，直接挂在 provider 下，如 `via notion search`。 |
-| **域（domain）** | provider 的分类，如 `code`、`search`。只是浏览视图，不进入命令路径和规范名。 |
-| **分类表** | 内置的「已知 server → 域」映射，精度最高。 |
-| **词典（lexicon）** | 启发式分域使用的「关键词 → 各域权重」表，由脚本从分类表样本生成。 |
-| **目录（catalog）** | 所有 provider 的工具、拆分结果、域和索引的集合，缓存在磁盘与 daemon 内存中。 |
+| **目录（catalog）** | 所有 provider 的工具、拆分结果和索引的集合，缓存在磁盘与 daemon 内存中。 |
 | **签名** | 一行内的参数摘要，如 `owner, repo, title, [body]`，方括号表示可选。 |
 | **预算（budget）** | 单次输出的字节上限，超出部分存入游标。 |
 | **游标（cursor）** | 被截断结果的续读句柄，`via more <游标>` 续读。 |

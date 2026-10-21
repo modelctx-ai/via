@@ -1,19 +1,19 @@
 import { findDenyRule } from './deny';
-import type { DomainRules, ProviderIdentity } from './domain';
-import { classifyProvider, defaultDomainRules } from './domain';
 import { defaultSplitRules, type SplitRules } from './rules';
 import { extractParams } from './signature';
 import { splitToolName } from './split';
+import { defaultStopwords } from './stopwords';
 import { kebab } from './tokenize';
-import type { CatalogTool, DomainAssignment, McpTool, ProviderCatalog, ResourceGroup } from './types';
+import type { CatalogTool, McpTool, ProviderCatalog, ResourceGroup } from './types';
 
 export interface CatalogRules {
   split: SplitRules;
-  domains: DomainRules;
+  /** Generic words the search index leaves out of descriptions (data/stopwords.json). */
+  stopwords: ReadonlySet<string>;
 }
 
 export function defaultCatalogRules(): CatalogRules {
-  return { split: defaultSplitRules(), domains: defaultDomainRules() };
+  return { split: defaultSplitRules(), stopwords: defaultStopwords() };
 }
 
 export interface ProviderInput {
@@ -26,11 +26,6 @@ export interface ProviderInput {
   rename?: Record<string, string>;
   /** `deny` regular expressions, matched against `provider/resource:verb` and `provider/raw-name`. */
   deny?: readonly RegExp[];
-  identity?: ProviderIdentity;
-  /** `servers.<name>.domain`. */
-  configDomain?: string;
-  /** Top-level `domains` from config. */
-  customDomains?: Record<string, string[]>;
 }
 
 interface Draft {
@@ -79,7 +74,7 @@ function toCatalogTool(provider: string, d: Draft): CatalogTool {
 
 /**
  * Split every tool of one provider and resolve conflicts (naming.md rules 5 and 6),
- * then apply `deny`, group by resource and assign a domain.
+ * then apply `deny` and group by resource.
  */
 export function buildProviderCatalog(
   input: ProviderInput,
@@ -134,26 +129,14 @@ export function buildProviderCatalog(
   const deny = input.deny ?? [];
   const visible = all.filter((t) => findDenyRule(t, deny) === undefined);
 
-  const domain = classifyProvider(
-    {
-      provider: input.provider,
-      tools: visible,
-      identity: input.identity,
-      configDomain: input.configDomain,
-      customDomains: input.customDomains,
-    },
-    rules.domains,
-    rules.split,
-  );
-
-  return assembleProvider(input.provider, visible, domain);
+  return assembleProvider(input.provider, visible);
 }
 
 /**
  * The provider view over its visible tools: resource groups sorted by name, leaf tools in list
  * order. Shared by the build and by restoring a cached build, so both group the same way.
  */
-export function assembleProvider(provider: string, visible: CatalogTool[], domain: DomainAssignment): ProviderCatalog {
+export function assembleProvider(provider: string, visible: CatalogTool[]): ProviderCatalog {
   const groups = new Map<string, ResourceGroup>();
   const leaves: CatalogTool[] = [];
   for (const t of visible) {
@@ -166,5 +149,5 @@ export function assembleProvider(provider: string, visible: CatalogTool[], domai
     groups.set(t.resource, g);
   }
   const resources = [...groups.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  return { provider, tools: visible, resources, leaves, domain };
+  return { provider, tools: visible, resources, leaves };
 }

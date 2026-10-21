@@ -2,27 +2,28 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-影响规范写法的改动（动词表、单数化规则、域分类表）必须在这里单独列出，因为它们会改变 `provider resource:verb` 的规范名。
+影响规范写法的改动（动词表、单数化规则）必须在这里单独列出，因为它们会改变 `provider resource:verb` 的规范名。
 
 ## [Unreleased]
 
 ### Changed
 
-- 性能（0.1/0.2 没有达到的冷启动、`find` 与 daemon 内存目标；数据与重新标定的建议见 [bench/results/perf-0.3-cold-start.md](bench/results/perf-0.3-cold-start.md)）。输出、退出码、`next:` 提示与命名规范都不变，没有动词表、单数化规则或分类表的改动，所以没有规范名受影响：
+- `via prompt` 改为向文档注入一个带标记的说明块（[ADR 0013](docs/adr/0013-agent-instructions-are-a-marked-block.md)，`<!-- via:begin … -->` 到 `<!-- via:end -->`）。块内先说 via 是什么，再要求 agent 需要外部服务时优先用 `via`，而不是它已经挂载的 MCP 工具；标题从 `#` 降为 `##`，避免抢走宿主文档的标题层级。`--out` 不再要求 `--yes` 覆盖整份文件：文件不存在时创建，已有标记块时只替换两个标记之间的内容，没有标记时追加到末尾（前面空一行），标记不成对或多出时拒绝并退出码 5。`--replace` 保留旧的整份覆盖行为（仍需 `--yes`）；新增 `--check <文件>`（过期退出码 1，可进 CI），`--out` 与 `--check` 互斥，`--replace` 必须配 `--out`（否则退出码 2）。代价是说明从约 150 token 长到约 175 token、标记约 25 token，0.1 基准里的 157 token 相应上升。块内的 provider 列表按字母序列出 server 名字本身，不带分类或资源注解：分组长什么样是 via 自己推断的，会随规则调整而变，不该写进给 agent 的说明里，agent 需要细节时跑 `via <provider>`。这行只随 provider 数量增长，不受单个 server 的资源数影响。cli.md 的 `via prompt`、agent-integration.md 的「via prompt」与「迁移路径」、快速上手的 `via prompt` 示例、两份 README 的第 4 步随之更新；`renderPrompt` 只读目录里的 provider 名字，不再依赖 `renderRoot`。不涉及动词表与单数化规则，规范写法不受影响。
+- 性能（0.1/0.2 没有达到的冷启动、`find` 与 daemon 内存目标；数据与重新标定的建议见 [bench/results/perf-0.3-cold-start.md](bench/results/perf-0.3-cold-start.md)）。输出、退出码、`next:` 提示与命名规范都不变，没有动词表或单数化规则的改动，所以没有规范名受影响：
   - 浏览类命令（`via`、`via <provider>`、`via find`，缓存热、无 daemon）比同机 `node -e 0` 多 44–51 ms（改动前 72–102 ms），墙钟约 74–80 ms；一千个工具上 `find` 的库路径（新进程）81 ms 降到 21 ms；daemon 建立 HTTP 与 stdio 会话后 89–92 MiB 降到 76–79 MiB。
-  - 规范补充（随冷启动工作，不改变既有设计决策）：discovery.md 新增「预构建缓存」（`catalog/<哈希>.view.json`：拆分、分域与检索词的计算结果，规则指纹、原始列表与构建输入任一变化即失效，不含凭证值）；config.md 新增「解析缓存」（YAML 文件按字节哈希缓存其结构，字符串只存偏移，不复制任何值）；daemon.md 的 `list` 请求新增可选的 `have`、应答新增 `unchanged`（`list` 的其余字段与语义不变，旧 CLI 不带 `have` 时行为不变），daemon 在内存里不再保存解析后的工具列表（磁盘缓存就是副本），Node 运行时下拉起 daemon 时加 `--max-semi-space-size=2` 与（Linux）`MALLOC_ARENA_MAX=2`；security.md 的缓存一行补充新增缓存不含凭证值。原始缓存文件的 `features` 写在 `tools` 之前（读取仍兼容旧文件）。
+  - 规范补充（随冷启动工作，不改变既有设计决策）：discovery.md 新增「预构建缓存」（`catalog/<哈希>.view.json`：拆分与检索词的计算结果，规则指纹、原始列表与构建输入任一变化即失效，不含凭证值）；config.md 新增「解析缓存」（YAML 文件按字节哈希缓存其结构，字符串只存偏移，不复制任何值）；daemon.md 的 `list` 请求新增可选的 `have`、应答新增 `unchanged`（`list` 的其余字段与语义不变，旧 CLI 不带 `have` 时行为不变），daemon 在内存里不再保存解析后的工具列表（磁盘缓存就是副本），Node 运行时下拉起 daemon 时加 `--max-semi-space-size=2` 与（Linux）`MALLOC_ARENA_MAX=2`；security.md 的缓存一行补充新增缓存不含凭证值。原始缓存文件的 `features` 写在 `tools` 之前（读取仍兼容旧文件）。
   - 实现（[implementation.md](docs/development/implementation.md#启动速度)）：打包产物里的 `fs`、`fs/promises` 不经 ESM 门面加载；stdout/stderr 用 `fs.writeSync`，tty 检测按需；64 KiB 以内的 SHA-256 用纯 JS 实现（与 `node:crypto` 逐例对照，信任哈希语义不变）；合法 JSON 配置用原生 `JSON.parse`；浏览命令一次 `import()` 取齐依赖，不加载渲染流水线与 MCP 客户端；分词、签名、倒排表走 ASCII 快路径与扁平数组。
-- 规范补充（随单文件可执行，不改变既有设计决策）：daemon.md 写明拉起的是当前程序自身（脚本为 `<运行时> <入口脚本> daemon run`，可执行文件为 `<该文件> daemon run`）；config.md 补充钥匙串模块加载失败时 `keychain:` 的表现与 `NAPI_RS_NATIVE_LIBRARY_PATH`；security.md 新增「单文件可执行」一节（不读取当前目录的 `.env` 与 `bunfig.toml`、钥匙串模块的来源、校验和）。无规范写法（动词表、分类表）受影响。
-- `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0011](docs/adr/0011-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询、`--domain` 不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
+- 规范补充（随单文件可执行，不改变既有设计决策）：daemon.md 写明拉起的是当前程序自身（脚本为 `<运行时> <入口脚本> daemon run`，可执行文件为 `<该文件> daemon run`）；config.md 补充钥匙串模块加载失败时 `keychain:` 的表现与 `NAPI_RS_NATIVE_LIBRARY_PATH`；security.md 新增「单文件可执行」一节（不读取当前目录的 `.env` 与 `bunfig.toml`、钥匙串模块的来源、校验和）。无规范写法（动词表）受影响。
+- `via find` 默认做确定性的同义词扩展（路线图 c2 的第一层，[ADR 0011](docs/adr/0011-find-synonym-expansion-and-optional-embeddings.md)）：查询侧按 `data/synonyms.json` 把动词（`remove`/`delete`/`destroy`…）、资源（`issue`/`ticket`、`pr`/`pull request`/`merge request`、`repo`/`repository`…）和简单词形（`creating` → `create`）展开成打折的替代词，只改变第 4 级 BM25 的分数。规范写法的三级匹配、并列规则、空查询不变，带原词的工具总排在只带同义词的工具之前。**不改变任何规范名**（不影响「影响规范写法」一节）。fixture 目录上 98 条自然语言查询：recall@1 42.9% → 66.3%，recall@5 74.5% → 96.9%，MRR 0.570 → 0.790；调参后另写的 30 条留出集：recall@1 50.0% → 66.7%，recall@5 76.7% → 86.7%，MRR 0.615 → 0.775；原本就能命中的 12 条仍然 100% 排第一。1,000 个工具上稳态单次查询仍是亚毫秒级（中位约 0.3–0.5 ms，目标 < 30 ms），首次查询多约 1 ms 的同义词表编译。discovery.md 的「搜索」一节、data-files.md 的 `synonyms.json` 一节相应更新。
 - AGENTS.md 的「发现逻辑是确定性的」改为「默认确定性；唯一的例外是用户显式开启的 `search.semantic`」（ADR 0011）。
 - 测试：`test/bench/synth-catalog.test.ts` 的「发送邮件」查询接受 `acme-workspace`（其 `mail-message:send` 现在是 `email` 的同义词命中，与 gmail 的描述命中同分）。
-- 规范补充（随 Windows 支持）：daemon.md 的「生命周期」「无 daemon 模式」「socket 安全」按平台改写并新增「Windows」一节；config.md 的 Windows 基础环境、「Windows 上启动 stdio 命令」与 `cmd:` 分词；security.md 新增「Windows 上的子进程」「Windows 上的文件权限」，并说明信任记录的 Windows 路径规范化；auth.md 的打开命令与 Credential Manager 拆分存放。`open-questions.md` 的「Windows 支持」条目随之移除。没有动词表、分类表或命名规则的改动，规范写法不受影响。
+- 规范补充（随 Windows 支持）：daemon.md 的「生命周期」「无 daemon 模式」「socket 安全」按平台改写并新增「Windows」一节；config.md 的 Windows 基础环境、「Windows 上启动 stdio 命令」与 `cmd:` 分词；security.md 新增「Windows 上的子进程」「Windows 上的文件权限」，并说明信任记录的 Windows 路径规范化；auth.md 的打开命令与 Credential Manager 拆分存放。`open-questions.md` 的「Windows 支持」条目随之移除。没有动词表或命名规则的改动，规范写法不受影响。
 - 规范补充（随 OAuth 实现）：auth.md 补全 OAuth 的发现、注册、回调、存储（含文件退路与 `VIA_OAUTH_STORE`）、刷新、状态与登出，以及调用时「需要登录」的行为；cli.md 的 `via auth` 说明；security.md、daemon.md 中 OAuth token 的脱敏与 daemon 持有的状态。`auth: oauth` 的 server 不再提示改用 bearer。
 - 项目名与命令名由占位名 `mx` 改为 `via`，npm 包名 `@modelctx/via`；配置路径、项目配置文件、socket、环境变量前缀随之改名（ADR 0009）。
-- 规范补充（随首个实现，不改变既有设计决策）：naming.md 明确逐词单数化并加入不规则复数；discovery.md 补全启发式打分的细节（递减计分、`minScore`、双域判定）、浏览视图的排序与截断、签名上限、安全标记和搜索排序的并列规则；output.md 补全表格选列、一行数组、元信息行格式、游标续读、脱敏顺序和错误文本清理；data-files.md 增加 `columns.json`、`singularIrregular`、`minScore`、`stopwords` 以及词典与差异检查的命令。
+- 规范补充（随首个实现，不改变既有设计决策）：naming.md 明确逐词单数化并加入不规则复数；discovery.md 补全浏览视图的排序与截断、签名上限、安全标记和搜索排序的并列规则；output.md 补全表格选列、一行数组、元信息行格式、游标续读、脱敏顺序和错误文本清理；data-files.md 增加 `columns.json`、`singularIrregular`、`stopwords` 以及差异检查的命令。
 - 规范补充（随 config / client 实现）：config.md 的 `sources` 列表语义、框架写法规范化（`type`/`transport`、`serverUrl`、Codex 的 `*_env_var` 等）、合并细节、校验与诊断、stdio 子进程的基础环境；data-files.md 的框架条目新增 `platforms`、`notes`，`verifiedAt` 可为 `null`；auth.md 明确 403 退出码 4、0.1 暂不支持 OAuth、stdio 的 stderr 不转发；output.md 补全传输与上游错误的格式。
 - 规范补充（随 CLI 实现）：cli.md 补充各内置子命令的细节、配置错误时的行为与 `--dry-run` 输出格式；arguments.md 明确默认方言 2020-12、usage 折行规则、新增几类报错说法与错误顺序、危险操作拒绝与 progress 行的格式；discovery.md 补充进程内模式的目录缓存；agent-integration.md 补充 `via doctor` 的各节、token 估算、明文判定规则与退出码。
-- 规范补充（随框架数据文件核对）：框架条目新增 `sources`、`configs[].dollarVariables`，`verifiedAt` 改为 `YYYY-MM-DD`；config.md 的规范化表补充 Codex `env_vars` 的 `{ name, source }` 写法与 `$NAME` 变量；显式指定的框架只要其配置文件之一存在，就不再为其余缺失的备选文件告警。无规范写法（动词表、分类表）受影响。
+- 规范补充（随框架数据文件核对）：框架条目新增 `sources`、`configs[].dollarVariables`，`verifiedAt` 改为 `YYYY-MM-DD`；config.md 的规范化表补充 Codex `env_vars` 的 `{ name, source }` 写法与 `$NAME` 变量；显式指定的框架只要其配置文件之一存在，就不再为其余缺失的备选文件告警。无规范写法（动词表）受影响。
 - 规范补充（随 daemon 实现，docs/spec/daemon.md 为准）：协议改为围绕「server 定义 + 请求」组织，CLI 在每个请求里带上配置里的 server 定义（只含凭证引用）、工作目录和 `envStamp`，daemon 不读配置；去掉 `ls`、`find`、`describe`、`more`、`sync` 请求（目录由 CLI 从原始工具列表计算，续读与刷新用 `cursor-*`、`list`），新增 `list`、`validate`、`redact`、`cursor-put`、`cursor-get`、`shutdown`、`stale` 应答，`hello` 带令牌。补充启动锁与陈旧 socket 清理、版本不一致时先释放 socket、回退的边界（可能已执行的非只读调用不重放，退出码 6）、`env:` 在 daemon 自己的环境里解析并以摘要探测差异、凭证 10 分钟过期、独占 server 请求结束即停、空闲退出的含义、`list_changed` 的合并与失败处理、游标随 daemon 退出失效。socket 安全因 Node 无法取得 `SO_PEERCRED`，改为目录与 socket 权限、CLI 侧属主检查和握手令牌（peer uid 校验留作后续）。cli.md 补充 `via daemon status|stop|run` 的输出与退出码。
 - client 把上游 `InvalidParams`（-32602）映射为退出码 1，并提示 schema 与 server 行为不一致。
 - 安全：项目级配置的信任范围从 stdio 命令扩大到 HTTP 端点。项目级文件设置或覆盖 `url`、`headers` 时同样需要 `via trust`，避免仓库把 server 指向别处，从而拿到用户为它配置的凭证（security.md）。
@@ -39,6 +40,7 @@
 
 ### Added
 
+- 测试：删除 `test/catalog/domain.test.ts`；`browse`、`search`、`synonyms`、`semantic`、`view-cache`、`views`、`commands`、`layer`、`load`、`data` 各去掉与域相关的用例（`--domain`、`--why`、域分组快照），新增「配置里残留 `domain`/`domains` 时给出 `removed-field`」「根视图按名字排序」两项。`test/cli/prompt.test.ts` 覆盖 `spliceBlock`（创建、追加、只替换标记之间、幂等、标记不成对/倒序/多对时拒绝）、`blockStatus` 与 `renderPromptBlock`；`test/cli/commands.test.ts` 的 `via prompt` 一组改为端到端覆盖 8 种情形，包括保留用户原文、重跑只刷新块、`--check` 的三种状态与 `--replace --yes`。
 - 性能缓存的测试：`test/cli/view-cache.test.ts`（预构建目录的还原、失效与凭证）、`test/config/parse-cache.test.ts`、`test/sha256.test.ts`、`test/daemon/backend.test.ts`，`test/cli/dist.test.ts` 增加浏览命令不得初始化的内置模块与 `require` 垫片的检查。
 - `npm run bench:perf` 增加 `--only`、`--compare <目录>`（与另一份构建交替运行）、`--plain-daemon`，新增更接近真实使用的场景一节（热 daemon、框架配置、一千个工具的整进程命令）、预构建缓存路径的 `find`、Node 内部模块加载检查，以及 daemon 内存的匿名/文件拆分。
 - 单文件可执行（路线图 c1，`npm run build:bin`）：`scripts/build-bin.ts` 用 Bun 从 `src/` 编译出 `dist/bin/via-<系统>-<架构>[-musl][.exe]`（默认本机平台；`--all` 或 `--target a,b` 交叉编译 linux-x64/arm64、linux-x64/arm64-musl、darwin-x64/arm64、windows-x64），每个文件带 `.sha256`。构建参数是实测选出来的：`--bytecode` 去掉每次启动对整包 JS 的解析（`--version` 约 66 → 20 ms，对比 `node dist/via.js`；0.1 里不带标志的 `bun build --compile` 比 Node 还慢，原因在此，而不是 85 MiB 的体积），`--splitting` 保持 `--version`/`-h` 不加载命令运行器与库，关闭 `.env` 与 `bunfig.toml` 的自动加载（默认会读当前目录的，见 security.md）。`@napi-rs/keyring` 经 Bun 插件替换为目标平台的 `.node` 文件并内嵌（非本机平台的包从 npm 下载并校验 `package-lock.json` 的完整性），每个产物只带自己平台的模块；加载失败时 `keychain:` 报「native keychain module is not available」并提示改用 `env:`/`file:`，`NAPI_RS_NATIVE_LIBRARY_PATH` 可指定 `.node`。`via daemon run` 拉起的是可执行文件自身（`src/runtime.ts` 的 `selfCommand()`）；Bun 下不调用 `module.enableCompileCache()`。`dist/bin` 不进 npm 包。
@@ -75,7 +77,7 @@
 - `via batch`：从 stdin 读 JSON Lines（`{"tool":"<provider>/<resource>:<verb>","args":{…}}`），各行并发执行，同一 server 遵守其 `concurrency`，另有 `--concurrency <n>` 限制整批在途行数；结果严格按输入顺序输出，单行失败（解析、找不到、deny、危险操作、校验、上游）不影响其他行；text 输出以元信息行分隔并汇总，`-o json` 输出每行一条记录。不再属于「保留名字」的子命令。
 - 性能基准 `npm run bench:perf`（`scripts/bench-perf.ts`，需先 `npm run build`）：在隔离的 HOME 里测 `dist/via.js` 各命令的冷启动（无缓存 / 缓存冷 / 缓存热，减去 `node -e 0` 基线）、确定性合成的 1,000 个工具上目录构建、索引构建与查询的耗时、`via <provider> <tool>` 相对官方 SDK 直接调用的开销、每条命令加载的分块与包，经热 daemon 调用的开销与 daemon 的常驻内存（空闲、HTTP 会话、stdio 会话之后；结束时 `via daemon stop`），装有 `bun` 时再测单文件可执行；结果对照 testing.md 的性能目标。除热 daemon 一节外都设 `VIA_NO_DAEMON=1`。合成目录生成器与模块加载追踪放在 `scripts/lib/`，`test/bench/` 与 `test/cli/dist.test.ts` 增加不依赖时间的断言（合成目录可复现、`--version` / `-h` 不加载任何包、无配置的浏览命令不加载 MCP SDK 与 ajv）。
 - 工程骨架：`@modelctx/via` 包（ESM、Node 20+，TypeScript strict），tsup 打成单个文件并内联 `data/`，vitest 测试，`typecheck` / `build` / `test` 脚本。
-- `src/catalog/`：工具名拆分（切词、去 provider 词、找动作、复合动词、逐词单数化、叶子工具、`resource:verb` 冲突退回叶子、`rename` 覆盖、`deny` 过滤）；分域（配置 → 内置分类表 → 启发式打分 → `other`，按资源拆分，`--why` 的依据）；`SearchIndex`（规范写法三级匹配 + BM25）；工具引用解析与 did you mean；`via`、`via <provider>`、`via <provider> <resource>`、`via find` 的浏览视图。规则放在 `data/verbs.json`、`data/domains.json`、`data/domain-lexicon.json`（`npm run lexicon` 生成）。
+- `src/catalog/`：工具名拆分（切词、去 provider 词、找动作、复合动词、逐词单数化、叶子工具、`resource:verb` 冲突退回叶子、`rename` 覆盖、`deny` 过滤）；`SearchIndex`（规范写法三级匹配 + BM25）；工具引用解析与 did you mean；`via`、`via <provider>`、`via <provider> <resource>`、`via find` 的浏览视图。规则放在 `data/verbs.json`。
 - `src/render/`：输出流水线（选数据源、清理噪声、形状判断、表格与 CJK 双宽对齐、单元格与预算截断、游标、媒体落盘、脱敏）、元信息行、`next:` 提示与错误格式、退出码常量。游标存储与媒体落盘在接口之后，0.1 的实现写入用户缓存目录（权限 0700）。规则放在 `data/noise.json`、`data/columns.json`。
 - 数据文件的 JSON Schema（`data/schema/`），测试中校验。
 - `src/config/`：`loadConfig`（框架配置只读解析、用户配置 `config.yaml`、项目配置 `.via.yaml`、命令行覆盖，按 server 名逐字段合并；同名异义的框架定义记入 `conflicts`；字段校验带路径；坏文件跳过并返回诊断）。
@@ -94,7 +96,7 @@
 - `src/cli/`：命令入口与路由（内置子命令 → provider → 资源 / 工具；唯一前缀、大小写与 `-`/`_` 宽松输入；歧义与 did you mean 退出码 3）。全局选项可出现在任意位置，`--p.` 前缀留给工具。支持浏览视图、`-h` 与调用：deny 退出码 5，危险工具需要 `--yes`，`--dry-run`，校验失败且 schema 缓存超过 5 分钟时刷新一次，只读工具重试一次，progress 写 stderr，`outputSchema` 警告，元信息行与游标。
 - 目录缓存：每个 server 的 `tools/list` 缓存在用户缓存目录 `catalog/`（权限 0700，键为传输定义与凭证引用的哈希，不含解析后的凭证，TTL 24 小时）。浏览只拉取需要的 server，并行且带超时，失败的 server 显示为 `needs auth` / `failed` / `untrusted`；`via sync` 强制刷新。
 - 内置子命令 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`auth`、`trust`、`daemon` 保留名字，提示 0.2 才可用。via 自己的配置有 error 级诊断时，除 `doctor` / `servers` 外拒绝执行（退出码 2），避免无效的 deny 规则失效放行。
-- `via doctor`：server 状态计数与 `next:`、仍在注入 MCP schema 的框架及 token 估算（4 字节约 1 token）、明文凭证告警（只写键名与文件，不写值）、配置诊断与目录告警，退出码 0/2/4/5/6。`via prompt`：给 agent 的说明块加按域摘要；`--out` 覆盖已有文件需要 `--yes`。
+- `via doctor`：server 状态计数与 `next:`、仍在注入 MCP schema 的框架及 token 估算（4 字节约 1 token）、明文凭证告警（只写键名与文件，不写值）、配置诊断与目录告警，退出码 0/2/4/5/6。`via prompt`：生成给 agent 的说明块，文件写入的行为见上文。
 - 打包启用代码分块：`--version` 与 `-h` 只加载入口，MCP SDK、ajv、配置解析器都在首次需要时加载。
 - GitHub Actions CI：Node 22 / 24 上类型检查、打包、测试，并在 Node 20 上运行打包产物。
 - 测试夹具：GitHub / Linear / Notion / Cloudflare 等 `tools/list` 快照与拆分结果基线（`test/fixtures/`），`npm run split-diff` 离线检查拆分变化；渲染与浏览视图的文件快照；快照与夹具的凭证扫描。
@@ -104,7 +106,7 @@
 - 游标在 daemon 模式下保存在 daemon 内存（30 分钟），`via more` 先问已运行的 daemon 再看缓存目录。
 - 测试：端到端（真实分离的 daemon 进程：复用、空闲退出、陈旧 socket、版本不一致、启动竞争、跨进程并发上限、`list_changed`、回退、权限、凭证不出现在 socket 上、OAuth、冷启动不加载 SDK/ajv）与协议层测试；`mock-server` 增加 `add_tool`（触发 `list_changed`）。vitest 默认设置 `VIA_NO_DAEMON=1`，daemon 测试显式打开。
 - 初始设计文档：愿景、架构、术语表。
-- 规范：命令语法、工具名拆分、发现与分域、参数映射、输出与退出码、配置与鉴权、daemon 协议、安全模型。
+- 规范：命令语法、工具名拆分、发现与搜索、参数映射、输出与退出码、配置与鉴权、daemon 协议、安全模型。
 - 指南：快速上手、与 agent 框架集成、GitHub / Linear / Notion / Cloudflare / 网关类 server 示例、组合用法。
 - 开发文档：实现说明、测试与评测、数据文件格式。
 - 架构决策记录 ADR 0001–0009。
@@ -115,6 +117,15 @@
 - 愿景：增加「与相近工具的区别」，明确 via 只接 MCP。
 - 评测：token 基准与 agent 评测加入 mcp2cli 作为对照，门槛 1 要求成功率不低于 mcp2cli。
 - 待定问题：MCP roots 支持、按使用频率排序。
+
+### Removed
+
+- 「域」（domain）整个概念（[ADR 0014](docs/adr/0014-drop-the-domain-view.md)）：provider 就是配置里的 server，`via` 顶层每个 provider 一行，第二列是可见工具数或状态，按名字排序，不再分组。
+  - 配置：`servers.<name>.domain` 与顶层 `domains` 移除；配置里仍写着它们时给出 `removed-field` 告警（提示删掉，不再当作未知字段）。
+  - 命令：`via find --domain` 与 `via servers --why` 移除，用到即用法错误（退出码 2）；`via servers` 不接受位置参数。
+  - 数据与脚本：`data/domains.json`、`data/domain-lexicon.json` 及其 schema、`scripts/build-lexicon.ts`、`npm run lexicon` 删除；原来的 `heuristic.stopwords` 移到 `data/stopwords.json`（`via find` 建索引仍然要用），新增 `data/schema/stopwords.schema.json`，`test/data.test.ts` 换成校验它并断言停用词不与动词表重复。
+  - 代码：`src/catalog/domain.ts`、`src/catalog/lexicon.ts` 删除；`ProviderCatalog` 去掉 `domain`，`CatalogRules` 只留 `split` 与 `stopwords`，`ProviderInput` 去掉 `identity`、`configDomain`、`customDomains`；`renderRoot` 不再接收规则与自定义域顺序，`renderDomainWhy` 删除；预构建缓存快照的头不再存域判定（`VIEW_VERSION` 2 → 3，规则指纹因数据文件变化而改变，旧缓存自动作废）。
+  - 规范：discovery.md 的「分域」一节整节删除，「浏览视图」「搜索」「预构建缓存」相应改写；cli.md、config.md、glossary、architecture、vision、data-files、implementation、testing、快速上手的相关句子同步；ADR 0006 标为被 ADR 0014 取代。不涉及动词表与单数化规则，规范写法不受影响。
 
 ### Fixed
 

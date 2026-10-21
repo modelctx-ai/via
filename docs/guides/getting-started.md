@@ -85,7 +85,7 @@ servers:
 ## 4. 发现与调用
 
 ```console
-$ via                       # 所有 provider，按域分组
+$ via                       # 所有 provider 及其工具数
 $ via linear                # linear 的资源与动作
 $ via linear issue          # issue 下每个动作的签名
 $ via linear issue:create -h
@@ -96,7 +96,7 @@ $ via find "create issue"   # 跨 provider 搜索
 ## 5. 交给 agent
 
 ```bash
-via prompt                  # 打印一段约 150 token 的说明和域摘要
+via prompt                  # 打印一段约 175 token 的说明和 provider 列表
 via prompt --out AGENTS.md  # 或写到你指定的文件
 ```
 

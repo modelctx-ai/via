@@ -10,26 +10,18 @@ async function setup(extraConfig = '') {
   return { srv, sb };
 }
 
-/** Seven providers (one per domain) behind the same fixture server, so `via` groups by domain. */
+/** Several providers behind the same fixture server. */
 function manyProviders(srv: FixtureServer, names: string[]): string {
   return `sources: false\nservers:\n${names.map((n) => `  ${n}:\n    url: ${srv.url}\n    auth: { bearer: "env:GH_TOKEN" }\n`).join('')}`;
 }
 
 describe('via (root)', () => {
-  it('lists a few providers flat, with their domain', async () => {
+  it('lists one row per provider with its tool count', async () => {
     const { sb } = await setup();
     const r = await sb.via([]);
     expect(r.code).toBe(0);
     expect(r.stderr).toBe('');
     await expect(r.stdout).toMatchFileSnapshot('./__snapshots__/cli-root-flat.txt');
-  });
-
-  it('groups by domain above six providers', async () => {
-    const { srv, sb } = await setup();
-    sb.userConfig(manyProviders(srv, ['github', 'exa', 'linear', 'playwright', 'notion', 'slack', 'postgres']));
-    const r = await sb.via([]);
-    expect(r.code).toBe(0);
-    await expect(r.stdout).toMatchFileSnapshot('./__snapshots__/cli-root-grouped.txt');
   });
 
   it('shows providers that need auth, are unreachable or untrusted instead of aborting', async () => {
@@ -40,9 +32,9 @@ describe('via (root)', () => {
     sb.projectConfig('servers:\n  figma:\n    command: node\n    args: [server.js]\n');
     const r = await sb.via([]);
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain('linear (needs auth)');
-    expect(r.stdout).toContain('slack (failed)');
-    expect(r.stdout).toContain('figma (untrusted)');
+    expect(r.stdout).toMatch(/^linear\s+needs auth$/m);
+    expect(r.stdout).toMatch(/^slack\s+failed$/m);
+    expect(r.stdout).toMatch(/^figma\s+untrusted$/m);
     expect(r.stdout.split('\n')[0]).toMatch(/1 needs auth \(linear\).*1 failed \(slack\).*1 untrusted \(figma\)/);
     await expect(r.stdout).toMatchFileSnapshot('./__snapshots__/cli-root-statuses.txt');
   });
@@ -110,14 +102,11 @@ describe('via find', () => {
     await expect(r.stdout).toMatchFileSnapshot('./__snapshots__/cli-find.txt');
   });
 
-  it('takes -n and --domain', async () => {
+  it('takes -n', async () => {
     const { sb } = await setup();
     const one = await sb.via(['find', 'issue', '-n', '1']);
     expect(one.stdout.trim().split('\n')).toHaveLength(1);
-    const none = await sb.via(['find', 'issue', '--domain', 'search']);
-    expect(none.stdout).toContain('no tools match "issue"');
-    const code = await sb.via(['find', 'issue', '--domain', 'code']);
-    expect(code.stdout).toContain('gh issue:read');
+    expect((await sb.via(['find', 'issue', '--domain', 'code'])).code).toBe(2);
   });
 
   it('rejects a bad -n and unknown options with exit 2', async () => {

@@ -9,7 +9,7 @@ flowchart TB
 
   subgraph daemon["via daemon（常驻，按需拉起，空闲退出）"]
     direction LR
-    catalog["Catalog<br/>命名拆分 · 分域 · 搜索 · 磁盘缓存"]
+    catalog["Catalog<br/>命名拆分 · 搜索 · 磁盘缓存"]
     client["MCP Client<br/>stdio / HTTP 会话 · 游标 · list_changed"]
     registry["Registry<br/>合并配置来源 · server 清单"]
     auth["Auth<br/>解析凭证引用 · OAuth 刷新"]
@@ -49,7 +49,7 @@ flowchart TB
 | Registry | 探测并只读解析框架配置，合并用户与项目配置，产出 server 清单 | [config](../spec/config.md) |
 | Auth | 解析凭证引用，执行 OAuth，刷新 token，脱敏 | [auth](../spec/auth.md)、[security](../spec/security.md) |
 | MCP Client | 管理 stdio 子进程与 HTTP 会话，多路复用请求，订阅 `list_changed` | [daemon](../spec/daemon.md) |
-| Catalog | 拉取与缓存 `tools/list`，拆分工具名，推断域，建索引，搜索 | [naming](../spec/naming.md)、[discovery](../spec/discovery.md) |
+| Catalog | 拉取与缓存 `tools/list`，拆分工具名，建索引，搜索 | [naming](../spec/naming.md)、[discovery](../spec/discovery.md) |
 
 ## 两种运行模式
 

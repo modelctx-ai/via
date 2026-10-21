@@ -69,7 +69,6 @@ export interface LoadedConfig {
   servers: ServerConfig[];
   /** Compiled `deny` patterns from user, project and CLI config, ready for the catalog. */
   deny: RegExp[];
-  domains: Record<string, string[]>;
   output: { budget: number; cellWidth: number };
   daemon: { idleTimeout: number; serverIdleTimeout: number };
   /** Optional features of `via find`; `semantic` is set only by the user config (security.md). */
@@ -271,10 +270,9 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     if (server) servers.push(server);
   }
 
-  // 6. The rest of the config: deny, domains, output, daemon.
+  // 6. The rest of the config: deny, output, daemon.
   const deny: RegExp[] = [];
   const seenDeny = new Set<string>();
-  const domains: Record<string, string[]> = {};
   const output = { budget: DEFAULTS.output.budget, cellWidth: DEFAULTS.output.cellWidth };
   const daemon = { idleTimeout: DEFAULTS.daemon.idleTimeout, serverIdleTimeout: DEFAULTS.daemon.serverIdleTimeout };
   const search: LoadedConfig['search'] = {};
@@ -308,9 +306,6 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
         diagnostics.push(d);
       }
     }
-    for (const [domain, members] of ownEntries(layer.data.domains)) {
-      Object.defineProperty(domains, domain, { value: members as string[], enumerable: true, writable: true, configurable: true });
-    }
     Object.assign(output, layer.data.output);
     Object.assign(daemon, layer.data.daemon);
     const wanted = layer.data.search.semantic;
@@ -329,7 +324,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     }
   }
 
-  return { servers, deny, domains, output, daemon, search, diagnostics, files };
+  return { servers, deny, output, daemon, search, diagnostics, files };
 }
 
 function finalize(
@@ -382,7 +377,6 @@ function finalize(
     origin: acc.transportOrigin ?? { scope: 'cli' },
     trusted,
   };
-  if (d.domain !== undefined) server.domain = d.domain;
   if (d.budget !== undefined) server.budget = d.budget;
   if (d.roots !== undefined && d.roots.length > 0) {
     server.roots = [...d.roots];

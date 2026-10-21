@@ -11,8 +11,7 @@ describe('data files validate against data/schema (data-files.md)', () => {
   const ajv = new Ajv({ allErrors: true, strict: true });
   it.each([
     ['verbs.json', 'schema/verbs.schema.json'],
-    ['domains.json', 'schema/domains.schema.json'],
-    ['domain-lexicon.json', 'schema/domain-lexicon.schema.json'],
+    ['stopwords.json', 'schema/stopwords.schema.json'],
     ['noise.json', 'schema/noise.schema.json'],
     ['columns.json', 'schema/columns.schema.json'],
     ['synonyms.json', 'schema/synonyms.schema.json'],
@@ -28,20 +27,17 @@ describe('data files validate against data/schema (data-files.md)', () => {
     expect(verbs.filter((v) => conjunctions.includes(v))).toEqual([]);
   });
 
+  it('stop words are single lower-case words, and none of them is a verb of the table', () => {
+    const { words } = read('stopwords.json') as { words: string[] };
+    const { verbs } = read('verbs.json') as { verbs: string[] };
+    expect(words.every((w) => /^[a-z0-9-]+$/.test(w))).toBe(true);
+    expect(words.filter((w) => verbs.includes(w))).toEqual([]);
+  });
+
   it('keeps the minimum verb set required by naming.md', () => {
     const { verbs } = read('verbs.json') as { verbs: string[] };
     for (const v of ['get', 'list', 'create', 'update', 'delete', 'search', 'send', 'run', 'fetch', 'read', 'write', 'add', 'remove', 'merge', 'trigger', 'query', 'move', 'duplicate', 'restore', 'cancel', 'navigate', 'click']) {
       expect(verbs, v).toContain(v);
-    }
-  });
-
-  it('every domain in the built-in table has at least one server and the lexicon only names known domains', () => {
-    const domains = read('domains.json') as { domains: Record<string, { servers: string[] }> };
-    for (const [name, d] of Object.entries(domains.domains)) expect(d.servers.length, name).toBeGreaterThan(0);
-    const lexicon = read('domain-lexicon.json') as { terms: Record<string, Record<string, number>> };
-    const known = new Set(Object.keys(domains.domains));
-    for (const [term, weights] of Object.entries(lexicon.terms)) {
-      for (const domain of Object.keys(weights)) expect(known.has(domain), `${term} -> ${domain}`).toBe(true);
     }
   });
 

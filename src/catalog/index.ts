@@ -12,18 +12,7 @@ export {
 } from './provider';
 export { denyForms, findDenyRule, MAX_DENY_INPUT_LENGTH } from './deny';
 export { buildCatalog, normalizeProviderName, RESERVED_COMMANDS } from './build';
-export {
-  classifyProvider,
-  compileDomainRules,
-  defaultDomainRules,
-  matchBuiltin,
-  OTHER_DOMAIN,
-  type DomainRules,
-  type DomainsData,
-  type LexiconData,
-  type ProviderIdentity,
-} from './domain';
-export { buildLexicon, formatLexicon } from './lexicon';
+export { defaultStopwords } from './stopwords';
 export { extractParams, formatSignature, shortDescription, SIGNATURE_MAX_PARAMS } from './signature';
 export { docTerms, SearchIndex, type DocTerms, type SearchHit, type SearchOptions, type SearchIndexOptions } from './search';
 export { restoreProvider, snapshotProvider, type RestoredProvider, type RestoredTerms, type SnapshotHead } from './snapshot';
@@ -42,7 +31,6 @@ export {
   renderProvider,
   renderResource,
   renderFind,
-  renderDomainWhy,
   rootEntries,
   DEFAULT_MAX_ROWS,
   DEFAULT_MAX_LEAVES,

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  defaultDomainRules,
   renderFind,
   renderProvider,
   renderResource,
@@ -12,7 +11,6 @@ import {
 } from '../../src/catalog';
 import { catalogFixture } from '../helpers/fixtures';
 
-const rules = defaultDomainRules();
 const all = catalogFixture('tools');
 
 function provider(name: string) {
@@ -22,21 +20,16 @@ function provider(name: string) {
 }
 
 describe('via (root view)', () => {
-  it('groups providers by domain when there are many', async () => {
+  it('lists one row per provider with its tool count', async () => {
     const entries = rootEntries(all.providers, { linear: 'needs-auth', slack: 'error' });
-    await expect(`${renderRoot(entries, rules)}\n`).toMatchFileSnapshot('./__snapshots__/root-grouped.txt');
+    await expect(`${renderRoot(entries)}\n`).toMatchFileSnapshot('./__snapshots__/root.txt');
   });
 
-  it('lists providers flat, with their domain, when there are few (ADR 0006)', async () => {
+  it('sorts providers by name whatever order they were loaded in', () => {
     const few = catalogFixture('tools', ['github', 'linear', 'exa']);
-    const entries = rootEntries(few.providers, { linear: 'needs-auth' });
-    await expect(`${renderRoot(entries, rules)}\n`).toMatchFileSnapshot('./__snapshots__/root-flat.txt');
-  });
-
-  it('shows a provider split across domains under each of them', async () => {
-    const mixed = catalogFixture('other', ['acme-workspace', 'acme-git']);
-    const text = renderRoot(rootEntries(mixed.providers), { ...rules, heuristic: { ...rules.heuristic, flatBelowProviders: 0 } });
-    await expect(`${text}\n`).toMatchFileSnapshot('./__snapshots__/root-split-domains.txt');
+    const reversed = [...rootEntries(few.providers)].reverse();
+    expect(renderRoot(reversed)).toBe(renderRoot(rootEntries(few.providers)));
+    expect(renderRoot(rootEntries(few.providers)).split('\n').slice(1, 4).map((l) => l.split(/\s+/)[0])).toEqual(['exa', 'github', 'linear']);
   });
 });
 

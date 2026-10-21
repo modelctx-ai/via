@@ -267,11 +267,6 @@ describe('fusion with BM25 (SearchIndex semantic option)', () => {
     expect(index.search('widget', {}).map((h) => h.tool.ref)).toEqual(plain);
     expect(index.search('', { semantic: scores({ 'acme note:send': 1 }) }).map((h) => h.tool.ref)).toEqual(index.search('').map((h) => h.tool.ref));
   });
-
-  it('honours the domain filter', () => {
-    const hits = index.search('zorp', { domain: 'search', semantic: scores({ 'acme widget:delete': 0.9 }) });
-    expect(hits.every((h) => h.tool.provider === 'acme')).toBe(true);
-  });
 });
 
 describe('cache files', () => {

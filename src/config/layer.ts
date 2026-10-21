@@ -15,7 +15,6 @@ export interface ConfigLayerData {
   sources?: SourcesSetting;
   servers: Map<string, ServerDef>;
   deny: string[];
-  domains: Record<string, string[]>;
   output: { budget?: number; cellWidth?: number };
   daemon: { idleTimeout?: number; serverIdleTimeout?: number };
   /** `search.semantic`: the validated fields, `false` to switch it off, absent when not set. */
@@ -26,8 +25,8 @@ export interface ConfigLayerData {
 export type SemanticLayer = Pick<SemanticSearchConfig, 'url' | 'model' | 'auth'> &
   Partial<Pick<SemanticSearchConfig, 'timeout' | 'indexTimeout' | 'dimensions'>>;
 
-const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'domains', 'output', 'daemon', 'search']);
-const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'domain', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise', 'roots']);
+const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'output', 'daemon', 'search']);
+const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise', 'roots']);
 
 const typeName = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'list' : typeof v);
 
@@ -263,6 +262,10 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
   const def: ServerDef = {};
   for (const [key, value] of ownEntries(v)) {
     const path = `${base}.${key}`;
+    if (key === 'domain') {
+      r.add('warning', 'removed-field', path, 'domain was removed: providers are listed as they are, delete this field', name);
+      continue;
+    }
     if (!SERVER_FIELDS.has(key)) {
       r.add('warning', 'unknown-field', path, 'unknown field', name);
       continue;
@@ -272,7 +275,6 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
       case 'cwd': def.cwd = str(r, path, value, name); break;
       case 'url': def.url = str(r, path, value, name); break;
       case 'alias': def.alias = str(r, path, value, name); break;
-      case 'domain': def.domain = str(r, path, value, name); break;
       case 'args': def.args = strList(r, path, value, name, true); break;
       case 'noise': def.noise = strList(r, path, value, name); break;
       case 'roots': def.roots = roots(r, path, value, name); break;
@@ -306,7 +308,7 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
  */
 export function validateLayer(raw: unknown, file: string | undefined): { data: ConfigLayerData; diagnostics: ConfigDiagnostic[] } {
   const r = new Reporter(file);
-  const data: ConfigLayerData = { servers: new Map(), deny: [], domains: {}, output: {}, daemon: {}, search: {} };
+  const data: ConfigLayerData = { servers: new Map(), deny: [], output: {}, daemon: {}, search: {} };
   if (raw === null || raw === undefined) return { data, diagnostics: r.diagnostics };
   if (!isPlainObject(raw)) {
     r.add('error', 'invalid-field', '(root)', `expected a map at the top level, got ${typeName(raw)}`);
@@ -333,16 +335,6 @@ export function validateLayer(raw: unknown, file: string | undefined): { data: C
         break;
       case 'deny':
         data.deny = strList(r, 'deny', value) ?? [];
-        break;
-      case 'domains':
-        if (!isPlainObject(value)) {
-          r.invalid('domains', 'map of domain to list of providers');
-          break;
-        }
-        for (const [domain, members] of ownEntries(value)) {
-          const list = strList(r, `domains.${domain}`, members);
-          if (list) Object.defineProperty(data.domains, domain, { value: list, enumerable: true, writable: true, configurable: true });
-        }
         break;
       case 'output':
         if (!isPlainObject(value)) {
@@ -380,7 +372,8 @@ export function validateLayer(raw: unknown, file: string | undefined): { data: C
         }
         break;
       default:
-        if (!TOP_LEVEL.has(key)) r.add('warning', 'unknown-field', key, 'unknown field');
+        if (key === 'domains') r.add('warning', 'removed-field', 'domains', 'domains were removed: providers are listed as they are, delete this mapping');
+        else if (!TOP_LEVEL.has(key)) r.add('warning', 'unknown-field', key, 'unknown field');
     }
   }
   for (const group of [data.output, data.daemon] as Array<Record<string, number | undefined>>) {

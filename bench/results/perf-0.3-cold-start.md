@@ -6,7 +6,7 @@
 
 - CPU：Intel Xeon @ 2.80 GHz，4 核（虚拟机），内存 15.7 GiB；Linux 6.18.44 x64，Node.js v22.22.0
 - 场景同 0.1：8 个真实 `tools/list` 快照（180 个工具）写入磁盘缓存后 server 全部停止；HOME 与 TMPDIR 在临时目录里；`VIA_NO_DAEMON=1`（第 5 节除外）；每行预热 5 次、测 30 次
-- **「改动前」是同一份源码去掉这批改动**：即 `claude/focused-faraday-hw84ya`（含 resources/prompts、同义词扩展、Windows、Bun 单文件）的构建，不是 0.1 的构建。第 1b 节用 `--compare` 与它交替运行；第 1、4、5 节用 `--dist` 在另一次运行里单独测它（第 5 节加 `--plain-daemon`，让 daemon 不带现在的 V8 与 malloc 设置）。
+- **「改动前」是同一份源码去掉这批改动**：即 `claude/focused-faraday-hw84ya`（含 resources/prompts、同义词扩展、Windows、Bun 单文件）的构建，不是 0.1 的构建。第 1b 节用 `--compare` 与它交替运行；第 1、4、5 节用 `--dist` 在另一次运行里单独测它；表中的「分域」是当时构建的一步，现已移除（[ADR 0014](../../docs/adr/0014-drop-the-domain-view.md)），数字未重测（第 5 节加 `--plain-daemon`，让 daemon 不带现在的 V8 与 malloc 设置）。
 - **这台机器是共享的**，虚拟机的噪声很大：`node -e 0` 在不同运行里是 28–43 ms，p95 不可信。所以下面「减去 `node -e 0`」一列比墙钟更能反映 via 自己的耗时；改动前后不在同一次运行里的数字（第 1 节）只看量级，同一次交替运行里的数字（第 1b 节）才可以直接比。
 
 ## 结论

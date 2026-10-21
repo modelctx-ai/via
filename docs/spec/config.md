@@ -18,7 +18,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 - 框架配置中的 `env`、`headers` 原样继承，包括其中的明文值；`via doctor` 对明文值告警。
 - 同一框架的项目级配置整条覆盖它的用户级配置（框架自己的优先级），这不算冲突；只有不同框架之间才记录冲突。冲突项记在 server 的 `conflicts` 里，列出被忽略的来源；内容完全相同的重复定义不算冲突。
 - 覆盖层只写了部分字段时只改这些字段：`env`、`headers`、`rename` 按键合并，`args` 整体替换，`noise` 追加去重，其余标量字段后者覆盖。覆盖层给出的传输方式与来源不同（对 HTTP server 写了 `command`，或对 stdio server 写了 `url`）时，整体替换传输定义，不继承另一种传输的字段。
-- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`domains` 按域名逐项覆盖；`output.*`、`daemon.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
+- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`output.*`、`daemon.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
 - 覆盖层里没有任何来源定义的 server（只有 `timeout` 之类设置，没有 `command` 或 `url`）被忽略并给出告警，通常是框架那边已经删掉了它。
 
 `sources` 的细节：
@@ -37,7 +37,6 @@ servers:
   github:
     url: https://api.githubcopilot.com/mcp/
     auth: { bearer: "keychain:via/github" }
-    domain: code
   exa:                     # 定义来自 Cursor 配置，这里只补凭证
     env: { EXA_API_KEY: "env:EXA_KEY" }
   linear:
@@ -52,8 +51,6 @@ servers:
   find:                    # 与内置子命令重名，必须改名
     alias: finder
 deny: ["^github/.*:delete$"]  # 正则，匹配 provider/资源:动作，deny 优先
-domains:
-  research: [exa, context7]
 ```
 
 ## 字段参考
@@ -65,7 +62,6 @@ domains:
 | `sources` | `auto` \| `false` \| 列表 | `auto` | 要读取的框架配置。`auto` 探测全部已知框架；列表项可以是框架 id 或文件路径；`false` 只用 via 自己的配置 |
 | `servers` | 映射 | `{}` | 以 server 名为键的定义与覆盖，见下表 |
 | `deny` | 正则列表 | `[]` | 匹配单字符串形式的工具引用（`provider/资源:动作`），也匹配原始名形式（`provider/原始名`） |
-| `domains` | 映射 | `{}` | 自定义域及其成员 provider，优先级高于推断 |
 | `output.budget` | 字节数 | `8192` | 默认输出预算 |
 | `output.cellWidth` | 字符数 | `80` | 表格单元格截断宽度 |
 | `daemon.idleTimeout` | 秒 | `600` | daemon 空闲退出时间 |
@@ -108,7 +104,6 @@ search:
 | `url`、`headers` | HTTP | Streamable HTTP 端点；`headers` 的值可以是凭证引用 |
 | `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md)；`oauth` 只适用于 HTTP，可写成 `{ oauth: { scopes: [...], clientId: … } }` |
 | `alias` | 全部 | provider 名；默认取 server 名 |
-| `domain` | 全部 | 指定域，跳过推断 |
 | `rename` | 全部 | 单个工具的规范写法覆盖，如 `{ list_my_issues: "issue:list-mine" }` |
 | `disabled` | 全部 | `true` 时对 via 隐藏这个 server（不影响框架） |
 | `exclusive` | stdio | 独占资源；启动失败时提示可能与框架实例冲突 |

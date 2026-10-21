@@ -106,7 +106,7 @@ describe.skipIf(!hasBun || windows)('single-file executable', () => {
       const root = await via([], { env: { GH_TOKEN: FAKE_TOKEN } });
       expect(root.code).toBe(0);
       expect(root.stdout).toMatch(/^1 providers? · 14 tools\n/);
-      expect(root.stdout).toMatch(/\ngh +code +14 tools\n/);
+      expect(root.stdout).toMatch(/\ngh +14 tools\n/);
       const provider = await via(['gh'], { env: { GH_TOKEN: FAKE_TOKEN } });
       expect(provider.stdout).toContain('issue         read · write · list');
 

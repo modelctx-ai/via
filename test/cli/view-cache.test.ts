@@ -41,7 +41,7 @@ describe('ViewCache round trip', () => {
     for (const name of FIXTURE_PROVIDERS) {
       const tools = loadTools('tools', name);
       const server = httpServer(`http://127.0.0.1:1/${name}`, { name, provider: name });
-      const inp = input(name, tools, { identity: { host: `${name}.example.com` }, deny: [/delete/] });
+      const inp = input(name, tools, { deny: [/delete/] });
       const catalog = buildProviderCatalog(inp);
       built.set(name, catalog);
       expect(cache.read(server, inp, { tools, fetchedAt: FETCHED_AT })).toBeUndefined();
@@ -64,7 +64,6 @@ describe('ViewCache round trip', () => {
       const summary = (index: SearchIndex) => index.search(query, { limit: 25 }).map((h) => [h.tool.ref, h.tier, h.score]);
       expect(summary(cachedIndex), query).toEqual(summary(freshIndex));
     }
-    expect(cachedIndex.search('issue', { domain: 'code' }).map((h) => h.tool.ref)).toEqual(freshIndex.search('issue', { domain: 'code' }).map((h) => h.tool.ref));
   });
 
   it('is deterministic: building and restoring twice writes the same file', () => {
@@ -84,7 +83,7 @@ describe('ViewCache round trip', () => {
 describe('ViewCache invalidation', () => {
   const tools = loadTools('tools', 'github');
   const server = httpServer('http://127.0.0.1:1/gh', { name: 'gh', provider: 'gh' });
-  const base = input('gh', tools, { aliases: ['github'], rename: { issue_read: 'ticket:get' }, deny: [/^gh\/repo/], configDomain: 'code', customDomains: { work: ['gh'] }, identity: { host: 'api.githubcopilot.com' } });
+  const base = input('gh', tools, { aliases: ['github'], rename: { issue_read: 'ticket:get' }, deny: [/^gh\/repo/] });
   const listing = { tools, fetchedAt: FETCHED_AT };
 
   function primed(): { cache: ViewCache; dir: string } {
@@ -127,7 +126,7 @@ describe('ViewCache invalidation', () => {
     if (restored) expect(() => restored.def).toThrow(/does not match/);
   });
 
-  it('shows the size and domain of a provider without parsing the tools, and its tools without parsing the raw list', () => {
+  it('shows the size of a provider without parsing the tools, and its tools without parsing the raw list', () => {
     const dir = scratch();
     const cache = new ViewCache(dir, 'fp-1');
     const built = buildProviderCatalog(base);
@@ -144,7 +143,6 @@ describe('ViewCache invalidation', () => {
     const hit = cache.read(server, base, listing)!;
     const catalog = hit.catalog as ProviderCatalog & { toolCount?: number };
     expect(catalog.toolCount).toBe(built.tools.length);
-    expect(catalog.domain).toEqual(built.domain);
     expect(parsed).toBe(0);
     // Names, signatures and descriptions come from the snapshot...
     expect(catalog.tools.map((t) => [t.ref, t.description, t.params, t.readOnly, t.destructive])).toEqual(built.tools.map((t) => [t.ref, t.description, t.params, t.readOnly, t.destructive]));
@@ -166,9 +164,6 @@ describe('ViewCache invalidation', () => {
     ['rename', { rename: { issue_read: 'ticket:fetch' } }],
     ['deny', { deny: [/^gh\/issue/] }],
     ['deny flags', { deny: [/^gh\/repo/i] }],
-    ['identity', { identity: { host: 'example.com' } }],
-    ['server domain', { configDomain: 'ops' }],
-    ['top-level domains', { customDomains: { work: ['other'] } }],
   ])('misses when the %s changed', (_label, change) => {
     const { cache } = primed();
     expect(cache.read(server, { ...base, ...change }, listing)).toBeUndefined();
@@ -253,7 +248,7 @@ describe('browse commands with the build cache', () => {
 
   it('writes a build on the first browse and prints the same thing from it afterwards', async () => {
     const { sb } = await setup();
-    const commands = [[], ['gh'], ['gh', 'issue'], ['find', 'issue'], ['find', 'comment', '--domain', 'code'], ['servers']];
+    const commands = [[], ['gh'], ['gh', 'issue'], ['find', 'issue'], ['find', 'comment'], ['servers']];
     const printed: string[] = [];
     for (const argv of commands) printed.push((await sb.via(argv)).combined);
     expect(viewFiles(sb.cacheDir)).toHaveLength(1);

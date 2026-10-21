@@ -107,7 +107,7 @@ deny: ["^github/.*:delete$"]                   # tools the agent must not touch
 ### 3. Discover and call
 
 ```bash
-via                                   # all providers, grouped by domain
+via                                   # all providers with their tool counts
 via linear                            # resources and verbs
 via linear issue                      # signature of each verb
 via linear issue:create -h            # argument usage
@@ -116,12 +116,14 @@ via find "create issue"               # search across providers
 
 ### 4. Hand it to the agent
 
-Put the output of `via prompt` into AGENTS.md, CLAUDE.md or a skill, then turn off MCP injection in the framework as `via doctor` suggests. Both can run side by side during the transition:
+Put the instructions into the AGENTS.md you already have — via adds one marked block and leaves the rest of the file alone — then turn off MCP injection in the framework as `via doctor` suggests. Both can run side by side during the transition:
 
 ```bash
-via prompt                  # prints the usage note and a domain summary
-via prompt --out AGENTS.md  # or writes it to a file
+via prompt --out AGENTS.md       # creates the block, or refreshes the one already in the file
+via prompt --check AGENTS.md     # exit 1 when the block is out of date; for CI
 ```
+
+The block says what via is and asks the agent to prefer `via` over the MCP tools it already has. Keep one copy of it: Claude Code can pull that file in from CLAUDE.md with `@AGENTS.md` instead of keeping a second one.
 
 See the [getting-started guide](docs/guides/getting-started.md) and [agent framework integration](docs/guides/agent-integration.md) for the full steps.
 

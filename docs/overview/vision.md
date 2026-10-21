@@ -15,14 +15,14 @@ via 是一个独立的 MCP client，以 CLI 形态让 agent 按需发现和调�
 - **零注入**：agent 上下文里只有一段 100–300 token 的使用说明。
 - **不碰原配置**：只读引用各框架的 MCP 配置，从不写入（[ADR 0003](../adr/0003-read-only-framework-configs.md)）。
 - **统一鉴权**：按 server 自动注入凭证，框架侧不做任何鉴权。
-- **启发式发现**：provider → 资源 → 动作逐级展开，配合 `via find` 搜索；借鉴 Asterlane 的按域聚合思路。
+- **按需发现**：provider → 资源 → 动作逐级展开，配合 `via find` 搜索；借鉴 Asterlane 的分级浏览思路，但不引入它那种需要人工配置的分类层。
 - **统一紧凑输出**：一套全局渲染规则，带截断游标。
 
 ## 非目标
 
 - **不是网关或代理**。多 agent 的权限隔离、审计、凭证隔离交给专门的网关，例如 Asterlane；网关对 via 来说只是普通 MCP server（[ADR 0002](../adr/0002-standalone-client-not-gateway.md)、[ADR 0007](../adr/0007-no-gateway-specific-adaptation.md)）。
 - **不修改框架配置**。只输出关闭 MCP 注入的提示，由用户自己操作。
-- **发现不调用模型**。命名拆分、分域、搜索全部是确定性规则。
+- **发现不调用模型**。命名拆分与搜索全部是确定性规则。
 - **不提供凭证隔离**。via 与 agent 同用户运行，能读到 via 配置的进程理论上也能读到凭证（见[安全模型](../spec/security.md)）。
 - **只接 MCP**。不直接接 OpenAPI、GraphQL 等其他 API 描述；这些 API 需要先包装成 MCP server。MCP 是提供方协议（[ADR 0001](../adr/0001-mcp-for-providers-cli-for-consumers.md)），只接一种协议，命名、鉴权和渲染规则才能保持统一。
 

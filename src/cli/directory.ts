@@ -1,5 +1,4 @@
-// From configured servers to catalog inputs: which providers exist, how a server is identified
-// for domain inference, which tools `deny` hides.
+// From configured servers to catalog inputs: which providers exist and which tools `deny` hides.
 import {
   buildProviderCatalog,
   findDenyRule,
@@ -9,7 +8,6 @@ import {
   type CatalogWarning,
   type McpTool,
   type ProviderCatalog,
-  type ProviderIdentity,
   type ProviderInput,
   type ProviderStatus,
 } from '../catalog';
@@ -64,21 +62,6 @@ export function buildProviderTable(servers: readonly ServerConfig[]): ProviderTa
   return { entries, warnings, skipped };
 }
 
-/** npm / PyPI / image names that appear on a stdio command line, and the host of an HTTP URL. */
-export function identityOf(server: ServerConfig): ProviderIdentity {
-  const { transport } = server;
-  if (transport.type === 'http') {
-    try {
-      return { host: new URL(transport.url).hostname };
-    } catch {
-      return {};
-    }
-  }
-  const candidates = [transport.command.split(/[\\/]/).pop() ?? '', ...transport.args];
-  const packages = candidates.filter((a) => a !== '' && !a.startsWith('-') && !a.startsWith('.') && !a.startsWith('~') && !a.includes('=') && !/^(\/|[A-Za-z]:\\)/.test(a) && (a.match(/\//g) ?? []).length <= 1);
-  return { packages };
-}
-
 export function providerInput(entry: ProviderEntry, tools: McpTool[], config: LoadedConfig, withDeny: boolean): ProviderInput {
   const { server } = entry;
   const input: ProviderInput = {
@@ -86,11 +69,8 @@ export function providerInput(entry: ProviderEntry, tools: McpTool[], config: Lo
     tools,
     rename: server.rename,
     deny: withDeny ? config.deny : [],
-    identity: identityOf(server),
-    customDomains: config.domains,
   };
   if (server.name !== entry.name) input.aliases = [server.name];
-  if (server.domain !== undefined) input.configDomain = server.domain;
   return input;
 }
 

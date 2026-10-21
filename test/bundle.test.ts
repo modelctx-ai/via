@@ -26,7 +26,6 @@ describe('bundling', () => {
         { provider: 'github', tools: [{ name: 'create_or_update_file' }, { name: 'actions_run_trigger' }] },
       ]);
       expect(catalog.providers[0]?.tools.map((t) => t.name)).toEqual(['file:create-or-update', 'action-run:trigger']);
-      expect(catalog.providers[0]?.domain.domains).toEqual([{ domain: 'code' }]);
       expect(lib.displayWidth('支持')).toBe(4);
     } finally {
       rmSync(dir, { recursive: true, force: true });

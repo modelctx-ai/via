@@ -13,7 +13,6 @@ export interface ServerDef {
   headers?: Record<string, CredentialRef>;
   auth?: AuthConfig;
   alias?: string;
-  domain?: string;
   rename?: Record<string, string>;
   disabled?: boolean;
   exclusive?: boolean;

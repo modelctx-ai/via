@@ -535,7 +535,7 @@ async function benchFind(sb: Sandbox): Promise<{ coldTotal: number; restoredTota
   printTable(
     ['phase', 'median ms', 'p95 ms', 'min ms', `target < ${TARGET_FIND_1000} ms`],
     [
-      row('catalog build (split, domains), first call', pick((c) => c.cold.build)),
+      row('catalog build (split), first call', pick((c) => c.cold.build)),
       row('index build, first call', pick((c) => c.cold.index)),
       row('query, first call', pick((c) => c.cold.query)),
       row('render hits, first call', pick((c) => c.cold.render)),

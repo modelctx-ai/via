@@ -1,5 +1,0 @@
-3 providers · 84 tools · 1 needs auth (linear)
-exa     search   8 tools
-github  code     54 tools
-linear  project  needs auth
-→ via <provider> to browse · via find <query> to search

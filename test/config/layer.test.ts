@@ -9,7 +9,7 @@ describe('validateLayer', () => {
       {
         sources: 'auto',
         servers: {
-          github: { url: 'https://api.githubcopilot.com/mcp/', auth: { bearer: 'keychain:via/github' }, domain: 'code' },
+          github: { url: 'https://api.githubcopilot.com/mcp/', auth: { bearer: 'keychain:via/github' } },
           exa: { env: { EXA_API_KEY: 'env:EXA_KEY' } },
           linear: { auth: 'oauth' },
           aster: { url: 'http://127.0.0.1:3721/mcp', auth: { bearer: 'env:ASTERLANE_KEY' } },
@@ -17,7 +17,6 @@ describe('validateLayer', () => {
           find: { alias: 'finder' },
         },
         deny: ['^github/.*:delete$'],
-        domains: { research: ['exa', 'context7'] },
       },
       '/c.yaml',
     );
@@ -27,7 +26,6 @@ describe('validateLayer', () => {
     expect(data.servers.get('github')?.auth).toEqual({ type: 'bearer', bearer: 'keychain:via/github' });
     expect(data.servers.get('linear')?.auth).toEqual({ type: 'oauth' });
     expect(data.servers.get('find')).toEqual({ alias: 'finder' });
-    expect(data.domains).toEqual({ research: ['exa', 'context7'] });
   });
 
   it('accepts every documented server field and output/daemon field', () => {
@@ -35,7 +33,7 @@ describe('validateLayer', () => {
       {
         servers: {
           s: {
-            command: 'npx', args: ['-y', 8080], env: { PORT: 80 }, cwd: '/w', alias: 'a', domain: 'd',
+            command: 'npx', args: ['-y', 8080], env: { PORT: 80 }, cwd: '/w', alias: 'a',
             rename: { list_my_issues: 'issue:list-mine' }, disabled: false, exclusive: true, confirm: 'never',
             timeout: 12.5, concurrency: 2, budget: 100, noise: ['trace_*'], auth: 'none',
           },
@@ -96,8 +94,6 @@ describe('validateLayer', () => {
     [{ servers: ['a'] }, 'servers: expected map'],
     [{ deny: '^x$' }, 'deny: expected list of strings'],
     [{ deny: [1] }, 'deny[0]: expected string'],
-    [{ domains: { r: 'exa' } }, 'domains.r: expected list of strings'],
-    [{ domains: [] }, 'domains: expected map of domain to list of providers'],
     [{ output: { budget: 'big' } }, 'output.budget: expected positive integer'],
     [{ output: { cellWidth: 0 } }, 'output.cellWidth: expected positive integer'],
     [{ output: 5 }, 'output: expected map'],
@@ -114,6 +110,13 @@ describe('validateLayer', () => {
     const { data, diagnostics } = validateLayer({ servers: { a: { command: 'x', url: 'https://a.invalid' }, b: { command: 'y' } } }, undefined);
     expect(diagnostics.map((d) => [d.code, d.message])).toEqual([['invalid-server', 'servers.a: has both command and url; a server is either stdio or HTTP']]);
     expect([...data.servers.keys()]).toEqual(['b']);
+  });
+
+  it('points at the removed domain fields instead of calling them unknown', () => {
+    expect(messages({ domains: { r: ['exa'] }, servers: { a: { command: 'x', domain: 'code' } } })).toEqual([
+      'warning: domains: domains were removed: providers are listed as they are, delete this mapping',
+      'warning: servers.a.domain: domain was removed: providers are listed as they are, delete this field',
+    ]);
   });
 
   it('warns about unknown fields (typos) without failing', () => {

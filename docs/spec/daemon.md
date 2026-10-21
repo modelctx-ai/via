@@ -36,7 +36,7 @@ CLI 在每个请求里带上它加载好的 server 定义（只含凭证**引用
 
 ## CLI 与 daemon 的协议
 
-socket 上的 JSON Lines，一行一个消息（单条上限 256 MB）。参数解析和输出渲染在 CLI 侧完成，daemon 只返回结构化结果，这样渲染逻辑只有一份，进程内模式也能复用同一组类型（`src/protocol.ts`，以它为准）。目录的拆分、分域、索引都由 CLI 从原始 `tools/list` 结果计算（计算结果由 CLI 存成磁盘上的预构建缓存，见 [discovery.md](discovery.md#预构建缓存)），daemon 只提供原始列表，因此没有 `ls`、`find`、`describe` 请求。
+socket 上的 JSON Lines，一行一个消息（单条上限 256 MB）。参数解析和输出渲染在 CLI 侧完成，daemon 只返回结构化结果，这样渲染逻辑只有一份，进程内模式也能复用同一组类型（`src/protocol.ts`，以它为准）。目录的拆分与索引都由 CLI 从原始 `tools/list` 结果计算（计算结果由 CLI 存成磁盘上的预构建缓存，见 [discovery.md](discovery.md#预构建缓存)），daemon 只提供原始列表，因此没有 `ls`、`find`、`describe` 请求。
 
 握手：CLI 连接后先发 `hello`，其他消息在握手前一律断开连接。
 

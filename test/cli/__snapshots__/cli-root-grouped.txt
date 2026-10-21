@@ -1,9 +1,0 @@
-7 providers · 98 tools
-code     github
-search   exa
-browser  playwright
-data     postgres
-docs     notion
-project  linear
-comm     slack
-→ via <provider> to browse · via find <query> to search

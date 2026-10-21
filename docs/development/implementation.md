@@ -35,7 +35,7 @@
 
 - **不经 ESM 门面加载 Node 内置模块。** `import { readFileSync } from 'node:fs'` 会让 Node 为整个 `fs` 生成 ES 模块门面，读遍它的属性，包括惰性的 `fs.promises`，于是加载 `internal/fs/promises`、streams、`readline`，约 12 ms。`scripts/lib/lazy-builtins.ts`（tsup 的 esbuild 插件）把打包产物里对 `fs`、`fs/promises` 的导入改成 `process.getBuiltinModule` 取到的同一模块，名字按当前 Node 在构建时枚举；源码、类型和测试仍照常写 `node:fs`。`node:process`、`node:tty`、`node:crypto`、`node:net` 同样各要 6 到 12 ms，所以：stdout/stderr 用 `fs.writeSync` 写（`src/cli/stdio.ts`，处理 `EAGAIN`；Windows 上只有控制台（字符设备）保留真正的流，管道与文件同样直接写），终端检测按需（`src/builtin.ts`），代码里用全局 `process`。构建后 `scripts/lib/strip-require.ts` 去掉不需要 `require` 的分块里 tsup 加的 `require` 垫片。`test/cli/dist.test.ts` 断言浏览命令不初始化这些模块。
 - **哈希不走 `node:crypto`。** `src/sha256.ts`：64 KiB 以内用纯 JS 的 SHA-256（`test/sha256.test.ts` 与 `node:crypto` 逐例对照），更大的输入才加载 `node:crypto`。配置文件的信任哈希、缓存键、媒体文件名都用它；信任语义不变，仍是文件字节的 SHA-256，且只在真有 stdio 命令要启动时才计算。
-- **预构建目录**（[discovery.md](../spec/discovery.md#预构建缓存)）：把拆分、分域与检索词存成 `catalog/<哈希>.view.json`，浏览命令只读头或体，不解析 schema。规则指纹由构建时的 `define`（`__VIA_RULES_ID__`）注入。
+- **预构建目录**（[discovery.md](../spec/discovery.md#预构建缓存)）：把拆分与检索词存成 `catalog/<哈希>.view.json`，浏览命令只读头或体，不解析 schema。规则指纹由构建时的 `define`（`__VIA_RULES_ID__`）注入。
 - **配置解析缓存**（[config.md](../spec/config.md#解析缓存)）：YAML 只存结构与偏移，不复制字符串，凭证不会进缓存；合法 JSON 用原生 `JSON.parse`，不加载 `jsonc-parser`。
 - **一次 `import()` 取齐浏览命令要用的模块**（`src/cli/browse-deps.ts`），而不是按命令逐个串行 `import()`；渲染流水线与 MCP 客户端不进浏览命令的加载路径。
 - **分词、签名、索引**：ASCII 快路径（不用正则）、字符串只 kebab 一次、倒排表用扁平数组并能直接使用预算好的词频。分词在一千个工具上约 4–6 ms 降到约 2.3 ms；一千个工具、新进程里的目录构建加索引加首次查询约 80 ms，命中预构建缓存时约 21 ms。
@@ -99,7 +99,7 @@ via/
 ├─ src/
 │  ├─ cli/          # 入口、子命令、工具参数解析
 │  ├─ config/       # 框架配置探测与解析、合并、凭证引用
-│  ├─ catalog/      # 名称拆分、分域、索引、搜索（含同义词扩展与可选的 embedding 检索 semantic.ts）、浏览视图、缓存
+│  ├─ catalog/      # 名称拆分、索引、搜索（含同义词扩展与可选的 embedding 检索 semantic.ts）、浏览视图、缓存
 │  ├─ client/       # MCP 会话、鉴权、OAuth
 │  ├─ render/       # 输出流水线：清理、形状判断、表格、截断、游标
 │  ├─ platform/     # 平台差异：Windows 上命令的解析与 cmd.exe 启动（command.ts）、BOM / UTF-16 文本解码（text.ts）
@@ -108,13 +108,12 @@ via/
 ├─ data/
 │  ├─ frameworks/   # 各框架的配置路径、解析方式、关闭提示
 │  ├─ verbs.json    # 动词表与单数化例外
-│  ├─ domains.json  # 内置 server 分类表与分域参数
-│  ├─ domain-lexicon.json  # 由脚本生成的分域词典
+│  ├─ stopwords.json  # 建索引时忽略的泛用词
 │  ├─ synonyms.json # find 的查询侧同义词、词形还原与口语停用词
 │  ├─ noise.json    # 默认噪声字段表
 │  ├─ columns.json  # 表格选列规则
 │  └─ schema/       # 上述数据文件的 JSON Schema
-├─ scripts/         # 词典生成（npm run lexicon）、拆分结果差异检查（npm run split-diff）、token 基准（npm run bench:tokens）、检索质量评测（npm run eval:search）、agent 评测（npm run bench:eval）
+├─ scripts/         # 拆分结果差异检查（npm run split-diff）、token 基准（npm run bench:tokens）、检索质量评测（npm run eval:search）、agent 评测（npm run bench:eval）
 ├─ bench/           # token 基准：tasks/（任务）、recordings/（合成的返回值）、replay-server.mjs（回放 MCP server）、harness/、results/；eval/ 是 agent 评测的实现，复用任务与回放 server（见 bench/README.md）
 ├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；`mcp/`：模拟 MCP server（stdio 与 Streamable HTTP）；`config/`：每个框架的配置样例与 via 用户/项目配置
 └─ docs/
@@ -152,7 +151,7 @@ via/
 
 ## 实现顺序建议（0.1）
 
-1. `catalog/` 的拆分与分域：纯函数，先用真实 `tools/list` 快照做测试，最快验证核心设计。
+1. `catalog/` 的拆分：纯函数，先用真实 `tools/list` 快照做测试，最快验证核心设计。
 2. `render/`：纯函数，配快照测试。
 3. `config/`：框架配置只读解析与合并、凭证引用。
 4. `client/` 进程内模式：stdio 与 HTTP 直连、bearer/env 鉴权。

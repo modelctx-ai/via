@@ -74,24 +74,6 @@ export interface ResourceGroup {
   tools: CatalogTool[];
 }
 
-export type DomainSource = 'config' | 'builtin' | 'heuristic' | 'other';
-
-export interface DomainScore {
-  score: number;
-  /** Highest-contributing terms, best first. */
-  terms: string[];
-}
-
-export interface DomainAssignment {
-  source: DomainSource;
-  /** Always at least one entry; `other` when nothing matched. */
-  domains: Array<{ domain: string; /** Set when a provider is split across domains by resource. */ resources?: string[] }>;
-  /** Normalised confidence of the winning domain (heuristic only). */
-  confidence?: number;
-  /** Per-domain evidence (heuristic only), best first. For `via servers --why`. */
-  scores?: Record<string, DomainScore>;
-}
-
 export interface ProviderCatalog {
   provider: string;
   tools: CatalogTool[];
@@ -99,7 +81,6 @@ export interface ProviderCatalog {
   resources: ResourceGroup[];
   /** Leaf tools in `tools/list` order. */
   leaves: CatalogTool[];
-  domain: DomainAssignment;
 }
 
 export interface CatalogWarning {

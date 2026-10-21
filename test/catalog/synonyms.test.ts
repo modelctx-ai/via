@@ -150,11 +150,9 @@ describe('search with synonym expansion (discovery.md, "搜索")', () => {
     expect(refs(index, 'merge pull request')[0]).toBe('github pull-request:merge');
   });
 
-  it('honours the domain filter and the limit with expansion on', () => {
+  it('honours the limit with expansion on', () => {
     expect(index.search('remove a page', { limit: 3 })).toHaveLength(3);
-    const hits = index.search('remove a page', { domain: 'docs', limit: 50 });
-    expect(hits.length).toBeGreaterThan(0);
-    expect(hits.every((h) => ['notion', 'google-drive'].includes(h.tool.provider))).toBe(true);
+    expect(index.search('remove a page', { limit: 50 }).length).toBeGreaterThan(0);
   });
 
   it('works with custom synonym data', () => {

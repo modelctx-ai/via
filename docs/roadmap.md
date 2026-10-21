@@ -10,7 +10,7 @@ flowchart LR
     a2["只读解析框架配置"]
     a3["凭证引用与注入（env / file / keychain）"]
     a4["三级浏览 · find · 调用"]
-    a5["工具名拆分与分域"]
+    a5["工具名拆分"]
     a6["统一渲染、游标、退出码"]
     a7["via doctor · via prompt"]
   end

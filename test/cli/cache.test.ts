@@ -155,7 +155,7 @@ describe('cacheKey', () => {
 
   it('is stable and ignores everything that does not change the tool list', () => {
     expect(cacheKey(base())).toBe(cacheKey(base()));
-    const tuned = { ...base(), timeout: 5, concurrency: 1, domain: 'code', confirm: 'never' as const };
+    const tuned = { ...base(), timeout: 5, concurrency: 1, confirm: 'never' as const };
     expect(cacheKey(tuned)).toBe(cacheKey(base()));
   });
 

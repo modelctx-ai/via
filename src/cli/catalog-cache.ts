@@ -1,5 +1,5 @@
 // Disk cache of `tools/list` per server (discovery.md, "缓存"). In-process mode would otherwise
-// connect to every server on every command. The raw list is stored; splitting, domains and the
+// connect to every server on every command. The raw list is stored; splitting and the
 // index are recomputed on load, so rule upgrades never need a cache flush.
 //
 // The key is a hash of the server's transport definition: command, args, cwd, URL, the *names* of
