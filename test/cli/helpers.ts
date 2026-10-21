@@ -1,5 +1,6 @@
 // End-to-end harness: a sandbox (home, project, cache) with a config tree, fixture MCP servers
 // over HTTP in this process, and `run()` driven with injected env, cwd, home and writers.
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingHttpHeaders, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -149,10 +150,34 @@ export function useCleanup(fn: () => Promise<void> | void): void {
   cleanups.push(fn);
 }
 
+/**
+ * Remove a sandbox directory. On Windows a directory that is some process's working directory
+ * cannot be removed (EBUSY); the error then lists the processes started in the last two minutes,
+ * so the one that was left running can be named instead of guessed.
+ */
+function removeSandbox(root: string): void {
+  try {
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) {
+    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EBUSY') throw error;
+    let processes: string;
+    try {
+      processes = execFileSync(
+        'powershell.exe',
+        ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process | Where-Object { $_.CreationDate -gt (Get-Date).AddMinutes(-2) } | ForEach-Object { "$($_.ProcessId) parent=$($_.ParentProcessId) $($_.Name) $($_.CommandLine)" }'],
+        { encoding: 'utf8', timeout: 15_000 },
+      );
+    } catch (listing) {
+      processes = `(could not list processes: ${(listing as Error).message})`;
+    }
+    throw new Error(`${(error as Error).message}\nprocesses started in the last two minutes:\n${processes}`, { cause: error });
+  }
+}
+
 export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN }): Sandbox {
   const root = mkdtempSync(join(tmpdir(), 'via-cli-'));
   // Retries: on Windows a directory that a process only just left (or antivirus is scanning) is briefly busy.
-  cleanups.push(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  cleanups.push(() => removeSandbox(root));
   const home = join(root, 'home');
   const project = join(root, 'project');
   mkdirSync(home, { recursive: true });
