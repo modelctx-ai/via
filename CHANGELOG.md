@@ -34,6 +34,7 @@
 - 内部：`commands/tool.ts` 抽出 `executeCall`，`via <provider> …`、`via call`、`via batch` 共用同一条「校验 → dry-run / 确认 → 调用 → 渲染」路径；它返回结果（stdout、stderr、退出码、结构化的元信息与错误）而不直接写输出，也只通过 `app.client()` 触达上游，后端（进程内或 daemon）对它透明。渲染流水线的返回值附带元信息与结构化错误。
 - `via trust --yes` 不再是单个开关（security.md、cli.md）：agent 若能执行 `via trust --yes` 就能放行不可信的仓库。现在默认在终端里确认；`--yes` 必须带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1`，否则不记录（不带路径退出码 2，缺少变量退出码 5）。没有终端时的 `next:` 改为请用户在终端运行 `via trust <路径>`，不再建议 `--yes`。`via prompt` 生成的说明增加一句「不要自己运行 `via trust`，请用户来做」。
 - 文档：README 按开源项目的使用者重写——状态改为「预发布、0.1–0.3 已实现、需从源码安装」（原先写的「设计阶段」已过时），补充安装、快速上手、常用命令、安全须知、开发命令，示例输出换成对着回放 server 的实际输出，引用 token 基准结果并注明口径；设计原理、性能数字、Windows 与单文件细节只留链接。CONTRIBUTING 与快速上手同步更新阶段描述和源码安装方式。不涉及规范与规范写法。
+- 文档：README 默认改为英文（`README.md`），中文版移到 `README.zh-CN.md`，两份顶部互相链接；CONTRIBUTING 写明两份需同步。不涉及规范与规范写法。
 
 ### Added
 
@@ -116,6 +117,7 @@
 
 ### Fixed
 
+- 测试（Windows）：daemon 测试的收尾依赖一次 `via daemon status`，它失败时（测试改坏了令牌，或刚被强杀的 daemon 的管道还没消失）错误被吞掉，daemon 和它的 stdio server 都没有被终止，还以沙箱为工作目录，删除沙箱时报 `EBUSY`（`test/daemon/e2e.test.ts` 的连接中断用例、`short-credentials.test.ts` 在 Windows CI 上反复失败）。现在 daemon 启动时由预加载的 `test/helpers/record-pid.mjs` 记下 pid，收尾不经 daemon 也能终止它们，再终止登记过的 server；收尾出错不再被忽略。另一个原因是沙箱删除从未真正重试：Node 22 的 `rmSync` 的 `maxRetries` 只重试顶层目录的「非空」错误，`project` 这类子目录的 `EBUSY` 会立即抛出，而被强杀的 stdio server 释放工作目录稍有延迟。现在用 `removeSandbox` 自行重试最多 10 秒，到期仍失败时在 Windows 上列出最近启动的进程。只改测试，不影响规范与规范写法。
 - Windows：`via --version`、`-h` 与浏览命令在 stdout 是管道或文件时不再经 `process.stdout` 输出（会加载 `net` 与 `stream`，冷启动变慢）；只有控制台才用真正的流（控制台按代码页处理字节，需要流的 UTF-16 写入）。输出内容不变。
 - 凭证很短或很常见（`GH_TOKEN=x`、`true`、`1`、`json`、`text`）时，脱敏会改写结构：daemon 对整份 `tools/call` 结果的所有字符串和键做子串替换，把内容块的 `type: "text"` 改成 `te***t`，CLI 随即报 `internal error: blockPieces is not a function or its return value is not iterable`；进程内模式虽不崩，也会改写 JSON 的键、`error:` / `next:` 标签、`rule` 之类的字段、资源的 `mimeType`、prompt 的 `role` 和保存下来的媒体文件路径，`-o json` 与 `via batch -o json` 的输出可能不再是合法 JSON。现在脱敏保持结构：只替换字符串值里的凭证，键、协议字段（`type`、`mimeType`、`role`、base64 的 `data`/`blob`）、数字布尔、via 自己写的文字和保存的文件路径不动；这些位置只扫描 8 个字符以上的凭证，更短的凭证（`x`、`1`）只在内容里替换（宁可让正文变成 `a *** b`，也不放过）。`structuredContent` 与 `_meta` 里的字段仍是内容，不享受协议字段的豁免。规则见 output.md「脱敏的范围」、security.md、daemon.md；daemon 的 `redact` 请求新增 `value` 形式，用于回显用户给出的参数（`--dry-run`）。
 - daemon 的游标不再随 daemon 空闲退出（10 分钟）而提前失效：daemon 与进程内模式一样把游标写入用户缓存目录（0700 目录、0600 文件、内容已脱敏、TTL 30 分钟），`via more` 在 daemon 退出后仍可续读。

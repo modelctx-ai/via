@@ -4,19 +4,20 @@
 // profile directories and pipe-name prefix), and every daemon it started is stopped (and killed if
 // need be) when the test ends.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { afterAll } from 'vitest';
 import { run } from '../../src/cli/run';
 import { pathContext, userCacheDir } from '../../src/config/paths';
 import { daemonPaths, type DaemonPaths } from '../../src/daemon/paths';
 import type { DaemonStatus } from '../../src/protocol';
-import { makeSandbox, SYSTEM_ENV, useCleanup, type CliResult, type Sandbox } from '../cli/helpers';
+import { makeSandbox, removeSandbox, SYSTEM_ENV, useCleanup, type CliResult, type Sandbox } from '../cli/helpers';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
+const recordPid = pathToFileURL(fileURLToPath(new URL('./record-pid.mjs', import.meta.url))).href;
 
 let built: Promise<string> | undefined;
 
@@ -99,6 +100,8 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
   const sb = makeSandbox(env);
   sb.userConfig(config);
   const runtime = mkdtempSync(join(tmpdir(), 'via-rt-'));
+  // Every daemon started with the default command appends its pid here (record-pid.mjs).
+  const pidLog = join(runtime, 'daemon-pids');
   const platform: NodeJS.Platform = isWindows ? 'win32' : 'linux';
   const user = `via-test-${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
   // OAuth logins go to files in the sandbox, never to the real keychain.
@@ -113,9 +116,10 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
         USERPROFILE: sb.home,
         VIA_NO_DAEMON: '0',
         VIA_OAUTH_STORE: 'file',
+        VIA_TEST_PID_LOG: pidLog,
         ...env,
       }
-    : { PATH: process.env.PATH, XDG_RUNTIME_DIR: runtime, VIA_NO_DAEMON: '0', VIA_OAUTH_STORE: 'file', ...env };
+    : { PATH: process.env.PATH, XDG_RUNTIME_DIR: runtime, VIA_NO_DAEMON: '0', VIA_OAUTH_STORE: 'file', VIA_TEST_PID_LOG: pidLog, ...env };
   const paths = daemonPaths(pathContext({ home: sb.home, env: sandboxEnv, platform }));
   const socket = isWindows ? paths.socket : join(runtime, 'via.sock');
   const cacheDir = isWindows ? userCacheDir(pathContext({ home: sb.home, env: sandboxEnv, platform })) : sb.cacheDir;
@@ -138,7 +142,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
       stdout: { write: (s) => void ((stdout += s), (combined += s)) },
       stderr: { write: (s) => void ((stderr += s), (combined += s)) },
       readStdin: async () => options.stdin ?? '',
-      daemonCommand: options.daemonCommand ?? { command: process.execPath, args: [entry] },
+      daemonCommand: options.daemonCommand ?? { command: process.execPath, args: ['--import', recordPid, entry] },
       ...(options.openUrl ? { openUrl: options.openUrl } : {}),
     });
     return { code, stdout, stderr, asked: [], combined };
@@ -156,19 +160,17 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
     for (const session of parsed.sessions) if (session.pid) seen.add(session.pid);
     return parsed;
   };
-
-  const stop = async (): Promise<void> => {
-    const current = await status();
-    if (current) {
-      await via(['daemon', 'stop']);
-      try {
-        await waitFor(() => !alive(current.pid), 3000, 'the daemon to exit');
-      } catch {
-        process.kill(current.pid, 'SIGKILL');
-      }
-      for (const session of current.sessions) if (session.pid && alive(session.pid)) process.kill(session.pid, 'SIGKILL');
+  const recorded = (): number[] => {
+    try {
+      return readFileSync(pidLog, 'utf8').split('\n').filter(Boolean).map(Number);
+    } catch {
+      return [];
     }
-    const left = [...seen].filter(alive);
+  };
+
+  /** Kill whichever of `pids` still run and wait for them; a process that will not go fails the test by name. */
+  const end = async (pids: Iterable<number>): Promise<void> => {
+    const left = [...new Set(pids)].filter(alive);
     for (const pid of left) {
       try {
         process.kill(pid, 'SIGKILL');
@@ -176,14 +178,37 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
         // gone in the meantime
       }
     }
-    await Promise.all(left.map((pid) => waitFor(() => !alive(pid), 5000, `process ${pid} to exit`).catch(() => undefined)));
+    await Promise.all(left.map((pid) => waitFor(() => !alive(pid), 5000, `process ${pid} to exit`)));
+  };
+
+  const stop = async (): Promise<void> => {
+    // Ask the daemon first: it closes its servers itself. `status` can fail (a test broke the token,
+    // a killed daemon's pipe is going away), and then the processes are ended directly rather than
+    // left holding the sandbox.
+    let current: DaemonStatus | undefined;
+    try {
+      current = await status();
+    } catch {
+      current = undefined;
+    }
+    if (current) {
+      await via(['daemon', 'stop']);
+      await waitFor(() => !alive(current.pid), 3000, 'the daemon to exit').catch(() => undefined);
+    }
+    // Daemons before their servers: a stdio server whose daemon is gone sees its stdin close and exits.
+    await end(recorded());
+    await end(seen);
+    writeFileSync(pidLog, '');
     seen.clear();
   };
   // Registered after the sandbox's own cleanup, so it runs first: every process that could hold
   // the sandbox as its working directory is gone before the directory is removed.
   useCleanup(async () => {
-    await stop().catch(() => undefined);
-    rmSync(runtime, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    try {
+      await stop();
+    } finally {
+      await removeSandbox(runtime);
+    }
   });
   return {
     sb,
