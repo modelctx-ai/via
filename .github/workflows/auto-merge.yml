@@ -1,0 +1,45 @@
+name: Auto merge
+
+# CI 在 PR 上成功后为该 PR 开启 squash 自动合并。
+# 只在 CI 成功之后触发，而不是在 pull_request 上触发：没有 required status checks 时，
+# 自动合并会在 CI 还没跑完时就直接合入。
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable:
+    name: enable auto-merge
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable squash auto-merge for the PR at this head commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # 仓库所有者的 GitHub 登录名：只自动合并此账号开的 PR。
+          OWNER: ticoAg
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+            echo "no pull request attached to this run; nothing to do"
+            exit 0
+          fi
+          # 只合并仓库所有者自己从本仓库分支提的 PR（排除 fork 与其他协作者），
+          # 且仍指向本次 CI 所测 commit，避免旧 run 作用于新 push。
+          current=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json author,headRefOid,state,isCrossRepository --jq "if .state == \"OPEN\" and (.isCrossRepository | not) and .author.login == \"$OWNER\" then .headRefOid else \"\" end")
+          if [ "$current" != "$HEAD_SHA" ]; then
+            echo "PR #$PR_NUMBER is not an open same-repo PR by the owner at this commit; skipping"
+            exit 0
+          fi
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --auto --squash --match-head-commit "$HEAD_SHA"
