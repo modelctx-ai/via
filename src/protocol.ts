@@ -80,7 +80,7 @@ export type Request =
   | { id: string; type: 'cursor-put'; record: CursorRecord }
   | { id: string; type: 'cursor-get'; cursor: string }
   /** Finish the requests in flight, then exit (`via daemon stop`). */
-  | { id: string; type: 'shutdown' }
+  | { id: string; type: 'shutdown'; force?: boolean }
   // Reserved for features that route through the daemon later; the daemon answers exit code 7.
   | { id: string; type: 'batch'; calls: { tool: ToolRef; args: unknown }[] }
   | { id: string; type: 'auth'; action: 'login' | 'status' | 'logout'; provider: string };

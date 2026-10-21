@@ -203,5 +203,5 @@ next: via github issue:list -h
 ## 调用过程
 
 - 上游的 progress 通知输出到 stderr，不污染 stdout，每条一行：`progress: 1/2 halfway`（没有 total 时只写进度值）。进度是尽力而为的提示，到达顺序不保证先于结果。
-- 默认超时 60 秒，可按 server 配置或用 `--timeout` 覆盖；超时退出码 6。
+- 默认超时 60 秒，可按 server 配置或用 `--timeout` 覆盖；超时退出码 6。超时是整次调用的预算：等待并发名额（`concurrency`）、等待会话建立（冷启动的 stdio server、HTTP 握手）和请求本身都算在内，所以 `--timeout 5` 的调用不会因为 server 卡在握手里而等满 server 自己的连接超时。建立会话的那次握手本身最多持续 server 的 `timeout`，调用放弃等待时它不随之中止，daemon 里的下一次调用可以直接用上它。等不到会话时报 `timed out after <秒>s connecting to <provider>`，排队或请求超时报 `<provider> did not answer within <秒>s`。
 - 只对 `readOnlyHint: true` 的工具在超时或连接错误时自动重试一次；其余工具失败即返回，避免重复写入。

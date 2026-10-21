@@ -15,6 +15,7 @@ describe('daemonPaths', () => {
       lock: 'D:\\Local\\via\\Cache\\via.lock',
       token: 'D:\\Local\\via\\Cache\\via.token',
       log: 'D:\\Local\\via\\Cache\\via-daemon.log',
+      records: 'D:\\Local\\via\\Cache\\via.pids',
       pipe: true,
       derived: true,
     });
@@ -34,12 +35,13 @@ describe('daemonPaths', () => {
     expect(paths.token).toBe('D:\\Local\\via\\Cache\\via-test_1.token');
     expect(paths.lock).toBe('D:\\Local\\via\\Cache\\via-test_1.lock');
     expect(paths.log).toBe('D:\\Local\\via\\Cache\\via-test_1.log');
+    expect(paths.records).toBe('D:\\Local\\via\\Cache\\via-test_1.pids');
   });
 
   it('on POSIX: a socket file with its companions beside it, never derived', () => {
     const runtime = join('/run', 'user', '1000');
     const linux = daemonPaths(pathContext({ home: '/home/me', env: { XDG_RUNTIME_DIR: runtime }, platform: 'linux' }));
-    expect(linux).toMatchObject({ socket: join(runtime, 'via.sock'), token: `${join(runtime, 'via.sock')}.token`, pipe: false, derived: false });
+    expect(linux).toMatchObject({ socket: join(runtime, 'via.sock'), token: `${join(runtime, 'via.sock')}.token`, records: `${join(runtime, 'via.sock')}.pids`, pipe: false, derived: false });
     const mac = daemonPaths(pathContext({ home: '/Users/me', env: {}, platform: 'darwin' }));
     expect(mac.socket).toBe(join('/Users/me', 'Library', 'Caches', 'via', 'via.sock'));
   });

@@ -15,8 +15,12 @@ export class Limiter {
     return this.waiting.length;
   }
 
-  async run<T>(task: () => Promise<T>): Promise<T> {
-    if (this.active >= this.limit) await new Promise<void>((resolve) => this.waiting.push(resolve));
+  /**
+   * Run `task` once a slot is free. With `wait`, a task still queued after `wait.ms` leaves the queue
+   * without running and the call rejects with `wait.error()`.
+   */
+  async run<T>(task: () => Promise<T>, wait?: { ms: number; error: () => Error }): Promise<T> {
+    if (this.active >= this.limit) await this.slot(wait);
     else this.active += 1;
     try {
       return await task();
@@ -25,5 +29,23 @@ export class Limiter {
       if (next) next(); // hand the slot over without releasing it
       else this.active -= 1;
     }
+  }
+
+  private slot(wait?: { ms: number; error: () => Error }): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let timer: NodeJS.Timeout | undefined;
+      const take = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.waiting.push(take);
+      if (!wait) return;
+      timer = setTimeout(() => {
+        const index = this.waiting.indexOf(take);
+        if (index < 0) return;
+        this.waiting.splice(index, 1);
+        reject(wait.error());
+      }, wait.ms);
+    });
   }
 }

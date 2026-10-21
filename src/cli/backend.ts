@@ -205,6 +205,10 @@ export class InProcessBackend implements Backend {
  * differ from what the daemon resolves) was not run, so it is always safe to run it in-process. Only
  * that request goes in-process: the daemon stays in use for everything else, and neither it nor the
  * socket ever sees the values (daemon.md, "环境与工作目录").
+ *
+ * A request that runs past its deadline while the daemon still answers (`requestOnly`) is treated
+ * the same way when it has no side effects: only it is redone in-process, with the notice, and the
+ * daemon stays in use for the rest of the run.
  */
 export class FallbackBackend implements Backend {
   private current: Backend;
@@ -234,14 +238,21 @@ export class FallbackBackend implements Backend {
     } catch (error) {
       if (error instanceof Error && error.name === 'DaemonStale') return op(await this.local());
       if (!(error instanceof Error && error.name === 'DaemonUnavailable')) throw error;
-      const sent = (error as Error & { sent?: boolean }).sent === true;
-      if (sent && !options.idempotent) {
+      const { sent, requestOnly } = error as Error & { sent?: boolean; requestOnly?: boolean };
+      if (sent === true && !options.idempotent) {
         const { ClientError } = await import('../client/errors');
         throw new ClientError({
           exitCode: ExitCode.Upstream,
-          message: `lost the connection to the via daemon while ${options.what}; it may or may not have run`,
+          message: requestOnly
+            ? `the via daemon did not answer in time while ${options.what}; it may or may not have run`
+            : `lost the connection to the via daemon while ${options.what}; it may or may not have run`,
           next: 'via daemon status',
         });
+      }
+      // The daemon still answers, only this request ran out of time: redo just this one here.
+      if (requestOnly === true) {
+        this.notice(`warning: ${error.message} while ${options.what}; running it in this process (VIA_NO_DAEMON=1 silences this)\n`);
+        return op(await this.local());
       }
       return op(await this.switchToFallback(error.message));
     }
@@ -257,11 +268,15 @@ export class FallbackBackend implements Backend {
     return this.localBackend?.secrets() ?? [];
   }
 
+  /** The one fallback notice of a run (daemon.md, "生命周期" 5). */
+  private notice(text: string): void {
+    if (this.noted) return;
+    this.noted = true;
+    this.note(text);
+  }
+
   private async switchToFallback(reason: string): Promise<Backend> {
-    if (!this.noted) {
-      this.noted = true;
-      this.note(`warning: ${reason}; continuing without the daemon (VIA_NO_DAEMON=1 silences this)\n`);
-    }
+    this.notice(`warning: ${reason}; continuing without the daemon (VIA_NO_DAEMON=1 silences this)\n`);
     this.fallback ??= this.makeFallback();
     this.current = await this.fallback;
     return this.current;

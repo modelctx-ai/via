@@ -4,9 +4,11 @@
 import { ExitCode } from '../../render/exit-codes';
 import { alignRows } from '../../render/width';
 import type { DaemonStatus } from '../../protocol';
+import type { DaemonClient, DaemonConnection } from '../../daemon/client';
+import type { DaemonProcess } from '../../daemon/records';
 import type { App } from '../app';
 import { daemonDisabled } from '../app';
-import { usageFailure } from '../failure';
+import { fail, usageFailure } from '../failure';
 import { parseLocal } from '../options';
 
 const USAGE = 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>]';
@@ -68,48 +70,138 @@ export function renderStatus(s: DaemonStatus): string {
   return `${lines.join('\n')}\n`;
 }
 
+/** A daemon process that does not answer on the socket (records.ts), as one line. */
+export function renderProcess(p: DaemonProcess): string {
+  if (p.state === 'starting') return `daemon: starting · pid ${p.pid}`;
+  if (p.state === 'stopping') return `daemon: stopping · pid ${p.pid} · finishing requests in flight`;
+  return `daemon: not reachable · pid ${p.pid}`;
+}
+
+/**
+ * The daemon that answers on the socket, if any, and the daemon processes recorded beside it. A
+ * daemon that cannot be reached (it does not finish the handshake; on Windows a stopping daemon's
+ * pipe lingers while a connection to it is open) is left to the records; with none to show, the
+ * reason it could not be reached is the answer.
+ */
+async function find(app: App): Promise<{ client: DaemonClient; conn?: DaemonConnection; processes: DaemonProcess[] }> {
+  const client = await app.daemonClient();
+  let conn: DaemonConnection | undefined;
+  let unreachable: unknown;
+  try {
+    conn = await client.connection({ spawn: false });
+  } catch (error) {
+    if (!(error instanceof Error && error.name === 'DaemonUnavailable')) throw error;
+    unreachable = error;
+  }
+  const { daemonProcesses } = await import('../../daemon/records');
+  const processes = daemonProcesses(client.paths.records);
+  if (unreachable !== undefined && processes.length === 0) throw unreachable;
+  return { client, ...(conn ? { conn } : {}), processes };
+}
+
 async function status(app: App): Promise<number> {
   const json = app.options.format === 'json';
   if (daemonDisabled(app.io)) {
     app.out(json ? `${JSON.stringify({ running: false, disabled: true })}\n` : 'daemon: disabled (VIA_NO_DAEMON)\n');
     return ExitCode.Ok;
   }
-  const client = await app.daemonClient();
-  const conn = await client.connection({ spawn: false });
+  const { client, conn, processes } = await find(app);
   if (!conn) {
     const { describeEndpoint } = await import('../../daemon/paths');
     const socket = describeEndpoint(client.paths);
-    app.out(json ? `${JSON.stringify({ running: false, socket })}\n` : `daemon: not running\nsocket: ${socket}\n`);
+    // Not listening is not the same as not running: one may be starting, or finishing requests after `stop`.
+    if (json) app.out(`${JSON.stringify({ running: false, socket, ...(processes.length > 0 ? { processes } : {}) })}\n`);
+    else app.out(`${processes.length > 0 ? processes.map(renderProcess).join('\n') : 'daemon: not running'}\nsocket: ${socket}\n`);
     return ExitCode.Ok;
   }
   const response = await conn.request({ type: 'status' }, { deadlineMs: 5000 });
   if (!response.ok) throw usageFailure(response.error.message, 'via doctor');
   const result = response.result as DaemonStatus;
-  app.out(json ? `${JSON.stringify({ running: true, ...result }, null, 2)}\n` : renderStatus(result));
+  // An older daemon may still be finishing its requests next to this one.
+  const others = processes.filter((p) => p.pid !== result.pid);
+  if (json) app.out(`${JSON.stringify({ running: true, ...result, ...(others.length > 0 ? { processes: others } : {}) }, null, 2)}\n`);
+  else app.out(renderStatus(result) + others.map((p) => `also: ${renderProcess(p).slice('daemon: '.length)}\n`).join(''));
   return ExitCode.Ok;
 }
 
 // stop --------------------------------------------------------------------------------------
 
+/** How long `stop` lets a daemon finish its requests in flight before it has them abandoned. */
+const STOP_GRACE_MS = 5000;
+/** How long a daemon told to exit now (or signalled) gets to close its servers and go. */
+const STOP_FORCE_MS = 5000;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Wait until `pid` has exited; false when it is still there after `ms`. */
+async function exited(pid: number, ms: number, running: (pid: number) => boolean): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (running(pid)) {
+    if (Date.now() > deadline) return false;
+    await sleep(25);
+  }
+  return true;
+}
+
+/**
+ * Stop the daemon that answers on the socket, and every other daemon process of this socket that
+ * does not (records.ts): one still starting, or one that removed its socket and is finishing requests.
+ * Requests in flight get `STOP_GRACE_MS`; after that they are abandoned and the daemon exits.
+ */
 async function stop(app: App): Promise<number> {
   const json = app.options.format === 'json';
-  const say = (stopped: boolean, text: string, extra: Record<string, unknown> = {}): void =>
-    app.out(json ? `${JSON.stringify({ running: !stopped, ...extra })}\n` : `${text}\n`);
   if (daemonDisabled(app.io)) {
-    say(true, 'daemon: disabled (VIA_NO_DAEMON)', { disabled: true });
+    app.out(json ? `${JSON.stringify({ running: false, disabled: true })}\n` : 'daemon: disabled (VIA_NO_DAEMON)\n');
     return ExitCode.Ok;
   }
-  const conn = await (await app.daemonClient()).connection({ spawn: false });
-  if (!conn) {
-    say(true, 'daemon: not running');
-    return ExitCode.Ok;
+  const { client, conn } = await find(app);
+  const { daemonProcesses, running } = await import('../../daemon/records');
+  // The daemon of a test may run in this very process (and an old one may not say its pid): wait for
+  // its connection to close instead, and never signal it.
+  const own = (pid: number): boolean => pid === process.pid || pid <= 0;
+  const gone = (pid: number, ms: number, closed: () => Promise<boolean>): Promise<boolean> => (own(pid) ? closed() : exited(pid, ms, running));
+  const stopped: number[] = [];
+  const failed: number[] = [];
+  let abandoned = false;
+  if (conn) {
+    // A daemon that does not even answer `shutdown` is signalled like one without a socket.
+    const response = await conn.request({ type: 'shutdown' }, { deadlineMs: 5000 }).catch((error: unknown) => {
+      if (!(error instanceof Error && error.name === 'DaemonUnavailable')) throw error;
+      return undefined;
+    });
+    if (response && !response.ok) throw usageFailure(response.error.message, 'via doctor');
+    let done = response ? await gone(conn.pid, STOP_GRACE_MS, () => conn.whenClosed(STOP_GRACE_MS)) : false;
+    if (!done) {
+      abandoned = true;
+      if (!conn.closed) await conn.request({ type: 'shutdown', force: true }, { deadlineMs: 2000 }).catch(() => undefined);
+      else if (!own(conn.pid)) signal(conn.pid);
+      done = await gone(conn.pid, STOP_FORCE_MS, () => conn.whenClosed(STOP_FORCE_MS));
+    }
+    (done ? stopped : failed).push(conn.pid);
+    conn.close();
   }
-  const response = await conn.request({ type: 'shutdown' }, { deadlineMs: 5000 });
-  if (!response.ok) throw usageFailure(response.error.message, 'via doctor');
-  // The daemon closes this connection when it has finished what was running.
-  const closed = await conn.whenClosed(5000);
-  say(closed, closed ? `daemon: stopped (pid ${conn.pid})` : `daemon: stopping, waiting for requests in flight (pid ${conn.pid})`, { pid: conn.pid });
+  // No socket to ask them on: SIGTERM, on which a daemon closes its servers and exits at once.
+  const others = daemonProcesses(client.paths.records).filter((p) => p.pid !== conn?.pid);
+  for (const p of others) signal(p.pid);
+  for (const p of others) {
+    (await exited(p.pid, STOP_FORCE_MS, running) ? stopped : failed).push(p.pid);
+    if (p.state === 'stopping') abandoned = true;
+  }
+  if (failed.length > 0) {
+    throw fail(ExitCode.Internal, `the via daemon did not exit (pid ${failed.join(', ')})`, `kill ${failed.join(' ')}`);
+  }
+  if (json) app.out(`${JSON.stringify({ running: false, ...(conn ? { pid: conn.pid } : {}), stopped, ...(abandoned ? { abandoned: true } : {}) })}\n`);
+  else if (stopped.length === 0) app.out('daemon: not running\n');
+  else app.out(`daemon: stopped (pid ${stopped.join(', ')})${abandoned ? ', requests in flight abandoned' : ''}\n`);
   return ExitCode.Ok;
+}
+
+function signal(pid: number): void {
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    // gone already
+  }
 }
 
 // run ---------------------------------------------------------------------------------------
@@ -142,6 +234,7 @@ async function runDaemon(app: App, argv: readonly string[]): Promise<number> {
     env: app.io.env as NodeJS.ProcessEnv,
     home: app.io.home,
     platform: app.io.platform,
+    record: true,
   });
   if ((await daemon.start()) === 'running') {
     app.err(`daemon: already running on ${describeEndpoint(paths)}\n`);

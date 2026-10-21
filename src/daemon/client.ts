@@ -10,12 +10,15 @@ import { encode, LineDecoder, parseMessage } from './wire';
 /**
  * The daemon cannot be used: it could not be started, refused the handshake, or the connection broke.
  * `sent` tells whether a request had already been written when that happened, that is, whether it may
- * have run; a caller must not repeat a request that may have had side effects.
+ * have run; a caller must not repeat a request that may have had side effects. `requestOnly` means
+ * the daemon still answers on the connection and only this request ran past its deadline: the rest of
+ * the run can keep using the daemon.
  */
 export class DaemonUnavailable extends Error {
   constructor(
     message: string,
     readonly sent = false,
+    readonly requestOnly = false,
   ) {
     super(message);
     this.name = 'DaemonUnavailable';
@@ -39,11 +42,15 @@ interface Pending {
 
 export type ConnectResult = { conn: DaemonConnection } | { refused: 'absent' | 'version' | 'token' | 'draining'; version?: string };
 
+/** How long a daemon whose request ran past its deadline gets to answer `status` before the connection is given up. */
+const PROBE_MS = 2000;
+
 /** One handshaken connection. Requests may overlap; replies are matched by id. */
 export class DaemonConnection {
   private readonly pending = new Map<string, Pending>();
   private seq = 0;
   private lost = false;
+  private probing?: Promise<boolean>;
 
   private constructor(
     private readonly socket: Socket,
@@ -129,6 +136,9 @@ export class DaemonConnection {
   /**
    * Send a request and wait for its reply. Rejects with `DaemonStale` when the daemon says its
    * environment differs, and with `DaemonUnavailable` when the connection breaks or `deadlineMs` passes.
+   * A request past its deadline does not by itself condemn the connection, which other requests (of
+   * other servers) share: the daemon is asked for its `status`, and only when that goes unanswered
+   * too is the connection given up. Otherwise just this request fails (`requestOnly`).
    */
   request(body: RequestBody, options: { onEvent?: (event: Event) => void; deadlineMs?: number } = {}): Promise<Response> {
     if (this.closed) return Promise.reject(new DaemonUnavailable('the connection to the via daemon is closed'));
@@ -137,9 +147,16 @@ export class DaemonConnection {
       const pending: Pending = { resolve, reject, ...(options.onEvent ? { onEvent: options.onEvent } : {}) };
       if (options.deadlineMs !== undefined) {
         pending.timer = setTimeout(() => {
-          this.pending.delete(id);
-          reject(new DaemonUnavailable('the via daemon did not answer in time', true));
-          this.socket.destroy();
+          void this.probe().then((alive) => {
+            // The reply may have come in while the daemon was being asked.
+            if (this.pending.get(id) !== pending) return;
+            if (!alive) {
+              this.socket.destroy(); // fails every request on it, this one included
+              return;
+            }
+            this.pending.delete(id);
+            reject(new DaemonUnavailable('the via daemon did not answer in time', true, true));
+          });
         }, options.deadlineMs);
       }
       this.pending.set(id, pending);
@@ -150,6 +167,33 @@ export class DaemonConnection {
         reject(new DaemonUnavailable('cannot write to the via daemon', false));
       });
     });
+  }
+
+  /**
+   * Whether the daemon still answers on this connection: a `status` request within `PROBE_MS`. When
+   * it does not, the connection is closed. Concurrent callers share one probe.
+   */
+  private probe(): Promise<boolean> {
+    if (this.closed) return Promise.resolve(false);
+    this.probing ??= new Promise<boolean>((resolve) => {
+      const id = String(++this.seq);
+      let settled = false;
+      const done = (alive: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.pending.delete(id);
+        this.probing = undefined;
+        resolve(alive);
+      };
+      // Any reply proves the daemon is reading this connection, an error one included.
+      const timer = setTimeout(() => done(false), PROBE_MS);
+      this.pending.set(id, { resolve: () => done(true), reject: () => done(false) });
+      this.socket.write(encode({ id, type: 'status' }), (error) => {
+        if (error) done(false);
+      });
+    });
+    return this.probing;
   }
 
   close(): void {

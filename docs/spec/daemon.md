@@ -9,6 +9,15 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 3. 握手时交换版本；CLI 与 daemon 版本不一致时，daemon 回复 `ok: false, reason: "version"`，**先停止监听并删除 socket**，处理完在途请求后退出，由本次 CLI 重新拉起一个版本一致的 daemon（旧 daemon 与新 daemon 因此可以短暂并存）。
 4. daemon 空闲 10 分钟退出（没有连接、没有在途请求）；单个 stdio server 空闲 5 分钟停止子进程（均可配置，见 [config.md](config.md)）。HTTP 会话不因空闲关闭（它们不占本机进程，保留下来才能继续订阅 `list_changed`），随 daemon 退出而结束。socket 文件被删除或被别的 daemon 替换后，旧 daemon 在几秒内自行退出，避免出现无法连上的常驻进程。
 5. daemon 异常（拉起失败、握手被拒、连接中断）时，CLI 回退为进程内模式完成本次调用，并在 stderr 提示一次（`warning: <原因>; continuing without the daemon (VIA_NO_DAEMON=1 silences this)`）。回退只对**没有副作用**的请求自动发生：列目录、校验、MCP 资源与 prompt 的列出和读取（协议上都是只读的），以及只读工具（`readOnlyHint`）的调用。其他调用若在请求已经写出之后连接中断，它可能已经执行，via 不重放，而是以退出码 6 报告 `lost the connection to the via daemon while calling …; it may or may not have run`，`next: via daemon status`。请求写出之前的失败（拉起失败、连不上）则对所有请求都回退。
+   - **请求的期限**：CLI 给每个转发的请求一个期限，即请求自己的超时（`list` 的 `timeoutMs`，`call` 的超时，只读工具重试时加倍）再加 30 秒。daemon 按同一个超时完成请求（排队、建立会话、请求本身都算在内，见 [arguments.md](arguments.md#调用过程)），所以正常情况下期限不会到。期限到了也不立刻判定 daemon 失效：同一条连接上还有发给其他 server 的请求。CLI 先在这条连接上发 `status`，2 秒内有应答，说明 daemon 还在工作，只有这个请求按上面的规则处理（只读的在进程内重做，提示 `warning: the via daemon did not answer in time while <操作>; running it in this process (VIA_NO_DAEMON=1 silences this)`，本次运行的其余请求照常走 daemon；其他调用以退出码 6 报告 `the via daemon did not answer in time while calling …; it may or may not have run`）；`status` 也没有应答才断开连接，按连接中断整体回退。
+
+### 进程记录
+
+socket 只能说明有没有 daemon 在接受连接。还在启动（取锁、绑定之前）和正在收尾（收到 `shutdown` 或版本不一致后已经删掉 socket、在处理在途请求）的 daemon 进程连不上，却仍在运行。因此每个 `via daemon run` 进程在活着的时候都在 socket 旁的记录目录里留一个以自己 pid 命名的文件（`via.sock.pids/<pid>.json`，Windows 为缓存目录下的 `via.pids\<pid>.json`；目录 0700、文件 0600），内容只有 `{ pid, state }`，`state` 为 `starting`、`running`、`stopping`。进程在状态变化时重写它、每 5 秒更新一次修改时间，退出前删除。
+
+- `via daemon status` 与 `via daemon stop` 在 socket 上没有应答时读这个目录（[cli.md](cli.md)），从而报告并结束正在启动或收尾的 daemon，而不是报告「没有运行」。
+- 进程已不存在、或 15 秒没有更新修改时间（被 `SIGKILL`、来不及删除）的记录被读取方删除并忽略：这样一个已被系统分配给无关进程的 pid 永远不会收到信号。只认当前用户能发信号的进程。
+- 记录里只有 pid 与状态，没有路径、命令行或凭证。
 
 ### 启动竞争与陈旧 socket
 
@@ -68,7 +77,7 @@ type Request =
   | { id; type: "redact"; value: unknown }
   | { id; type: "cursor-put"; record: CursorRecord }
   | { id; type: "cursor-get"; cursor: string }
-  | { id; type: "shutdown" }
+  | { id; type: "shutdown"; force?: boolean }
   | { id; type: "batch" | "auth" /* 保留，daemon 返回 exitCode 7 */ };
 ```
 
@@ -103,7 +112,7 @@ type ErrorInfo = {
 | `redact` | 把 daemon 已知的凭证值换成 `***`，只在已有连接时发，不为它拉起 daemon。`text` 是 CLI 拼好的文字（错误、校验警告），只替换 8 个字符以上的凭证；`value` 是 CLI 回显的内容（`--dry-run` 的 `args`，任意 JSON），其中每个字符串里的任何长度的凭证都替换，键与结构不变（[脱敏的范围](output.md#脱敏的范围)） |
 | `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录；记录落在用户缓存目录，不随 daemon 退出而丢失 |
 | `status` | 返回 pid、版本、socket、运行时间、距空闲退出的时间、请求数、游标数、内存和各会话（server 名、传输、是否连接、子进程 pid、目录中的工具数、调用数、空闲时间）。不含 URL、参数和任何凭证 |
-| `shutdown` | 先停止监听、删除 socket，应答，处理完在途请求后退出 |
+| `shutdown` | 先停止监听、删除 socket，应答，处理完在途请求后退出。带 `force: true` 时应答后放弃在途请求（关闭会话与 stdio 子进程，它们的 CLI 看到连接中断）立即退出；`via daemon stop` 在 5 秒宽限之后发它 |
 
 约定：
 
@@ -152,4 +161,4 @@ Node 的 `net` 模块直接支持 named pipe，协议、握手、启动锁与 PO
 - **谁能连**：管道使用默认安全描述符（libuv 不传自定义 ACL）：创建者、SYSTEM 和管理员可读写，Everyone 只有读取权限，其他普通用户因此写不进握手消息；这是纵深防御，不是唯一屏障（Windows 版本之间的默认值略有差异，via 不依赖它）。真正的门槛仍是握手令牌（`hello` 常量时间比较，所有平台一致），它放在用户配置文件所在的用户目录下，默认 ACL 只允许该用户、SYSTEM 与管理员读取。
 - **不做的检查**：Windows 上没有 `st_uid` 和模式位，CLI 不做 POSIX 那样的属主与权限位检查；也没有可从 Node 调用的 `GetNamedPipeClientProcessId` / 客户端 SID 校验，peer 身份校验同样留作后续（需要原生扩展）。残留风险：(1) 管理员（及 SYSTEM）本来就能读任何用户的文件和进程内存，不在防护范围；(2) 如果用户把 `%LOCALAPPDATA%` 重定向到其他用户可读的共享位置，令牌文件就暴露了，via 无法发现（不读 ACL）；(3) 令牌文件由 `0600` 创建，该模式在 Windows 上不产生任何效果，权限完全来自目录继承。
 - **清理**：daemon 退出时删除令牌文件（内容仍是自己的令牌才删）。它还每隔几秒检查令牌文件，文件被删除或换成别的 daemon 的令牌后，客户端再也找不到这个管道，daemon 自行退出。管道本身随进程消失，没有残留文件；强杀（`taskkill /f`）只会留下一个陈旧的令牌文件，下次启动覆盖。强杀也不会带走 daemon 的 stdio 子进程（Windows 不在父进程结束时结束子进程，via 没有为它们建立 job object）：它们读到 stdin 关闭后通常自行退出，但在此之前仍以调用方的目录为工作目录，该目录在此期间无法删除（`EBUSY`）。正常退出（空闲、`daemon stop`）会先停止子进程，不受影响。
-- **其他**：`SIGTERM` 不会发给 Windows 进程，`via daemon stop` 走 `shutdown` 请求，不依赖信号；分离启动使用 `windowsHide`，不弹控制台窗口；启动锁与令牌文件的原子替换在被杀毒软件短暂占用时会退回直接写入。
+- **其他**：`SIGTERM` 不会发给 Windows 进程，`via daemon stop` 对应答的 daemon 走 `shutdown` 请求，不依赖信号；对不在监听的 daemon 进程（[进程记录](#进程记录)）用 Node 的 `process.kill`，它在 Windows 上直接结束进程，与 `taskkill /f` 一样不带走 stdio 子进程（见上「清理」）；分离启动使用 `windowsHide`，不弹控制台窗口；启动锁与令牌文件的原子替换在被杀毒软件短暂占用时会退回直接写入。

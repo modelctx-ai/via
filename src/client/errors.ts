@@ -54,6 +54,19 @@ const MAX_UPSTREAM_TEXT = 300;
 
 // Constructors for the fixed error kinds ------------------------------------------------------
 
+/** `timeoutMs` ran out while connecting to `server`, or waiting for its answer (exit code 6, retryable). */
+export function timedOut(server: ServerConfig, phase: Phase, timeoutMs: number): ClientError {
+  const seconds = formatSeconds(timeoutMs);
+  return new ClientError(
+    {
+      exitCode: ExitCode.Upstream,
+      message: phase === 'connect' ? `timed out after ${seconds}s connecting to ${server.provider}` : `${server.provider} did not answer within ${seconds}s`,
+      next: 'rerun with a larger --timeout',
+    },
+    true,
+  );
+}
+
 export function notFoundServer(name: string, known: readonly string[]): ClientError {
   const candidates = known.length > 0 ? [...known] : undefined;
   return new ClientError({
@@ -155,15 +168,7 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
     return new ClientError({ exitCode: ExitCode.Auth, message: reason, next: loginNext });
   }
 
-  if (isTimeout(err)) {
-    const seconds = formatSeconds(ctx.timeoutMs);
-    const what = ctx.phase === 'connect' ? `connecting to ${provider}` : `${provider}`;
-    return new ClientError({
-      exitCode: ExitCode.Upstream,
-      message: ctx.phase === 'connect' ? `timed out after ${seconds}s ${what}` : `${what} did not answer within ${seconds}s`,
-      next: 'rerun with a larger --timeout',
-    }, true);
-  }
+  if (isTimeout(err)) return timedOut(server, ctx.phase, ctx.timeoutMs);
 
   if (ctx.phase === 'connect') return startupFailure(err, ctx);
 

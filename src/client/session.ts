@@ -8,7 +8,7 @@ import type { GetPromptResult, McpPrompt, ReadResourceResult, ResourceListing, S
 import type { McpTool } from '../catalog/types';
 import { createRedactor } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
-import { ClientError, internal, mapError, noFeature, notFoundServer, resourceNotFound, untrustedServer, type Phase } from './errors';
+import { ClientError, internal, mapError, noFeature, notFoundServer, resourceNotFound, timedOut, untrustedServer, type Phase } from './errors';
 import { prepareStdioCommand } from '../platform/command';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
@@ -109,6 +109,8 @@ export class McpSession {
   /** Where warnings go: the operation that started last (the one that most likely caused it). */
   private warnSink?: (message: string) => void;
   private warnedSave = false;
+  /** Abandons the connection being made (`close()` while connecting). */
+  private abortConnect?: () => void;
 
   constructor(
     readonly server: ServerConfig,
@@ -131,12 +133,9 @@ export class McpSession {
 
   /** `tools/list`, following `nextCursor` until the server stops returning one. */
   listTools(options: ListOptions = {}): Promise<McpTool[]> {
-    return this.limiter.run(async () => {
-      if (options.onWarning) this.warnSink = options.onWarning;
-      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
-      const handle = await this.ensureConnected();
-      return this.request(handle, 'request', timeoutMs, () => this.pages<McpTool>(handle, 'tools/list', 'tools', timeoutMs, (e): e is McpTool => hasString(e, 'name')));
-    });
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), options.onWarning, (handle, left) =>
+      this.pages<McpTool>(handle, 'tools/list', 'tools', left, (e): e is McpTool => hasString(e, 'name')),
+    );
   }
 
   /** What the server declared at `initialize`, once connected; undefined before the first connection. */
@@ -147,86 +146,72 @@ export class McpSession {
 
   /** `resources/list` and `resources/templates/list` (ADR 0010). A server without the capability is refused before any request. */
   listResources(options: ListOptions = {}): Promise<ResourceListing> {
-    return this.limiter.run(async () => {
-      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
-      const handle = await this.ensureConnected();
-      return this.request(handle, 'request', timeoutMs, async () => {
-        this.require(handle, 'resources');
-        const resources = await this.pages<ResourceListing['resources'][number]>(handle, 'resources/list', 'resources', timeoutMs, (e): e is ResourceListing['resources'][number] => hasString(e, 'uri'));
-        // Templates are optional even for a server with resources: "method not found" means none.
-        const templates = await this.pages<ResourceListing['templates'][number]>(handle, 'resources/templates/list', 'resourceTemplates', timeoutMs, (e): e is ResourceListing['templates'][number] => hasString(e, 'uriTemplate')).catch((err: unknown) => {
-          if ((err as { code?: unknown } | null)?.code === METHOD_NOT_FOUND) return [];
-          throw err;
-        });
-        return { resources, templates };
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.require(handle, 'resources');
+      const resources = await this.pages<ResourceListing['resources'][number]>(handle, 'resources/list', 'resources', left, (e): e is ResourceListing['resources'][number] => hasString(e, 'uri'));
+      // Templates are optional even for a server with resources: "method not found" means none.
+      const templates = await this.pages<ResourceListing['templates'][number]>(handle, 'resources/templates/list', 'resourceTemplates', left, (e): e is ResourceListing['templates'][number] => hasString(e, 'uriTemplate')).catch((err: unknown) => {
+        if ((err as { code?: unknown } | null)?.code === METHOD_NOT_FOUND) return [];
+        throw err;
       });
+      return { resources, templates };
     });
   }
 
   /** `resources/read`. An unknown or unreadable URI is a "not found" (exit code 3). */
   readResource(uri: string, options: ListOptions = {}): Promise<ReadResourceResult> {
-    return this.limiter.run(async () => {
-      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
-      const handle = await this.ensureConnected();
-      return this.request(handle, 'request', timeoutMs, async () => {
-        this.require(handle, 'resources');
-        const { ResultSchema } = await loadSdk();
-        const raw = await handle.client.request({ method: 'resources/read', params: { uri } }, ResultSchema, { timeout: timeoutMs }).catch((err: unknown) => {
-          throw resourceNotFound(err, uri, this.server.provider, this.redactor()) ?? err;
-        });
-        const contents = (raw as { contents?: unknown }).contents;
-        if (!Array.isArray(contents)) throw new Error('resources/read result has no "contents" array');
-        return { contents: contents.filter((c): c is ReadResourceResult['contents'][number] => hasString(c, 'uri')) };
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.require(handle, 'resources');
+      const { ResultSchema } = await loadSdk();
+      const raw = await handle.client.request({ method: 'resources/read', params: { uri } }, ResultSchema, { timeout: left() }).catch((err: unknown) => {
+        throw resourceNotFound(err, uri, this.server.provider, this.redactor()) ?? err;
       });
+      const contents = (raw as { contents?: unknown }).contents;
+      if (!Array.isArray(contents)) throw new Error('resources/read result has no "contents" array');
+      return { contents: contents.filter((c): c is ReadResourceResult['contents'][number] => hasString(c, 'uri')) };
     });
   }
 
   /** `prompts/list`, following `nextCursor`. */
   listPrompts(options: ListOptions = {}): Promise<McpPrompt[]> {
-    return this.limiter.run(async () => {
-      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
-      const handle = await this.ensureConnected();
-      return this.request(handle, 'request', timeoutMs, async () => {
-        this.require(handle, 'prompts');
-        return this.pages<McpPrompt>(handle, 'prompts/list', 'prompts', timeoutMs, (e): e is McpPrompt => hasString(e, 'name'));
-      });
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.require(handle, 'prompts');
+      return this.pages<McpPrompt>(handle, 'prompts/list', 'prompts', left, (e): e is McpPrompt => hasString(e, 'name'));
     });
   }
 
   /** `prompts/get`. The server rejecting the arguments surfaces like a tool doing so (exit code 1). */
   getPrompt(name: string, args: Record<string, string>, options: ListOptions = {}): Promise<GetPromptResult> {
-    return this.limiter.run(async () => {
-      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
-      const handle = await this.ensureConnected();
-      return this.request(handle, 'request', timeoutMs, async () => {
-        this.require(handle, 'prompts');
-        const { ResultSchema } = await loadSdk();
-        const raw = await handle.client.request({ method: 'prompts/get', params: { name, arguments: args } }, ResultSchema, { timeout: timeoutMs });
-        const messages = (raw as { messages?: unknown }).messages;
-        if (!Array.isArray(messages)) throw new Error('prompts/get result has no "messages" array');
-        const description = (raw as { description?: unknown }).description;
-        return {
-          ...(typeof description === 'string' ? { description } : {}),
-          messages: messages.filter((m): m is GetPromptResult['messages'][number] => hasString(m, 'role') && typeof (m as { content?: unknown }).content === 'object'),
-        };
-      });
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.require(handle, 'prompts');
+      const { ResultSchema } = await loadSdk();
+      const raw = await handle.client.request({ method: 'prompts/get', params: { name, arguments: args } }, ResultSchema, { timeout: left() });
+      const messages = (raw as { messages?: unknown }).messages;
+      if (!Array.isArray(messages)) throw new Error('prompts/get result has no "messages" array');
+      const description = (raw as { description?: unknown }).description;
+      return {
+        ...(typeof description === 'string' ? { description } : {}),
+        messages: messages.filter((m): m is GetPromptResult['messages'][number] => hasString(m, 'role') && typeof (m as { content?: unknown }).content === 'object'),
+      };
     });
   }
 
   /** `tools/call`; returns the server's result untouched (`isError` included). */
   callTool(rawName: string, args: Record<string, unknown> | undefined, options: CallOptions = {}): Promise<ToolCallResult> {
+    const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
+    let deadline = Date.now() + timeoutMs;
+    const left = (): number => Math.max(1, deadline - Date.now());
     return this.limiter.run(async () => {
       if (options.onWarning) this.warnSink = options.onWarning;
-      const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
       const attempt = async (): Promise<ToolCallResult> => {
-        const handle = await this.ensureConnected();
+        const handle = await this.ensureConnected(left(), timeoutMs);
         return this.request(handle, 'request', timeoutMs, async () => {
           const { ResultSchema } = await loadSdk();
           const raw = await handle.client.request(
             { method: 'tools/call', params: { name: rawName, arguments: args ?? {} } },
             ResultSchema,
             {
-              timeout: timeoutMs,
+              timeout: left(),
               ...(options.onProgress ? { onprogress: options.onProgress } : {}),
             },
           );
@@ -239,28 +224,58 @@ export class McpSession {
       } catch (err) {
         if (!(options.retry && err instanceof ClientError && err.retryable)) throw err;
         await this.drop();
+        deadline = Date.now() + timeoutMs; // the retry has a budget of its own
         return attempt();
       }
-    });
+    }, this.queueWait(timeoutMs));
   }
 
-  /** Close the session and kill the stdio child, if any. Safe to call repeatedly. */
+  /**
+   * Close the session and kill the stdio child, if any. A connection still being made is abandoned
+   * (its child killed) rather than waited for: a server that hangs in its handshake must not hold
+   * up a daemon that is stopping. Safe to call repeatedly.
+   */
   async close(): Promise<void> {
     const pending = this.connecting;
-    if (pending) await pending.catch(() => undefined);
+    if (pending) {
+      this.abortConnect?.();
+      await pending.catch(() => undefined);
+    }
     await this.drop();
   }
 
   // Internals ---------------------------------------------------------------------------------
 
-  /** Follow `nextCursor` of a list method and collect `key` from every page. */
-  private async pages<T>(handle: Handle, method: string, key: string, timeoutMs: number, keep: (entry: unknown) => entry is T): Promise<T[]> {
+  /**
+   * One operation within one budget of `timeoutMs`: the wait for a free slot (`concurrency`), for the
+   * connection, and every request it sends all count against it (`left` is what remains). A server
+   * that hangs in its handshake (the connection itself may take the server's own `timeout`) or sits
+   * behind a long call then fails this operation in time, instead of holding its caller (a CLI
+   * waiting on the daemon) for as long as the slowest step takes.
+   */
+  private operate<T>(timeoutMs: number, onWarning: ((message: string) => void) | undefined, fn: (handle: Handle, left: () => number) => Promise<T>): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    const left = (): number => Math.max(1, deadline - Date.now());
+    return this.limiter.run(async () => {
+      if (onWarning) this.warnSink = onWarning;
+      const handle = await this.ensureConnected(left(), timeoutMs);
+      return this.request(handle, 'request', timeoutMs, () => fn(handle, left));
+    }, this.queueWait(timeoutMs));
+  }
+
+  /** How long an operation may wait for a slot: its whole budget; it then fails as a timeout. */
+  private queueWait(timeoutMs: number): { ms: number; error: () => Error } {
+    return { ms: timeoutMs, error: () => timedOut(this.server, 'request', timeoutMs) };
+  }
+
+  /** Follow `nextCursor` of a list method and collect `key` from every page; `left` is the time remaining. */
+  private async pages<T>(handle: Handle, method: string, key: string, left: () => number, keep: (entry: unknown) => entry is T): Promise<T[]> {
     const { ResultSchema } = await loadSdk();
     const items: T[] = [];
     const seen = new Set<string>();
     let cursor: string | undefined;
     for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
-      const raw = await handle.client.request({ method, params: cursor === undefined ? {} : { cursor } }, ResultSchema, { timeout: timeoutMs });
+      const raw = await handle.client.request({ method, params: cursor === undefined ? {} : { cursor } }, ResultSchema, { timeout: left() });
       const entries = (raw as Record<string, unknown>)[key];
       if (!Array.isArray(entries)) throw new Error(`${method} result has no "${key}" array`);
       for (const entry of entries) if (keep(entry)) items.push(entry);
@@ -301,7 +316,12 @@ export class McpSession {
     }
   }
 
-  private ensureConnected(): Promise<Handle> {
+  /**
+   * The live connection, made on first use and shared by every operation. An operation waits for it
+   * at most `waitMs` and then fails as a connect timeout of `timeoutMs`; the connection attempt itself
+   * goes on (up to the server's `timeout`), so the next operation may find it ready.
+   */
+  private ensureConnected(waitMs: number, timeoutMs: number): Promise<Handle> {
     if (this.handle && !this.handle.closed) return Promise.resolve(this.handle);
     this.handle = undefined;
     this.connecting ??= this.connect().then(
@@ -315,10 +335,26 @@ export class McpSession {
         throw err;
       },
     );
-    return this.connecting;
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(timedOut(this.server, 'connect', timeoutMs)), waitMs);
+    });
+    return Promise.race([this.connecting, late]).finally(() => clearTimeout(timer));
   }
 
-  private async connect(): Promise<Handle> {
+  private connect(): Promise<Handle> {
+    const attempt: { aborted: boolean; client?: Client } = { aborted: false };
+    const abort = (): void => {
+      attempt.aborted = true;
+      void attempt.client?.close().catch(() => undefined); // kills a half-started child
+    };
+    this.abortConnect = abort;
+    return this.open(attempt).finally(() => {
+      if (this.abortConnect === abort) this.abortConnect = undefined;
+    });
+  }
+
+  private async open(attempt: { aborted: boolean; client?: Client }): Promise<Handle> {
     const { server } = this;
     // Checks that must pass before anything is spawned or sent.
     if (server.disabled) throw notFoundServer(server.name, []);
@@ -344,6 +380,7 @@ export class McpSession {
       // never as `listChanged`: the roots of a session do not change during its life.
       const roots = resolveRoots(server.roots, this.options.roots ?? { cwd: process.cwd(), home: process.env.HOME ?? '' });
       client = new ClientCtor({ name: 'via', version: pkg.version }, { capabilities: roots.length > 0 ? { roots: { listChanged: false } } : {} });
+      attempt.client = client;
       if (roots.length > 0) client.setRequestHandler(ListRootsRequestSchema, () => ({ roots }));
       const onToolsChanged = this.options.onToolsChanged;
       if (onToolsChanged) client.setNotificationHandler(ToolListChangedNotificationSchema, () => onToolsChanged());
@@ -388,6 +425,7 @@ export class McpSession {
       client.onclose = () => {
         created.closed = true;
       };
+      if (attempt.aborted) throw new Error('the session was closed while connecting');
       await client.connect(transport, { timeout: timeoutMs });
       return created;
     } catch (err) {

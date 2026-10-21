@@ -35,6 +35,8 @@
 - 与快照或固定文本比较的路径输出，经 `test/helpers/portable.ts` 归一（Windows 上 `\` 换成 `/`；含沙箱路径的表格重排列宽，因为列宽取决于临时目录的长短）；断言一个具体路径时用 `path.join` 拼出期望值，不手写 `/`；`os.tmpdir()` 在 Windows 上可能是 8.3 短名（`RUNNER~1`），而 via 记录的是 `realpath.native` 的真实路径，断言此类输出用 `trustKey()`；`next:` 里的引号按平台（POSIX 单引号，Windows 双引号）。
 - 测试结束时仍在运行、并以沙箱为工作目录的子进程会让 Windows 无法删除目录（`EBUSY`）：daemon 测试的沙箱（`test/helpers/daemon.ts`）记下见过的 daemon 与 server 进程，结束时全部终止并等它们退出。daemon 的 pid 由预加载的 `test/helpers/record-pid.mjs` 在启动时写进沙箱里的文件，所以 `via daemon status` 连不上时（测试改坏了令牌、被强杀的 daemon 的管道正在消失）照样能找到并终止它；先终止 daemon，它的 stdio server 读到 stdin 关闭会自行退出。收尾中途出错不再被吞掉，等不到退出的进程会以 pid 报错。删除沙箱目录用 `removeSandbox`（`test/cli/helpers.ts`）：目录仍被占用（`EBUSY`、`EPERM`、`ENOTEMPTY`）时每 100 ms 重试，最多 10 秒，因为刚被终止的进程释放工作目录会稍有延迟，而 Node 22 的 `rmSync` 的 `maxRetries` 只重试顶层目录的「非空」错误，目录里某一项的 `EBUSY` 会立即抛出；到期仍失败时，Windows 上的错误信息会列出最近两分钟启动的进程。`test/cli/helpers.ts` 的清理按后进先出执行（`useCleanup`，daemon 沙箱的停止登记在沙箱目录删除之后，所以先于它运行），不依赖多个 `afterEach` 的先后；故意强杀 daemon 的测试用 `track(pid)` 登记会被遗留的 stdio 子进程。
 - Windows 上的 daemon 端到端测试用各沙箱独有的 `LOCALAPPDATA` 和 `USERNAME`，使管道和令牌文件互不干扰。
+- daemon 端到端测试里进程内的 CLI 用宿主自己的平台（`test/helpers/daemon.ts`）：拉起的 daemon 是独立进程，按 `process.platform` 计算缓存、游标和 OAuth 登录的目录，两边必须一致。要断言别的平台的路径，在不拉起真实 daemon 的测试里注入 `platform`。macOS 不认 `XDG_RUNTIME_DIR` 和 `XDG_CACHE_HOME`，socket 与缓存都在沙箱的 `Library/Caches/via` 下。
+- 运行打包产物的测试（`test/cli/dist.test.ts`）把假的用户目录放在系统临时目录下，不放在仓库里：项目级框架配置从工作目录向上找、没有上限，仓库又在开发者的家目录下，会读到开发者真实的配置。按平台分开的配置文件（如 VS Code 用户级 `mcp.json`）按 `data/frameworks/` 里当前平台的路径写。
 
 ### 持续集成
 

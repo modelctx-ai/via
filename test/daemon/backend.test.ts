@@ -1,12 +1,14 @@
 // DaemonBackend.listing against a stand-in for the daemon: what it asks (`have`), and what it does
-// with an "unchanged" answer. The real daemon's side of `have` is in protocol.test.ts.
+// with an "unchanged" answer. The real daemon's side of `have` is in protocol.test.ts. Also how
+// FallbackBackend treats a request that ran past its deadline.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { FallbackBackend, type Backend } from '../../src/cli/backend';
 import { CatalogCache } from '../../src/cli/catalog-cache';
 import { DaemonBackend } from '../../src/daemon/backend';
-import { daemonRuntime, type DaemonClient } from '../../src/daemon/client';
+import { DaemonUnavailable, daemonRuntime, type DaemonClient } from '../../src/daemon/client';
 import type { ListResult, RequestBody } from '../../src/protocol';
 import { httpServer } from '../helpers/client';
 import { loadTools } from '../helpers/fixtures';
@@ -90,5 +92,46 @@ describe('the runtime a daemon is started with', () => {
     expect(node.env).toEqual(process.platform === 'linux' ? { MALLOC_ARENA_MAX: '2' } : {});
     expect(daemonRuntime('/usr/local/bin/via')).toEqual({ flags: [], env: {} });
     expect(daemonRuntime('bun')).toEqual({ flags: [], env: {} });
+  });
+});
+
+describe('FallbackBackend and a request past its deadline', () => {
+  const late = () => new DaemonUnavailable('the via daemon did not answer in time', true, true);
+  const other = httpServer('http://127.0.0.1:1/b', { name: 'b', provider: 'b' });
+
+  function fallback(primary: Partial<Backend>) {
+    const notes: string[] = [];
+    const local = { mode: 'in-process', listing: async () => ({ tools: [], fetchedAt: 1, fromCache: false }) } as unknown as Backend;
+    const backend = new FallbackBackend({ mode: 'daemon', ...primary } as Backend, async () => local, (text) => notes.push(text), () => undefined as never);
+    return { backend, notes };
+  }
+
+  it('redoes only that list in-process, says so once, and keeps the daemon for the rest of the run', async () => {
+    const asked: string[] = [];
+    const { backend, notes } = fallback({
+      listing: async (s) => {
+        asked.push(s.name);
+        if (s.name === 'gh') throw late();
+        return { tools, fetchedAt: T0, fromCache: true };
+      },
+    });
+    expect((await backend.listing(server, { timeoutMs: 1000 })).fetchedAt).toBe(1);
+    expect(backend.mode).toBe('daemon');
+    expect((await backend.listing(other, { timeoutMs: 1000 })).fetchedAt).toBe(T0);
+    expect(asked).toEqual(['gh', 'b']);
+    expect(notes).toEqual(['warning: the via daemon did not answer in time while listing gh; running it in this process (VIA_NO_DAEMON=1 silences this)\n']);
+  });
+
+  it('does not repeat a call that may have run, and says the daemon was late rather than gone', async () => {
+    const { backend } = fallback({
+      callTool: async () => {
+        throw late();
+      },
+    });
+    await expect(backend.callTool('gh', 'create_issue', {})).rejects.toMatchObject({
+      exitCode: 6,
+      message: 'the via daemon did not answer in time while calling create_issue; it may or may not have run',
+      next: 'via daemon status',
+    });
   });
 });
