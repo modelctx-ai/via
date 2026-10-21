@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { builtinModules } from 'node:module';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -41,6 +42,13 @@ function viaAsync(args: string[]): Promise<{ code: number | null; stdout: string
     child.on('close', (code) => resolve({ code, stdout, stderr }));
   });
 }
+
+/**
+ * VS Code's user-level `mcp.json` in this platform's directory: `%APPDATA%` is `<home>/.config` in
+ * `homeEnv`, so Windows and Linux share the `.config` path.
+ */
+const vscodeUserConfig =
+  process.platform === 'darwin' ? 'Library/Application Support/Code/User/mcp.json' : '.config/Code/User/mcp.json';
 
 function writeUserConfig(yaml: string): void {
   mkdirSync(join(home, '.config', 'via'), { recursive: true });
@@ -90,8 +98,11 @@ function internalModules(args: string[]): string[] {
 beforeAll(() => {
   mkdirSync(join(root, '.build'), { recursive: true });
   dir = mkdtempSync(join(root, '.build', 'dist-'));
-  home = join(dir, 'home');
-  mkdirSync(home);
+  // The fake home must not sit under a real one: framework discovery walks up from the working
+  // directory, so a home inside the repo (and therefore inside the developer's home) would pick up
+  // their own MCP configs as project-scope files.
+  home = mkdtempSync(join(tmpdir(), 'via-dist-home-'));
+  mkdirSync(home, { recursive: true });
   const out = join(dir, 'out');
   const build = spawnSync(process.execPath, [join(root, 'node_modules', 'tsup', 'dist', 'cli-default.js'), '--out-dir', out, '--silent'], { cwd: root, encoding: 'utf8', timeout: 60_000 });
   if (build.status !== 0) throw new Error(`tsup failed: ${build.stderr || build.stdout}`);
@@ -100,6 +111,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (dir) rmSync(dir, { recursive: true, force: true });
+  if (home) rmSync(home, { recursive: true, force: true });
 });
 
 describe('built dist/via.js', () => {
@@ -159,14 +171,15 @@ describe('built dist/via.js', () => {
     };
     write('.config/via/config.yaml', 'servers:\n  from-yaml:\n    url: http://127.0.0.1:9/mcp\n');
     write('.cursor/mcp.json', '{"mcpServers":{"from-json":{"url":"http://127.0.0.1:9/mcp"}}}');
-    write('.config/Code/User/mcp.json', '// comment\n{"servers":{"from-jsonc":{"type":"http","url":"http://127.0.0.1:9/mcp"},},}');
+    // VS Code keeps its user config in a per-platform directory (`data/frameworks/vscode.json`).
+    write(vscodeUserConfig, '// comment\n{"servers":{"from-jsonc":{"type":"http","url":"http://127.0.0.1:9/mcp"},},}');
     write('.codex/config.toml', '[mcp_servers.from-toml]\nurl = "http://127.0.0.1:9/mcp"\n');
     try {
       const r = via(['servers']);
       expect(r.code).toBe(0);
       for (const name of ['from-yaml', 'from-json', 'from-jsonc', 'from-toml']) expect(r.stdout).toContain(name);
     } finally {
-      for (const d of ['.config', '.cursor', '.codex']) rmSync(join(home, d), { recursive: true, force: true });
+      for (const d of ['.config', '.cursor', '.codex', vscodeUserConfig.split('/').slice(0, -4).join('/')]) rmSync(join(home, d), { recursive: true, force: true });
     }
   });
 
