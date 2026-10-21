@@ -2,9 +2,9 @@
   <title id="t">via 的工作原理</title>
   <desc id="d">agent 在 shell 里执行 via 命令；via 用 MCP 与各 server 通信，返回紧凑输出。</desc>
   <style>
-    :root { --bg:#ffffff; --panel:#f6f8fa; --border:#d0d7de; --text:#1f2328; --muted:#59636e; --line:#8c959f; --accent:#0969da; --accent-soft:#ddf4ff; --pill:#ffffff; }
+    :root { --bg:#ffffff; --panel:#f6f8fa; --border:#d0d7de; --text:#1f2328; --muted:#59636e; --line:#8c959f; --accent:#c2410c; --accent-soft:#fff4eb; --pill:#ffffff; }
     @media (prefers-color-scheme: dark) {
-      :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#9198a1; --line:#6e7681; --accent:#4493f8; --accent-soft:#0f2742; --pill:#0d1117; }
+      :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#9198a1; --line:#6e7681; --accent:#ff8a3d; --accent-soft:#33200f; --pill:#0d1117; }
     }
     text { font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: var(--text); }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
