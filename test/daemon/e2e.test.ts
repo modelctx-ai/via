@@ -166,6 +166,19 @@ describe('stopping', () => {
     expect((await d.via(['daemon', 'status'])).stdout).toBe(`daemon: not running\nsocket: ${d.idleSocketText}\n`);
   });
 
+  // On Windows a wrong token names another pipe and the orphan exits by itself within seconds.
+  it.skipIf(isWindows)('finds a daemon it cannot talk to through its record, and stop ends it', async () => {
+    const d = await daemonSandbox(config());
+    await d.via(['mock', 'pid']);
+    const pid = (await d.status())!.pid;
+    writeFileSync(d.paths.token, 'not-the-token', { mode: 0o600 });
+    const status = await d.via(['daemon', 'status']);
+    expect(status).toMatchObject({ code: 0, stdout: `daemon: not reachable · pid ${pid}\nsocket: ${d.idleSocketText}\n` });
+    const stopped = await d.via(['daemon', 'stop']);
+    expect(stopped).toMatchObject({ code: 0, stdout: `daemon: stopped (pid ${pid})\n` });
+    expect(alive(pid)).toBe(false);
+  });
+
   it('gives requests in flight a grace period, then has the daemon abandon them', async () => {
     const d = await daemonSandbox(config());
     await d.via(['mock', 'pid']);

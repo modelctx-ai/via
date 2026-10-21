@@ -4,6 +4,7 @@
 import { ExitCode } from '../../render/exit-codes';
 import { alignRows } from '../../render/width';
 import type { DaemonStatus } from '../../protocol';
+import type { DaemonClient, DaemonConnection } from '../../daemon/client';
 import type { DaemonProcess } from '../../daemon/records';
 import type { App } from '../app';
 import { daemonDisabled } from '../app';
@@ -76,20 +77,39 @@ export function renderProcess(p: DaemonProcess): string {
   return `daemon: not reachable · pid ${p.pid}`;
 }
 
+/**
+ * The daemon that answers on the socket, if any, and the daemon processes recorded beside it. A
+ * daemon that cannot be reached (it does not finish the handshake; on Windows a stopping daemon's
+ * pipe lingers while a connection to it is open) is left to the records; with none to show, the
+ * reason it could not be reached is the answer.
+ */
+async function find(app: App): Promise<{ client: DaemonClient; conn?: DaemonConnection; processes: DaemonProcess[] }> {
+  const client = await app.daemonClient();
+  let conn: DaemonConnection | undefined;
+  let unreachable: unknown;
+  try {
+    conn = await client.connection({ spawn: false });
+  } catch (error) {
+    if (!(error instanceof Error && error.name === 'DaemonUnavailable')) throw error;
+    unreachable = error;
+  }
+  const { daemonProcesses } = await import('../../daemon/records');
+  const processes = daemonProcesses(client.paths.records);
+  if (unreachable !== undefined && processes.length === 0) throw unreachable;
+  return { client, ...(conn ? { conn } : {}), processes };
+}
+
 async function status(app: App): Promise<number> {
   const json = app.options.format === 'json';
   if (daemonDisabled(app.io)) {
     app.out(json ? `${JSON.stringify({ running: false, disabled: true })}\n` : 'daemon: disabled (VIA_NO_DAEMON)\n');
     return ExitCode.Ok;
   }
-  const client = await app.daemonClient();
-  const conn = await client.connection({ spawn: false });
-  const { daemonProcesses } = await import('../../daemon/records');
+  const { client, conn, processes } = await find(app);
   if (!conn) {
     const { describeEndpoint } = await import('../../daemon/paths');
     const socket = describeEndpoint(client.paths);
     // Not listening is not the same as not running: one may be starting, or finishing requests after `stop`.
-    const processes = daemonProcesses(client.paths.records);
     if (json) app.out(`${JSON.stringify({ running: false, socket, ...(processes.length > 0 ? { processes } : {}) })}\n`);
     else app.out(`${processes.length > 0 ? processes.map(renderProcess).join('\n') : 'daemon: not running'}\nsocket: ${socket}\n`);
     return ExitCode.Ok;
@@ -98,7 +118,7 @@ async function status(app: App): Promise<number> {
   if (!response.ok) throw usageFailure(response.error.message, 'via doctor');
   const result = response.result as DaemonStatus;
   // An older daemon may still be finishing its requests next to this one.
-  const others = daemonProcesses(client.paths.records).filter((p) => p.pid !== result.pid);
+  const others = processes.filter((p) => p.pid !== result.pid);
   if (json) app.out(`${JSON.stringify({ running: true, ...result, ...(others.length > 0 ? { processes: others } : {}) }, null, 2)}\n`);
   else app.out(renderStatus(result) + others.map((p) => `also: ${renderProcess(p).slice('daemon: '.length)}\n`).join(''));
   return ExitCode.Ok;
@@ -134,8 +154,7 @@ async function stop(app: App): Promise<number> {
     app.out(json ? `${JSON.stringify({ running: false, disabled: true })}\n` : 'daemon: disabled (VIA_NO_DAEMON)\n');
     return ExitCode.Ok;
   }
-  const client = await app.daemonClient();
-  const conn = await client.connection({ spawn: false });
+  const { client, conn } = await find(app);
   const { daemonProcesses, running } = await import('../../daemon/records');
   // The daemon of a test may run in this very process (and an old one may not say its pid): wait for
   // its connection to close instead, and never signal it.
