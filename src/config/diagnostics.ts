@@ -21,7 +21,8 @@ export type DiagnosticCode =
   | 'legacy-transport'
   | 'plaintext-credential'
   | 'roots-remote'
-  | 'trust-store-corrupt';
+  | 'trust-store-corrupt'
+  | 'self-reference';
 
 export interface ConfigDiagnostic {
   level: DiagnosticLevel;

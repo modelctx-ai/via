@@ -16,9 +16,10 @@ usage:
   via resources <provider>                   resources and resource templates of a server
   via read <provider> <uri>                  read a resource
   via prompts <provider> [<name> [args]]     prompts of a server; with a name, get that prompt
+  via serve                                  MCP server over stdio with via's meta-tools, for agents without a shell
 
 commands:
-  find call more batch servers sync doctor prompt trust auth daemon resources read prompts
+  find call more batch servers sync doctor prompt trust auth daemon resources read prompts serve
 
 options:
   -o text|json|raw  --full  --all  --yes  --dry-run  --no-validate  --timeout <seconds>  -h
@@ -41,5 +42,6 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   daemon: 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>]',
   resources: 'usage: via resources <provider>  (resources and resource templates; read one with via read <provider> <uri>)',
   read: 'usage: via read <provider> <uri>',
+  serve: 'usage: via serve  (MCP server on stdin/stdout; register it in the agent framework as a stdio server)',
   prompts: 'usage: via prompts <provider> [<name> [--arg <value>…]]  (without a name: list; via prompts <provider> <name> -h: usage of one prompt)',
 };

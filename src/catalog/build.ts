@@ -21,6 +21,7 @@ export const RESERVED_COMMANDS: readonly string[] = [
   'resources',
   'read',
   'prompts',
+  'serve',
   'help',
 ];
 

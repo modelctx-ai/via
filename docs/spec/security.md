@@ -111,3 +111,4 @@ via 在 POSIX 上靠文件模式（目录 0700、文件 0600）保护信任记�
 - `deny` 只匹配工具引用。MCP 资源与 prompt 的列出、读取（`via resources`、`via read`、`via prompts`）协议上都是只读的，不受 `deny` 与 `--yes` 约束。一个 server 通过资源暴露的内容多少，取决于 server 本身和用户给它的 `roots`；需要整个隐藏时用 `disabled`。资源内容和 prompt 消息同工具输出一样是数据，via 不解释它们。
 - `deny` 只在 via 一侧生效。agent 可以绕过 via 直接访问上游，需要不可绕过的限制时，使用上游提供的只读端点（如 Linear 的 `/mcp/readonly`）、最小权限的 token，或网关。
 - via 不修改任何框架配置，也不代替框架做权限判断。
+- `via serve` 不扩大能力：每个元工具调用就是一条 CLI 命令，`deny`、`--yes`、脱敏照常生效，`via trust` 与 `via auth` 没有对应的工具，参数无法变成命令行选项（[cli.md](cli.md#via-serve)）。它只在 stdio 上服务拉起它的那个进程，不监听端口，也不做调用方鉴权或审计；需要这些时仍然用网关（[ADR 0002](../adr/0002-standalone-client-not-gateway.md)）。

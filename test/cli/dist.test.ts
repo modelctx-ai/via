@@ -4,6 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { featuresOf, FEATURES } from '../../scripts/lib/chunk-features';
 import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, homeEnv, startFixtureServer } from './helpers';
@@ -156,6 +159,40 @@ describe('built dist/via.js', () => {
       expect(stdio).toMatchObject({ code: 0, stdout: 'job done\n' });
       expect(stdio.stderr).toContain('progress: 1/2 halfway');
     } finally {
+      await srv.close();
+      rmSync(join(home, '.config'), { recursive: true, force: true });
+    }
+  });
+
+  // `via serve` over a real stdio pipe: the SDK server chunk loads, nothing but MCP messages reaches
+  // stdout, calls go through to the upstream server, and closing stdin ends the process.
+  it('serves the meta-tools over stdio and exits when the client goes away', async () => {
+    const srv = await startFixtureServer({ token: FAKE_TOKEN });
+    const client = new Client({ name: 'dist-test', version: '0.0.0' });
+    try {
+      writeUserConfig(ghConfig(srv.url));
+      const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: [bin, 'serve'],
+        cwd: home,
+        env: { ...homeEnv(home), GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1' },
+        stderr: 'pipe',
+      });
+      let stderr = '';
+      transport.stderr?.on('data', (c: Buffer) => (stderr += c.toString('utf8')));
+      await client.connect(transport);
+      expect((await client.listTools()).tools).toHaveLength(7);
+      const r = (await client.callTool({ name: 'via_call', arguments: { tool: 'gh/issue:read', args: { owner: 'acme', repo: 'api', issue_number: 3, method: 'get' } } })) as CallToolResult;
+      expect(r.isError).toBeUndefined();
+      expect(r.content[0]).toEqual({ type: 'text', text: 'number: 3\ntitle: Support OAuth DCR\nstate: open\n' });
+      // The SDK ends stdin, waits up to 2 s for the process to exit, then sends SIGTERM: exiting
+      // within that window shows the end of stdin is what stopped it.
+      const started = Date.now();
+      await client.close();
+      expect(Date.now() - started).toBeLessThan(1500);
+      expect(stderr).toBe('');
+    } finally {
+      await client.close();
       await srv.close();
       rmSync(join(home, '.config'), { recursive: true, force: true });
     }

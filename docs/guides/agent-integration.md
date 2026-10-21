@@ -94,6 +94,24 @@ provider 列表就是 server 名字本身，按字母序，不带任何分类或
 
 这行只有几十个 token，却能让 agent 一开始就知道有哪些 server 可用，省掉一次盲目的 `find`。
 
+## 没有 shell 的 agent
+
+Claude Desktop、IDE 的聊天面板这类 agent 不能执行命令，只能挂 MCP server。给它们只挂一个 `via serve`，其余 server 从框架里移除、交给 via：
+
+```json
+{
+  "mcpServers": {
+    "via": { "command": "via", "args": ["serve"] }
+  }
+}
+```
+
+没有全局安装时可以写成 `"command": "npx", "args": ["-y", "@modelctx-ai/via", "serve"]`。via 读框架配置时会认出这一条是它自己，不会把它当作 server 再拉起一次（`via servers` 里有一条 info 说明）。
+
+agent 看到的是七个元工具（`via_browse`、`via_find`、`via_call`、`via_more`、`via_resources`、`via_read`、`via_prompts`，约 730 token），用法与命令行一一对应，输出也完全相同，见 [cli.md](../spec/cli.md#via-serve)。`via trust` 与 `via auth login` 没有对应的工具，仍然要你在终端里运行。框架从哪个目录拉起 `via serve`，项目级配置就按哪个目录查找，与在那里运行 `via` 相同。
+
+有 shell 的 agent 不需要 `via serve`：直接用命令行，上下文里只有 `via prompt` 的说明块，比七个工具定义更小。
+
 ## 迁移路径
 
 1. 安装 via，运行 `via doctor`：确认所有 server 在 via 里可用、鉴权已补齐。

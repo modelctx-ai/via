@@ -153,6 +153,12 @@ via prompt --check AGENTS.md     # 块过期时退出码 1，可放进 CI
 
 块里先说明 via 是什么，再要求 agent 需要外部工具时优先用 `via`，而不是它已经挂载的 MCP 工具。这份说明只维护一处：Claude Code 可以在 CLAUDE.md 里用 `@AGENTS.md` 引入，不必再攒一份。
 
+没有 shell 的 agent（Claude Desktop、IDE 聊天面板）改为只挂一个 `via serve`，拿到七个元工具（`via_browse`、`via_find`、`via_call` 等，约 730 token），行为与命令行完全一致：
+
+```json
+{ "mcpServers": { "via": { "command": "via", "args": ["serve"] } } }
+```
+
 详细步骤见[快速上手](docs/guides/getting-started.md)与[与 agent 框架集成](docs/guides/agent-integration.md)。
 
 ## 常用命令
@@ -167,6 +173,7 @@ via prompt --check AGENTS.md     # 块过期时退出码 1，可放进 CI
 | `via resources` · `via read` · `via prompts`       | MCP resources 与 prompts                                        |
 | `via auth login\|status\|logout`                   | OAuth 登录与状态                                                |
 | `via trust`                                        | 放行项目级 `.via.yaml` 里的命令与端点                           |
+| `via serve`                                        | 以 stdio MCP server 运行，向没有 shell 的 agent 提供七个元工具  |
 | `via doctor` · `via servers` · `via sync`          | 诊断、server 列表、刷新工具缓存                                 |
 
 语法、全局选项与退出码见[命令规范](docs/spec/cli.md)和[输出规范](docs/spec/output.md)；更多组合写法见[组合用法](docs/guides/recipes.md)。
