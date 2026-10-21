@@ -10,7 +10,7 @@ describe('runtime detection', () => {
   });
 
   it('does not mistake a script for it, under Node or under Bun', () => {
-    expect(isCompiledBinary('/usr/lib/node_modules/@modelctx/via/dist/via.js', undefined)).toBe(false);
+    expect(isCompiledBinary('/usr/lib/node_modules/@modelctx-ai/via/dist/via.js', undefined)).toBe(false);
     expect(isCompiledBinary('/home/me/via/dist/via.js', '1.4.2')).toBe(false);
     expect(isCompiledBinary('/$bunfs/root/via', undefined)).toBe(false);
     expect(isCompiledBinary(undefined, '1.4.2')).toBe(false);

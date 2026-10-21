@@ -25,6 +25,6 @@ Examples of what we want to hear about:
 
 ## Supported versions · 支持的版本
 
-via has not had a release yet. Fixes go to the `main` branch.
+Security fixes go to the latest 0.x release. Upgrade with `npm install -g @modelctx-ai/via@latest`.
 
-via 尚未发布正式版本，修复合入 `main` 分支。
+安全修复只发在最新的 0.x 版本上，用 `npm install -g @modelctx-ai/via@latest` 升级。

@@ -12,7 +12,8 @@ via 把任意 MCP server 的工具变成 agent 按需发现、按需调用的命
 [![CI](https://github.com/modelctx-ai/via/actions/workflows/ci.yml/badge.svg)](https://github.com/modelctx-ai/via/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/modelctx-ai/via?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-339933?logo=nodedotjs&logoColor=white)](package.json)
-[![Status](https://img.shields.io/badge/status-pre--release-orange)](docs/roadmap.md)
+[![npm](https://img.shields.io/npm/v/@modelctx-ai/via?color=f76b15&logo=npm)](https://www.npmjs.com/package/@modelctx-ai/via)
+[![npm downloads](https://img.shields.io/npm/dm/@modelctx-ai/via?color=f76b15)](https://www.npmjs.com/package/@modelctx-ai/via)
 [![GitHub stars](https://img.shields.io/github/stars/modelctx-ai/via?style=flat&logo=github&color=yellow)](https://github.com/modelctx-ai/via/stargazers)
 
 [概览](#概览) · [安装](#安装) · [快速上手](#快速上手) · [文档](docs/README.md) · [基准](bench/results/0.1.md) · [路线图](docs/roadmap.md)
@@ -26,7 +27,7 @@ via 把任意 MCP server 的工具变成 agent 按需发现、按需调用的命
 **MCP 做提供方协议，CLI 做消费方接口。** agent 框架不再挂载 MCP，也不再把成百上千个工具的 schema 塞进上下文；需要工具时，agent 在 shell 里用 `via` 逐级发现、查看用法、调用，鉴权和输出格式由 via 统一处理。
 
 > [!NOTE]
-> 路线图 0.1–0.3 已经实现（直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行），但还没有发布到 npm，需要[从源码安装](#安装)。版本号仍是 `0.0.0`，1.0 之前命令与输出可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
+> 0.3.1 已发布（`npm install -g @modelctx-ai/via`）。这个版本包含路线图 0.1–0.3：直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行。1.0 之前命令与输出可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
 
 ## 为什么需要 via
 
@@ -95,15 +96,13 @@ via linear issue:create --team ENG --title "$title" --description "From acme/api
 需要 Node.js 20 或更新版本（推荐 22）。
 
 ```bash
-git clone https://github.com/modelctx-ai/via.git
-cd via
-npm ci
-npm run build
-npm link          # 把 via 链接到全局 PATH
+npm install -g @modelctx-ai/via
 via --version
 ```
 
-发布之后可以用 `npm install -g @modelctx/via`，或从 GitHub Release 下载不依赖 Node.js 的单文件可执行版本。各平台的说明（含 Windows 与单文件版本）见[快速上手](docs/guides/getting-started.md#1-安装)。
+不依赖 Node.js 的单文件可执行版本在 [GitHub Release](https://github.com/modelctx-ai/via/releases/latest)。各平台的说明（含 Windows 与单文件版本）见[快速上手](docs/guides/getting-started.md#1-安装)。
+
+开发 via 本身：`git clone https://github.com/modelctx-ai/via.git && cd via && npm ci && npm run build && npm link`。
 
 ## 快速上手
 

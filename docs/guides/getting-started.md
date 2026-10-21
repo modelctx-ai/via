@@ -1,14 +1,16 @@
 # 快速上手
 
-> via 尚未发布到 npm，发布前请按下面「从源码安装」操作。命令与输出以 [规范](../spec/) 为准。
+> 当前版本 0.3.1。命令与输出以 [规范](../spec/) 为准，1.0 之前可能调整。
 
 ## 1. 安装
 
+需要 Node.js 20 或更新版本（推荐 22）。
+
 ```bash
-npm install -g @modelctx/via
+npm install -g @modelctx-ai/via
 ```
 
-从源码安装（发布前唯一的方式，需要 Node.js 20+）：
+从源码安装（开发 via 本身时，需要 Node.js 20+）：
 
 ```bash
 git clone https://github.com/modelctx-ai/via.git && cd via

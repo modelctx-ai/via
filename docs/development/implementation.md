@@ -87,7 +87,7 @@ npm run build:bin -- --target darwin-arm64,linux-x64-musl
 
 - `test/cli/bin.test.ts`：装有 `bun` 时构建一次本机可执行文件，跑冒烟集（`--version`、`-h`、根视图与调用、stdio server、daemon 的拉起与停止、`.env` 不被读取、钥匙串可用与不可用、OAuth 回环登录、`batch`）；没有 `bun` 时整组跳过。设 `VIA_REQUIRE_BUN=1`（CI 里设了）则「没有 bun」本身是失败。`test/runtime.test.ts`、`test/bin-targets.test.ts` 不需要 Bun。
 - CI（`.github/workflows/ci.yml` 的 `binary` 任务）：Ubuntu 与 macOS 上安装固定版本的 Bun，构建本机版本，跑上述测试，并把产物拷到仓库外、用空 HOME 运行 `--version`、根视图和 `doctor`。
-- 发布（`.github/workflows/release.yml`）：只在 `v*` 标签或手动触发时运行。各平台在原生 runner 上构建，Linux x64/arm64 与 macOS arm64 跑冒烟测试；Intel macOS、Windows、musl 只构建。汇总后生成 `SHA256SUMS` 并上传到同名 Release。
+- 发布（`.github/workflows/release.yml`）：只在 `v*` 标签或手动触发时运行。各平台在原生 runner 上构建，Linux x64/arm64 与 macOS arm64 跑冒烟测试；Intel macOS、Windows、musl 只构建。汇总后生成 `SHA256SUMS` 并上传到同名 Release。`v*` 标签另外把 `@modelctx-ai/via` 发到 npm：先跑 typecheck 和测试，核对 `package.json` 版本与标签一致（`v0.3.0` 对应 `0.3.0`），再 `npm publish`。登录用 GitHub Actions 的 OIDC trusted publisher（npm 上登记的工作流文件名是 `release.yml`，仓库 `modelctx-ai/via`），不存放长期 token；公开仓库会自动附带 provenance。`dist/` 不入库，`prepack` 在打包前构建。手动触发只重做单文件产物，不重复发 npm。
 - 没有做的：x64 的 `baseline` 构建（给没有 AVX2 的 CPU）、macOS 的签名与公证、Windows 签名、压缩分发（gzip 约 42 MiB）。需要时在 `bin-targets.ts` 里加一行。
 
 ## 代码结构

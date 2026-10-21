@@ -6,8 +6,17 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-21
+
 ### Changed
 
+- npm 包名由 `@modelctx/via` 改为 `@modelctx-ai/via`（[ADR 0015](docs/adr/0015-npm-scope-modelctx-ai.md)）。npm 上实际创建的组织是 `modelctx-ai`，`@modelctx` 这个 scope 不存在，所以 0.3.0 的 `npm publish` 返回 404。命令名和二进制名仍是 `via`。不涉及动词表与规范写法。
+
+## [0.3.0] - 2026-10-21
+
+### Changed
+
+- 发布 0.3.0：版本号从占位的 `0.0.0` 定为 `0.3.0`。`v*` 标签的 `release.yml` 在上传单文件可执行之外，把 `@modelctx/via` 发到 npm（GitHub Actions trusted publisher，工作流文件名 `release.yml`，OIDC；公开仓库自动附带 provenance）。`dist/` 仍不入库，`prepack` 在 `npm publish` 前执行 `npm run build`。`repository` 指向 `github.com/modelctx-ai/via`。两份 README、快速上手和 CONTRIBUTING 的安装说明改为 `npm install -g @modelctx/via`。不涉及动词表与规范写法。
 - `via prompt` 改为向文档注入一个带标记的说明块（[ADR 0013](docs/adr/0013-agent-instructions-are-a-marked-block.md)，`<!-- via:begin … -->` 到 `<!-- via:end -->`）。块内先说 via 是什么，再要求 agent 需要外部服务时优先用 `via`，而不是它已经挂载的 MCP 工具；标题从 `#` 降为 `##`，避免抢走宿主文档的标题层级。`--out` 不再要求 `--yes` 覆盖整份文件：文件不存在时创建，已有标记块时只替换两个标记之间的内容，没有标记时追加到末尾（前面空一行），标记不成对或多出时拒绝并退出码 5。`--replace` 保留旧的整份覆盖行为（仍需 `--yes`）；新增 `--check <文件>`（过期退出码 1，可进 CI），`--out` 与 `--check` 互斥，`--replace` 必须配 `--out`（否则退出码 2）。代价是说明从约 150 token 长到约 175 token、标记约 25 token，0.1 基准里的 157 token 相应上升。块内的 provider 列表按字母序列出 server 名字本身，不带分类或资源注解：分组长什么样是 via 自己推断的，会随规则调整而变，不该写进给 agent 的说明里，agent 需要细节时跑 `via <provider>`。这行只随 provider 数量增长，不受单个 server 的资源数影响。cli.md 的 `via prompt`、agent-integration.md 的「via prompt」与「迁移路径」、快速上手的 `via prompt` 示例、两份 README 的第 4 步随之更新；`renderPrompt` 只读目录里的 provider 名字，不再依赖 `renderRoot`。不涉及动词表与单数化规则，规范写法不受影响。
 - 性能（0.1/0.2 没有达到的冷启动、`find` 与 daemon 内存目标；数据与重新标定的建议见 [bench/results/perf-0.3-cold-start.md](bench/results/perf-0.3-cold-start.md)）。输出、退出码、`next:` 提示与命名规范都不变，没有动词表或单数化规则的改动，所以没有规范名受影响：
   - 浏览类命令（`via`、`via <provider>`、`via find`，缓存热、无 daemon）比同机 `node -e 0` 多 44–51 ms（改动前 72–102 ms），墙钟约 74–80 ms；一千个工具上 `find` 的库路径（新进程）81 ms 降到 21 ms；daemon 建立 HTTP 与 stdio 会话后 89–92 MiB 降到 76–79 MiB。

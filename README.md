@@ -12,7 +12,8 @@ so tool schemas stay out of the context window.
 [![CI](https://github.com/modelctx-ai/via/actions/workflows/ci.yml/badge.svg)](https://github.com/modelctx-ai/via/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/modelctx-ai/via?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-339933?logo=nodedotjs&logoColor=white)](package.json)
-[![Status](https://img.shields.io/badge/status-pre--release-orange)](docs/roadmap.md)
+[![npm](https://img.shields.io/npm/v/@modelctx-ai/via?color=f76b15&logo=npm)](https://www.npmjs.com/package/@modelctx-ai/via)
+[![npm downloads](https://img.shields.io/npm/dm/@modelctx-ai/via?color=f76b15)](https://www.npmjs.com/package/@modelctx-ai/via)
 [![GitHub stars](https://img.shields.io/github/stars/modelctx-ai/via?style=flat&logo=github&color=yellow)](https://github.com/modelctx-ai/via/stargazers)
 
 [Quick look](#a-quick-look) · [Install](#install) · [Getting started](#getting-started) · [Docs](docs/README.md) · [Benchmark](bench/results/0.1.md) · [Roadmap](docs/roadmap.md)
@@ -26,7 +27,7 @@ English | [简体中文](README.zh-CN.md)
 **MCP for providers, CLI for consumers.** Agent frameworks stop mounting MCP servers and stop loading hundreds of tool schemas into the context window. When an agent needs a tool, it uses `via` in the shell to browse, read the usage, and call it. via handles authentication and output formatting for every server the same way.
 
 > [!NOTE]
-> Roadmap 0.1–0.3 is implemented (direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, single-file executables), but via is not on npm yet, so you need to [install from source](#install). The version is still `0.0.0`; commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior. The documentation under `docs/` is written in Chinese.
+> 0.3.1 is released (`npm install -g @modelctx-ai/via`). Roadmap 0.1–0.3 is in this version: direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, and single-file executables. Commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior. The documentation under `docs/` is written in Chinese.
 
 ## Why via
 
@@ -95,15 +96,13 @@ via linear issue:create --team ENG --title "$title" --description "From acme/api
 Requires Node.js 20 or later (22 recommended).
 
 ```bash
-git clone https://github.com/modelctx-ai/via.git
-cd via
-npm ci
-npm run build
-npm link          # puts via on your PATH
+npm install -g @modelctx-ai/via
 via --version
 ```
 
-Once released, via will be available through `npm install -g @modelctx/via` and as single-file executables on GitHub Releases that do not need Node.js. Platform notes, including Windows and the single-file builds, are in the [getting-started guide](docs/guides/getting-started.md#1-安装).
+Single-file executables that do not need Node.js are attached to the [GitHub Release](https://github.com/modelctx-ai/via/releases/latest). Platform notes, including Windows and those builds, are in the [getting-started guide](docs/guides/getting-started.md#1-安装).
+
+To work on via itself: `git clone https://github.com/modelctx-ai/via.git && cd via && npm ci && npm run build && npm link`.
 
 ## Getting started
 
