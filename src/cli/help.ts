@@ -23,6 +23,7 @@ commands:
 
 options:
   -o text|json|raw  --full  --all  --yes  --dry-run  --no-validate  --timeout <seconds>  -h
+  --schema-snapshot <file>  --schema-mode compatible|strict
 
 docs: docs/spec/cli.md
 `;

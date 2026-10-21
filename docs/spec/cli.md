@@ -243,9 +243,11 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `--dry-run` | 只解析并打印将要发出的调用，不执行（输出格式见下） |
 | `--no-validate` | 跳过本地 schema 校验（[arguments.md](arguments.md#schema-不可靠时)）；`--yes` 与 `deny` 照常生效 |
 | `--timeout <秒>` | 覆盖本次调用的超时 |
-| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法 |
+| `--schema-snapshot <文件>` | 调用工具或查看其用法之前，把工具当前的 `inputSchema`/`outputSchema` 与保存的快照比较；不兼容时不发调用，退出码 2（[arguments.md](arguments.md#schema-快照校验)） |
+| `--schema-mode compatible\|strict` | 快照比较的松紧，默认 `compatible` |
+| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式） |
 
-全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`。值不合法时退出码 2。
+全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
 
 工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）；`--p.` 开头的参数不会被当作全局选项。
 

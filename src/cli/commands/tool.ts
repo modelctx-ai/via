@@ -16,8 +16,10 @@ import type { ToolResult } from '../../render/types';
 import { formatToolHelp, parseToolArgs, validateOutput, type ParsedToolArgs, type ToolArgsContext, type ToolArgsIO } from '../args';
 import { toErrorInfo, type App, type Listing } from '../app';
 import { matchingDeny, type ProviderEntry } from '../directory';
-import { shellWords } from '../../render/shell';
-import { fail } from '../failure';
+import { shellWords, visibleText } from '../../render/shell';
+import { alignRows } from '../../render/width';
+import { CliFailure, fail, usageFailure } from '../failure';
+import { compareSnapshot, readSnapshot, toolDetail, type SchemaChange } from '../args/snapshot';
 
 /** A cached schema older than this is refreshed once when validation fails (arguments.md, "schema 不可靠时"). */
 export const SCHEMA_STALE_MS = 5 * 60 * 1000;
@@ -45,18 +47,103 @@ export function argsIo(app: App): ToolArgsIO {
 
 const withNewline = (s: string): string => (s.endsWith('\n') ? s : `${s}\n`);
 
-/** `via <provider> <resource>:<verb> -h` */
-export function showToolHelp(app: App, target: ToolTarget): number {
+/**
+ * `via <provider> <resource>:<verb> -h`; with `-o json` the tool detail (`ref`, `rawName`, both
+ * schemas), which is also the file `--schema-snapshot` reads back (arguments.md, "schema 快照校验").
+ */
+export async function showToolHelp(app: App, initial: ToolTarget): Promise<number> {
+  const target = await checkSchemaSnapshot(app, initial);
+  if (app.options.format === 'json') {
+    const { tool } = target;
+    const detail = toolDetail(tool.def, tool.ref, { readOnly: tool.readOnly, destructive: tool.destructive });
+    app.out(`${JSON.stringify(await app.redactValue(detail), null, 2)}\n`);
+    return ExitCode.Ok;
+  }
   app.out(withNewline(formatToolHelp(target.tool.def, argsContext(target.tool))));
   return ExitCode.Ok;
 }
 
+// Schema snapshot -----------------------------------------------------------------------------
+
+/** The changes listed in the error and in the compatible-change warning. */
+const CHANGES_SHOWN = 8;
+
+async function loadSnapshot(app: App, file: string, tool: CatalogTool) {
+  const shown = visibleText(file);
+  let text: string;
+  try {
+    text = await argsIo(app).readFile(file);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    throw usageFailure(`--schema-snapshot cannot read ${shown}: ${code === 'ENOENT' ? 'no such file' : code === 'EISDIR' ? 'it is a directory' : visibleText(String((error as Error).message).split('\n')[0]!.slice(0, 120))}`, `via ${shellWords(tool.ref)} -h -o json`);
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    throw usageFailure(`--schema-snapshot ${shown} is not JSON: ${visibleText((error as Error).message.slice(0, 120))}`, `via ${shellWords(tool.ref)} -h -o json`);
+  }
+  const snapshot = readSnapshot(value);
+  if (typeof snapshot === 'string') throw usageFailure(`--schema-snapshot ${shown} is not a tool snapshot: ${snapshot}`, `via ${shellWords(tool.ref)} -h -o json`);
+  if (snapshot.rawName !== undefined && snapshot.rawName !== tool.rawName) {
+    throw usageFailure(`--schema-snapshot ${shown} is the snapshot of ${visibleText(snapshot.rawName.slice(0, 80))}, not of ${tool.ref}`, `via ${shellWords(tool.ref)} -h -o json`);
+  }
+  return snapshot;
+}
+
+/**
+ * `--schema-snapshot <file>`: compare the tool's schemas with the saved ones before the call is sent
+ * or the usage shown. A cached tool list older than five minutes is refreshed first, since the point
+ * is to see what the server offers now. Returns the target to use (the refreshed one when the list
+ * was fetched); throws exit code 2 when the tool no longer fits the snapshot.
+ */
+export async function checkSchemaSnapshot(app: App, target: ToolTarget): Promise<ToolTarget> {
+  const file = app.options.schemaSnapshot;
+  if (file === undefined) return target;
+  const snapshot = await loadSnapshot(app, file, target.tool);
+  let current = target;
+  if (app.io.now() - target.listing.fetchedAt > SCHEMA_STALE_MS) {
+    const listing = await app.listing(target.entry, { refresh: true }).catch(() => undefined);
+    if (listing === undefined) {
+      app.err(`warning: could not refresh the tool list of ${target.entry.name}; the snapshot was compared with the cached schema\n`);
+    } else {
+      const fresh = await refreshedTarget(app, target, listing);
+      if (!fresh) throw fail(ExitCode.NotFound, `${target.tool.ref} is no longer offered by ${target.entry.name}`, `via ${shellWords(target.tool.provider)}`);
+      current = fresh;
+    }
+  }
+  const { tool } = current;
+  const changes = compareSnapshot(snapshot, tool.def, app.options.schemaMode);
+  const breaking = changes.filter((c) => c.breaking);
+  if (breaking.length > 0) throw new CliFailure(snapshotError(tool.ref, visibleText(file), app.options.schemaMode, breaking, changes.length - breaking.length));
+  if (changes.length > 0) {
+    const listed = changes.slice(0, 3).map((c) => `${c.path || c.side} ${c.message}`);
+    app.err(await app.redactText(`warning: ${tool.ref} changed compatibly since the snapshot: ${listed.join('; ')}${changes.length > 3 ? `; … ${changes.length - 3} more` : ''}\n`));
+  }
+  return current;
+}
+
+function snapshotError(ref: string, file: string, mode: string, breaking: readonly SchemaChange[], compatible: number): ErrorInfo {
+  const rows = breaking.slice(0, CHANGES_SHOWN).map((c) => [`  ${c.side}`, c.path || '(schema)', c.message]);
+  const lines = alignRows(rows, 2);
+  if (breaking.length > CHANGES_SHOWN) lines.push(`  … ${breaking.length - CHANGES_SHOWN} more`);
+  if (compatible > 0) lines.push(`  (${compatible} more change${compatible === 1 ? '' : 's'} that ${compatible === 1 ? 'is' : 'are'} compatible)`);
+  return {
+    code: ExitCode.Usage,
+    message: `${ref}: ${breaking.length} breaking change${breaking.length === 1 ? '' : 's'} against ${file} (${mode}); nothing was sent`,
+    lines,
+    next: `via ${shellWords(ref)} -h -o json`,
+    details: breaking.map((c) => ({ side: c.side, path: c.path, rule: c.kind, message: c.message })),
+  };
+}
+
 /** `via <provider> <resource>:<verb> [args]`: parse the command-line arguments, run the call, print the outcome. */
 export async function callTool(app: App, initial: ToolTarget, argv: readonly string[]): Promise<number> {
+  const target = await checkSchemaSnapshot(app, initial);
   const outcome = await executeCall(
     app,
     {
-      target: initial,
+      target,
       parseArgs: (tool) =>
         parseToolArgs(argv, tool.def, argsContext(tool), { io: argsIo(app), validate: !app.options.noValidate, redact: app.redact, compile: app.compile }),
     },

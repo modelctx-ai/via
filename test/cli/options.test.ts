@@ -7,20 +7,30 @@ import { extractGlobals, parseLocal } from '../../src/cli/options';
 describe('extractGlobals', () => {
   it('defaults', () => {
     expect(extractGlobals([])).toEqual({
-      options: { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, help: false },
+      options: { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, help: false, schemaMode: 'compatible' },
       rest: [],
     });
   });
 
   it('takes every global option from any position and keeps the rest in order', () => {
     const { options, rest } = extractGlobals(['gh', '--yes', 'issue:list', '-o', 'json', '--owner', 'a', '--timeout', '2.5', '--full', '--all', '--dry-run', '--no-validate', '-h']);
-    expect(options).toEqual({ format: 'json', full: true, all: true, yes: true, dryRun: true, noValidate: true, timeoutMs: 2500, help: true });
+    expect(options).toEqual({ format: 'json', full: true, all: true, yes: true, dryRun: true, noValidate: true, timeoutMs: 2500, help: true, schemaMode: 'compatible' });
     expect(rest).toEqual(['gh', 'issue:list', '--owner', 'a']);
   });
 
   it('accepts -o=json and --timeout=5 and --help', () => {
     const { options } = extractGlobals(['-o=raw', '--timeout=5', '--help']);
     expect(options).toMatchObject({ format: 'raw', timeoutMs: 5000, help: true });
+  });
+
+  it('takes --schema-snapshot and --schema-mode, with a separate value or =', () => {
+    expect(extractGlobals(['gh', 'x:y', '--schema-snapshot', 'a.json', '--schema-mode', 'strict', '--n', '1']).options).toMatchObject({ schemaSnapshot: 'a.json', schemaMode: 'strict' });
+    const eq = extractGlobals(['--schema-snapshot=b.json', '--schema-mode=compatible']);
+    expect(eq.options).toMatchObject({ schemaSnapshot: 'b.json', schemaMode: 'compatible' });
+    expect(extractGlobals(['gh', '--schema', 'x']).rest).toEqual(['gh', '--schema', 'x']);
+    expect(() => extractGlobals(['--schema-mode', 'loose'])).toThrow(CliFailure);
+    expect(() => extractGlobals(['--schema-snapshot'])).toThrow(CliFailure);
+    expect(() => extractGlobals(['--schema-mode'])).toThrow(CliFailure);
   });
 
   it('leaves --p.<name> for the tool, even when it is spelled like a global', () => {

@@ -126,6 +126,8 @@ next: via auth login linear
 
   `arg` 是命令行写法，`path` 是 JSON Pointer，`rule` 是失败的 schema 关键字（`required`、`type`、`enum`、`maximum`、`pattern`、`additionalProperties` 等，JSON 解析失败为 `json`）。`got` 遵循与文本输出相同的截断与脱敏规则。
 
+`-h` 加 `-o json` 输出工具详情（`tool`、`rawName`、`description`、`readOnly`、`destructive`、`inputSchema`、`outputSchema`），格式与用途见 [arguments.md](arguments.md#schema-快照校验)；它是 `--schema-snapshot` 读取的快照文件。
+
 ## 可粘贴的命令行
 
 via 打印的命令行是给人和 agent 复制粘贴的：`next:` 提示（含元信息行里的 `next:`）、浏览视图末尾的 `→ via …` 提示、`did you mean:` 与 `candidates:` 列表、`usage:` 行和 `-h` 的调用示例、`alias:` 行，以及 `via trust` 显示的 stdio 命令行。这些命令行里夹着不是 via 写的文字：server 提供的名字（原始工具名、prompt 名、参数名）、枚举值、默认值、URI，和用户输入（拼错的名字、文件路径）。任何一处没有引用，粘贴就可能展开变量、执行命令或多出一行（[apify/mcpc#450](https://github.com/apify/mcpc/pull/450) 修的就是这类问题：工具名里缺少反斜杠转义，粘贴提示的命令会被执行）。
@@ -154,7 +156,7 @@ via 打印的命令行是给人和 agent 复制粘贴的：`next:` 提示（含�
 | --- | --- |
 | 0 | 成功（含 `--dry-run`） |
 | 1 | 工具返回 `isError` |
-| 2 | 参数或用法错误 |
+| 2 | 参数或用法错误；`--schema-snapshot` 比较出不兼容的变化（不发调用，[arguments.md](arguments.md#schema-快照校验)） |
 | 3 | 工具或 server 不存在 |
 | 4 | 需要鉴权或鉴权失败 |
 | 5 | 被拒绝：deny 规则命中，危险操作缺少 `--yes`，或项目级配置未经 `via trust` 确认（`via trust` 本身没有得到确认时同样是 5） |
