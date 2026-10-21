@@ -149,6 +149,7 @@ via find "create issue"               # 跨 provider 搜索
 ```bash
 via prompt --out AGENTS.md       # 写进块；文件里已有块时只刷新它
 via prompt --check AGENTS.md     # 块过期时退出码 1，可放进 CI
+via prompt --skill --out <目录>/via/SKILL.md   # 改写成 SKILL.md，给按技能目录加载说明的 agent
 ```
 
 块里先说明 via 是什么，再要求 agent 需要外部工具时优先用 `via`，而不是它已经挂载的 MCP 工具。这份说明只维护一处：Claude Code 可以在 CLAUDE.md 里用 `@AGENTS.md` 引入，不必再攒一份。

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BLOCK_BEGIN, BLOCK_END, PROMPT_INSTRUCTIONS, PROMPT_WIDTH, blockStatus, renderPrompt, renderPromptBlock, spliceBlock } from '../../src/cli/prompt';
+import { parse as parseYaml } from 'yaml';
+import { BLOCK_BEGIN, BLOCK_END, PROMPT_INSTRUCTIONS, PROMPT_WIDTH, SKILL_MARKER, blockStatus, isViaSkill, renderPrompt, renderPromptBlock, renderSkill, skillStatus, spliceBlock } from '../../src/cli/prompt';
 import { catalogFixture } from '../helpers/fixtures';
 
 /** The provider list is the last paragraph of the block. */
@@ -137,5 +138,50 @@ describe('blockStatus', () => {
     expect(blockStatus('# notes\n', BLOCK)).toBe('missing');
     expect(blockStatus(`# notes\n\n${BLOCK}\n`, BLOCK)).toBe('current');
     expect(blockStatus(`# notes\n\n${BLOCK_BEGIN}\nold\n\n${BLOCK_END}\n`, BLOCK)).toBe('stale');
+  });
+});
+
+describe('renderSkill', () => {
+  const skill = renderSkill({ catalog: catalogFixture('tools') });
+
+  it('is a SKILL.md: valid YAML frontmatter with name, description and allowed-tools', () => {
+    const match = /^---\n([\s\S]*?)\n---\n\n/.exec(skill);
+    expect(match).not.toBeNull();
+    const front = parseYaml(match![1]!) as Record<string, unknown>;
+    expect(front).toEqual({
+      name: 'via',
+      description: expect.stringMatching(/^Use the via CLI to find and call tools of the MCP servers configured on this machine/),
+      'allowed-tools': 'Bash(via:*)',
+    });
+    expect(String(front.description).length).toBeLessThan(400);
+  });
+
+  it('carries exactly the text of the marked block, without its markers', () => {
+    const text = renderPrompt({ catalog: catalogFixture('tools') });
+    expect(skill.endsWith(`\n\n${SKILL_MARKER}\n\n${text}`)).toBe(true);
+    expect(skill).not.toContain(BLOCK_BEGIN);
+    expect(skill).not.toContain(BLOCK_END);
+    expect(skill).not.toContain('\n\n\n');
+  });
+
+  it('matches the snapshot', async () => {
+    await expect(`${skill}\n`).toMatchFileSnapshot('./__snapshots__/prompt-skill.txt');
+  });
+
+  it('is recognised as one via wrote, and an ordinary skill file is not', () => {
+    expect(isViaSkill(skill)).toBe(true);
+    expect(isViaSkill(skill.replace(/\n/g, '\r\n'))).toBe(true);
+    expect(isViaSkill('---\nname: via\ndescription: mine\n---\n\nbody\n')).toBe(false);
+    expect(isViaSkill(skill.replace('name: via', 'name: other'))).toBe(false);
+    expect(isViaSkill(skill.replace(SKILL_MARKER, ''))).toBe(false);
+    expect(isViaSkill(`${SKILL_MARKER}\n${skill.slice(skill.indexOf('---\n\n'))}`)).toBe(false);
+  });
+
+  it('tells a missing, foreign, stale and current file apart', () => {
+    expect(skillStatus(undefined, skill)).toBe('missing');
+    expect(skillStatus('  \n', skill)).toBe('missing');
+    expect(skillStatus('# my notes\n', skill)).toBe('foreign');
+    expect(skillStatus(`${skill}\n`, skill)).toBe('current');
+    expect(skillStatus(skill.replace('Providers: ', 'Providers: gone · '), skill)).toBe('stale');
   });
 });

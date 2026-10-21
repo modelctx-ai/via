@@ -149,6 +149,7 @@ Put the instructions into the AGENTS.md you already have — via adds one marked
 ```bash
 via prompt --out AGENTS.md       # creates the block, or refreshes the one already in the file
 via prompt --check AGENTS.md     # exit 1 when the block is out of date; for CI
+via prompt --skill --out <dir>/via/SKILL.md   # a SKILL.md instead, for agents that load skills from a directory
 ```
 
 The block says what via is and asks the agent to prefer `via` over the MCP tools it already has. Keep one copy of it: Claude Code can pull that file in from CLAUDE.md with `@AGENTS.md` instead of keeping a second one.
