@@ -84,6 +84,8 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
         return (await import('./commands/mcp-data')).readCommand(app, argv);
       case 'prompts':
         return (await import('./commands/mcp-data')).promptsCommand(app, argv);
+      case 'serve':
+        return (await import('./commands/serve')).serveCommand(app, argv);
     }
   }
   return (await import('./commands/provider')).providerCommand(app, words);

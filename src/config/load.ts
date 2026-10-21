@@ -11,6 +11,7 @@ import { validateLayer, type ConfigLayerData, type SourcesSetting } from './laye
 import { applyDef, canonical, newAccumulator, type Accumulator } from './merge';
 import { isPlainObject, ownEntries, type OriginedDef, type ServerDef } from './model';
 import { normalizeFrameworkEntry } from './normalize';
+import { startsViaServe } from './self';
 import { parseConfigText, resolvePointer, ParseFailure } from './parse';
 import { ParseCache } from './parse-cache';
 import { decodeText } from '../platform/text';
@@ -508,6 +509,10 @@ async function readFrameworks(
         const { def, diagnostics: found } = normalizeFrameworkEntry(name, entry, source.path, source.dollarVariables ? { dollarVariables: true } : {});
         diagnostics.push(...found);
         if (!def || !allowedHere(name, def, source.origin, diagnostics)) continue;
+        if (startsViaServe(def)) {
+          diagnostics.push({ level: 'info', code: 'self-reference', message: `servers.${name}: runs via serve, which is via itself; left out of the catalog`, file: source.path, server: name });
+          continue;
+        }
         if (own.get(name)?.origin.scope === source.origin.scope) continue;
         own.set(name, { def, origin: source.origin });
       }

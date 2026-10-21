@@ -12,6 +12,7 @@
 | **roots** | client 声明给 server 的目录列表（MCP 的 `roots` 能力）。via 默认不声明，按 server 用配置的 `roots` 字段开启。 |
 | **动作（verb）** | 从原始名拆出的动词部分，如 `create`、`create-or-update`。 |
 | **工具引用** | 定位一个工具的写法。命令行形式 `linear issue:create`，单字符串形式 `linear/issue:create`。 |
+| **元工具（meta-tool）** | `via serve` 暴露给没有 shell 的 agent 的固定工具（`via_browse`、`via_find`、`via_call` 等），每个对应一条 CLI 命令；与下游 server 的工具不同，它们不随目录变化。 |
 | **规范写法** | via 所有输出中使用的工具引用形式，由[拆分规则](../spec/naming.md)确定。 |
 | **叶子工具** | 拆不出资源或动作的工具，直接挂在 provider 下，如 `via notion search`。 |
 | **目录（catalog）** | 所有 provider 的工具、拆分结果和索引的集合，缓存在磁盘与 daemon 内存中。 |

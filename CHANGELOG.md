@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- `via serve`（路线图 c5，[ADR 0016](docs/adr/0016-via-serve-meta-tools-over-stdio.md)）：以 stdio MCP server 运行，向没有 shell 的 agent（Claude Desktop、IDE 聊天面板等）暴露七个固定的元工具 `via_browse`、`via_find`、`via_call`、`via_more`、`via_resources`、`via_read`、`via_prompts`。每次调用在进程内执行一次对应的 CLI 命令并捕获输出，所以命名、参数解析、`deny`、`--yes`、本地校验、渲染、游标与脱敏都与命令行相同；结果是 stdout 与 stderr 两段文本，`structuredContent.exitCode` 给出退出码，非 0 时 `isError`。以 `-` 开头的字符串参数和 `via_browse` 里的内置子命令名会被拒绝（退出码 2），模型无法借参数设置选项或运行 `via trust`、`via auth`。七个工具的定义约 730 token。cli.md 新增「via serve」一节，agent-integration.md 新增「没有 shell 的 agent」，愿景的适用边界、路线图与术语表随之更新，`open-questions.md` 移除该条。
+- 读取框架配置时，命令行是 `via serve` 的条目（如 `npx -y @modelctx-ai/via serve`、`/usr/local/bin/via serve`）不进入目录，`via servers` 给出 info 级诊断 `self-reference`，避免 via 拉起自己（config.md「校验与诊断」）。
+
+### Changed
+
+- `serve` 成为内置子命令的保留字。名字恰好是 `serve` 的 server 需要在配置里用 `alias` 改名，改名前不出现在任何视图里（cli.md「内置子命令」）。动词表与单数化规则没有变化，其余规范写法不受影响。
+
 ## [0.3.1] - 2026-10-21
 
 ### Changed

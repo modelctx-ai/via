@@ -161,6 +161,7 @@ search:
 - 文件不存在、无法读取或无法解析时跳过该文件并给出诊断，不影响其他来源。诊断信息不引用文件内容，避免泄露凭证。
 - `deny` 中无效的正则被忽略并报错（其余规则照常编译）。因为无效的 deny 规则意味着本应隐藏的工具会可见，诊断为 error 级，调用方应当停下来让用户修复，而不是继续运行：CLI 对任何带 error 级诊断的配置都拒绝执行命令（`via doctor`、`via servers` 除外，它们负责展示诊断），退出码 2（[cli.md](cli.md#配置错误)）。
 - `deny` 中会让 via 卡死的正则（嵌套量词等，见「deny」的正则安全）同样被忽略，诊断为 error 级 `unsafe-deny`，处理方式与无效正则相同。
+- 框架配置里命令行是 `via serve` 的 stdio 条目（`serve` 之前的某个词去掉目录与 `.exe`、`.cmd`、`.bat`、`.js`、`.mjs`、`.cjs` 扩展名后是 `via`，或是 `@modelctx-ai/via` 包名，可带 `@版本`）是 via 自己，读进目录会让 via 拉起自己。这样的条目被忽略，给出 info 级诊断 `self-reference`：`servers.<名字>: runs via serve, which is via itself; left out of the catalog`（[ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)）。
 - 加载结果同时返回全部诊断，供 `via doctor` 和 `via servers` 展示；诊断分 `error`、`warning`、`info` 三级。
 
 ## 解析缓存

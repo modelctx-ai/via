@@ -4,7 +4,7 @@
 
 ## 当前状态（0.3.1）
 
-0.1–0.3 的功能项除 c5（`via serve`，待定）外都已实现，并随 0.3.1 发布到 npm（`@modelctx-ai/via`）与 GitHub Release。两道门槛还没有正式过关：功能先于验证推进了，缺的证据列在[门槛](#门槛)里，补齐它们是 0.4 的第一件事。
+0.1–0.3 的功能项除 c5 外都已实现，并随 0.3.1 发布到 npm（`@modelctx-ai/via`）与 GitHub Release；c5（`via serve`）已在主分支实现，随下一个版本发布。两道门槛还没有正式过关：功能先于验证推进了，缺的证据列在[门槛](#门槛)里，补齐它们是 0.4 的第一件事。
 
 ```mermaid
 flowchart LR
@@ -29,13 +29,13 @@ flowchart LR
     b6["框架关闭提示数据文件"]
   end
   g2{{"门槛 2 ⏳"}}
-  subgraph v03["0.3 扩展（c5 除外）✅"]
+  subgraph v03["0.3 扩展 ✅"]
     direction TB
     c1["Bun 单文件可执行"]
     c2["可选语义检索"]
     c3["resources、prompts 与 roots"]
     c4["Windows 支持"]
-    c5["via serve（待定）"]
+    c5["via serve"]
   end
   subgraph v04["0.4 验证与打磨"]
     direction TB
@@ -56,7 +56,7 @@ flowchart LR
 | c2 可选语义检索 | 已实现 | 默认开启确定性的同义词扩展；embedding 检索由用户配置 `search.semantic` 开启，默认关闭（[ADR 0011](adr/0011-find-synonym-expansion-and-optional-embeddings.md)） |
 | c3 resources、prompts 与 roots | 已实现 | [ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) |
 | c4 Windows 支持 | 已实现 | daemon 走命名管道（[ADR 0012](adr/0012-windows-pipe-name-and-batch-files.md)），CI 在 Windows 上跑完整检查 |
-| c5 `via serve` | 未开始 | 是否要做仍是[待定问题](open-questions.md)；决定做之前先写 ADR |
+| c5 `via serve` | 已实现，未发布 | stdio MCP server，七个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[cli.md](spec/cli.md#via-serve)） |
 
 ## 门槛
 
@@ -75,7 +75,7 @@ flowchart LR
 - **d4 单文件分发**：macOS 公证与 Windows 签名；交叉编译产物在 Intel macOS、Windows、musl 上的实测；决定单文件是否成为默认推荐的安装方式（[待定问题](open-questions.md)）。
 - **d5 拆分规则与截断预算**：在真实 server 上统计拆分失败（退回叶子工具）的比例、调整动词表；用 d1 的评测确定截断预算的默认值（现在是 8 KB）。动词表的改动按 CHANGELOG 的约定写明影响哪些规范写法。
 
-c5（`via serve`）和其余[待定问题](open-questions.md)有结论后再排进路线图。
+其余[待定问题](open-questions.md)有结论后再排进路线图。
 
 ## 说明
 

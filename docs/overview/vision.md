@@ -48,6 +48,6 @@ via 是一个独立的 MCP client，以 CLI 形态让 agent 按需发现和调�
 | 场景 | 建议 |
 | --- | --- |
 | agent 有 shell（编码、运维、数据处理类 agent） | 用 via |
-| agent 没有 shell（纯聊天、托管型 agent） | 仍需 MCP；可考虑网关的懒加载元工具 |
+| agent 没有 shell（纯聊天、IDE 聊天面板） | 在框架里只挂 `via serve`，用它的元工具按需发现（[ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)）；托管在远端、无法拉起本地进程的 agent 仍需 MCP 或网关 |
 | 个人开发、本地工具 | 只用 via |
 | 团队、多 agent、需要审计与凭证隔离 | via 加网关 |

@@ -55,10 +55,11 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 | `via read <provider> <uri>` | 读取一个 MCP 资源 |
 | `via prompts <provider> [<名称> [参数]]` | 列出 MCP prompt；带名称时取该 prompt，参数写法同工具 |
 | `via daemon status\|stop\|run` | 管理后台进程；`run` 供内部拉起使用（[daemon.md](daemon.md)） |
+| `via serve` | 以 stdio MCP server 运行，向没有 shell 的 agent 暴露元工具（[见下](#via-serve)） |
 
 内置子命令名是保留字，大小写不敏感，不接受前缀。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警，该 server 在改名前不出现在任何视图里。
 
-0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
+0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用，`serve` 自 0.4 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
 
 各命令的细节：
 
@@ -116,6 +117,33 @@ next: via doctor
 ```
 
 因为无效的 `deny` 规则意味着本应隐藏的工具会可见，这里宁可停下，也不带着缺失的规则继续运行（[config.md](config.md#校验与诊断)）。
+
+### via serve
+
+`via serve` 在 stdin/stdout 上运行一个 MCP server（只有 stdio 传输，不监听端口），供没有 shell 的 agent 在框架里当作普通 stdio server 登记，例如 `{"command": "via", "args": ["serve"]}`。stdin 关闭时退出；不接受参数，带参数时报用法错误（退出码 2）。设计理由见 [ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)。
+
+- **能力**：只声明 `tools`。工具列表固定为下表七个，不随目录变化，不发 `tools/list_changed`。`initialize` 的 `instructions` 说明怎么用这些工具，以及输出里的 CLI 写法与工具的对应关系。
+- **每次调用就是一次 CLI 命令**：按下表拼出命令行，在 `via serve` 进程里执行（环境变量、工作目录、用户目录与 `via serve` 进程相同；stdin 为空，不交互，`interactive` 为假），捕获 stdout 与 stderr。daemon、缓存、凭证解析、`deny`、危险操作确认、本地校验、渲染、预算、游标、脱敏与元信息行都与命令行完全相同；`via serve` 自己不连接任何 MCP server。
+
+| 工具 | 参数 | 执行的命令 |
+| --- | --- | --- |
+| `via_browse` | `path`：省略或空串、`<provider>`、`<provider> <resource>`、`<provider> <resource>:<verb>`（按空白分词，至多三个词） | `via [path…]`；有带 `:` 的词时追加 `-h`，即该工具的用法 |
+| `via_find` | `query`（必填）、`limit`（正整数） | `via find <query> [-n <limit>]` |
+| `via_call` | `tool`（必填，单字符串引用）、`args`（对象）、`yes`（布尔） | `via call <tool> --args <args 的 JSON，缺省 {}> [--yes]` |
+| `via_more` | `cursor`（必填） | `via more <cursor>` |
+| `via_resources` | `provider`（必填） | `via resources <provider>` |
+| `via_read` | `provider`、`uri`（必填） | `via read <provider> <uri>` |
+| `via_prompts` | `provider`（必填）、`name`、`args`（字符串值的对象，需要 `name`） | `via prompts <provider>`；有 `name` 时 `via prompts <provider> <name> [--args <json>]` |
+
+- **结果**：stdout 非空时是第一段文本，stderr（元信息行、警告、错误与 `next:` 提示）非空时是下一段文本，两者都空时是一段空文本；`structuredContent` 为 `{"exitCode": <退出码>}`；退出码非 0 时 `isError: true`。提示保持 CLI 写法，例如 `next: via gh issue:read -h` 对应 `via_browse` 的 `path: "gh issue:read"`。
+- **参数检查**：在拼命令行之前进行，失败时不运行任何命令，结果是 `error: <原因>` 一行，退出码 2：
+  - 必填参数缺失或为空、类型不对（字符串参数不是字符串，`args` 不是对象，`yes` 不是布尔，`limit` 不是正整数）；
+  - 字符串参数以 `-` 开头（它会成为一个全局选项或命令选项，例如 `--yes`、`-o raw`）。工具参数在 `args` 的 JSON 里，不受这条限制；
+  - `via_browse` 的第一个词是内置子命令名（`"trust"` 会变成 `via trust`），`path` 超过三个词；
+  - `via_prompts` 给了 `args` 而没有 `name`。
+- **不提供**：`trust`、`auth`、`daemon`、`prompt`、`sync`、`batch`、`doctor`、`servers` 没有对应的工具。`via trust` 与 `via auth login` 必须由人在终端里完成。
+- **工具定义的大小**：七个工具的 `tools/list` 结果约 2.9 KB（约 730 token，按 4 字节一 token），`instructions` 约 0.6 KB；测试限制前者不超过 3.6 KB。
+- **框架配置里的 `via serve`**：登记了 `via serve` 的框架配置会被 via 自己读到，这样的条目不进入目录（[config.md](config.md#校验与诊断)）。
 
 ### via batch
 

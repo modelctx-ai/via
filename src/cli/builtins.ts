@@ -1,8 +1,8 @@
 // Built-in subcommand names (cli.md). Kept free of imports so the router can use it cheaply;
 // a test checks the list against RESERVED_COMMANDS in the catalog.
 
-/** Built-ins that work (0.1, plus `batch`, `trust`, `auth` and `daemon` from 0.2, `resources`, `read` and `prompts` from 0.3). */
-export const ACTIVE_COMMANDS = ['find', 'call', 'more', 'batch', 'servers', 'sync', 'doctor', 'prompt', 'trust', 'auth', 'daemon', 'resources', 'read', 'prompts'] as const;
+/** Built-ins that work (0.1, plus `batch`, `trust`, `auth` and `daemon` from 0.2, `resources`, `read` and `prompts` from 0.3, `serve` from 0.4). */
+export const ACTIVE_COMMANDS = ['find', 'call', 'more', 'batch', 'servers', 'sync', 'doctor', 'prompt', 'trust', 'auth', 'daemon', 'resources', 'read', 'prompts', 'serve'] as const;
 
 /** Reserved but not implemented: the name is taken, the command prints an explanation. */
 export const FUTURE_COMMANDS = [] as const;

@@ -21,6 +21,7 @@
 | [0013](0013-agent-instructions-are-a-marked-block.md) | agent 说明以标记块注入，而不是覆盖整份文件 | 已接受 |
 | [0014](0014-drop-the-domain-view.md) | 去掉「域」：provider 按名字列出，不做分类 | 已接受 |
 | [0015](0015-npm-scope-modelctx-ai.md) | npm 包名为 `@modelctx-ai/via` | 已接受 |
+| [0016](0016-via-serve-meta-tools-over-stdio.md) | `via serve`：以 stdio MCP server 暴露七个元工具，每次调用就是一次 CLI 命令 | 已接受 |
 
 ## 流程
 

@@ -153,6 +153,12 @@ via prompt --check AGENTS.md     # exit 1 when the block is out of date; for CI
 
 The block says what via is and asks the agent to prefer `via` over the MCP tools it already has. Keep one copy of it: Claude Code can pull that file in from CLAUDE.md with `@AGENTS.md` instead of keeping a second one.
 
+An agent without a shell (Claude Desktop, an IDE chat panel) mounts `via serve` as its only MCP server instead and gets seven meta-tools (`via_browse`, `via_find`, `via_call`, …, about 730 tokens) that behave exactly like the commands:
+
+```json
+{ "mcpServers": { "via": { "command": "via", "args": ["serve"] } } }
+```
+
 See the [getting-started guide](docs/guides/getting-started.md) and [agent framework integration](docs/guides/agent-integration.md) for the full steps.
 
 ## Common commands
@@ -167,6 +173,7 @@ See the [getting-started guide](docs/guides/getting-started.md) and [agent frame
 | `via resources` · `via read` · `via prompts` | MCP resources and prompts |
 | `via auth login\|status\|logout` | OAuth sign-in and status |
 | `via trust` | Approve the commands and endpoints in a project's `.via.yaml` |
+| `via serve` | Run as a stdio MCP server with seven meta-tools, for agents without a shell |
 | `via doctor` · `via servers` · `via sync` | Diagnostics, server list, refresh the tool cache |
 
 Syntax, global options and exit codes are in the [CLI spec](docs/spec/cli.md) and [output spec](docs/spec/output.md); more combinations are in [recipes](docs/guides/recipes.md).
