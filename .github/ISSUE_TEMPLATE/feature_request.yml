@@ -1,0 +1,20 @@
+name: Feature request · 功能建议
+description: Suggest a change to via's commands, naming, output or integrations. · 对命令、命名、输出或集成的建议。
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem · 要解决的问题
+      description: What the agent or you are trying to do, and where via gets in the way. · agent 或你想做什么，via 哪里不顺手。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal · 建议
+      description: Commands and output you would like to see. Check docs/spec/ and docs/adr/ first; a change to a recorded decision needs a new ADR. · 期望的命令与输出。请先看 docs/spec/ 与 docs/adr/，改变已记录的决策需要新增 ADR。
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives · 其他方案

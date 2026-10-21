@@ -1,14 +1,32 @@
+<div align="center">
+
+<img src="docs/assets/logo.svg" width="96" height="96" alt="via logo">
+
 # via
+
+**Every MCP server, one shell command away.**
+
+via turns the tools of any MCP server into a command line that agents discover and call on demand,<br>
+so tool schemas stay out of the context window.
+
+[![CI](https://github.com/modelctx-ai/via/actions/workflows/ci.yml/badge.svg)](https://github.com/modelctx-ai/via/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/modelctx-ai/via?color=blue)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-339933?logo=nodedotjs&logoColor=white)](package.json)
+[![Status](https://img.shields.io/badge/status-pre--release-orange)](docs/roadmap.md)
+[![GitHub stars](https://img.shields.io/github/stars/modelctx-ai/via?style=flat&logo=github&color=yellow)](https://github.com/modelctx-ai/via/stargazers)
+
+[Quick look](#a-quick-look) · [Install](#install) · [Getting started](#getting-started) · [Docs](docs/README.md) · [Benchmark](bench/results/0.1.md) · [Roadmap](docs/roadmap.md)
 
 English | [简体中文](README.zh-CN.md)
 
-Turn the tools of any MCP server into a command line that agents discover and call on demand.
+</div>
+
+---
 
 **MCP for providers, CLI for consumers.** Agent frameworks stop mounting MCP servers and stop loading hundreds of tool schemas into the context window. When an agent needs a tool, it uses `via` in the shell to browse, read the usage, and call it. via handles authentication and output formatting for every server the same way.
 
-> Status: roadmap 0.1–0.3 is implemented (direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, single-file executables), but via is not on npm yet, so you need to [install from source](#install). The version is still `0.0.0`; commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior.
->
-> The documentation under `docs/` is written in Chinese.
+> [!NOTE]
+> Roadmap 0.1–0.3 is implemented (direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, single-file executables), but via is not on npm yet, so you need to [install from source](#install). The version is still `0.0.0`; commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior. The documentation under `docs/` is written in Chinese.
 
 ## Why via
 
@@ -16,11 +34,22 @@ Turn the tools of any MCP server into a command line that agents discover and ca
 - Each framework keeps its own copy of server URLs and credentials, so rotating a key means editing every one of them.
 - Raw JSON results repeat the same keys on every row, and each framework handles truncation and paging differently.
 
-via is a standalone MCP client. It reads the MCP configuration your frameworks already have (read-only), injects credentials per server, exposes tools as `provider → resource → verb` commands, and renders all output with one set of rules. The agent's context holds only a usage note of about 150 tokens.
+via is a standalone MCP client. It reads the MCP configuration your frameworks already have (read-only), injects credentials per server, exposes tools as `provider → resource → verb` commands, and renders all output with one set of rules. The agent's context holds only a usage note of about 200 tokens.
 
 ![How via works: the agent runs via in the shell and gets compact output back; the via CLI hands the call to a local daemon, which reads framework MCP configs and credentials and talks MCP to the servers over stdio or HTTP](docs/assets/how-it-works.svg)
 
-On the 9 tasks of the [token benchmark](bench/results/0.1.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), via used about 4% of the tokens that native MCP injection used. The figure is estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading. Success rates from the live-model evaluation (`npm run bench:eval`) have not been published yet.
+On the 9 tasks of the [token benchmark](bench/results/0.1.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), **via used about 4% of the tokens that native MCP injection used**. The figure is estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading. Success rates from the live-model evaluation (`npm run bench:eval`) have not been published yet.
+
+## Highlights
+
+- **No schemas in context.** The agent gets a short usage note from `via prompt` and finds tools when it needs them: `via` → `via <provider>` → `via <provider> <resource>` → `-h`.
+- **Reuses the config you already have.** Reads MCP servers from Claude Code, Claude Desktop, Cursor, Codex, VS Code, Gemini CLI, GitHub Copilot CLI, Devin Desktop / Windsurf, Antigravity and Amp. Read-only: via never writes to them.
+- **One place for credentials.** Configuration holds references (`keychain:`, `env:`, `file:`, `cmd:`) or via's own OAuth sign-in. Resolved values are shown as `***` everywhere.
+- **Search across servers.** `via find "create issue"` ranks tools from every provider, with synonym expansion. Deterministic by default: no model calls unless you turn on `search.semantic`.
+- **Compact, predictable output.** One set of rendering rules for every server, a `next:` hint after every error, cursors for truncated output, and `-o json` for scripts.
+- **Built for the shell.** Pipe results between tools without passing them through the model, or send many calls through `via batch` at once.
+- **Guard rails.** `deny` rules hide tools, destructive tools need `--yes`, and project-level commands and endpoints need `via trust` before first use.
+- **Fast and portable.** Browsing a warm cache takes about 80 ms. A local daemon keeps MCP sessions open between calls. Runs on macOS, Linux and Windows, with single-file executables that do not need Node.js.
 
 ## A quick look
 
@@ -152,6 +181,18 @@ Syntax, global options and exit codes are in the [CLI spec](docs/spec/cli.md) an
 
 The threat model is in the [security spec](docs/spec/security.md).
 
+## How via compares
+
+| | Native MCP in the framework | Single-server MCP-to-CLI tools | **via** |
+| --- | --- | --- | --- |
+| Tool schemas in context | All of them, up front | None | None, only a ~200-token note |
+| Servers | Each framework has its own list | One endpoint per call | All servers in one catalog |
+| Cross-server search | — | — | `via find` |
+| Credentials | Copied into each framework | Passed per call | One reference per server |
+| Output | Raw JSON, each framework does it differently | Varies by tool | One set of rendering rules, cursors |
+
+See the [vision document](docs/overview/vision.md#与相近工具的区别) for how via differs from mcp2cli, mcporter `generate-cli` and gateways.
+
 ## Documentation
 
 | Topic | Where |
@@ -164,8 +205,9 @@ The threat model is in the [security spec](docs/spec/security.md).
 | Why things are the way they are | [Architecture decision records](docs/adr/) |
 
 The full index is [docs/README.md](docs/README.md).
+## Contributing
 
-## Development
+Feedback from real MCP servers and agent frameworks is the most useful contribution right now: [open an issue](https://github.com/modelctx-ai/via/issues/new/choose) when a server's tools split into odd commands, a framework config is not picked up, or an output is hard for the agent to read.
 
 ```bash
 npm ci
@@ -174,7 +216,18 @@ npm test
 npm run build      # output in dist/, entry point dist/via.js
 ```
 
-`docs/spec/` is normative: a change to user-visible behavior updates the spec and `CHANGELOG.md` in the same PR. See [CONTRIBUTING](CONTRIBUTING.md) for the process and [docs/development/](docs/development/implementation.md) for implementation notes and the test layout.
+`docs/spec/` is normative: a change to user-visible behavior updates the spec and `CHANGELOG.md` in the same PR. See [CONTRIBUTING](CONTRIBUTING.md) for the process and [docs/development/](docs/development/implementation.md) for implementation notes and the test layout. Security issues go through [SECURITY.md](SECURITY.md), not public issues.
+
+If via saves you tokens, a ⭐ helps other people find it.
+
+## Star history
+
+<a href="https://star-history.com/#modelctx-ai/via&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=modelctx-ai/via&type=Date&theme=dark">
+    <img alt="Star history chart for modelctx-ai/via" src="https://api.star-history.com/svg?repos=modelctx-ai/via&type=Date">
+  </picture>
+</a>
 
 ## License
 

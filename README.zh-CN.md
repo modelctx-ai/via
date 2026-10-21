@@ -1,12 +1,32 @@
+<div align="center">
+
+<img src="docs/assets/logo.svg" width="96" height="96" alt="via logo">
+
 # via
+
+**每个 MCP server，都只隔一条命令。**
+
+via 把任意 MCP server 的工具变成 agent 按需发现、按需调用的命令行，<br>
+工具 schema 不再占用上下文窗口。
+
+[![CI](https://github.com/modelctx-ai/via/actions/workflows/ci.yml/badge.svg)](https://github.com/modelctx-ai/via/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/modelctx-ai/via?color=blue)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-339933?logo=nodedotjs&logoColor=white)](package.json)
+[![Status](https://img.shields.io/badge/status-pre--release-orange)](docs/roadmap.md)
+[![GitHub stars](https://img.shields.io/github/stars/modelctx-ai/via?style=flat&logo=github&color=yellow)](https://github.com/modelctx-ai/via/stargazers)
+
+[概览](#概览) · [安装](#安装) · [快速上手](#快速上手) · [文档](docs/README.md) · [基准](bench/results/0.1.md) · [路线图](docs/roadmap.md)
 
 [English](README.md) | 简体中文
 
-把 MCP server 的工具变成 agent 可以按需发现、按需调用的命令行。
+</div>
+
+---
 
 **MCP 做提供方协议，CLI 做消费方接口。** agent 框架不再挂载 MCP，也不再把成百上千个工具的 schema 塞进上下文；需要工具时，agent 在 shell 里用 `via` 逐级发现、查看用法、调用，鉴权和输出格式由 via 统一处理。
 
-> 状态：路线图 0.1–0.3 已经实现（直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行），但还没有发布到 npm，需要[从源码安装](#安装)。版本号仍是 `0.0.0`，1.0 之前命令与输出可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
+> [!NOTE]
+> 路线图 0.1–0.3 已经实现（直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行），但还没有发布到 npm，需要[从源码安装](#安装)。版本号仍是 `0.0.0`，1.0 之前命令与输出可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
 
 ## 为什么需要 via
 
@@ -14,11 +34,22 @@
 - 每个框架各自保存 server 地址和凭证，轮换一次要改所有地方。
 - 工具返回的原始 JSON 键名逐行重复，截断和翻页各家各做。
 
-via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，按 server 注入凭证，以 `provider → 资源 → 动作` 的命令形态暴露工具，并用一套统一规则渲染输出。agent 上下文里只剩一段约 150 token 的使用说明。
+via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，按 server 注入凭证，以 `provider → 资源 → 动作` 的命令形态暴露工具，并用一套统一规则渲染输出。agent 上下文里只剩一段约 200 token 的使用说明。
 
 ![via 的工作原理：agent 在 shell 里执行 via 并拿回紧凑输出；via CLI 把调用交给本机 daemon，daemon 读取框架 MCP 配置和凭证，经 stdio 或 HTTP 用 MCP 与各 server 通信](docs/assets/how-it-works.zh-CN.svg)
 
-在 [token 基准](bench/results/0.1.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），via 消耗的 token 约为原生 MCP 注入方式的 4%。这个数字按脚本化的命令序列估算；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。真实模型的成功率评测（`npm run bench:eval`）尚未发布结果。
+在 [token 基准](bench/results/0.1.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），**via 消耗的 token 约为原生 MCP 注入方式的 4%**。这个数字按脚本化的命令序列估算；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。真实模型的成功率评测（`npm run bench:eval`）尚未发布结果。
+
+## 特性
+
+- **上下文里没有 schema**：agent 只拿到 `via prompt` 生成的一段使用说明，需要时再逐级查找：`via` → `via <provider>` → `via <provider> <资源>` → `-h`。
+- **复用已有配置**：读取 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Gemini CLI、GitHub Copilot CLI、Devin Desktop / Windsurf、Antigravity、Amp 里的 MCP server；只读，从不写入。
+- **凭证集中一处**：配置里只写引用（`keychain:`、`env:`、`file:`、`cmd:`）或由 via 自己完成 OAuth 授权；解析后的值在所有输出里显示为 `***`。
+- **跨 server 搜索**：`via find "create issue"` 在所有 provider 里排序工具，带同义词扩展；默认是确定性的，除非你开启 `search.semantic`，否则不调用模型。
+- **紧凑、可预期的输出**：所有 server 共用一套渲染规则，报错后附 `next:` 提示，截断输出可用游标续读，脚本里用 `-o json`。
+- **为 shell 而生**：结果在工具之间用管道传递，不经过模型；`via batch` 一次并发发出多个调用。
+- **安全护栏**：`deny` 规则隐藏工具，破坏性工具需要 `--yes`，项目级的命令与端点首次使用前需要 `via trust`。
+- **快，且到处能跑**：缓存热时浏览约 80 ms；本机 daemon 在调用之间保持 MCP 会话；支持 macOS、Linux、Windows，并提供不依赖 Node.js 的单文件可执行版本。
 
 ## 概览
 
@@ -150,6 +181,18 @@ via prompt --check AGENTS.md     # 块过期时退出码 1，可放进 CI
 
 威胁模型见[安全模型](docs/spec/security.md)。
 
+## 与其他方式对比
+
+|  | 框架原生接入 MCP | 单 server 的 MCP 转 CLI 工具 | **via** |
+| --- | --- | --- | --- |
+| 上下文里的工具 schema | 全部，预先注入 | 无 | 无，只有约 200 token 的说明 |
+| server | 每个框架各一份列表 | 每次调用指定一个端点 | 所有 server 汇成一个目录 |
+| 跨 server 搜索 | — | — | `via find` |
+| 凭证 | 每个框架各抄一份 | 每次调用传入 | 每个 server 一个引用 |
+| 输出 | 原始 JSON，各家处理不同 | 因工具而异 | 一套渲染规则，带续读游标 |
+
+与 mcp2cli、mcporter `generate-cli`、网关的具体区别见[愿景与定位](docs/overview/vision.md#与相近工具的区别)。
+
 ## 文档
 
 | 想了解                                              | 去看                                                          |
@@ -163,7 +206,9 @@ via prompt --check AGENTS.md     # 块过期时退出码 1，可放进 CI
 
 完整索引见 [docs/README.md](docs/README.md)。
 
-## 参与开发
+## 参与贡献
+
+现在最有用的贡献是来自真实 MCP server 与 agent 框架的反馈：某个 server 的工具拆分得别扭、某个框架的配置没被读到、某段输出 agent 读起来费劲，都欢迎[提 issue](https://github.com/modelctx-ai/via/issues/new/choose)。
 
 ```bash
 npm ci
@@ -172,7 +217,18 @@ npm test
 npm run build      # 产物在 dist/，入口 dist/via.js
 ```
 
-`docs/spec/` 是规范：改变用户可见行为时，在同一个 PR 里同步更新规范和 `CHANGELOG.md`。流程与约定见 [CONTRIBUTING](CONTRIBUTING.md)，实现说明与测试分层见 [docs/development/](docs/development/implementation.md)。
+`docs/spec/` 是规范：改变用户可见行为时，在同一个 PR 里同步更新规范和 `CHANGELOG.md`。流程与约定见 [CONTRIBUTING](CONTRIBUTING.md)，实现说明与测试分层见 [docs/development/](docs/development/implementation.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告，不要提公开 issue。
+
+如果 via 帮你省下了 token，点个 ⭐ 能让更多人找到它。
+
+## Star 趋势
+
+<a href="https://star-history.com/#modelctx-ai/via&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=modelctx-ai/via&type=Date&theme=dark">
+    <img alt="modelctx-ai/via 的 star 趋势图" src="https://api.star-history.com/svg?repos=modelctx-ai/via&type=Date">
+  </picture>
+</a>
 
 ## 许可
 

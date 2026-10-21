@@ -36,7 +36,7 @@
   <text class="s" x="44" y="113">Claude Code · Cursor · Codex …</text>
   <rect class="ctx" x="40" y="130" width="188" height="122" rx="8"/>
   <text class="cap" x="54" y="152">上下文</text>
-  <text class="b" x="54" y="178">约 150 token 的说明</text>
+  <text class="b" x="54" y="178">约 200 token 的说明</text>
   <text class="b" x="54" y="198">来自 via prompt</text>
   <text class="s" x="54" y="230">不含工具 schema</text>
 

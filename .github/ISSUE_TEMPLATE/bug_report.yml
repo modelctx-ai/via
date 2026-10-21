@@ -1,0 +1,34 @@
+name: Bug report · 问题报告
+description: Something in via does not work as the spec says. · via 的行为与规范不符。
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove real credentials from everything you paste. via prints them as `***`; if you see a real value anywhere, report it through SECURITY.md instead.
+        粘贴前请去掉真实凭证。via 会把凭证显示为 `***`；如果你在任何地方看到了真实值，请按 SECURITY.md 私下报告。
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened · 发生了什么
+      description: The command you ran, what you expected and what you got. · 执行的命令、预期结果与实际结果。
+      render: console
+    validations:
+      required: true
+  - type: textarea
+    id: server
+    attributes:
+      label: MCP server and framework · MCP server 与框架
+      description: Which server (and transport), and which framework config it came from, if relevant. · 涉及哪个 server（及传输方式），来自哪个框架的配置。
+  - type: textarea
+    id: doctor
+    attributes:
+      label: via doctor output · via doctor 输出
+      render: console
+  - type: input
+    id: version
+    attributes:
+      label: Version and platform · 版本与平台
+      placeholder: "via --version; macOS 15 / Ubuntu 24.04 / Windows 11; Node 22"
+    validations:
+      required: true
