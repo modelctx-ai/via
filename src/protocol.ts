@@ -5,7 +5,7 @@ import type { McpTool } from './catalog/types';
 import type { ServerConfig } from './config/types';
 import type { CursorRecord } from './render/cursor';
 import type { ExitCode } from './render/exit-codes';
-import type { ToolResult } from './render/types';
+import type { ContentBlock, ToolResult } from './render/types';
 
 // Handshake -----------------------------------------------------------------------
 
@@ -53,14 +53,30 @@ export type ServerTarget = {
 
 export type Request =
   | { id: string; type: 'status' }
-  /** `tools/list` of one server: daemon memory, then the disk cache, then the server. */
-  | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean } & ServerTarget)
+  /**
+   * `tools/list` of one server: daemon memory, then the disk cache, then the server. `have` is the
+   * `fetchedAt` of a list the caller already holds (or a build made from it): when the daemon's
+   * list is that one it answers without the tools (`unchanged`). Ignored with `refresh`.
+   */
+  | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   /** `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. */
   | ({ id: string; type: 'call'; rawName: string; args: Record<string, unknown>; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
+  /** `resources/list` plus `resources/templates/list` of one server. Never cached. */
+  | ({ id: string; type: 'resources-list'; timeoutMs: number } & ServerTarget)
+  /** `resources/read`. */
+  | ({ id: string; type: 'resource-read'; uri: string; timeoutMs: number } & ServerTarget)
+  /** `prompts/list`. */
+  | ({ id: string; type: 'prompts-list'; timeoutMs: number } & ServerTarget)
+  /** `prompts/get`. */
+  | ({ id: string; type: 'prompt-get'; name: string; args: Record<string, string>; timeoutMs: number } & ServerTarget)
   /** Compile a JSON Schema (cached by the daemon) and check `data`; keeps ajv out of the CLI process. */
   | { id: string; type: 'validate'; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
-  /** Replace the credential values the daemon knows with `***` in `text`. */
+  /**
+   * Replace the credential values the daemon knows with `***`. `text` is composed by the CLI (only
+   * long values are looked for); `value` is content the CLI echoes (any JSON, every string redacted).
+   */
   | { id: string; type: 'redact'; text: string }
+  | { id: string; type: 'redact'; value: unknown }
   | { id: string; type: 'cursor-put'; record: CursorRecord }
   | { id: string; type: 'cursor-get'; cursor: string }
   /** Finish the requests in flight, then exit (`via daemon stop`). */
@@ -104,7 +120,8 @@ export type Response =
 
 /**
  * The request was not run because the daemon's environment differs from the caller's for a variable
- * a credential reference points at. The caller restarts the daemon and asks again.
+ * a credential reference points at. The caller handles that server's request in-process; the daemon
+ * is neither restarted nor given the caller's values.
  */
 export type Stale = { id: string; type: 'stale'; reason: 'environment' };
 
@@ -113,8 +130,17 @@ export type Message = Response | Event | Stale;
 
 // Payloads ------------------------------------------------------------------------
 
-/** `result` of `list`. */
-export type ListResult = { tools: McpTool[]; fetchedAt: number; fromCache: boolean };
+/** What a server declared at `initialize` that via can use besides tools (discovery.md, "浏览视图"). */
+export type ServerFeatures = { resources: boolean; prompts: boolean };
+
+/**
+ * `result` of `list`. `features` is absent when it is not known (a cache written before it was
+ * recorded). `unchanged` replaces `tools` when the request's `have` is the `fetchedAt` of the list
+ * the daemon would have sent; the credentials and trust checks ran all the same.
+ */
+export type ListResult = ListedTools | ListUnchanged;
+export type ListedTools = { tools: McpTool[]; fetchedAt: number; fromCache: boolean; features?: ServerFeatures };
+export type ListUnchanged = { unchanged: true; fetchedAt: number; fromCache: true; features?: ServerFeatures };
 
 /** `result` of `validate`. `ok: false` means the schema cannot be compiled. */
 export type ValidateResult =
@@ -155,6 +181,25 @@ export type SessionStatus = {
   active: number;
   lastUsedAgoMs: number;
 };
+
+// Resources and prompts -----------------------------------------------------------
+
+export type McpResource = { uri: string; name: string; title?: string; description?: string; mimeType?: string; size?: number };
+
+export type McpResourceTemplate = { uriTemplate: string; name: string; title?: string; description?: string; mimeType?: string };
+
+/** `result` of `resources-list`. */
+export type ResourceListing = { resources: McpResource[]; templates: McpResourceTemplate[] };
+
+/** `result` of `resource-read`: one entry per content, text or base64 `blob`. */
+export type ReadResourceResult = { contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string }> };
+
+export type McpPromptArgument = { name: string; title?: string; description?: string; required?: boolean };
+
+export type McpPrompt = { name: string; title?: string; description?: string; arguments?: McpPromptArgument[] };
+
+/** `result` of `prompt-get`. */
+export type GetPromptResult = { description?: string; messages: Array<{ role: string; content: ContentBlock }> };
 
 // Raw MCP results -----------------------------------------------------------------
 

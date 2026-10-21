@@ -1,10 +1,11 @@
+import { findDenyRule } from './deny';
 import type { DomainRules, ProviderIdentity } from './domain';
 import { classifyProvider, defaultDomainRules } from './domain';
 import { defaultSplitRules, type SplitRules } from './rules';
 import { extractParams } from './signature';
 import { splitToolName } from './split';
 import { kebab } from './tokenize';
-import type { CatalogTool, McpTool, ProviderCatalog, ResourceGroup } from './types';
+import type { CatalogTool, DomainAssignment, McpTool, ProviderCatalog, ResourceGroup } from './types';
 
 export interface CatalogRules {
   split: SplitRules;
@@ -40,6 +41,8 @@ interface Draft {
   /** Leaf name to fall back to when a `resource:verb` conflict demotes the tool. */
   fallbackLeaf: string;
   renamed: boolean;
+  /** The name part the split rules give, before `rename` and conflict handling (deny rules match it too). */
+  defaultName: string;
 }
 
 function parseRename(value: string): { resource: string; verb: string } | { leaf: string } {
@@ -64,6 +67,7 @@ function toCatalogTool(provider: string, d: Draft): CatalogTool {
     name,
     ref: `${provider} ${name}`,
     singleRef: `${provider}/${name}`,
+    defaultSingleRef: `${provider}/${d.defaultName}`,
     description: d.def.description ?? d.def.title ?? '',
     params: paramsOf(d.def),
     readOnly: d.def.annotations?.readOnlyHint === true,
@@ -84,17 +88,18 @@ export function buildProviderCatalog(
   const providerNames = [input.provider, ...(input.aliases ?? [])];
 
   const drafts: Draft[] = input.tools.map((def) => {
+    const s = splitToolName(def.name, { providerNames }, rules.split);
+    const defaultName = s.kind === 'resource' ? `${s.resource}:${s.verb}` : s.leafName;
     const renamed = input.rename?.[def.name];
     if (renamed !== undefined) {
       const r = parseRename(renamed);
       return 'leaf' in r
-        ? { def, resource: null, verb: null, leafName: r.leaf, fallbackLeaf: r.leaf, renamed: true }
-        : { def, resource: r.resource, verb: r.verb, leafName: '', fallbackLeaf: kebab(def.name), renamed: true };
+        ? { def, resource: null, verb: null, leafName: r.leaf, fallbackLeaf: r.leaf, renamed: true, defaultName }
+        : { def, resource: r.resource, verb: r.verb, leafName: '', fallbackLeaf: kebab(def.name), renamed: true, defaultName };
     }
-    const s = splitToolName(def.name, { providerNames }, rules.split);
     return s.kind === 'resource'
-      ? { def, resource: s.resource, verb: s.verb, leafName: '', fallbackLeaf: s.leafName, renamed: false }
-      : { def, resource: null, verb: null, leafName: s.leafName, fallbackLeaf: s.leafName, renamed: false };
+      ? { def, resource: s.resource, verb: s.verb, leafName: '', fallbackLeaf: s.leafName, renamed: false, defaultName }
+      : { def, resource: null, verb: null, leafName: s.leafName, fallbackLeaf: s.leafName, renamed: false, defaultName };
   });
 
   // Rule 6: two tools with the same `resource:verb` both fall back to leaf tools.
@@ -126,22 +131,8 @@ export function buildProviderCatalog(
   }
 
   const all = drafts.map((d) => toCatalogTool(input.provider, d));
-  // `g` / `y` flags make RegExp#test stateful; drop them so every tool is tested from the start.
-  const deny = (input.deny ?? []).map((re) => (re.global || re.sticky ? new RegExp(re.source, re.flags.replace(/[gy]/g, '')) : re));
-  const visible = all.filter((t) => !deny.some((re) => re.test(t.singleRef) || re.test(`${t.provider}/${t.rawName}`)));
-
-  const groups = new Map<string, ResourceGroup>();
-  const leaves: CatalogTool[] = [];
-  for (const t of visible) {
-    if (t.resource === null) {
-      leaves.push(t);
-      continue;
-    }
-    const g = groups.get(t.resource) ?? { name: t.resource, tools: [] };
-    g.tools.push(t);
-    groups.set(t.resource, g);
-  }
-  const resources = [...groups.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const deny = input.deny ?? [];
+  const visible = all.filter((t) => findDenyRule(t, deny) === undefined);
 
   const domain = classifyProvider(
     {
@@ -155,5 +146,25 @@ export function buildProviderCatalog(
     rules.split,
   );
 
-  return { provider: input.provider, tools: visible, resources, leaves, domain };
+  return assembleProvider(input.provider, visible, domain);
+}
+
+/**
+ * The provider view over its visible tools: resource groups sorted by name, leaf tools in list
+ * order. Shared by the build and by restoring a cached build, so both group the same way.
+ */
+export function assembleProvider(provider: string, visible: CatalogTool[], domain: DomainAssignment): ProviderCatalog {
+  const groups = new Map<string, ResourceGroup>();
+  const leaves: CatalogTool[] = [];
+  for (const t of visible) {
+    if (t.resource === null) {
+      leaves.push(t);
+      continue;
+    }
+    const g = groups.get(t.resource) ?? { name: t.resource, tools: [] };
+    g.tools.push(t);
+    groups.set(t.resource, g);
+  }
+  const resources = [...groups.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { provider, tools: visible, resources, leaves, domain };
 }

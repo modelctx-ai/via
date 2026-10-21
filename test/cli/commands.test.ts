@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { portableTable } from '../helpers/portable';
 import { FAKE_TOKEN, ghConfig, makeSandbox, normalize, startFixtureServer, useCleanup } from './helpers';
 
 
@@ -21,7 +22,7 @@ describe('via servers', () => {
     sb.projectConfig('servers:\n  figma:\n    command: node\n    args: [server.js]\n');
     const r = await sb.via(['servers']);
     expect(r.code).toBe(0);
-    const text = normalize(r.stdout).replaceAll(sb.root, '<root>');
+    const text = portableTable(normalize(r.stdout).replaceAll(sb.root, '<root>'));
     await expect(text).toMatchFileSnapshot('./__snapshots__/cli-servers.txt');
     expect(r.stdout + r.stderr).not.toContain(FAKE_TOKEN);
   });

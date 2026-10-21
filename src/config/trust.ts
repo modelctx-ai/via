@@ -5,9 +5,10 @@
 // plus the SHA-256 of its content, kept in the user data directory; a changed file is untrusted again.
 // The `via trust` command (src/cli/commands/trust.ts) is built on `recordTrustHash`; this module has no CLI.
 
-import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
+import { sha256Hex } from '../sha256';
+import { normalizeWindowsPath, pathModule } from './paths';
 
 export interface TrustRecord {
   /** Hex SHA-256 of the file content that was confirmed. */
@@ -29,17 +30,38 @@ export function trustStorePath(dataDir: string): string {
 }
 
 export function hashContent(content: string | Uint8Array): string {
-  return createHash('sha256').update(content).digest('hex');
+  return sha256Hex(content);
 }
 
-/** The key a file is recorded under: its real path, so a symlink cannot borrow another file's trust. */
-export function trustKey(path: string): string {
-  const absolute = resolve(path);
+/**
+ * The key a file is recorded under: its real path, so a symlink cannot borrow another file's trust.
+ * On Windows it is the canonical form of that path (`realpath.native` fixes the case and expands
+ * 8.3 short names, junctions and `subst` drives; a `\\?\` prefix is dropped and the drive letter
+ * is upper-case), and lookups ignore case (`entryKey`), so `c:\repo\.via.yaml` and
+ * `C:\Repo\.via.yaml` are one file.
+ */
+export function trustKey(path: string, platform: NodeJS.Platform = process.platform): string {
+  const absolute = pathModule(platform).resolve(path);
+  if (platform === 'win32') {
+    try {
+      return normalizeWindowsPath(realpathSync.native(absolute));
+    } catch {
+      return normalizeWindowsPath(absolute);
+    }
+  }
   try {
     return realpathSync(absolute);
   } catch {
     return absolute;
   }
+}
+
+/** The key in `store` that stands for `key`: the same text, or on Windows the same text in any case. */
+function entryKey(store: TrustStore, key: string, platform: NodeJS.Platform): string | undefined {
+  if (Object.prototype.hasOwnProperty.call(store.entries, key)) return key;
+  if (platform !== 'win32') return undefined;
+  const folded = key.toLowerCase();
+  return Object.keys(store.entries).find((k) => k.toLowerCase() === folded);
 }
 
 function emptyStore(): TrustStore {
@@ -75,14 +97,15 @@ export function readTrustStore(dataDir: string): { store: TrustStore; error?: st
   }
 }
 
-export function trustStatus(store: TrustStore, path: string, sha256: string): TrustStatus {
-  const record = Object.prototype.hasOwnProperty.call(store.entries, trustKey(path)) ? store.entries[trustKey(path)] : undefined;
+export function trustStatus(store: TrustStore, path: string, sha256: string, platform: NodeJS.Platform = process.platform): TrustStatus {
+  const key = entryKey(store, trustKey(path, platform), platform);
+  const record = key === undefined ? undefined : store.entries[key];
   if (!record) return 'untrusted';
   return record.sha256 === sha256 ? 'trusted' : 'changed';
 }
 
-export function isTrusted(store: TrustStore, path: string, sha256: string): boolean {
-  return trustStatus(store, path, sha256) === 'trusted';
+export function isTrusted(store: TrustStore, path: string, sha256: string, platform: NodeJS.Platform = process.platform): boolean {
+  return trustStatus(store, path, sha256, platform) === 'trusted';
 }
 
 /** Check a file against the store on disk, hashing the content as it is now. */
@@ -116,7 +139,10 @@ export function recordTrustHash(dataDir: string, path: string, sha256: string, n
     // Start over rather than keep entries that cannot be read; nothing was trusted by them anyway.
     store.entries = {};
   }
-  store.entries[trustKey(path)] = record;
+  const key = trustKey(path);
+  const existing = entryKey(store, key, process.platform);
+  if (existing !== undefined) delete store.entries[existing]; // the same file recorded under another case
+  store.entries[key] = record;
   writeStore(dataDir, store);
   return record;
 }
@@ -124,8 +150,8 @@ export function recordTrustHash(dataDir: string, path: string, sha256: string, n
 /** Remove the record of a file. Returns whether there was one. */
 export function forgetTrust(dataDir: string, path: string): boolean {
   const { store } = readTrustStore(dataDir);
-  const key = trustKey(path);
-  if (!Object.prototype.hasOwnProperty.call(store.entries, key)) return false;
+  const key = entryKey(store, trustKey(path), process.platform);
+  if (key === undefined) return false;
   delete store.entries[key];
   writeStore(dataDir, store);
   return true;

@@ -2,10 +2,9 @@
 // the user config and the project config, merges them and returns what the rest of via needs.
 // Nothing here throws for a bad file: problems are collected in `diagnostics`.
 
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { cwd as processCwd } from 'node:process';
+import { checkDenyPattern } from './deny-safety';
 import type { ConfigDiagnostic } from './diagnostics';
 import { BUNDLED_FRAMEWORKS, DEFAULT_POINTERS, findFramework, type ConfigFormat, type FrameworkDef } from './frameworks';
 import { validateLayer, type ConfigLayerData, type SourcesSetting } from './layer';
@@ -13,10 +12,13 @@ import { applyDef, canonical, newAccumulator, type Accumulator } from './merge';
 import { isPlainObject, ownEntries, type OriginedDef, type ServerDef } from './model';
 import { normalizeFrameworkEntry } from './normalize';
 import { parseConfigText, resolvePointer, ParseFailure } from './parse';
-import { expandPath, pathContext, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
+import { ParseCache } from './parse-cache';
+import { decodeText } from '../platform/text';
+import { expandPath, pathContext, pathIdentity, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
 import { parseCredentialRef } from './credentials';
+import { sha256Hex } from '../sha256';
 import { readTrustStore, trustStatus, type TrustStore } from './trust';
-import type { ConfigOrigin, ConfigScope, ServerConfig, Transport } from './types';
+import type { ConfigOrigin, ConfigScope, SemanticSearchConfig, ServerConfig, Transport } from './types';
 
 export const DEFAULTS = {
   timeout: 60,
@@ -24,6 +26,7 @@ export const DEFAULTS = {
   confirm: 'destructive',
   output: { budget: 8192, cellWidth: 80 },
   daemon: { idleTimeout: 600, serverIdleTimeout: 300 },
+  semantic: { timeout: 3, indexTimeout: 30 },
 } as const;
 
 /** The project config file name; the first one found walking up from the working directory is used. */
@@ -44,7 +47,14 @@ export interface LoadConfigOptions {
   dataDir?: string;
   /** Framework descriptions. Default: the bundled `data/frameworks/`. */
   frameworks?: readonly FrameworkDef[];
+  /**
+   * Directory that keeps the parsed form of YAML config files (parse-cache.ts). Default: none, so
+   * a caller that does not ask never writes anything.
+   */
+  parseCacheDir?: string;
 }
+
+declare const __VIA_PARSE_ID__: string | undefined;
 
 /** A config file that was read, with the hash of the exact bytes that were parsed. */
 export interface LoadedFile {
@@ -62,6 +72,8 @@ export interface LoadedConfig {
   domains: Record<string, string[]>;
   output: { budget: number; cellWidth: number };
   daemon: { idleTimeout: number; serverIdleTimeout: number };
+  /** Optional features of `via find`; `semantic` is set only by the user config (security.md). */
+  search?: { semantic?: SemanticSearchConfig };
   diagnostics: ConfigDiagnostic[];
   /** Every file that contributed, for `via doctor` and `via trust`. */
   files: LoadedFile[];
@@ -83,7 +95,13 @@ interface Layer {
   data: ConfigLayerData;
 }
 
-const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+/**
+ * A `LoadedFile` whose `sha256` is computed on first read: only files that launch a process need
+ * their hash (trust, `via doctor`), and hashing is not free on a cold start.
+ */
+function loadedFile(file: Omit<LoadedFile, 'sha256'>, read: ReadResult): LoadedFile {
+  return Object.defineProperty(file, 'sha256', { enumerable: true, get: read.hash }) as LoadedFile;
+}
 
 function isFile(path: string): boolean {
   try {
@@ -94,13 +112,15 @@ function isFile(path: string): boolean {
 }
 
 /** Nearest ancestor (starting at `from`) that contains `relative` as a file. */
-function findUp(relative: string, from: string, ceiling?: string): string | undefined {
+function findUp(relative: string, from: string, ceiling: string | undefined, platform: NodeJS.Platform): string | undefined {
   let dir = resolve(from);
+  const stop = ceiling === undefined ? undefined : pathIdentity(ceiling, platform);
   for (;;) {
     const candidate = join(dir, relative);
     if (isFile(candidate)) return candidate;
     const parent = dirname(dir);
-    if (parent === dir || dir === ceiling) return undefined;
+    // Case-insensitive on Windows: `c:\repo` and `C:\Repo` are the same ceiling.
+    if (parent === dir || pathIdentity(dir, platform) === stop) return undefined;
     dir = parent;
   }
 }
@@ -108,9 +128,18 @@ function findUp(relative: string, from: string, ceiling?: string): string | unde
 interface ReadResult {
   bytes: Buffer;
   value: unknown;
+  /** SHA-256 of `bytes`, computed on first use. */
+  hash: () => string;
 }
 
-async function readAndParse(path: string, format: ConfigFormat, severity: 'error' | 'warning', mandatory: boolean, diagnostics: ConfigDiagnostic[]): Promise<ReadResult | undefined> {
+async function readAndParse(
+  path: string,
+  format: ConfigFormat,
+  severity: 'error' | 'warning',
+  mandatory: boolean,
+  diagnostics: ConfigDiagnostic[],
+  cache?: ParseCache,
+): Promise<ReadResult | undefined> {
   let bytes: Buffer;
   try {
     bytes = readFileSync(path);
@@ -123,8 +152,10 @@ async function readAndParse(path: string, format: ConfigFormat, severity: 'error
     }
     return undefined;
   }
+  let digest: string | undefined;
+  const hash = (): string => (digest ??= sha256Hex(bytes));
   try {
-    return { bytes, value: await parseConfigText(bytes.toString('utf8'), format) };
+    return { bytes, hash, value: await parseConfigText(decodeText(bytes), format, { ...(cache ? { cache } : {}), key: hash }) };
   } catch (error) {
     const message = error instanceof ParseFailure ? error.message : 'could not be parsed';
     diagnostics.push({ level: severity, code: 'file-malformed', message, file: path });
@@ -162,21 +193,22 @@ function allowedHere(name: string, def: ServerDef, origin: ConfigOrigin, diagnos
 
 export async function loadConfig(options: LoadConfigOptions = {}): Promise<LoadedConfig> {
   const ctx: PathContext = pathContext(options);
-  const cwd = resolve(options.cwd ?? processCwd());
+  const cwd = resolve(options.cwd ?? process.cwd());
   const frameworks = options.frameworks ?? BUNDLED_FRAMEWORKS;
   const diagnostics: ConfigDiagnostic[] = [];
   const files: LoadedFile[] = [];
+  const parseCache = options.parseCacheDir === undefined ? undefined : new ParseCache(options.parseCacheDir, typeof __VIA_PARSE_ID__ === 'string' ? __VIA_PARSE_ID__ : 'source');
 
   // 1. via's own configs, lowest priority first: user, project, CLI.
   const layers: Layer[] = [];
   const userPath = userConfigPath(ctx);
   const ceiling = options.projectRoot === undefined ? undefined : resolve(options.projectRoot);
-  const projectPath = findUp(PROJECT_CONFIG_NAME, cwd, ceiling);
+  const projectPath = findUp(PROJECT_CONFIG_NAME, cwd, ceiling, ctx.platform);
   for (const [scope, path] of [['user', userPath], ['project', projectPath]] as const) {
     if (path === undefined) continue;
-    const read = await readAndParse(path, 'yaml', 'error', false, diagnostics);
+    const read = await readAndParse(path, 'yaml', 'error', false, diagnostics, parseCache);
     if (!read) continue;
-    files.push({ path, scope, format: 'yaml', sha256: sha256(read.bytes) });
+    files.push(loadedFile({ path, scope, format: 'yaml' }, read));
     const { data, diagnostics: found } = validateLayer(read.value, path);
     diagnostics.push(...found);
     layers.push({ origin: { scope, path }, data });
@@ -231,10 +263,11 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     trustStore = store;
     if (error) diagnostics.push({ level: 'warning', code: 'trust-store-corrupt', message: error });
   }
-  const hashes = new Map(files.map((f) => [f.path, f.sha256]));
+  // Looked up only for files that launch a process (the hash is computed on demand).
+  const hashOf = (path: string): string | undefined => files.find((f) => f.path === path)?.sha256;
   const servers: ServerConfig[] = [];
   for (const [name, acc] of accumulators) {
-    const server = finalize(name, acc, conflicts.get(name), trustStore, hashes, diagnostics);
+    const server = finalize(name, acc, conflicts.get(name), trustStore, hashOf, diagnostics);
     if (server) servers.push(server);
   }
 
@@ -244,12 +277,27 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   const domains: Record<string, string[]> = {};
   const output = { budget: DEFAULTS.output.budget, cellWidth: DEFAULTS.output.cellWidth };
   const daemon = { idleTimeout: DEFAULTS.daemon.idleTimeout, serverIdleTimeout: DEFAULTS.daemon.serverIdleTimeout };
+  const search: LoadedConfig['search'] = {};
   for (const layer of layers) {
     for (const [i, pattern] of layer.data.deny.entries()) {
       if (seenDeny.has(pattern)) continue;
       seenDeny.add(pattern);
       try {
-        deny.push(new RegExp(pattern));
+        const re = new RegExp(pattern);
+        // A rule that can backtrack catastrophically is refused like an invalid one (fail closed:
+        // the diagnostic is an error, so the CLI stops instead of running without the rule).
+        const unsafe = checkDenyPattern(pattern);
+        if (unsafe !== undefined) {
+          const d: ConfigDiagnostic = {
+            level: 'error',
+            code: 'unsafe-deny',
+            message: `deny[${i}]: regular expression ${JSON.stringify(pattern.length > 80 ? `${pattern.slice(0, 77)}...` : pattern)} was refused: ${unsafe}; the rule was ignored`,
+          };
+          if (layer.origin.path) d.file = layer.origin.path;
+          diagnostics.push(d);
+          continue;
+        }
+        deny.push(re);
       } catch (error) {
         const d: ConfigDiagnostic = {
           level: 'error',
@@ -265,9 +313,23 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     }
     Object.assign(output, layer.data.output);
     Object.assign(daemon, layer.data.daemon);
+    const wanted = layer.data.search.semantic;
+    if (wanted !== undefined) {
+      if (layer.origin.scope !== 'user' && layer.origin.scope !== 'cli') {
+        // It would send tool descriptions and queries to a host chosen by the repository.
+        const d: ConfigDiagnostic = {
+          level: 'warning',
+          code: 'search-forbidden',
+          message: 'search.semantic is only read from the user config; it was ignored',
+        };
+        if (layer.origin.path) d.file = layer.origin.path;
+        diagnostics.push(d);
+      } else if (wanted === false) delete search.semantic;
+      else search.semantic = { provider: 'openai-compatible', ...DEFAULTS.semantic, ...wanted, origin: layer.origin };
+    }
   }
 
-  return { servers, deny, domains, output, daemon, diagnostics, files };
+  return { servers, deny, domains, output, daemon, search, diagnostics, files };
 }
 
 function finalize(
@@ -275,7 +337,7 @@ function finalize(
   acc: Accumulator,
   conflicts: ConfigOrigin[] | undefined,
   store: TrustStore,
-  hashes: ReadonlyMap<string, string>,
+  hashOf: (path: string) => string | undefined,
   diagnostics: ConfigDiagnostic[],
 ): ServerConfig | undefined {
   const d = acc.def;
@@ -298,7 +360,7 @@ function finalize(
   }
   const pending: string[] = [];
   for (const path of acc.launch.keys()) {
-    const hash = hashes.get(path);
+    const hash = hashOf(path);
     if (hash === undefined || trustStatus(store, path, hash) !== 'trusted') pending.push(path);
   }
   if (pending.length > 0) {
@@ -322,6 +384,17 @@ function finalize(
   };
   if (d.domain !== undefined) server.domain = d.domain;
   if (d.budget !== undefined) server.budget = d.budget;
+  if (d.roots !== undefined && d.roots.length > 0) {
+    server.roots = [...d.roots];
+    if (transport.type === 'http') {
+      diagnostics.push({
+        level: 'warning',
+        code: 'roots-remote',
+        message: `servers.${name}.roots: local directories are sent to the remote server ${name} when it asks for its roots`,
+        server: name,
+      });
+    }
+  }
   if (conflicts && conflicts.length > 0) server.conflicts = conflicts;
   if (acc.launch.size > 0) server.launchPaths = [...acc.launch.keys()];
   if (untrustedPaths) server.untrustedPaths = untrustedPaths;
@@ -343,8 +416,9 @@ function resolveSources(
   const out: SourceFile[][] = [];
   const claimed = new Set<string>();
   const add = (list: SourceFile[], file: SourceFile): void => {
-    if (claimed.has(file.path)) return;
-    claimed.add(file.path);
+    const identity = pathIdentity(file.path, ctx.platform);
+    if (claimed.has(identity)) return;
+    claimed.add(identity);
     list.push(file);
   };
 
@@ -358,7 +432,7 @@ function resolveSources(
       if (expanded === undefined) continue;
       let path: string | undefined;
       if (config.scope === 'user' || isAbsolute(expanded)) path = resolve(expanded);
-      else path = findUp(expanded, cwd, ceiling) ?? resolve(cwd, expanded);
+      else path = findUp(expanded, cwd, ceiling, ctx.platform) ?? resolve(cwd, expanded);
       add(list, {
         path,
         format: config.format,
@@ -431,9 +505,9 @@ async function readFrameworks(
         continue;
       }
       anyRead = true;
-      const loaded: LoadedFile = { path: source.path, scope: source.origin.scope, format: source.format, sha256: sha256(read.bytes) };
-      if (source.origin.framework) loaded.framework = source.origin.framework;
-      files.push(loaded);
+      const meta: Omit<LoadedFile, 'sha256'> = { path: source.path, scope: source.origin.scope, format: source.format };
+      if (source.origin.framework) meta.framework = source.origin.framework;
+      files.push(loadedFile(meta, read));
       const map = findServerMap(read.value, source, diagnostics);
       if (!map) continue;
       for (const [name, entry] of ownEntries(map)) {

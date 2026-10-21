@@ -18,6 +18,9 @@ export const RESERVED_COMMANDS: readonly string[] = [
   'doctor',
   'prompt',
   'daemon',
+  'resources',
+  'read',
+  'prompts',
   'help',
 ];
 
@@ -37,8 +40,12 @@ export function normalizeProviderName(name: string): string {
  */
 export function buildCatalog(
   inputs: readonly ProviderInput[],
-  rules: CatalogRules = defaultCatalogRules(),
+  rules?: CatalogRules,
+  /** A provider already built for exactly this input (a cached build), or undefined to build it. */
+  prebuilt?: (input: ProviderInput) => ProviderCatalog | undefined,
 ): Catalog {
+  // Loading the rules is not free, and a catalog restored from the cache never needs them.
+  let resolved = rules;
   const providers: ProviderCatalog[] = [];
   const warnings: CatalogWarning[] = [];
   const seen = new Set<string>();
@@ -62,7 +69,9 @@ export function buildCatalog(
       continue;
     }
     seen.add(provider);
-    providers.push(buildProviderCatalog({ ...input, provider }, rules));
+    // Not a spread: an input whose `tools` is a lazy getter must not have it read just to be renamed.
+    const normalized = provider === input.provider ? input : (Object.create(input, { provider: { value: provider, enumerable: true } }) as ProviderInput);
+    providers.push(prebuilt?.(normalized) ?? buildProviderCatalog(normalized, (resolved ??= defaultCatalogRules())));
   }
   providers.sort((a, b) => (a.provider < b.provider ? -1 : a.provider > b.provider ? 1 : 0));
   return { providers, warnings };

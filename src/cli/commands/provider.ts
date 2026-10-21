@@ -17,7 +17,7 @@ export interface OpenProvider {
 export async function openProvider(app: App, input: string): Promise<OpenProvider> {
   const entry = await resolveEntry(app, input);
   const listing = await app.listing(entry);
-  return { entry, listing, views: await app.providerViews(entry, listing.tools) };
+  return { entry, listing, views: await app.providerViews(entry, listing) };
 }
 
 const withNewline = (s: string): string => (s.endsWith('\n') ? s : `${s}\n`);
@@ -29,7 +29,11 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
 
   if (typedTarget === undefined) {
     noteCanonical(app, [typedProvider], [visible.provider]);
-    app.out(withNewline(renderProvider(visible, { all: app.options.all })));
+    const also = [
+      ...(opened.listing.features?.resources ? [`via resources ${visible.provider}`] : []),
+      ...(opened.listing.features?.prompts ? [`via prompts ${visible.provider}`] : []),
+    ];
+    app.out(withNewline(renderProvider(visible, { all: app.options.all, also })));
     return ExitCode.Ok;
   }
 

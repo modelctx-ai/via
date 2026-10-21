@@ -55,7 +55,7 @@ flowchart TB
 
 | 模式 | 何时使用 | 特点 |
 | --- | --- | --- |
-| daemon 模式（默认） | 日常使用 | 会话复用、stdio server 常驻、游标保存在内存 |
+| daemon 模式（默认） | 日常使用 | 会话复用、stdio server 常驻、游标保存在用户缓存目录，daemon 退出后仍可用 |
 | 进程内模式 | `VIA_NO_DAEMON=1`、CI、daemon 异常时的回退 | 每次调用直连；HTTP server 基本不受影响，stdio server 每次重新拉起 |
 
 两种模式共用同一套请求与响应类型（见 [daemon 协议](../spec/daemon.md#cli-与-daemon-的协议)），渲染逻辑只有一份。

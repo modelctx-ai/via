@@ -1,0 +1,9 @@
+file:///project/README.md        text/plain        README.md        Project readme
+file:///project/data.json        application/json  data.json
+file:///project/logo.png         image/png         logo.png
+file:///project/credentials.txt  text/plain        credentials.txt  Echoes the credential the server saw
+file:///project/big.txt          text/plain        big.txt          A long text
+file:///project/dir              -                 dir              Two files at once
+templates:
+file:///project/logs/{date}.log  text/plain  log  Log of a day
+→ via read gh <uri> (replace the {placeholders} of a template)

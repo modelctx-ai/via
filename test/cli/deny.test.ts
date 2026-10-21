@@ -54,6 +54,17 @@ describe('deny matching on a call', () => {
     expect(srv.state.calls).toHaveLength(0);
   });
 
+  it('a rule on the default spelling still denies the tool after the user renamed it', async () => {
+    const { srv, sb } = await setup('    rename: { delete_file: "file:erase" }\ndeny: ["^gh/file:delete$"]\n');
+    expect((await sb.via(['gh'])).stdout).not.toContain('file:erase');
+    for (const argv of [['gh', 'file:erase', '--yes', '--owner', 'a', '--repo', 'b', '--path', 'x'], ['gh', 'delete_file', '--yes'], ['call', 'gh/file:erase', '--yes', '--args', '{}']]) {
+      const r = await sb.via(argv);
+      expect(r.code, argv.join(' ')).toBe(5);
+      expect(r.stderr).toContain('is denied by the deny rule');
+    }
+    expect(srv.state.calls).toHaveLength(0);
+  });
+
   it('a rule written with the provider alias matches; one written with the server name does not', async () => {
     const { sb } = await setup('    alias: tracker\ndeny: ["^tracker/file:delete$"]\n');
     expect((await sb.via(['tracker', 'file:delete', '--yes', '--owner', 'a', '--repo', 'b', '--path', 'x'])).code).toBe(5);

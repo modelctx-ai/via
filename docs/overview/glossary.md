@@ -6,6 +6,10 @@
 | **provider** | server 在 via 中的别名，命令的第一级，如 `via linear` 中的 `linear`。小写 kebab-case，不得与内置子命令重名。 |
 | **原始名** | MCP `tools/list` 返回的工具名，如 `create_issue`。始终可作为别名调用。 |
 | **资源（resource）** | 从原始名拆出的名词部分，如 `issue`、`pull-request`。命令的第二级。 |
+| **MCP 资源（MCP resource）** | MCP 协议里按 URI 寻址的只读内容（`resources/list`、`resources/read`），用 `via resources`、`via read` 访问。与上面从工具名拆出的「资源（resource）」是两回事；文档里凡是指前者都写「MCP 资源」。 |
+| **资源模板** | MCP 资源的 URI 模板（RFC 6570，如 `file:///logs/{date}.log`），调用方替换占位符后用 `via read` 读取。 |
+| **prompt（MCP prompt）** | server 提供的带参数消息模板（`prompts/list`、`prompts/get`），用 `via prompts` 访问。与 `via prompt`（生成给 agent 的说明）无关。 |
+| **roots** | client 声明给 server 的目录列表（MCP 的 `roots` 能力）。via 默认不声明，按 server 用配置的 `roots` 字段开启。 |
 | **动作（verb）** | 从原始名拆出的动词部分，如 `create`、`create-or-update`。 |
 | **工具引用** | 定位一个工具的写法。命令行形式 `linear issue:create`，单字符串形式 `linear/issue:create`。 |
 | **规范写法** | via 所有输出中使用的工具引用形式，由[拆分规则](../spec/naming.md)确定。 |

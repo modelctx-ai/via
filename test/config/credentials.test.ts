@@ -110,13 +110,32 @@ describe('file:', () => {
     const directory = await failure(resolver.resolve(`file:${dir}`, user));
     expect(directory.message).toContain('cannot read credential file');
 
-    if (process.getuid?.() !== 0) {
+    // Mode bits do not deny access on Windows; root ignores them.
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
       chmodSync(join(dir, 'locked'), 0o000);
       const denied = await failure(resolver.resolve('file:~/locked', user));
       expect(denied.message).toContain('EACCES');
       expect(denied.message).not.toContain(FAKE);
     }
     expect((await failure(resolver.resolve('file:', user))).message).toContain('expected file:PATH');
+  });
+});
+
+describe('values written by Windows tools', () => {
+  it('reads file: credentials saved as UTF-8 with a BOM or as UTF-16 (PowerShell 5.1 `>`), with CRLF line ends', async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, 'bom'), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(`${FAKE}\r\n`)]));
+    writeFileSync(join(dir, 'utf16'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${FAKE}\r\n`, 'utf16le')]));
+    const resolver = createCredentialResolver({ home: dir, env: {} });
+    expect(await resolver.resolve(`file:${join(dir, 'bom')}`, user)).toBe(FAKE);
+    expect(await resolver.resolve(`file:${join(dir, 'utf16')}`, user)).toBe(FAKE);
+  });
+
+  it('looks environment variables up case-insensitively on Windows only', async () => {
+    const win = createCredentialResolver({ env: { GitHub_Token: FAKE }, platform: 'win32' });
+    expect(await win.resolve('env:GITHUB_TOKEN', user)).toBe(FAKE);
+    const posix = createCredentialResolver({ env: { GitHub_Token: FAKE }, platform: 'linux' });
+    expect((await failure(posix.resolve('env:GITHUB_TOKEN', user))).message).toContain('GITHUB_TOKEN is not set');
   });
 });
 
@@ -140,9 +159,20 @@ describe('keychain:', () => {
   });
 
   it('explains a missing entry', async () => {
-    const error = await failure(createCredentialResolver({ loadKeyring: keyring({}).loader }).resolve('keychain:via/github', user));
+    const error = await failure(createCredentialResolver({ platform: 'linux', loadKeyring: keyring({}).loader }).resolve('keychain:via/github', user));
     expect(error.message).toContain('service "via", account "github"');
     expect(error.next).toContain('keychain');
+  });
+
+  it('names Windows Credential Manager, and the Windows config path, in the hints on Windows', async () => {
+    const missing = await failure(createCredentialResolver({ platform: 'win32', loadKeyring: keyring({}).loader }).resolve('keychain:via/github', user));
+    expect(missing.message).toContain('service "via", account "github"');
+    expect(missing.next).toContain('Windows Credential Manager');
+    const broken = await failure(createCredentialResolver({ platform: 'win32', loadKeyring: keyring({}, 'A required privilege is not held by the client').loader }).resolve('keychain:via/github', user));
+    expect(broken.message).toContain('cannot read the system keychain: A required privilege is not held by the client');
+    expect(broken.next).toContain('Credential Manager');
+    const project = await failure(createCredentialResolver({ platform: 'win32' }).resolve('cmd:op read x', { scope: 'project', path: 'C:\\repo\\.via.yaml' }));
+    expect(project.next).toContain('%APPDATA%\\via\\config.yaml');
   });
 
   it('turns a keychain failure into a CredentialError that suggests env: or file:', async () => {
@@ -203,11 +233,40 @@ describe('splitCommandLine', () => {
     ["a '' b", ['a', '', 'b']],
     ['$HOME ~ * | >', ['$HOME', '~', '*', '|', '>']],
   ])('%j', (text, words) => {
-    expect(splitCommandLine(text)).toEqual(words);
+    expect(splitCommandLine(text, 'linux')).toEqual(words); // the POSIX rules; Windows has its own block below
   });
 
   it.each(['', '   ', "a 'b", 'a "b', "''"])('rejects %j', (text) => {
-    expect(splitCommandLine(text)).toBeUndefined();
+    expect(splitCommandLine(text, 'linux')).toBeUndefined();
+  });
+});
+
+// A backslash is a path separator on Windows: quoting follows the C runtime (CommandLineToArgvW).
+describe('splitCommandLine on Windows', () => {
+  const win = (text: string): string[] | undefined => splitCommandLine(text, 'win32');
+
+  it.each([
+    ['C:\\Tools\\op.exe read op://dev/exa/key', ['C:\\Tools\\op.exe', 'read', 'op://dev/exa/key']],
+    ['"C:\\Program Files\\1Password CLI\\op.exe" read x', ['C:\\Program Files\\1Password CLI\\op.exe', 'read', 'x']],
+    ["'C:\\Program Files\\node.exe' 'C:\\a b\\script.mjs' print", ['C:\\Program Files\\node.exe', 'C:\\a b\\script.mjs', 'print']],
+    ['say "hello \\"you\\" x"', ['say', 'hello "you" x']],
+    ['a\\\\"b c" d', ['a\\b c', 'd']],
+    ['"C:\\dir\\\\" x', ['C:\\dir\\', 'x']],
+    ['a\\ b', ['a\\', 'b']],
+    ['\\\\server\\share\\tool.exe', ['\\\\server\\share\\tool.exe']],
+  ])('%j', (text, words) => {
+    expect(win(text)).toEqual(words);
+  });
+
+  it('still rejects an empty command and an unterminated quote', () => {
+    expect(win('')).toBeUndefined();
+    expect(win('"C:\\dir\\" x')).toBeUndefined(); // the backslash escapes the closing quote
+    expect(win("a 'b")).toBeUndefined();
+  });
+
+  it('leaves POSIX parsing alone when asked for another platform', () => {
+    expect(splitCommandLine('a\\ b c', 'linux')).toEqual(['a b', 'c']);
+    expect(splitCommandLine('C:\\Tools\\op.exe', 'darwin')).toEqual(['C:Toolsop.exe']);
   });
 });
 
@@ -221,7 +280,7 @@ describe('cmd:', () => {
 
   it('does not expand variables, pipes or globs', async () => {
     const h = helper(tempDir());
-    expect(await createCredentialResolver({ env: { HOME: '/nope' } }).resolve(h.ref('print', "'$HOME|*'"), user)).toBe('$HOME|*');
+    expect(await createCredentialResolver({ env: { ...process.env, HOME: '/nope' } }).resolve(h.ref('print', "'$HOME|*'"), user)).toBe('$HOME|*');
   });
 
   it('gives the command the resolver environment', async () => {

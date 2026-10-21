@@ -1,6 +1,7 @@
 import type { CatalogRules } from './provider';
 import { defaultCatalogRules } from './provider';
 import { singularize } from './singularize';
+import { defaultSynonyms, expandQuery, type Synonyms } from './synonyms';
 import { tokenize } from './tokenize';
 import type { Catalog, CatalogTool, ProviderCatalog } from './types';
 
@@ -8,6 +9,10 @@ import type { Catalog, CatalogTool, ProviderCatalog } from './types';
 const K1 = 1.2;
 const B = 0.75;
 const FIELD_WEIGHT = { name: 4, param: 2, description: 1 } as const;
+// Reciprocal rank fusion constant for hybrid ranking (discovery.md, "语义检索").
+const RRF_K = 60;
+// Semantic candidates beyond the requested limit that take part in fusion.
+const SEMANTIC_MIN_DEPTH = 30;
 
 export interface SearchHit {
   tool: CatalogTool;
@@ -15,6 +20,8 @@ export interface SearchHit {
   tier: 1 | 2 | 3 | 4;
   /** BM25 score; 0 when the tool matched on the canonical form only. */
   score: number;
+  /** Reciprocal-rank-fusion score, present only when semantic scores took part in the ranking. */
+  fused?: number;
 }
 
 export interface SearchOptions {
@@ -22,11 +29,30 @@ export interface SearchOptions {
   limit?: number;
   /** Only tools that belong to this domain (`via find --domain`). */
   domain?: string;
+  /**
+   * Cosine similarity of the query to each tool, keyed by `CatalogTool.ref` (optional embedding
+   * retrieval, ADR 0011). When present the BM25 and semantic rankings are fused with RRF inside each tier.
+   */
+  semantic?: ReadonlyMap<string, number>;
+}
+
+export interface SearchIndexOptions {
+  /** Query expansion with `data/synonyms.json`; `false` turns it off (the lexical baseline). Default: the bundled data. */
+  synonyms?: Synonyms | false;
+  /** The `docTerms` of tools whose terms are already known (a prebuilt catalog, view-cache.ts). */
+  precomputed?: { get(tool: CatalogTool): DocTerms | undefined };
+}
+
+/** What the index keeps per tool besides the tool itself: weighted term frequencies and their sum. */
+export interface DocTerms {
+  /** Sum of the weights. */
+  length: number;
+  /** `[term, weight, term, weight, ...]`, each term once. */
+  pairs: ReadonlyArray<string | number>;
 }
 
 interface Doc {
   tool: CatalogTool;
-  tf: Map<string, number>;
   length: number;
   forms: string[];
   domains: ProviderCatalog['domain']['domains'];
@@ -36,31 +62,63 @@ function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/** Words of one or more non-space characters other than `/` and `_`, separated by single spaces. */
+const ALREADY_NORMAL = /^(?:[^\s/_]+(?: [^\s/_]+)*)?$/;
+
 /** Lower-case, `/` becomes a space, `_` becomes `-`, whitespace collapsed. */
-function normalizeQuery(s: string): string {
+export function normalizeQuery(s: string): string {
+  // Canonical tool names (lower-case kebab, one space between provider and name) are already normal.
+  if (ALREADY_NORMAL.test(s) && s === s.toLowerCase()) return s;
   return s.toLowerCase().replace(/\//g, ' ').replace(/_/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+/** Lower-case words of `text` in index form: singular, and without stop words when asked. */
+function termsOf(text: string, ignoreStopwords: boolean, rules: CatalogRules): string[] {
+  const out: string[] = [];
+  for (const w of tokenize(text)) {
+    if (ignoreStopwords && (w.length < 2 || rules.domains.stopwords.has(w))) continue;
+    out.push(singularize(w, rules.split));
+  }
+  return out;
+}
+
+/** The terms a tool is indexed under: provider, name and raw name (weight 4), parameter names (2), description (1). */
+export function docTerms(tool: CatalogTool, rules: CatalogRules = defaultCatalogRules()): DocTerms {
+  const tf = new Map<string, number>();
+  let length = 0;
+  const bump = (terms: string[], weight: number) => {
+    for (const t of terms) {
+      tf.set(t, (tf.get(t) ?? 0) + weight);
+      length += weight;
+    }
+  };
+  bump(termsOf(`${tool.provider} ${tool.name} ${tool.rawName}`, false, rules), FIELD_WEIGHT.name);
+  bump(termsOf(tool.params.map((p) => p.name).join(' '), false, rules), FIELD_WEIGHT.param);
+  bump(termsOf(tool.description, true, rules), FIELD_WEIGHT.description);
+  return { length, pairs: [...tf].flat() };
 }
 
 /** Inverted index over a catalog: provider, resource, verb, raw name, description, parameter names. */
 export class SearchIndex {
   private readonly docs: Doc[] = [];
-  private readonly postings = new Map<string, Array<[docId: number, tf: number]>>();
+  /** term -> `[docId, tf, docId, tf, ...]`, in doc order (flat: one array per term, not one per posting). */
+  private readonly postings = new Map<string, number[]>();
   private avgLength = 1;
   private readonly rules: CatalogRules;
+  private readonly synonymsOption: Synonyms | false | undefined;
+  private compiledSynonyms?: Synonyms;
 
-  constructor(catalog: Catalog, rules: CatalogRules = defaultCatalogRules()) {
+  /**
+   * `options.precomputed` holds the `docTerms` of tools whose terms are already known (a cached
+   * build); the others are computed here. Either way the index is the same.
+   */
+  constructor(catalog: Catalog, rules: CatalogRules = defaultCatalogRules(), options: SearchIndexOptions = {}) {
     this.rules = rules;
+    this.synonymsOption = options.synonyms;
     for (const provider of catalog.providers) {
-      for (const tool of provider.tools) this.add(tool, provider);
+      for (const tool of provider.tools) this.add(tool, provider, options.precomputed?.get(tool));
     }
     this.avgLength = this.docs.length === 0 ? 1 : this.docs.reduce((n, d) => n + d.length, 0) / this.docs.length;
-    this.docs.forEach((doc, id) => {
-      for (const [term, tf] of doc.tf) {
-        const list = this.postings.get(term) ?? [];
-        list.push([id, tf]);
-        this.postings.set(term, list);
-      }
-    });
   }
 
   get size(): number {
@@ -68,28 +126,19 @@ export class SearchIndex {
   }
 
   private terms(text: string, ignoreStopwords: boolean): string[] {
-    const out: string[] = [];
-    for (const w of tokenize(text)) {
-      if (ignoreStopwords && (w.length < 2 || this.rules.domains.stopwords.has(w))) continue;
-      out.push(singularize(w, this.rules.split));
-    }
-    return out;
+    return termsOf(text, ignoreStopwords, this.rules);
   }
 
-  private add(tool: CatalogTool, provider: ProviderCatalog): void {
-    const tf = new Map<string, number>();
-    let length = 0;
-    const bump = (terms: string[], weight: number) => {
-      for (const t of terms) {
-        tf.set(t, (tf.get(t) ?? 0) + weight);
-        length += weight;
-      }
-    };
-    bump(this.terms(`${tool.provider} ${tool.name} ${tool.rawName}`, false), FIELD_WEIGHT.name);
-    bump(this.terms(tool.params.map((p) => p.name).join(' '), false), FIELD_WEIGHT.param);
-    bump(this.terms(tool.description, true), FIELD_WEIGHT.description);
-    const forms = [tool.ref, tool.name].map(normalizeQuery);
-    this.docs.push({ tool, tf, length, forms, domains: provider.domain.domains });
+  private add(tool: CatalogTool, provider: ProviderCatalog, known: DocTerms | undefined): void {
+    const { length, pairs } = known ?? docTerms(tool, this.rules);
+    const id = this.docs.length;
+    this.docs.push({ tool, length, forms: [normalizeQuery(tool.ref), normalizeQuery(tool.name)], domains: provider.domain.domains });
+    for (let i = 0; i < pairs.length; i += 2) {
+      const term = pairs[i] as string;
+      const list = this.postings.get(term);
+      if (list) list.push(id, pairs[i + 1] as number);
+      else this.postings.set(term, [id, pairs[i + 1] as number]);
+    }
   }
 
   private inDomain(doc: Doc, domain: string): boolean {
@@ -112,6 +161,7 @@ export class SearchIndex {
     }
 
     const scores = this.bm25(q);
+    const fusion = options.semantic ? this.fusion(candidates, scores, options.semantic, Math.max(limit * 3, SEMANTIC_MIN_DEPTH)) : undefined;
     const hits: SearchHit[] = [];
     for (const { doc, id } of candidates) {
       const [ref, name] = doc.forms as [string, string];
@@ -120,27 +170,94 @@ export class SearchIndex {
       else if (ref.startsWith(q) || name.startsWith(q)) tier = 2;
       else if (ref.includes(q)) tier = 3;
       const score = scores.get(id) ?? 0;
-      if (tier === 0 && score <= 0) continue;
-      hits.push({ tool: doc.tool, tier: tier === 0 ? 4 : tier, score });
+      const fused = fusion?.get(id);
+      if (tier === 0 && score <= 0 && fused === undefined) continue;
+      hits.push({ tool: doc.tool, tier: tier === 0 ? 4 : tier, score, ...(fusion ? { fused: fused ?? 0 } : {}) });
     }
-    hits.sort((a, b) => a.tier - b.tier || b.score - a.score || cmp(a.tool.ref, b.tool.ref));
+    hits.sort((a, b) => a.tier - b.tier || (b.fused ?? 0) - (a.fused ?? 0) || b.score - a.score || cmp(a.tool.ref, b.tool.ref));
     return hits.slice(0, limit);
   }
 
+  /**
+   * Reciprocal rank fusion of the BM25 ranking and the semantic ranking (top `depth` only), per doc id.
+   * Ranks are 1-based and ties break on the canonical form, so the same inputs always fuse the same way.
+   */
+  private fusion(
+    candidates: ReadonlyArray<{ doc: Doc; id: number }>,
+    bm25: ReadonlyMap<number, number>,
+    semantic: ReadonlyMap<string, number>,
+    depth: number,
+  ): Map<number, number> {
+    const rank = (entries: Array<{ id: number; score: number; ref: string }>): Array<{ id: number }> =>
+      entries.sort((a, b) => b.score - a.score || cmp(a.ref, b.ref));
+    const lexical = rank(candidates.filter(({ id }) => (bm25.get(id) ?? 0) > 0).map(({ doc, id }) => ({ id, score: bm25.get(id)!, ref: doc.tool.ref })));
+    const sem = rank(
+      candidates.filter(({ doc }) => semantic.has(doc.tool.ref)).map(({ doc, id }) => ({ id, score: semantic.get(doc.tool.ref)!, ref: doc.tool.ref })),
+    ).slice(0, depth);
+    const fused = new Map<number, number>();
+    for (const list of [lexical, sem]) {
+      list.forEach(({ id }, i) => fused.set(id, (fused.get(id) ?? 0) + 1 / (RRF_K + i + 1)));
+    }
+    return fused;
+  }
+
+  private synonyms(): Synonyms | undefined {
+    if (this.synonymsOption === false) return undefined;
+    this.compiledSynonyms ??= this.synonymsOption ?? defaultSynonyms(this.rules.split);
+    return this.compiledSynonyms;
+  }
+
+  private idf(term: string): number {
+    const df = (this.postings.get(term)?.length ?? 0) / 2;
+    return Math.log(1 + (this.docs.length - df + 0.5) / (df + 0.5));
+  }
+
+  /** Add `scale * idf * tf-norm` of `term` for every doc that has it to `into`; `idfCap` bounds the idf. */
+  private accumulate(term: string, scale: number, into: Map<number, number>, idfCap = Infinity): void {
+    const list = this.postings.get(term);
+    if (!list) return;
+    const idf = Math.min(this.idf(term), idfCap);
+    for (let i = 0; i < list.length; i += 2) {
+      const id = list[i]!;
+      const tf = list[i + 1]!;
+      const len = this.docs[id]!.length;
+      const norm = tf * (K1 + 1) / (tf + K1 * (1 - B + (B * len) / this.avgLength));
+      into.set(id, (into.get(id) ?? 0) + scale * idf * norm);
+    }
+  }
+
   private bm25(normalizedQuery: string): Map<number, number> {
+    const syn = this.synonyms();
     const significant = [...new Set(this.terms(normalizedQuery, true))];
-    const terms = significant.length > 0 ? significant : [...new Set(this.terms(normalizedQuery, false))];
-    const n = this.docs.length;
+    let terms = significant.length > 0 ? significant : [...new Set(this.terms(normalizedQuery, false))];
+    if (syn) {
+      const kept = terms.filter((t) => !syn.queryStopwords.has(t));
+      if (kept.length > 0) terms = kept;
+    }
     const scores = new Map<number, number>();
-    for (const term of terms) {
-      const list = this.postings.get(term);
-      if (!list) continue;
-      const idf = Math.log(1 + (n - list.length + 0.5) / (list.length + 0.5));
-      for (const [id, tf] of list) {
-        const len = this.docs[id]!.length;
-        const norm = tf * (K1 + 1) / (tf + K1 * (1 - B + (B * len) / this.avgLength));
-        scores.set(id, (scores.get(id) ?? 0) + idf * norm);
+    if (!syn) {
+      for (const term of terms) this.accumulate(term, 1, scores);
+      return scores;
+    }
+    // Each query term scores as before; where it has synonyms or stems, a doc counts the better of
+    // the term itself and its best alternative (down-weighted), so an exact hit is never outscored
+    // by a synonym hit and a doc is not rewarded twice for one concept.
+    const concepts = expandQuery(syn, this.terms(normalizedQuery, false), terms, (t) => this.postings.has(t));
+    for (const { term, anchors, alts } of concepts) {
+      if (alts.length === 0 && term !== null) {
+        this.accumulate(term, 1, scores);
+        continue;
       }
+      const best = new Map<number, number>();
+      if (term !== null) this.accumulate(term, 1, best);
+      // A rare synonym (`pr`) must not outweigh the commoner words it stands for (`pull request`).
+      const cap = anchors.reduce((sum, a) => sum + this.idf(a), 0) / anchors.length;
+      for (const alt of alts) {
+        const sum = new Map<number, number>();
+        for (const t of alt.terms) this.accumulate(t, alt.weight, sum, cap);
+        for (const [id, s] of sum) if (s > (best.get(id) ?? 0)) best.set(id, s);
+      }
+      for (const [id, s] of best) scores.set(id, (scores.get(id) ?? 0) + s);
     }
     return scores;
   }

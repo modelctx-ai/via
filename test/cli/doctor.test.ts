@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUNDLED_FRAMEWORKS, type LoadedConfig, type ServerConfig } from '../../src/config';
 import { BYTES_PER_TOKEN, renderDoctor, type ServerProbe } from '../../src/cli/doctor';
 import { makeTree } from '../helpers/config';
+import { portablePaths } from '../helpers/portable';
 import { FAKE_SECRET } from '../helpers/render';
 
 const NOT_A_CREDENTIAL = 'plain-value-for-tests';
@@ -133,6 +134,14 @@ describe('renderDoctor', () => {
     expect(renderDoctor({ config: config(servers), frameworks: [], probes }).exitCode).toBe(code);
   });
 
+  it('hints at an OAuth login store that cannot be written, without changing the exit code', () => {
+    const warning = { message: 'the OAuth login store /home/u/.local/share/via/oauth is not writable, so a refreshed token cannot be saved', next: 'chmod u+w /home/u/.local/share/via/oauth' };
+    const out = renderDoctor({ config: config([server('linear', { auth: { type: 'oauth' } })]), frameworks: [], probes: [probe('linear', { warning })], home: '/home/u' });
+    expect(out.exitCode).toBe(0);
+    expect(out.text).toContain('servers   1 ok');
+    expect(out.text).toContain('  linear: warning: the OAuth login store ~/.local/share/via/oauth is not writable, so a refreshed token cannot be saved\n    next: chmod u+w ~/.local/share/via/oauth\n');
+  });
+
   it('flags untrusted servers that were never probed', () => {
     const s = server('acme', { trusted: false, untrustedPaths: ['/work/.via.yaml'] });
     const out = renderDoctor({ config: config([s]), frameworks: [], probes: [] });
@@ -224,7 +233,7 @@ describe('renderDoctor', () => {
       : probe(s.name, { schemaBytes: 24_000 }),
     );
     const out = renderDoctor({ config: loaded, frameworks: BUNDLED_FRAMEWORKS, probes, home: tree.home });
-    const text = out.text.replaceAll(tree.root, '<tmp>');
+    const text = portablePaths(out.text.replaceAll(tree.root, '<tmp>'));
     expect(out.text).not.toContain(FAKE_SECRET);
     expect(out.exitCode).toBe(5);
     await expect(`${text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-loaded.txt');

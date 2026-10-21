@@ -1,4 +1,5 @@
 import { ExitCode } from './exit-codes';
+import { redactValue, scannerOf } from './redact';
 import type { OutputFormat } from './types';
 
 /** An error ready to print: first line is the reason, `next:` is a command to run. */
@@ -21,12 +22,20 @@ export function errorEnvelope(info: ErrorInfo): Record<string, unknown> {
   return error;
 }
 
-/** Format an error for stderr. Text: `error:` line, detail lines, `next:` line. */
+/**
+ * Format an error for stderr. Text: `error:` line, detail lines, `next:` line.
+ *
+ * `redact` only has to scan: the labels, the JSON field names and the `rule`/`path` entries of
+ * `details` are ours, so the text is checked for long credentials (`scannerOf`) and never for short
+ * ones. Whatever echoes content (upstream error text, an argument's `got`) is redacted as a value
+ * by whoever builds the {@link ErrorInfo}.
+ */
 export function formatError(info: ErrorInfo, format: OutputFormat, redact: (s: string) => string = (s) => s): string {
-  if (format === 'json') return `${redact(JSON.stringify({ error: errorEnvelope(info) }))}\n`;
+  const scan = scannerOf(redact);
+  if (format === 'json') return `${JSON.stringify({ error: redactValue(errorEnvelope(info), scan) })}\n`;
   const lines = [`error: ${info.message}`, ...(info.lines ?? [])];
   if (info.next) lines.push(`next: ${info.next}`);
-  return `${redact(lines.join('\n'))}\n`;
+  return `${scan(lines.join('\n'))}\n`;
 }
 
 // Common errors ---------------------------------------------------------------

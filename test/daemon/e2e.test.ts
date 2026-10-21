@@ -1,18 +1,19 @@
 // End to end with a real daemon: the CLI is bundled, `run()` is driven in this process, and the
-// daemon it starts is a detached child process (the same path production takes).
+// daemon it starts is a detached child process (the same path production takes). On Windows the
+// daemon listens on a named pipe; the tests that are about unix sockets, mode bits or `pgrep` are
+// skipped there, with the reason on each.
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { Socket } from 'node:net';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { startOAuthServer } from '../fixtures/mcp/oauth-server.mjs';
 import { VERSION } from '../../src/cli/help';
-import { pathContext } from '../../src/config/paths';
 import { DaemonServer } from '../../src/daemon/server';
-import { daemonPaths } from '../../src/daemon/paths';
 import { TOOLS } from '../fixtures/mcp/mock-server.mjs';
 import { FAKE_TOKEN, ghConfig, startFixtureServer, useCleanup } from '../cli/helpers';
-import { alive, builtCli, daemonSandbox, mockServerYaml, pgrep, waitFor } from '../helpers/daemon';
+import { alive, builtCli, daemonSandbox, isWindows, mockServerYaml, pgrep, waitFor } from '../helpers/daemon';
 
 const config = (extra = '', top = '') => `sources: false\n${top}servers:\n${mockServerYaml('mock', extra)}`;
 
@@ -55,11 +56,11 @@ describe('auto-spawn and reuse', () => {
   it('shows a readable status', async () => {
     const d = await daemonSandbox(config());
     const none = await d.via(['daemon', 'status']);
-    expect(none.stdout).toBe(`daemon: not running\nsocket: ${d.socket}\n`);
+    expect(none.stdout).toBe(`daemon: not running\nsocket: ${d.idleSocketText}\n`);
     await d.via(['mock', 'echo', '--message', 'hi']);
     const r = await d.via(['daemon', 'status']);
     expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(new RegExp(`^daemon: running · pid \\d+ · v${VERSION.replace(/\./g, '\\.')} · up \\d+s · [\\d.]+ MB · exits when idle in \\d+m\\d+s\\nsocket: ${d.socket}\\nsessions: 1\\n  mock +stdio +running \\(pid \\d+\\) +${TOOLS.length} tools +1 call +idle \\d+s\\n$`));
+    expect(r.stdout).toMatch(new RegExp(`^daemon: running · pid \\d+ · v${VERSION.replace(/\./g, '\\.')} · up \\d+s · [\\d.]+ MB · exits when idle in \\d+m\\d+s\\nsocket: ${d.runningSocketPattern}\\nsessions: 1\\n  mock +stdio +running \\(pid \\d+\\) +${TOOLS.length} tools +1 call +idle \\d+s\\n$`));
     expect(r.stdout).not.toContain(d.sb.home);
   });
 
@@ -83,7 +84,7 @@ describe('lifecycle', () => {
     expect(status.idleTimeoutMs).toBe(1000);
     await waitFor(() => !alive(status.pid), 4000, 'idle exit');
     expect(existsSync(d.socket)).toBe(false);
-    expect(existsSync(`${d.socket}.token`)).toBe(false);
+    expect(existsSync(d.paths.token)).toBe(false);
     expect(alive(status.sessions[0]!.pid!)).toBe(false);
   });
 
@@ -96,7 +97,8 @@ describe('lifecycle', () => {
     expect(second.stdout).not.toBe(first.stdout);
   });
 
-  it('replaces a stale socket left by a dead daemon', async () => {
+  // A unix socket file left by a killed process. A pipe vanishes with its process; the stale token file case is in protocol.test.ts.
+  it.skipIf(isWindows)('replaces a stale socket left by a dead daemon', async () => {
     const d = await daemonSandbox(config());
     const dead = spawn(process.execPath, ['-e', 'process.umask(0o177); require("net").createServer().listen(process.argv[1], () => console.log("up"))', d.socket], { stdio: ['ignore', 'pipe', 'inherit'] });
     await new Promise<void>((resolve) => dead.stdout.once('data', () => resolve()));
@@ -113,8 +115,7 @@ describe('lifecycle', () => {
 
   it('restarts a daemon of another version and serves the request', async () => {
     const d = await daemonSandbox(config());
-    const ctx = pathContext({ home: d.sb.home, env: { XDG_RUNTIME_DIR: d.runtime }, platform: 'linux' });
-    const old = new DaemonServer({ paths: daemonPaths(ctx), version: '0.0.0-old', idleTimeoutMs: 60_000, env: {}, home: d.sb.home, platform: 'linux' });
+    const old = new DaemonServer({ paths: d.paths, version: '0.0.0-old', idleTimeoutMs: 60_000, env: {}, home: d.sb.home, platform: d.platform });
     expect(await old.start()).toBe('started');
 
     const r = await d.via(['mock', 'echo', '--message', 'hi']);
@@ -126,7 +127,8 @@ describe('lifecycle', () => {
     expect(status.pid).not.toBe(process.pid);
   });
 
-  it('lets only one daemon survive when several CLIs start at once', async () => {
+  // Counts daemon processes with pgrep; the start lock itself is covered in protocol.test.ts.
+  it.skipIf(isWindows)('lets only one daemon survive when several CLIs start at once', async () => {
     const d = await daemonSandbox(config());
     const results = await Promise.all([1, 2, 3, 4, 5].map((n) => d.via(['mock', 'echo', '--message', String(n)])));
     expect(results.map((r) => r.stdout)).toEqual(['echo: 1\n', 'echo: 2\n', 'echo: 3\n', 'echo: 4\n', 'echo: 5\n']);
@@ -155,7 +157,7 @@ describe('list_changed', () => {
     await waitFor(async () => (await d.via(['mock'])).stdout.includes('extra'), 4000, 'the new tool to show up');
     const status = (await d.status())!;
     expect(status.sessions[0]!.tools).toBe(TOOLS.length + 1);
-    const cached = readdirSync(join(d.sb.cacheDir, 'catalog')).map((f) => readFileSync(join(d.sb.cacheDir, 'catalog', f), 'utf8'));
+    const cached = readdirSync(join(d.cacheDir, 'catalog')).map((f) => readFileSync(join(d.cacheDir, 'catalog', f), 'utf8'));
     expect(cached.some((text) => text.includes('extra_1'))).toBe(true);
   });
 });
@@ -179,7 +181,10 @@ describe('falling back to in-process mode', () => {
 
   it('does not repeat a call that may already have run when the connection breaks', async () => {
     const d = await daemonSandbox(config());
-    await d.via(['mock', 'pid']);
+    // Killing the daemon leaves its stdio server running (on Windows nothing ends a child with its
+    // parent) with the project as its working directory; teardown must end it before the sandbox
+    // directory can go, so record it here rather than hoping `status()` saw it.
+    d.track(Number((await d.via(['mock', 'pid'])).stdout.trim()));
     const pid = (await d.status())!.pid;
     // `slow` is not marked read-only: if the daemon dies mid-call the CLI must not run it again.
     const running = d.via(['mock', 'slow', '--ms', '3000']);
@@ -193,14 +198,15 @@ describe('falling back to in-process mode', () => {
 });
 
 describe('socket security', () => {
-  it('creates the socket and the token file readable by the owner only', async () => {
+  // Windows has no mode bits: the pipe is not a file and the token file is protected by the profile's ACL.
+  it.skipIf(isWindows)('creates the socket and the token file readable by the owner only', async () => {
     const d = await daemonSandbox(config());
     await d.via(['mock', 'pid']);
     expect(statSync(d.socket).mode & 0o777).toBe(0o600);
-    expect(statSync(`${d.socket}.token`).mode & 0o777).toBe(0o600);
+    expect(statSync(d.paths.token).mode & 0o777).toBe(0o600);
   });
 
-  it('refuses a socket other users could reach and works in-process instead', async () => {
+  it.skipIf(isWindows)('refuses a socket other users could reach and works in-process instead', async () => {
     const d = await daemonSandbox(config());
     await d.via(['mock', 'pid']);
     chmodSync(d.socket, 0o666);
@@ -213,13 +219,29 @@ describe('socket security', () => {
     }
   });
 
-  it('rejects a connection that does not know the token', async () => {
+  it.skipIf(isWindows)('rejects a connection that does not know the token', async () => {
     const d = await daemonSandbox(config());
     await d.via(['mock', 'pid']);
-    writeFileSync(`${d.socket}.token`, 'not-the-token', { mode: 0o600 });
+    writeFileSync(d.paths.token, 'not-the-token', { mode: 0o600 });
     const r = await d.via(['mock', 'echo', '--message', 'hi']);
     expect(r.code).toBe(0);
     expect(r.stderr).toContain('refused the handshake (token mismatch); continuing without the daemon');
+  });
+
+  // On Windows the pipe is named after the token, so a token the daemon does not know leads nowhere:
+  // the CLI sees no daemon at all and starts one of its own. The orphan notices its token file is gone and exits.
+  it.skipIf(!isWindows)('treats a token file that names no pipe as no daemon, and starts a fresh one', async () => {
+    const d = await daemonSandbox(config());
+    await d.via(['mock', 'pid']);
+    const first = (await d.status())!;
+    writeFileSync(d.paths.token, 'not-the-token', { mode: 0o600 });
+    const r = await d.via(['mock', 'echo', '--message', 'hi']);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe('echo: hi\n');
+    expect(r.stderr).not.toContain('warning');
+    const second = (await d.status())!;
+    expect(second.pid).not.toBe(first.pid);
+    await waitFor(() => !alive(first.pid), 12_000, 'the orphaned daemon to exit');
   });
 });
 
@@ -235,7 +257,7 @@ describe('credentials', () => {
     expect(raw.stdout).toBe('***\n');
     const status = await d.via(['daemon', 'status', '-o', 'json']);
     for (const text of [r.stdout, r.stderr, raw.stdout, raw.stderr, status.stdout, status.stderr]) expect(text).not.toContain(KEY);
-    expect(existsSync(`${d.socket}.log`) ? readFileSync(`${d.socket}.log`, 'utf8') : '').not.toContain(KEY);
+    expect(existsSync(d.paths.log) ? readFileSync(d.paths.log, 'utf8') : '').not.toContain(KEY);
   });
 
   it('keeps the value off the socket: nothing a client can ask for contains it', async () => {
@@ -243,7 +265,7 @@ describe('credentials', () => {
     await d.via(['mock', 'read_env', '--name', 'MOCK_SECRET']);
     const { DaemonClient } = await import('../../src/daemon/client');
     const client = new DaemonClient({
-      paths: daemonPaths(pathContext({ home: d.sb.home, env: { XDG_RUNTIME_DIR: d.runtime }, platform: 'linux' })),
+      paths: d.paths,
       version: VERSION,
       command: { command: process.execPath, args: [] },
       env: {},
@@ -254,27 +276,57 @@ describe('credentials', () => {
     const traffic: string[] = [];
     traffic.push(JSON.stringify(await conn.request({ type: 'status' })));
     traffic.push(JSON.stringify(await conn.request({ type: 'redact', text: `token ${KEY}` })));
+    const echoed = await conn.request({ type: 'redact', value: { token: `a ${KEY}`, n: 1, list: [KEY] } });
+    traffic.push(JSON.stringify(echoed));
     const unknown = await conn.request({ type: 'nope' } as never);
     traffic.push(JSON.stringify(unknown));
     client.close();
     expect(traffic[1]).toContain('token ***');
+    expect(echoed).toMatchObject({ ok: true, result: { token: 'a ***', n: 1, list: ['***'] } });
     for (const line of traffic) expect(line).not.toContain(KEY);
     expect(unknown).toMatchObject({ ok: false, error: { exitCode: 7 } });
   });
 
-  it('restarts the daemon when the caller\'s environment differs, so a rotated token is used', async () => {
-    const srv = await startFixtureServer({ token: 'token-B-for-daemon-tests' });
+  it('shells with different tokens alternate without restarting the daemon: each gets its own token\'s result, and no token crosses the socket', async () => {
+    const TOKEN_A = 'token-A-for-daemon-tests';
+    const TOKEN_B = 'token-B-for-daemon-tests';
+    const srv = await startFixtureServer({ token: TOKEN_B });
     useCleanup(() => srv.close());
-    const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: 'token-A-for-daemon-tests' });
-    const wrong = await d.via(['gh', 'echo-text', '--message', 'hi']);
+    const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: TOKEN_A });
+    const asB = { env: { GH_TOKEN: TOKEN_B } };
+    const call = ['gh', 'echo-text', '--message', 'hi'];
+
+    // What this process writes to any socket (the CLI side of the daemon protocol).
+    const written: string[] = [];
+    const write = Socket.prototype.write;
+    Socket.prototype.write = function (this: Socket, ...args: Parameters<Socket['write']>) {
+      const chunk = args[0] as unknown;
+      // Only the daemon socket (a unix socket has no remote port), not the HTTP connections to the upstream server.
+      if (this.remotePort === undefined) written.push(typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : '');
+      return write.apply(this, args);
+    } as typeof write;
+    useCleanup(() => {
+      Socket.prototype.write = write;
+    });
+
+    const wrong = await d.via(call); // the daemon is started by the shell holding the token the server refuses
     expect(wrong.code).toBe(4);
     const first = (await d.status())!;
-    const right = await d.via(['gh', 'echo-text', '--message', 'hi'], { env: { GH_TOKEN: 'token-B-for-daemon-tests' } });
-    expect(right.code).toBe(0);
-    expect(right.stdout).toBe('echo: hi\n');
-    expect(right.stderr).not.toContain('warning');
-    const second = (await d.via(['daemon', 'status', '-o', 'json'], { env: { GH_TOKEN: 'token-B-for-daemon-tests' } })).stdout;
-    expect((JSON.parse(second) as { pid: number }).pid).not.toBe(first.pid);
+    for (let i = 0; i < 3; i += 1) {
+      const right = await d.via(call, asB); // handled in-process: this shell's token is not the daemon's
+      expect(right.code).toBe(0);
+      expect(right.stdout).toBe('echo: hi\n');
+      expect(right.stderr).not.toContain('warning');
+      expect((await d.via(call)).code).toBe(4); // the daemon still serves shell A, with A's token
+    }
+    const status = (await d.via(['daemon', 'status', '-o', 'json'], asB)).stdout;
+    expect((JSON.parse(status) as { pid: number }).pid).toBe(first.pid);
+    Socket.prototype.write = write;
+    expect(written.length).toBeGreaterThan(0);
+    for (const chunk of written) {
+      expect(chunk).not.toContain(TOKEN_A);
+      expect(chunk).not.toContain(TOKEN_B);
+    }
   });
 });
 
@@ -294,7 +346,7 @@ describe('exclusive servers', () => {
 });
 
 describe('cursors', () => {
-  it('keeps truncated results in the daemon, not on disk', async () => {
+  it('keeps truncated results readable after the daemon has exited', async () => {
     const srv = await startFixtureServer({ token: FAKE_TOKEN });
     useCleanup(() => srv.close());
     const d = await daemonSandbox(ghConfig(srv.url), { GH_TOKEN: FAKE_TOKEN });
@@ -302,15 +354,19 @@ describe('cursors', () => {
     expect(first.code).toBe(0);
     const cursor = /next: via more ([0-9a-f]+)/.exec(first.stderr)?.[1];
     expect(cursor).toBeDefined();
-    expect(existsSync(join(d.sb.cacheDir, 'cursors'))).toBe(false);
+    expect(existsSync(join(d.cacheDir, 'cursors', `${cursor!}.json`))).toBe(true);
 
     const more = await d.via(['more', cursor!]);
     expect(more.code).toBe(0);
     expect(more.stdout).toContain('Pull request number');
     expect(first.stdout).not.toBe(more.stdout);
 
+    // The daemon's idle exit must not expire the cursor: the files are in the cache directory.
     await d.stop();
-    const gone = await d.via(['more', cursor!]);
+    const after = await d.via(['more', cursor!]);
+    expect(after.code).toBe(0);
+    expect(after.stdout).toBe(more.stdout);
+    const gone = await d.via(['more', 'ffff']);
     expect(gone.code).toBe(3);
   });
 });
@@ -321,13 +377,11 @@ describe('cold start', () => {
   /** Run the bundled CLI as its own process with an import trace for the heavy dependencies. */
   async function traced(d: Awaited<ReturnType<typeof daemonSandbox>>, argv: string[], daemon: boolean): Promise<{ code: number | null; stdout: string; loaded: string[] }> {
     const trace = join(d.runtime, `trace-${Math.random().toString(16).slice(2)}.txt`);
-    const r = spawnSync(process.execPath, ['--import', entryHook, await builtCli(), ...argv], {
+    const r = spawnSync(process.execPath, ['--import', pathToFileURL(entryHook).href, await builtCli(), ...argv], {
       encoding: 'utf8',
       cwd: d.sb.project,
       env: {
-        PATH: process.env.PATH,
-        HOME: d.sb.home,
-        XDG_RUNTIME_DIR: d.runtime,
+        ...d.processEnv(),
         VIA_NO_DAEMON: daemon ? '0' : '1',
         TRACE_FILE: trace,
         TRACE_IMPORTS: '@modelcontextprotocol/sdk,ajv,ajv-formats',

@@ -2,9 +2,10 @@
 // the call itself, and the render pipeline for the result. `executeCall` is the one call path:
 // `via <provider> …`, `via call` and `via batch` all end up here.
 import { readFile } from 'node:fs/promises';
+import { decodeText } from '../../platform/text';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { CatalogTool, ProviderCatalog } from '../../catalog';
-import { ClientError } from '../../client';
+import { ClientError } from '../../client/errors';
 import { formatError, type ErrorInfo } from '../../render/errors';
 import { ExitCode } from '../../render/exit-codes';
 import { FileMediaSink } from '../../render/media';
@@ -31,11 +32,11 @@ export function argsContext(tool: CatalogTool): ToolArgsContext {
   return { provider: tool.provider, ref: tool.ref, rawName: tool.rawName, readOnly: tool.readOnly, destructive: tool.destructive };
 }
 
-function argsIo(app: App): ToolArgsIO {
+export function argsIo(app: App): ToolArgsIO {
   return {
     readFile: (path) => {
-      const expanded = path === '~' || path.startsWith('~/') ? join(app.io.home, path.slice(1)) : path;
-      return readFile(isAbsolute(expanded) ? expanded : resolve(app.io.cwd, expanded), 'utf8');
+      const expanded = path === '~' || path.startsWith('~/') || path.startsWith('~\\') ? join(app.io.home, path.slice(1)) : path;
+      return readFile(isAbsolute(expanded) ? expanded : resolve(app.io.cwd, expanded)).then(decodeText);
     },
     readStdin: () => app.io.readStdin(),
   };
@@ -149,7 +150,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   // 2. Dry run: what would be sent, nothing else.
   const needsConfirm = tool.destructive && server.confirm !== 'never' && !options.yes;
   if (options.dryRun) {
-    return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, parsed.args, needsConfirm)), stderr: '', warnings };
+    return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, await app.redactValue(parsed.args), needsConfirm)), stderr: '', warnings };
   }
 
   // 3. Dangerous tools need --yes (the deny check already happened during resolution).
@@ -166,7 +167,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
     result = await client.callTool(server.name, tool.rawName, parsed.args, {
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       retry: tool.readOnly,
-      onProgress: (p) => sink.progress(app.redact(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${sanitizeText(p.message)}` : ''}\n`)),
+      onProgress: (p) => sink.progress(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${app.redact(sanitizeText(p.message))}` : ''}\n`),
     });
   } catch (error) {
     // The server rejected the arguments at the protocol level: same report as an `isError` result.
@@ -182,7 +183,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   // 5. Render.
   const outputWarnings: string[] = [];
   if (tool.def.outputSchema && result.structuredContent !== undefined && !result.isError) {
-    outputWarnings.push(...(await validateOutput(tool.def, result.structuredContent, app.compile)).map((w) => app.redact(w)));
+    outputWarnings.push(...(await validateOutput(tool.def, result.structuredContent, app.compile)).map((w) => app.redact.scan(w)));
   }
   warnings.push(...outputWarnings);
   const rendered = await renderToolResult(
@@ -218,7 +219,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
 
 /** The same tool in a refreshed list, or undefined when the server no longer has it. */
 async function refreshedTarget(app: App, old: ToolTarget, listing: Listing): Promise<ToolTarget | undefined> {
-  const views = await app.providerViews(old.entry, listing.tools);
+  const views = await app.providerViews(old.entry, listing);
   const tool = views.visible.tools.find((t) => t.rawName === old.tool.rawName);
   return tool ? { entry: old.entry, listing, views, tool } : undefined;
 }

@@ -53,6 +53,12 @@ export interface CatalogTool {
   ref: string;
   /** Single-string form used by `deny`, `via call` and logs: `github/issue:create`. */
   singleRef: string;
+  /**
+   * The single-string form the split rules give before `rename` and conflict handling. Equal to
+   * `singleRef` unless the user renamed the tool or a name conflict demoted it to a leaf;
+   * `deny` rules match it as well (config.md, "deny").
+   */
+  defaultSingleRef: string;
   description: string;
   params: ParamInfo[];
   readOnly: boolean;

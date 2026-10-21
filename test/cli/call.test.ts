@@ -435,7 +435,11 @@ describe('cursors', () => {
   it('cursor files live in a private cache directory', async () => {
     const { sb } = await setup();
     await sb.via(['gh', 'list_pull_requests', '--owner', 'a', '--repo', 'b']);
-    expect(statSync(join(sb.cacheDir, 'cursors')).mode & 0o777).toBe(0o700);
-    expect(statSync(join(sb.cacheDir, 'catalog')).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') {
+      expect(statSync(join(sb.cacheDir, 'cursors')).mode & 0o777).toBe(0o700);
+      expect(statSync(join(sb.cacheDir, 'catalog')).mode & 0o777).toBe(0o700);
+    } else {
+      expect(statSync(join(sb.cacheDir, 'cursors')).isDirectory()).toBe(true);
+    }
   });
 });

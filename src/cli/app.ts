@@ -2,18 +2,19 @@
 // the helpers every command needs (writing, redaction, failure reports). The heavy modules
 // (config, catalog, MCP client) are imported on first use, so `via more` stays cheap.
 import { join } from 'node:path';
-import type { Catalog, McpTool, ProviderCatalog, ProviderStatus } from '../catalog';
+import type { Catalog, CatalogTool, DocTerms, McpTool, ProviderCatalog, ProviderStatus } from '../catalog';
 import type { McpClient } from '../client';
 import type { OAuthStore } from '../client/oauth/store';
 import type { SchemaCompiler, ToolArgsError } from './args';
 import { pathContext, userCacheDir } from '../config/paths';
 import type { CredentialResolver, LoadedConfig, ServerConfig } from '../config';
-import { createRedactor } from '../render/redact';
+import { lazyRedactor, redactValue, type Redactor } from '../render/redact';
 import { formatError, type ErrorInfo } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
 import type { Backend, Listing } from './backend';
 import type { CatalogCache } from './catalog-cache';
 import type { ProviderEntry, ProviderTable } from './directory';
+import type { ViewCache } from './view-cache';
 import type { CliEnv } from './env';
 import { CliFailure, fail } from './failure';
 import type { GlobalOptions } from './options';
@@ -27,10 +28,8 @@ export type { Listing };
  * Whether servers are reached from this process instead of through the daemon: `VIA_NO_DAEMON` set
  * to anything but empty/`0`/`false` (daemon.md, "无 daemon 模式"). The injected environment wins;
  * the real one is consulted too so a test run can switch the daemon off for every sandbox at once.
- * Windows has no daemon before 0.3.
  */
 export function daemonDisabled(io: Pick<CliEnv, 'env' | 'platform'>): boolean {
-  if (io.platform === 'win32') return true;
   const value = io.env.VIA_NO_DAEMON ?? process.env.VIA_NO_DAEMON;
   return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false';
 }
@@ -38,6 +37,8 @@ export function daemonDisabled(io: Pick<CliEnv, 'env' | 'platform'>): boolean {
 export interface LoadedProviders {
   /** Visible catalog (deny applied). Failed providers are present with no tools. */
   catalog: Catalog;
+  /** Search terms of the tools whose build came from (or went to) the cache, for `SearchIndex`. */
+  terms: { get(tool: CatalogTool): DocTerms | undefined };
   statuses: Record<string, ProviderStatus>;
   failures: Array<{ entry: ProviderEntry; error: unknown }>;
 }
@@ -46,11 +47,13 @@ export class App {
   private loaded?: LoadedConfig;
   private resolverInstance?: CredentialResolver;
   private resolverLoading?: Promise<CredentialResolver>;
+  private depsLoading?: Promise<typeof import('./browse-deps')>;
   private backendInstance?: Promise<Backend>;
   private backendReady?: Backend;
   private socketClient?: import('../daemon/client').DaemonClient;
   private tableInstance?: ProviderTable;
   private cacheInstance?: CatalogCache;
+  private viewCacheInstance?: ViewCache;
   private oauthStoreInstance?: OAuthStore;
 
   constructor(
@@ -68,11 +71,11 @@ export class App {
     if (text !== '') this.io.stderr.write(text);
   }
 
-  /** Replaces every credential value resolved so far with `***`. */
-  redact = (text: string): string => {
-    const values = this.resolverInstance?.resolvedValues() ?? [];
-    return values.length === 0 ? text : createRedactor(values)(text);
-  };
+  /**
+   * Replaces the credential values resolved so far with `***`. Call it on content (a value the user
+   * typed, text from a server); use `.scan` on text composed here (`Redactor`, output.md "脱敏").
+   */
+  readonly redact: Redactor = lazyRedactor(() => this.resolverInstance?.resolvedValues() ?? []);
 
   // Paths -------------------------------------------------------------------------------
 
@@ -82,15 +85,21 @@ export class App {
 
   // Lazily created pieces ---------------------------------------------------------------
 
+  /** Config, catalog, directory, caches and backends in one import (see browse-deps.ts). */
+  private deps(): Promise<typeof import('./browse-deps')> {
+    this.depsLoading ??= import('./browse-deps');
+    return this.depsLoading;
+  }
+
   /**
    * The merged configuration. An error-level diagnostic stops the command (fail closed): a deny
    * rule that did not compile would otherwise leave a tool visible (config.md, "校验与诊断").
    * `via doctor` and `via servers` pass `allowErrors` to show the diagnostics instead.
    */
   async config(options: { allowErrors?: boolean } = {}): Promise<LoadedConfig> {
-    const { loadConfig, hasErrors, formatDiagnostic } = await import('../config');
+    const { loadConfig, hasErrors, formatDiagnostic } = await this.deps();
     if (!this.loaded) {
-      this.loaded = await loadConfig({ cwd: this.io.cwd, env: this.io.env, home: this.io.home, platform: this.io.platform });
+      this.loaded = await loadConfig({ cwd: this.io.cwd, env: this.io.env, home: this.io.home, platform: this.io.platform, parseCacheDir: join(this.cacheDir, 'config') });
     }
     if (!options.allowErrors && hasErrors(this.loaded.diagnostics)) {
       const errors = this.loaded.diagnostics.filter((d) => d.level === 'error').map(formatDiagnostic);
@@ -102,7 +111,7 @@ export class App {
   async resolver(): Promise<CredentialResolver> {
     // One resolver per run, even when several servers ask at once (doctor, sync): two instances would
     // each cache and run `cmd:` separately, and redaction only knows the values of the one it holds.
-    this.resolverLoading ??= import('../config').then(({ createCredentialResolver }) => {
+    this.resolverLoading ??= this.deps().then(({ createCredentialResolver }) => {
       this.resolverInstance = createCredentialResolver({ home: this.io.home, env: this.io.env, platform: this.io.platform, cwd: this.io.cwd });
       return this.resolverInstance;
     });
@@ -130,8 +139,9 @@ export class App {
 
   private async createBackend(): Promise<Backend> {
     const config = await this.config({ allowErrors: true });
+    const onWarning = (message: string): void => this.err(`warning: ${this.redact.scan(message)}\n`);
     const inProcess = async (): Promise<Backend> => {
-      const { InProcessBackend } = await import('./backend');
+      const { InProcessBackend } = await this.deps();
       return InProcessBackend.create({
         servers: config.servers,
         resolver: await this.resolver(),
@@ -139,15 +149,13 @@ export class App {
         env: this.io.env,
         cacheDir: this.cacheDir,
         now: this.io.now,
+        onWarning,
+        roots: { cwd: this.io.cwd, home: this.io.home },
         ...(config.servers.some((s) => s.auth.type === 'oauth') ? { oauthStore: await this.oauthStore() } : {}),
       });
     };
     if (daemonDisabled(this.io)) return inProcess();
-    const [{ DaemonBackend }, { FallbackBackend }, { FileCursorStore }] = await Promise.all([
-      import('../daemon/backend'),
-      import('./backend'),
-      import('../render/cursor-file'),
-    ]);
+    const [{ DaemonBackend }, { FallbackBackend }, { FileCursorStore }] = await Promise.all([import('../daemon/backend'), this.deps(), import('../render/cursor-file')]);
     const client = await this.daemonClient(config.daemon.idleTimeout);
     const primary = new DaemonBackend({
       client,
@@ -155,6 +163,8 @@ export class App {
       cwd: this.io.cwd,
       env: this.io.env,
       serverIdleTimeoutSec: config.daemon.serverIdleTimeout,
+      cache: await this.cache(),
+      onWarning,
     });
     return new FallbackBackend(primary, inProcess, (message) => this.err(message), () => new FileCursorStore(join(this.cacheDir, 'cursors'), { now: this.io.now }));
   }
@@ -196,10 +206,20 @@ export class App {
     return (backend.compiler() ?? (await import('./args/validate')).compileSchema)(schema, label);
   };
 
-  /** `redact` for text that is about to be printed after the sync paths could not know the daemon's secrets. */
+  /**
+   * Text the CLI composed, scanned for the credentials the daemon knows and this process does not
+   * (long ones only: `Redactor.scan`). Content that was echoed into it is redacted as a value first.
+   */
   async redactText(text: string): Promise<string> {
     const backend = this.backendReady;
-    return backend ? backend.redact(text) : this.redact(text);
+    return backend ? backend.redact(text) : this.redact.scan(text);
+  }
+
+  /** Content the CLI echoes, such as the arguments of a dry run: every string value redacted, the shape kept. */
+  async redactValue<T>(value: T): Promise<T> {
+    const local = redactValue(value, this.redact) as T;
+    const backend = this.backendReady;
+    return backend ? backend.redactValue(local) : local;
   }
 
   /** Where OAuth logins are kept: keychain, else a file in the data directory (auth.md). */
@@ -213,15 +233,24 @@ export class App {
 
   async cache(): Promise<CatalogCache> {
     if (!this.cacheInstance) {
-      const { CatalogCache } = await import('./catalog-cache');
+      const { CatalogCache } = await this.deps();
       this.cacheInstance = new CatalogCache(join(this.cacheDir, 'catalog'), this.io.now);
     }
     return this.cacheInstance;
   }
 
+  /** Where built provider catalogs are kept next to the raw tool lists (view-cache.ts). */
+  async viewCache(): Promise<ViewCache> {
+    if (!this.viewCacheInstance) {
+      const { ViewCache, rulesFingerprint } = await this.deps();
+      this.viewCacheInstance = new ViewCache(join(this.cacheDir, 'catalog'), rulesFingerprint());
+    }
+    return this.viewCacheInstance;
+  }
+
   async table(): Promise<ProviderTable> {
     if (!this.tableInstance) {
-      const { buildProviderTable } = await import('./directory');
+      const { buildProviderTable } = await this.deps();
       this.tableInstance = buildProviderTable((await this.config()).servers);
     }
     return this.tableInstance;
@@ -244,40 +273,77 @@ export class App {
    * The tools of one server: from the cache when fresh, else from the server (and then cached).
    * `refresh` skips the cache read. Throws ClientError.
    */
-  async listing(entry: ProviderEntry, options: { refresh?: boolean; many?: boolean } = {}): Promise<Listing> {
+  async listing(entry: ProviderEntry, options: { refresh?: boolean; many?: boolean; have?: number } = {}): Promise<Listing> {
     const { server } = entry;
-    if (!server.trusted) throw (await import('../client')).untrustedServer(server);
+    if (!server.trusted) throw (await import('../client/errors')).untrustedServer(server);
     const timeoutMs = this.listTimeoutMs(server, options.many ?? false);
-    return (await this.backend()).listing(server, { timeoutMs, refresh: options.refresh ?? false });
+    return (await this.backend()).listing(server, { timeoutMs, refresh: options.refresh ?? false, ...(options.have !== undefined ? { have: options.have } : {}) });
   }
 
   /** Fetch several providers in parallel; failures become statuses instead of aborting. */
   async loadProviders(entries: readonly ProviderEntry[], options: { refresh?: boolean } = {}): Promise<LoadedProviders> {
     const config = await this.config();
-    const { buildCatalog } = await import('../catalog');
-    const { providerInput, statusOf } = await import('./directory');
+    const [{ buildCatalog, providerInput, statusOf }, views] = await Promise.all([this.deps(), this.viewCache()]);
     const statuses: Record<string, ProviderStatus> = {};
     const failures: LoadedProviders['failures'] = [];
+    // The build inputs do not depend on the tool list, so they are known before it is fetched; the
+    // build we already have tells which list to ask the backend about (it may then skip sending it).
+    const early = entries.map((entry) => providerInput(entry, [], config, true));
     const results = await Promise.all(
-      entries.map(async (entry) => {
+      entries.map(async (entry, i) => {
         try {
-          return { entry, tools: (await this.listing(entry, { refresh: options.refresh ?? false, many: true })).tools };
+          const have = options.refresh ? undefined : views.peek(entry.server, early[i]!);
+          return { entry, listing: await this.listing(entry, { refresh: options.refresh ?? false, many: true, ...(have !== undefined ? { have } : {}) }) };
         } catch (error) {
           statuses[entry.name] = statusOf(error);
           failures.push({ entry, error });
-          return { entry, tools: [] as McpTool[] };
+          return { entry, listing: undefined };
         }
       }),
     );
-    const catalog = buildCatalog(results.map((r) => providerInput(r.entry, r.tools, config, true)));
-    return { catalog, statuses, failures };
+    // A listing that is a cache file read parses its tools only if somebody asks.
+    const inputs = results.map((r, i) => (r.listing ? { ...early[i]!, get tools() { return r.listing!.tools; } } : early[i]!));
+    // Providers whose build is in the cache are restored; the rest are built here and then kept.
+    const byName = new Map(results.map((r) => [r.entry.name, r]));
+    const written = new Map<CatalogTool, DocTerms>();
+    const restored = new Map<string, { get(tool: CatalogTool): DocTerms | undefined }>();
+    const catalog = buildCatalog(inputs, undefined, (input) => {
+      const r = byName.get(input.provider);
+      const hit = r?.listing ? views.read(r.entry.server, input, r.listing) : undefined;
+      if (!hit) return undefined;
+      restored.set(input.provider, hit.terms);
+      return hit.catalog;
+    });
+    for (const [i, r] of results.entries()) {
+      const built = catalog.providers.find((p) => p.provider === r.entry.name);
+      if (!r.listing || !built || restored.has(r.entry.name)) continue;
+      for (const [tool, known] of views.write(r.entry.server, inputs[i]!, r.listing, built)) written.set(tool, known);
+    }
+    const terms = { get: (tool: CatalogTool): DocTerms | undefined => written.get(tool) ?? restored.get(tool.provider)?.get(tool) };
+    return { catalog, terms, statuses, failures };
   }
 
-  /** Provider catalogs of one server: with `deny` applied (what the user sees) and without it. */
-  async providerViews(entry: ProviderEntry, tools: McpTool[]): Promise<{ visible: ProviderCatalog; full: ProviderCatalog }> {
+  /**
+   * Provider catalogs of one server: with `deny` applied (what the user sees, from the build cache
+   * when it has one) and without it (only built if something asks, which is rare: a name that does
+   * not resolve is checked against the denied tools).
+   */
+  async providerViews(entry: ProviderEntry, listing: Listing): Promise<{ visible: ProviderCatalog; full: ProviderCatalog }> {
     const config = await this.config();
-    const { buildProvider } = await import('./directory');
-    return { visible: buildProvider(entry, tools, config, true), full: buildProvider(entry, tools, config, false) };
+    const [{ buildProvider, providerInput }, views] = await Promise.all([this.deps(), this.viewCache()]);
+    const input = providerInput(entry, listing.tools, config, true);
+    let visible = views.read(entry.server, input, listing)?.catalog;
+    if (!visible) {
+      visible = buildProvider(entry, listing.tools, config, true);
+      views.write(entry.server, input, listing, visible);
+    }
+    let full: ProviderCatalog | undefined;
+    return {
+      visible,
+      get full(): ProviderCatalog {
+        return (full ??= buildProvider(entry, listing.tools, config, false));
+      },
+    };
   }
 
   // Failures ----------------------------------------------------------------------------

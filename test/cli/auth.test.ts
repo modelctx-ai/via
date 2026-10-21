@@ -69,7 +69,7 @@ describe('via auth login', () => {
     const url = new URL(r.stdout.split('\n')[0]!);
     expect(url.origin).toBe(srv.issuer);
     expect(url.pathname).toBe('/authorize');
-    expect(r.stdout).toMatch(/\nlogged in: linear \(scopes: read write; access token expires in 1h; stored in .*\/oauth\/oauth-[0-9a-f]{32}\.json\)\n$/);
+    expect(r.stdout).toMatch(/\nlogged in: linear \(scopes: read write; access token expires in 1h; stored in .*[\\/]oauth[\\/]oauth-[0-9a-f]{32}\.json\)\n$/);
 
     // Dynamic registration: a public client with the loopback redirect URI.
     expect(srv.state.registrations).toHaveLength(1);
@@ -91,8 +91,11 @@ describe('via auth login', () => {
     const { srv, sb } = await setup();
     await login(sb, srv);
     const file = recordFile(sb);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(join(file, '..')).mode & 0o777).toBe(0o700);
+    // Windows has no mode bits; the file is protected by the profile directory's ACL (security.md).
+    if (process.platform !== 'win32') {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(join(file, '..')).mode & 0o777).toBe(0o700);
+    }
     const record = readRecord(sb);
     expect(record.tokens?.access_token).toBeTruthy();
     expect(record.expiresAt).toBe(T0 + HOUR);

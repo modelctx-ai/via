@@ -1,7 +1,7 @@
 // `via batch` (cli.md, "via batch"): ordering under concurrency, per-line failures, exit codes,
 // concurrency limits, the two output forms and credential redaction, against the CLI fixture server.
 import { describe, expect, it } from 'vitest';
-import { FAKE_TOKEN, ghConfig, makeSandbox, normalize, startFixtureServer, useCleanup } from './helpers';
+import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, makeSandbox, normalize, startFixtureServer, useCleanup } from './helpers';
 
 async function setup(extraServerConfig = '', topLevel = '') {
   const srv = await startFixtureServer({ token: FAKE_TOKEN });
@@ -441,7 +441,7 @@ describe('text and raw output', () => {
 
   it('progress of a line is printed with that line, not interleaved with others', async () => {
     const { sb } = await setup();
-    sb.userConfig(`sources: false\nservers:\n  job:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(new URL('../fixtures/mcp/cli-stdio-server.mjs', import.meta.url).pathname)}]\n`);
+    sb.userConfig(`sources: false\nservers:\n  job:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(CLI_STDIO_SERVER)}]\n`);
     const r = await sb.via(['batch'], { stdin: jsonl(call('job/run_job'), call('job/run_job')) });
     expect(r.code).toBe(0);
     expect(normalize(r.combined)).toBe(

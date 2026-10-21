@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildCatalog, SearchIndex, type McpTool } from '../../src/catalog';
+import { normalizeQuery } from '../../src/catalog/search';
 import { catalogFixture } from '../helpers/fixtures';
 
 const catalog = catalogFixture('tools');
@@ -112,5 +113,27 @@ describe('SearchIndex at scale', () => {
     for (let i = 0; i < 10; i++) big.search('update thing 7 item');
     const perQuery = (performance.now() - started) / 10;
     expect(perQuery).toBeLessThan(30);
+  });
+});
+
+describe('normalizeQuery fast path', () => {
+  const reference = (s: string): string => s.toLowerCase().replace(/\//g, ' ').replace(/_/g, '-').replace(/\s+/g, ' ').trim();
+
+  it('gives what the four replacements give, for canonical and messy strings alike', () => {
+    const alphabet = 'abcXYZ09_-/: \t\n Éé';
+    let state = 99;
+    const next = (): number => {
+      state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+      return state >>> 8;
+    };
+    for (let i = 0; i < 20_000; i += 1) {
+      let s = '';
+      for (let j = next() % 12; j > 0; j -= 1) s += alphabet[next() % alphabet.length];
+      expect(normalizeQuery(s), JSON.stringify(s)).toBe(reference(s));
+    }
+    for (const tool of catalog.providers.flatMap((p) => p.tools)) {
+      expect(normalizeQuery(tool.ref)).toBe(reference(tool.ref));
+      expect(normalizeQuery(tool.name)).toBe(reference(tool.name));
+    }
   });
 });
