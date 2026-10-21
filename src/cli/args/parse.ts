@@ -8,6 +8,7 @@ import { isPlainObject, type Pos, SchemaModel } from './schema';
 import type { ParsedToolArgs, ParseToolArgsOptions, ToolArgsContext } from './types';
 import { compileSchema } from './validate';
 import { formatUsage } from './help';
+import { shellWords } from '../../render/shell';
 
 type Resolution =
   | { kind: 'ok'; path: string[]; pos: Pos; negate: boolean }
@@ -141,7 +142,7 @@ class Parser {
     }
 
     if (this.problems.length > 0) {
-      throw buildToolArgsError(this.problems, formatUsage(this.tool, this.ctx, { maxOptional: 8 }), this.ctx.ref, this.redact);
+      throw buildToolArgsError(this.problems, formatUsage(this.tool, this.ctx, { maxOptional: 8 }), shellWords(this.ctx.refWords ?? this.ctx.ref), this.redact);
     }
     // Echoed values (`got`) were redacted where they were written; the rest of a warning is ours.
     return { args: this.args, warnings, validated };

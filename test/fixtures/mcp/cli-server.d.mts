@@ -10,6 +10,8 @@ export interface CliState {
   /** URIs of `resources/read` requests, and `prompts/get` requests, in order. */
   reads: string[];
   prompts: Array<{ name: string; args: Record<string, string> }>;
+  /** Replaces the prompts the server lists, when set. */
+  promptList?: Array<{ name: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }> | undefined;
 }
 export declare function defaultTools(): CliState['tools'];
 export declare function createCliState(): CliState;

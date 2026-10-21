@@ -1,6 +1,8 @@
 // The stderr meta line (output.md, "元信息行"):
 //   · <canonical ref> · <elapsed> · <rows or bytes> [· +N cols (-o json)] [· <flag>…] [· next: <command>]
 
+import { visibleText } from './shell';
+
 export interface MetaInfo {
   /** Canonical tool reference, e.g. `github issue:list`. */
   ref: string;
@@ -32,7 +34,7 @@ export function formatMetaLine(info: MetaInfo): string {
     : info.rows !== undefined
       ? `${info.rows} ${info.rows === 1 ? 'row' : 'rows'}`
       : `${formatBytes(info.bytes.total)} bytes`;
-  const fields = [info.ref, formatElapsed(info.elapsedMs), size];
+  const fields = [visibleText(info.ref), formatElapsed(info.elapsedMs), size];
   if (info.hiddenColumns && info.hiddenColumns > 0) fields.push(`+${info.hiddenColumns} cols (-o json)`);
   for (const flag of info.flags ?? []) fields.push(flag);
   if (info.next) fields.push(`next: ${info.next}`);

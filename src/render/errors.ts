@@ -1,5 +1,6 @@
 import { ExitCode } from './exit-codes';
 import { redactValue, scannerOf } from './redact';
+import { shellArg, shellQuery, shellWords, visibleText } from './shell';
 import type { OutputFormat } from './types';
 
 /** An error ready to print: first line is the reason, `next:` is a command to run. */
@@ -41,7 +42,7 @@ export function formatError(info: ErrorInfo, format: OutputFormat, redact: (s: s
 // Common errors ---------------------------------------------------------------
 
 export function authRequiredError(provider: string): ErrorInfo {
-  return { code: ExitCode.Auth, message: `${provider} requires auth`, next: `via auth login ${provider}` };
+  return { code: ExitCode.Auth, message: `${provider} requires auth`, next: `via auth login ${shellArg(provider, { placeholder: 'provider', positional: true })}` };
 }
 
 export function usageError(message: string, next: string, lines: string[] = []): ErrorInfo {
@@ -49,18 +50,21 @@ export function usageError(message: string, next: string, lines: string[] = []):
 }
 
 /**
- * Something does not exist (exit code 3). `suggestions` are full command forms such as
- * `github issue:read`; with none, point at `via find`.
+ * Something does not exist (exit code 3). `suggestions` are command forms such as `github issue:read`
+ * (a string of space-separated words, or the words as a list when one may contain a space); with
+ * none, point at `via find`. What the person typed is echoed as visible text and, in `next:`, quoted
+ * (output.md, "可粘贴的命令行").
  */
-export function notFoundError(what: string, input: string, suggestions: readonly string[], findQuery: string): ErrorInfo {
+export function notFoundError(what: string, input: string, suggestions: ReadonlyArray<string | readonly string[]>, findQuery: string): ErrorInfo {
+  const message = `no such ${what}: ${visibleText(input)}`;
   if (suggestions.length === 0) {
-    return { code: ExitCode.NotFound, message: `no such ${what}: ${input}`, next: `via find ${findQuery}` };
+    return { code: ExitCode.NotFound, message, next: `via find ${shellQuery(findQuery)}` };
   }
   return {
     code: ExitCode.NotFound,
-    message: `no such ${what}: ${input}`,
-    lines: [`did you mean: ${suggestions.join(' · ')}`],
-    next: `via ${suggestions[0]} -h`,
+    message,
+    lines: [`did you mean: ${suggestions.map((s) => shellWords(s)).join(' · ')}`],
+    next: `via ${shellWords(suggestions[0]!)} -h`,
   };
 }
 

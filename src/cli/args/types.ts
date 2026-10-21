@@ -6,6 +6,8 @@ export interface ToolArgsContext {
   provider: string;
   /** Canonical command-line form, e.g. `github issue:list`. */
   ref: string;
+  /** The words of `ref` when one of them may contain a space (a prompt name); each is quoted for the shell. */
+  refWords?: readonly string[];
   rawName: string;
   readOnly: boolean;
   destructive: boolean;

@@ -16,6 +16,7 @@ import type { ToolResult } from '../../render/types';
 import { formatToolHelp, parseToolArgs, validateOutput, type ParsedToolArgs, type ToolArgsContext, type ToolArgsIO } from '../args';
 import { toErrorInfo, type App, type Listing } from '../app';
 import { matchingDeny, type ProviderEntry } from '../directory';
+import { shellWords } from '../../render/shell';
 import { fail } from '../failure';
 
 /** A cached schema older than this is refreshed once when validation fails (arguments.md, "schema 不可靠时"). */
@@ -157,7 +158,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   if (needsConfirm) {
     throw fail(ExitCode.Denied, `${tool.ref} is destructive and was not run`, request.confirmNext ?? 'rerun with --yes to confirm');
   }
-  if (matchingDeny(tool, config.deny)) throw fail(ExitCode.Denied, `${tool.ref} is denied by a deny rule`, `via ${tool.provider}`);
+  if (matchingDeny(tool, config.deny)) throw fail(ExitCode.Denied, `${tool.ref} is denied by a deny rule`, `via ${shellWords(tool.provider)}`);
 
   // 4. Call.
   const client = await app.client();
@@ -172,7 +173,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   } catch (error) {
     // The server rejected the arguments at the protocol level: same report as an `isError` result.
     if (error instanceof ClientError && error.exitCode === ExitCode.ToolError) {
-      const info: ErrorInfo = { code: ExitCode.ToolError, message: error.message, next: `via ${tool.ref} -h` };
+      const info: ErrorInfo = { code: ExitCode.ToolError, message: error.message, next: `via ${shellWords(tool.ref)} -h` };
       const text = await app.redactText(formatError(info, options.format, app.redact));
       return { exitCode: ExitCode.ToolError, stdout: '', stderr: addDisagreeHint(text, options.format, error.message), warnings, error: info };
     }

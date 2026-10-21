@@ -5,7 +5,7 @@ import { formatDiagnostic, isCredentialRef, type ConfigDiagnostic, type Framewor
 import type { CatalogWarning } from '../catalog';
 import { ExitCode } from '../render/exit-codes';
 import { shortenHome } from '../config/paths';
-import { shellWord } from '../render/shell';
+import { shellArg, shellWord } from '../render/shell';
 import { displayWidth, padEndWidth, truncateChars } from '../render/width';
 
 /** Result of probing one server (done by the CLI with the client; doctor only renders). */
@@ -124,7 +124,7 @@ function collectRows(input: DoctorInput): Row[] {
 
 /** Obvious fixes: log in for OAuth servers, `via trust <file>` for untrusted project files. */
 function defaultNext(row: Row, server: ServerConfig | undefined): string[] {
-  if (row.status === 'needs-auth' && server?.auth.type === 'oauth') return [`via auth login ${row.provider}`];
+  if (row.status === 'needs-auth' && server?.auth.type === 'oauth') return [`via auth login ${shellArg(row.provider, { placeholder: 'provider', positional: true })}`];
   if (row.status === 'untrusted') {
     const paths = server?.untrustedPaths ?? [];
     return paths.length > 0 ? paths.map((p) => `via trust ${shellWord(p)}`) : ['via trust'];

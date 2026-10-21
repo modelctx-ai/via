@@ -212,7 +212,8 @@ describe('via trust', () => {
     sb.projectConfig('servers:\n  evil:\n    command: "sh"\n    args: ["-c", "echo ok\\n\\u001b[2Jtrusted: yes", "a b"]\n');
     const r = await sb.via(['trust']);
     expect(r.stdout).not.toContain('\u001b');
-    expect(r.stdout).toContain('evil  stdio  sh -c "echo ok\\n\\u001b[2Jtrusted: yes" "a b"');
+    // A word no shell can carry safely is shown as an escaped string; one with a space is quoted for the shell.
+    expect(r.stdout).toContain(`evil  stdio  sh -c "echo ok\\u000a\\u001b[2Jtrusted: yes" ${process.platform === 'win32' ? '"a b"' : "'a b'"}`);
     expect(r.stdout.split('\n').filter((l) => l.startsWith('trusted'))).toEqual([]);
   });
 

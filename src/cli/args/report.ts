@@ -3,6 +3,7 @@ import { didYouMean } from '../../catalog/edit-distance';
 import { kebab } from '../../catalog/tokenize';
 import type { JsonSchema } from '../../catalog/types';
 import { scannerOf } from '../../render/redact';
+import { visibleText } from '../../render/shell';
 import { alignRows, truncateChars } from '../../render/width';
 import type { ErrorObject } from './validate';
 import { isPlainObject, rootFlagName, type SchemaModel } from './schema';
@@ -298,7 +299,7 @@ export function formatWarnings(model: SchemaModel, errors: readonly ErrorObject[
   return out;
 }
 
-/** Build the error thrown for a failed parse or validation. */
+/** Build the error thrown for a failed parse or validation. `ref` is the tool reference already written as shell words. */
 export function buildToolArgsError(problems: readonly Problem[], usage: string, ref: string, redact: (s: string) => string): ToolArgsError {
   const ordered = [...problems].sort((a, b) => a.group - b.group);
   const merged: Array<{ arg: string; messages: string[]; single: string }> = [];
@@ -309,9 +310,11 @@ export function buildToolArgsError(problems: readonly Problem[], usage: string, 
   }
   // The wording is ours and the values it echoes (`got`) are redacted where they are written, so the
   // text is only scanned for long credentials. An argument name is a key: the user may have typed anything.
-  const scan = scannerOf(redact);
+  // An argument name or a value may hold a line break or a terminal escape: it is shown as visible text.
+  const scanRedacted = scannerOf(redact);
+  const scan = (s: string): string => visibleText(scanRedacted(s));
   const nameOf = (arg: string): string => (redact as { key?: (k: string) => string }).key?.(arg) ?? arg;
-  const issues: ArgIssue[] = merged.map((m) => ({ arg: nameOf(m.arg), message: scan(m.messages.join('; ')) }));
+  const issues: ArgIssue[] = merged.map((m) => ({ arg: visibleText(nameOf(m.arg)), message: scan(m.messages.join('; ')) }));
   const multi = merged.length > 1;
   const first = merged[0]!;
   const message = multi

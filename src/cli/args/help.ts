@@ -1,6 +1,7 @@
 // `-h` text and usage lines rendered from the input schema (arguments.md, "帮助").
 import { extractParams } from '../../catalog/signature';
 import type { JsonSchema, McpTool, ParamInfo } from '../../catalog/types';
+import { shellArg, shellQuote, shellWords, visibleText } from '../../render/shell';
 import { alignRows, truncateChars } from '../../render/width';
 import { type Pos, rootFlagName, SchemaModel } from './schema';
 import type { ToolArgsContext } from './types';
@@ -32,8 +33,11 @@ interface ParamView {
 }
 
 function literalText(v: unknown): string {
-  return typeof v === 'string' ? v : (JSON.stringify(v) ?? String(v));
+  return visibleText(typeof v === 'string' ? v : (JSON.stringify(v) ?? String(v)));
 }
+
+/** A flag as written in a usage line or a parameter row: quoted if its name holds anything a shell acts on. */
+const flagText = (flag: string): string => shellQuote(flag) ?? '--<name>';
 
 const TYPE_LABELS: Record<string, string> = { string: 'str', number: 'num', integer: 'num', boolean: 'bool', object: 'json', array: 'json' };
 
@@ -61,7 +65,7 @@ function viewParams(model: SchemaModel): ParamView[] {
     const itemTypes = model.typeInfoPos(items);
     return {
       info,
-      flag: `--${rootFlagName(info.arg)}`,
+      flag: flagText(`--${rootFlagName(info.arg)}`),
       pos,
       schema: model.resolve(pos[0]),
       boolean: t.boolean,
@@ -107,7 +111,7 @@ export function formatUsage(tool: McpTool, ctx: ToolArgsContext, options: UsageO
   const limit = options.maxOptional ?? Infinity;
   const tokens = [...required.map(token), ...optional.slice(0, limit).map(token)];
   if (optional.length > limit) tokens.push('[…]');
-  return wrap(`usage: via ${ctx.ref}`, tokens);
+  return wrap(`usage: via ${shellWords(ctx.refWords ?? ctx.ref)}`, tokens);
 }
 
 // Descriptions ---------------------------------------------------------------------------------
@@ -151,7 +155,7 @@ function listWithin(items: readonly string[], max: number): string {
 }
 
 function defaultText(v: unknown): string {
-  return typeof v === 'string' ? v : JSON.stringify(v);
+  return visibleText(typeof v === 'string' ? v : JSON.stringify(v));
 }
 
 function stringLiterals(literals: unknown[] | undefined): string[] {
@@ -189,7 +193,7 @@ export function formatToolHelp(tool: McpTool, ctx: ToolArgsContext): string {
         const d = describeText(typeof fieldSchema.description === 'string' ? fieldSchema.description : undefined, stringLiterals(t.literals));
         if (d) text.push(d);
         if (fieldSchema.default !== undefined) text.push(`default: ${defaultText(fieldSchema.default)}`);
-        rows.push([`  ${model.displayArg([p.info.name, field])}`, text.join(' · ')]);
+        rows.push([`  ${visibleText(model.displayArg([p.info.name, field]))}`, text.join(' · ')]);
       }
       if (fields.length > NESTED_FIELDS_MAX) rows.push([`  ${p.flag}.…`, `${fields.length - NESTED_FIELDS_MAX} more fields`]);
     }
@@ -202,7 +206,7 @@ export function formatToolHelp(tool: McpTool, ctx: ToolArgsContext): string {
     out.push(`note: ${group.join(' and ')} become the same flag; pass each by its original name`);
   }
 
-  const marks = [`alias: ${ctx.rawName}`];
+  const marks = [`alias: ${shellArg(ctx.rawName, { placeholder: 'name' })}`];
   if (ctx.readOnly) marks.push('read-only');
   if (ctx.destructive) marks.push('destructive (needs --yes)');
   out.push(marks.join(' · '));

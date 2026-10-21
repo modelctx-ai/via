@@ -99,7 +99,7 @@ const PROMPTS = [
 
 /** Shared, inspectable state: one Server is built per HTTP request, so it lives outside. */
 export function createCliState() {
-  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [] };
+  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined };
 }
 
 /**
@@ -143,7 +143,7 @@ export function createCliServer({ state, authorization, features = [] }) {
   }
 
   if (features.includes('prompts')) {
-    server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: PROMPTS }));
+    server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: state.promptList ?? PROMPTS }));
     server.setRequestHandler(GetPromptRequestSchema, async (request) => {
       const { name, arguments: args = {} } = request.params;
       state.prompts.push({ name, args });

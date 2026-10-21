@@ -5,6 +5,7 @@ import type { LoginIO, LoginStatus, LoginTarget } from '../../client/oauth';
 import type { ServerConfig } from '../../config';
 import { userConfigHint } from '../../config/paths';
 import { ExitCode } from '../../render/exit-codes';
+import { shellArg } from '../../render/shell';
 import { alignRows } from '../../render/width';
 import type { App } from '../app';
 import { authState, type AuthState } from '../auth-state';
@@ -172,7 +173,7 @@ async function status(app: App, argv: readonly string[]): Promise<number> {
   // A named provider that cannot authenticate is the answer "no" to a question scripts ask.
   if (positionals[0] !== undefined && unusable !== undefined) {
     const row = rows[0]!;
-    app.err(`next: ${row.method === 'oauth' ? `via auth login ${row.provider}` : 'via doctor'}\n`);
+    app.err(`next: ${row.method === 'oauth' ? `via auth login ${shellArg(row.provider, { placeholder: 'provider', positional: true })}` : 'via doctor'}\n`);
     return ExitCode.Auth;
   }
   return ExitCode.Ok;

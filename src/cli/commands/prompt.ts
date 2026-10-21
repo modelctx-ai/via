@@ -4,6 +4,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { ExitCode } from '../../render/exit-codes';
+import { shellArg, visibleText } from '../../render/shell';
 import type { App } from '../app';
 import { fail, usageFailure } from '../failure';
 import { parseLocal } from '../options';
@@ -50,6 +51,8 @@ export async function promptCommand(app: App, argv: readonly string[]): Promise<
   }
 
   const given = typeof flags.check === 'string' ? flags.check : (flags.out as string);
+  const shown = visibleText(given);
+  const file = shellArg(given, { placeholder: 'file', positional: true });
   const path = isAbsolute(given) ? given : resolve(app.io.cwd, given);
   const existing = await readExisting(path);
 
@@ -59,19 +62,19 @@ export async function promptCommand(app: App, argv: readonly string[]): Promise<
       status = blockStatus(existing, block);
     } catch (error) {
       if (!(error instanceof BlockError)) throw error;
-      throw fail(ExitCode.Denied, `${given}: unusable via block: ${error.message}`, `fix the markers by hand, then rerun via prompt --out ${given}`);
+      throw fail(ExitCode.Denied, `${shown}: unusable via block: ${error.message}`, `fix the markers by hand, then rerun via prompt --out ${file}`);
     }
     if (status === 'current') {
-      app.err(`· ${given} is up to date\n`);
+      app.err(`· ${shown} is up to date\n`);
       return ExitCode.Ok;
     }
-    throw fail(ExitCode.ToolError, status === 'missing' ? `${given} has no via block` : `${given} has an out-of-date via block`, `via prompt --out ${given}`);
+    throw fail(ExitCode.ToolError, status === 'missing' ? `${shown} has no via block` : `${shown} has an out-of-date via block`, `via prompt --out ${file}`);
   }
 
   // `--replace` is the old whole-file behaviour: the output becomes the entire file.
   const text = flags.replace === true ? `${block}\n` : undefined;
   if (text !== undefined && existing !== undefined && !app.options.yes) {
-    throw fail(ExitCode.Denied, `${given} already exists and was not overwritten`, 'rerun with --yes to replace it', [`without --replace, via prompt keeps your own text and only refreshes the via block`]);
+    throw fail(ExitCode.Denied, `${shown} already exists and was not overwritten`, 'rerun with --yes to replace it', [`without --replace, via prompt keeps your own text and only refreshes the via block`]);
   }
   let content: string;
   let action: string;
@@ -81,9 +84,9 @@ export async function promptCommand(app: App, argv: readonly string[]): Promise<
     action = spliced.action;
   } catch (error) {
     if (!(error instanceof BlockError)) throw error;
-    throw fail(ExitCode.Denied, `${given}: unusable via block: ${error.message}`, `fix the markers by hand, then rerun via prompt --out ${given}`);
+    throw fail(ExitCode.Denied, `${shown}: unusable via block: ${error.message}`, `fix the markers by hand, then rerun via prompt --out ${file}`);
   }
   await writeFile(path, content);
-  app.err(`· ${META[action]} ${given} · ${Buffer.byteLength(content, 'utf8')} bytes\n`);
+  app.err(`· ${META[action]} ${shown} · ${Buffer.byteLength(content, 'utf8')} bytes\n`);
   return ExitCode.Ok;
 }

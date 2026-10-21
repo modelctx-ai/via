@@ -110,7 +110,7 @@ describe('shellWord', () => {
 
   it('falls back to PowerShell single quotes when double quotes would expand something', () => {
     expect(shellWord('C:\\Users\\$me\\x y', 'win32')).toBe("'C:\\Users\\$me\\x y'");
-    expect(shellWord('C:\\100%\\x', 'win32')).toBe("'C:\\100%\\x'");
+    expect(shellWord('C:\\100%\\x', 'win32')).toBe('<path>'); // cmd.exe would expand %
     expect(shellWord("C:\\it's\\a b", 'win32')).toBe("\"C:\\it's\\a b\"");
     expect(shellWord("C:\\it's$\\a", 'win32')).toBe("'C:\\it''s$\\a'");
   });
