@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { InProcessClient } from '../../src/client';
 import { createMemoryOAuthStore } from '../../src/client/oauth';
 import { CredentialError, createCredentialResolver, type ConfigOrigin } from '../../src/config';
+import { removeSandbox } from '../cli/helpers';
 import { TOOLS } from '../fixtures/mcp/mock-server.mjs';
 import { FakeResolver, STDIO_SERVER, stdioServer } from '../helpers/client';
 
@@ -27,7 +28,7 @@ describe.skipIf(process.platform !== 'win32')('batch files on Windows', () => {
   afterEach(async () => {
     process.env.PATH = savedPath;
     await Promise.all(clients.splice(0).map((c) => c.close()));
-    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await removeSandbox(dir);
   });
 
   /** A launcher like npx.cmd: runs node with the server script and passes the arguments on. */

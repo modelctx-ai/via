@@ -1,8 +1,9 @@
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fdWriter } from '../../src/cli/stdio';
+import { removeSandbox, useCleanup } from './helpers';
 
 // A file opened here stands in for stdout. The platform and the console probe are injected, so the
 // Windows rules run on every host.
@@ -13,6 +14,7 @@ describe('fdWriter', () => {
 
   function written(run: (fd: number) => void): string {
     const dir = mkdtempSync(join(tmpdir(), 'via-stdio-'));
+    useCleanup(() => removeSandbox(dir));
     const path = join(dir, 'out.txt');
     const fd = openSync(path, 'w');
     try {
@@ -20,9 +22,7 @@ describe('fdWriter', () => {
     } finally {
       closeSync(fd);
     }
-    const text = readFileSync(path, 'utf8');
-    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-    return text;
+    return readFileSync(path, 'utf8');
   }
 
   it('writes straight to the descriptor on POSIX without touching the stream', () => {
