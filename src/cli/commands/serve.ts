@@ -8,7 +8,7 @@ export async function serveCommand(app: App, argv: readonly string[]): Promise<n
   if (argv.length > 0) throw usageFailure(COMMAND_USAGE.serve!, 'via serve -h');
   const [{ createServeServer }, { StdioServerTransport }, { run }] = await Promise.all([
     import('../serve'),
-    import('@modelcontextprotocol/sdk/server/stdio.js'),
+    import('@modelcontextprotocol/server/stdio'),
     import('../run'),
   ]);
   const server = await createServeServer(app.io, run);

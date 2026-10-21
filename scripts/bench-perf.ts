@@ -20,8 +20,7 @@ import { arch, cpus, release, tmpdir, totalmem, type as osType } from 'node:os';
 import { basename, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { buildCatalog, normalizeProviderName, renderFind, restoreProvider, SearchIndex, snapshotProvider, type CatalogTool, type DocTerms, type RestoredTerms } from '../src/catalog';
 import { CatalogCache } from '../src/cli/catalog-cache';
@@ -609,8 +608,7 @@ async function benchCall(): Promise<void> {
     mkdirSync(join(ROOT, '.build', 'bench-perf'), { recursive: true });
     writeFileSync(
       sdkScript,
-      `import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+      `import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 const client = new Client({ name: 'bench', version: '0.0.0' });
 await client.connect(new StreamableHTTPClientTransport(new URL(process.argv[2])));
 await client.callTool({ name: 'echo_text', arguments: { message: 'hi' } });

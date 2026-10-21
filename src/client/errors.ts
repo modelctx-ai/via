@@ -249,33 +249,44 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && err.constructor.name === 'UnauthorizedError';
 }
 
-/** SDK `StreamableHTTPError`: message starts with "Streamable HTTP error:" and `code` is the HTTP status (or -1). */
+/** SDK `SdkHttpError`: the transport got an HTTP status it cannot use (matched by name, like the rest, to keep the SDK lazy). */
 function httpStatus(err: unknown): number | undefined {
-  if (!(err instanceof Error)) return undefined;
-  const code = (err as { code?: unknown }).code;
-  if (typeof code === 'number' && code >= 100 && err.message.startsWith('Streamable HTTP error')) return code;
-  return undefined;
+  if (!(err instanceof Error) || err.name !== 'SdkHttpError') return undefined;
+  const status = (err as { status?: unknown }).status;
+  return typeof status === 'number' && status >= 100 ? status : undefined;
 }
 
-const REQUEST_TIMEOUT = -32001;
+const REQUEST_TIMEOUT = 'REQUEST_TIMEOUT';
+const CONNECTION_LOST = new Set(['CONNECTION_CLOSED', 'NOT_CONNECTED', 'SEND_FAILED']);
 const CONNECTION_CLOSED = -32000;
 const INVALID_PARAMS = -32602;
 const RESOURCE_NOT_FOUND = -32002;
 
+/** The JSON-RPC code of an error the server answered with (SDK `ProtocolError`); undefined for anything else. */
 function mcpCode(err: unknown): number | undefined {
-  if (err instanceof Error && err.name === 'McpError') {
+  if (err instanceof Error && err.name === 'ProtocolError') {
     const code = (err as { code?: unknown }).code;
     if (typeof code === 'number') return code;
   }
   return undefined;
 }
 
+/** SDK `SdkError`: a failure of the client itself (timeout, closed connection, …), with a string `code`. */
+function sdkCode(err: unknown): string | undefined {
+  if (err instanceof Error && (err.name === 'SdkError' || err.name === 'SdkHttpError')) {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+  }
+  return undefined;
+}
+
 function isTimeout(err: unknown): boolean {
-  return mcpCode(err) === REQUEST_TIMEOUT;
+  return sdkCode(err) === REQUEST_TIMEOUT;
 }
 
 function isConnectionClosed(err: unknown): boolean {
-  return mcpCode(err) === CONNECTION_CLOSED;
+  const code = sdkCode(err);
+  return (code !== undefined && CONNECTION_LOST.has(code)) || mcpCode(err) === CONNECTION_CLOSED;
 }
 
 function errnoCode(err: unknown): string | undefined {
@@ -304,7 +315,6 @@ function errorMessage(err: unknown): string {
 
 function stripSdkPrefix(message: string): string {
   return message
-    .replace(/^Streamable HTTP error:\s*/, '')
     .replace(/^Error POSTing to endpoint:\s*/, '')
     .replace(/^Failed to open SSE stream:\s*/, '');
 }

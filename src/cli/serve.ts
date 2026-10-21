@@ -2,8 +2,7 @@
 // It offers a fixed set of meta-tools, and each call runs one CLI command in this process with its
 // output captured, so naming, argument parsing, `deny`, confirmation, redaction, rendering and
 // cursors are exactly those of the CLI. Nothing here talks to an upstream server directly.
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult, JSONObject, Server, Tool } from '@modelcontextprotocol/server';
 import { matchBuiltin } from './builtins';
 import type { CliEnv } from './env';
 import { VERSION } from './help';
@@ -16,8 +15,8 @@ const INSTRUCTIONS = `via connects to the user's MCP servers and lets you discov
 Browse with via_browse (no path: all providers; then "<provider>", "<provider> <resource>", "<provider> <resource>:<verb>" for usage), search with via_find, call with via_call.
 Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more, "via resources|read|prompts ..." are via_resources, via_read and via_prompts.`;
 
-const str = (description: string): object => ({ type: 'string', description });
-const object = (properties: Record<string, object>, required: string[] = []): Tool['inputSchema'] => ({
+const str = (description: string): Record<string, string> => ({ type: 'string', description });
+const object = (properties: Record<string, JSONObject>, required: string[] = []): Tool['inputSchema'] => ({
   type: 'object',
   properties,
   ...(required.length > 0 ? { required } : {}),
@@ -162,13 +161,10 @@ export function commandLine(tool: string, input: Input): string[] {
  */
 export async function createServeServer(base: CliEnv, runner: Runner): Promise<Server> {
   // The SDK is loaded on demand like everywhere else in src/ (implementation.md, "启动速度").
-  const [{ Server }, { CallToolRequestSchema, ListToolsRequestSchema }] = await Promise.all([
-    import('@modelcontextprotocol/sdk/server/index.js'),
-    import('@modelcontextprotocol/sdk/types.js'),
-  ]);
+  const { Server } = await import('@modelcontextprotocol/server');
   const server = new Server({ name: 'via', version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: SERVE_TOOLS }));
-  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+  server.setRequestHandler('tools/list', async () => ({ tools: SERVE_TOOLS }));
+  server.setRequestHandler('tools/call', async (request): Promise<CallToolResult> => {
     let argv: string[];
     try {
       argv = commandLine(request.params.name, (request.params.arguments ?? {}) as Input);

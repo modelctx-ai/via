@@ -3,7 +3,7 @@
 // happened. A logout never fails because the server could not be reached.
 import { oauthKey, type OAuthRecord, type OAuthStore } from './store';
 import type { LoginTarget } from './login';
-import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { FetchLike } from '@modelcontextprotocol/client';
 
 export type RevokeOutcome =
   /** The server accepted the revocation. */

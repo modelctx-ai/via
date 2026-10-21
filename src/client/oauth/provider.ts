@@ -10,11 +10,9 @@
 //    a browser, and it works the same in-process and inside a daemon session.
 //
 // The SDK is loaded on demand; importing this module costs nothing at CLI start.
-import type { OAuthClientProvider, OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
-import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
-import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { FetchLike, OAuthClientInformationMixed, OAuthClientMetadata, OAuthClientProvider, OAuthDiscoveryState, OAuthTokens } from '@modelcontextprotocol/client';
 import { MIN_REDACTED_LITERAL_LENGTH } from '../../config/credentials';
-import { LoginRequiredError, TokenRefreshError } from './errors';
+import { LoginRequiredError, oauthErrorCode, TokenRefreshError } from './errors';
 import { oauthKey, secretsOf, type OAuthRecord, type OAuthStore, type SetResult } from './store';
 
 /** Refresh when the access token has less than this left. */
@@ -190,7 +188,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
       await this.dropTokens(record);
       throw new LoginRequiredError('expired');
     }
-    const sdk = await import('@modelcontextprotocol/sdk/client/auth.js');
+    const sdk = await import('@modelcontextprotocol/client');
     try {
       let discovery = record.discovery;
       if (!discovery?.authorizationServerUrl) {
@@ -207,7 +205,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
       });
       return await this.commit(record, { ...fresh, issuer: record.tokens?.issuer ?? discovery.authorizationServerUrl }, discovery);
     } catch (error) {
-      const code = (error as { errorCode?: unknown } | null)?.errorCode;
+      const code = oauthErrorCode(error);
       if (typeof code === 'string' && !TRANSIENT_CODES.has(code)) {
         // The server no longer accepts this refresh token. Another process may have rotated it
         // while we were reading: use what it stored, once.

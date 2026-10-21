@@ -22,6 +22,12 @@
 
 ### Changed
 
+- 迁移到官方 TypeScript SDK v2（路线图 e1）：client 端换成 `@modelcontextprotocol/client` 2.3.1，`via serve` 换成 `@modelcontextprotocol/server` 2.3.1，1.x 的 `@modelcontextprotocol/sdk` 降为开发依赖（只给测试用的模拟 server）。v2 是唯一支持 `2026-07-28` 无状态协议的官方实现，这一步先不改变协商行为（仍是 `initialize` 握手），为 e2 铺路。输出、退出码、命名与 `next:` 提示不变，没有动词表或单数化规则的改动，规范写法不受影响。
+  - 结果仍由 via 自己宽松地处理：不经 SDK 的类型化方法校验，一个畸形的工具条目不会让整次 `tools/list` 失败（`src/client/session.ts` 的 `RAW`）。
+  - 行为差异：v2 的 HTTP 传输默认只跟随同源重定向（1.x 会跟随到任何地方并带上自定义请求头）；重定向到别处时报错并带目标地址。错误映射改为识别 v2 的 `SdkError`/`SdkHttpError`/`ProtocolError`（退出码不变）。OAuth 错误码从 `errorCode` 改读 `code`。
+  - OAuth 登录的探测请求（`src/client/oauth/login.ts`）不再写死 `2025-06-18`：先发无状态协议的 `server/discover`，再发带 SDK 最新版本的 `initialize`，取先得到 401/403 的那个的挑战头。
+  - 新增 `test/protocol-versions.test.ts` 与 `src/protocol-versions.ts`：via 自己保存的协议版本列表（配置加载器要校验 `protocolVersion`，不能为此加载 SDK）对照 node_modules 里的 SDK 检查，SDK 升级后增减版本会让测试失败。
+  - 代价（[implementation.md](docs/development/implementation.md#mcp-sdkv2)）：进程内模式的一次调用中位数多约 50 ms，走 daemon 的 CLI 与浏览命令不受影响，daemon 建立会话后常驻内存约多 5–10 MiB（测量噪声 ±7 MiB）。
 - `serve` 成为内置子命令的保留字。名字恰好是 `serve` 的 server 需要在配置里用 `alias` 改名，改名前不出现在任何视图里（cli.md「内置子命令」）。动词表与单数化规则没有变化，其余规范写法不受影响。
 
 ## [0.3.1] - 2026-10-21

@@ -1,7 +1,6 @@
 // One MCP session per server over stdio or Streamable HTTP. The SDK is imported lazily, on the first
 // connection, so nothing here costs CLI cold start (implementation.md, "启动速度").
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { FetchLike, Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { Client, ClientOptions, FetchLike, StandardSchemaV1, Transport } from '@modelcontextprotocol/client';
 import pkg from '../../package.json';
 import type { CredentialResolver, ServerConfig } from '../config/types';
 import type { GetPromptResult, McpPrompt, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
@@ -76,26 +75,31 @@ interface Handle {
 }
 
 type Sdk = {
-  Client: typeof import('@modelcontextprotocol/sdk/client/index.js').Client;
-  ResultSchema: typeof import('@modelcontextprotocol/sdk/types.js').ResultSchema;
-  ToolListChangedNotificationSchema: typeof import('@modelcontextprotocol/sdk/types.js').ToolListChangedNotificationSchema;
-  ListRootsRequestSchema: typeof import('@modelcontextprotocol/sdk/types.js').ListRootsRequestSchema;
+  Client: typeof import('@modelcontextprotocol/client').Client;
 };
 
 let sdkPromise: Promise<Sdk> | undefined;
 
 function loadSdk(): Promise<Sdk> {
-  sdkPromise ??= Promise.all([
-    import('@modelcontextprotocol/sdk/client/index.js'),
-    import('@modelcontextprotocol/sdk/types.js'),
-  ]).then(([c, t]) => ({
-    Client: c.Client,
-    ResultSchema: t.ResultSchema,
-    ToolListChangedNotificationSchema: t.ToolListChangedNotificationSchema,
-    ListRootsRequestSchema: t.ListRootsRequestSchema,
-  }));
+  sdkPromise ??= import('@modelcontextprotocol/client').then(({ Client }) => ({ Client }));
   return sdkPromise;
 }
+
+/**
+ * Result "schema" that accepts anything. via sends requests through it instead of the SDK's typed
+ * methods (`listTools()`, `readResource()`, …): those check every result against the full MCP schema
+ * and fail the whole operation on one malformed entry, while via keeps what it can use (a list entry
+ * with a `name`, a content with a `uri`) and renders the rest as the server sent it.
+ */
+const RAW: StandardSchemaV1<unknown, unknown> = {
+  '~standard': { version: 1, vendor: 'via', validate: (value: unknown) => ({ value }) },
+};
+
+/**
+ * The SDK's `callTool()` checks `structuredContent` against the tool's `outputSchema`. via shows a
+ * result as the server sent it, as it did before the SDK upgrade, so this validator accepts everything.
+ */
+const LENIENT_VALIDATOR = { getValidator: () => (input: unknown) => ({ valid: true, data: input, errorMessage: undefined }) } as unknown as NonNullable<ClientOptions['jsonSchemaValidator']>;
 
 /**
  * A lazily connected session to one server. Operations are limited to `ServerConfig.concurrency`
@@ -162,8 +166,7 @@ export class McpSession {
   readResource(uri: string, options: ListOptions = {}): Promise<ReadResourceResult> {
     return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
       this.require(handle, 'resources');
-      const { ResultSchema } = await loadSdk();
-      const raw = await handle.client.request({ method: 'resources/read', params: { uri } }, ResultSchema, { timeout: left() }).catch((err: unknown) => {
+      const raw = await handle.client.request({ method: 'resources/read', params: { uri } }, RAW, { timeout: left() }).catch((err: unknown) => {
         throw resourceNotFound(err, uri, this.server.provider, this.redactor()) ?? err;
       });
       const contents = (raw as { contents?: unknown }).contents;
@@ -184,8 +187,7 @@ export class McpSession {
   getPrompt(name: string, args: Record<string, string>, options: ListOptions = {}): Promise<GetPromptResult> {
     return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
       this.require(handle, 'prompts');
-      const { ResultSchema } = await loadSdk();
-      const raw = await handle.client.request({ method: 'prompts/get', params: { name, arguments: args } }, ResultSchema, { timeout: left() });
+      const raw = await handle.client.request({ method: 'prompts/get', params: { name, arguments: args } }, RAW, { timeout: left() });
       const messages = (raw as { messages?: unknown }).messages;
       if (!Array.isArray(messages)) throw new Error('prompts/get result has no "messages" array');
       const description = (raw as { description?: unknown }).description;
@@ -206,15 +208,9 @@ export class McpSession {
       const attempt = async (): Promise<ToolCallResult> => {
         const handle = await this.ensureConnected(left(), timeoutMs);
         return this.request(handle, 'request', timeoutMs, async () => {
-          const { ResultSchema } = await loadSdk();
-          const raw = await handle.client.request(
-            { method: 'tools/call', params: { name: rawName, arguments: args ?? {} } },
-            ResultSchema,
-            {
-              timeout: left(),
-              ...(options.onProgress ? { onprogress: options.onProgress } : {}),
-            },
-          );
+          const params = { name: rawName, arguments: args ?? {} };
+          const send = { timeout: left(), ...(options.onProgress ? { onprogress: options.onProgress } : {}) };
+          const raw: unknown = await handle.client.request({ method: 'tools/call', params }, RAW, send);
           if (typeof raw !== 'object' || raw === null) throw new Error('tools/call returned a non-object result');
           return raw as ToolCallResult;
         });
@@ -269,14 +265,14 @@ export class McpSession {
   }
 
   /** Follow `nextCursor` of a list method and collect `key` from every page; `left` is the time remaining. */
-  private async pages<T>(handle: Handle, method: string, key: string, left: () => number, keep: (entry: unknown) => entry is T): Promise<T[]> {
-    const { ResultSchema } = await loadSdk();
+  private async pages<T>(handle: Handle, method: string, key: string, left: () => number, keep: (entry: unknown) => entry is T, first?: (page: Record<string, unknown>) => void): Promise<T[]> {
     const items: T[] = [];
     const seen = new Set<string>();
     let cursor: string | undefined;
     for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
-      const raw = await handle.client.request({ method, params: cursor === undefined ? {} : { cursor } }, ResultSchema, { timeout: left() });
-      const entries = (raw as Record<string, unknown>)[key];
+      const raw = (await handle.client.request({ method, params: cursor === undefined ? {} : { cursor } }, RAW, { timeout: left() })) as Record<string, unknown>;
+      if (page === 0) first?.(raw);
+      const entries = raw[key];
       if (!Array.isArray(entries)) throw new Error(`${method} result has no "${key}" array`);
       for (const entry of entries) if (keep(entry)) items.push(entry);
       const next = (raw as { nextCursor?: unknown }).nextCursor;
@@ -375,21 +371,28 @@ export class McpSession {
     let client: Client | undefined;
     let handle: Handle | undefined;
     try {
-      const { Client: ClientCtor, ToolListChangedNotificationSchema, ListRootsRequestSchema } = await loadSdk();
+      const { Client: ClientCtor } = await loadSdk();
       // The `roots` capability is declared only when the server has roots configured (ADR 0010), and
       // never as `listChanged`: the roots of a session do not change during its life.
       const roots = resolveRoots(server.roots, this.options.roots ?? { cwd: process.cwd(), home: process.env.HOME ?? '' });
-      client = new ClientCtor({ name: 'via', version: pkg.version }, { capabilities: roots.length > 0 ? { roots: { listChanged: false } } : {} });
-      attempt.client = client;
-      if (roots.length > 0) client.setRequestHandler(ListRootsRequestSchema, () => ({ roots }));
       const onToolsChanged = this.options.onToolsChanged;
-      if (onToolsChanged) client.setNotificationHandler(ToolListChangedNotificationSchema, () => onToolsChanged());
+      client = new ClientCtor(
+        { name: 'via', version: pkg.version },
+        {
+          capabilities: roots.length > 0 ? { roots: { listChanged: false } } : {},
+          jsonSchemaValidator: LENIENT_VALIDATOR,
+          // Only a signal: via lists again itself (the daemon's catalog refresh), not the SDK.
+          ...(onToolsChanged ? { listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: () => onToolsChanged() } } } : {}),
+        },
+      );
+      attempt.client = client;
+      if (roots.length > 0) client.setRequestHandler('roots/list', () => ({ roots }));
       let transport: Transport;
       let terminate: (() => Promise<void>) | undefined;
       let pid: (() => number | null) | undefined;
 
       if (resolved.type === 'stdio') {
-        const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+        const { StdioClientTransport } = await import('@modelcontextprotocol/client/stdio');
         // Windows: PATH/PATHEXT lookup that never looks in the working directory, `.cmd` shims checked
         // for arguments `cmd.exe` cannot carry (platform/command.ts). A no-op elsewhere.
         const prepared = prepareStdioCommand(resolved.command, resolved.args, { env: resolved.env, cwd: resolved.cwd ?? process.cwd(), platform: process.platform });
@@ -414,7 +417,7 @@ export class McpSession {
         } catch {
           throw internal(`invalid url for ${server.provider}: not a URL`);
         }
-        const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+        const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/client');
         const http = new StreamableHTTPClientTransport(url, { requestInit: { headers: resolved.headers }, ...(authFetch ? { fetch: authFetch } : {}) });
         terminate = () => http.terminateSession();
         transport = http;

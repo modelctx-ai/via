@@ -4,8 +4,7 @@
 //         replay servers with the official MCP SDK client.
 // via / mcp2cli: one `shell` tool that runs only that program. The command line is split
 //         POSIX-style and handed to the program as argv; no shell is involved anywhere.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { Exec } from '../harness/exec';
 import { injectedTool, nativeToolName, resultText } from '../harness/native';
 import { splitCommand } from '../harness/shell';

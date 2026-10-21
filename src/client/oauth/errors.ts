@@ -34,3 +34,14 @@ export class LoginFailedError extends Error {
     this.name = 'LoginFailedError';
   }
 }
+
+/**
+ * The OAuth error code (`invalid_grant`, `server_error`, …) of an error the SDK raised for an
+ * authorization server's error response; undefined for any other failure. Matched by name so this
+ * file does not import the SDK.
+ */
+export function oauthErrorCode(error: unknown): string | undefined {
+  if (!(error instanceof Error) || error.name !== 'OAuthError') return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}

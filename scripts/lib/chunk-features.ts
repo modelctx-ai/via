@@ -2,7 +2,7 @@
 // loaded is read off the bundle chunks it imported. Each marker is a name that exists only in that
 // library's code.
 export const FEATURES: ReadonlyArray<readonly [name: string, marker: RegExp]> = [
-  ['mcp-sdk', /InitializeRequestSchema/],
+  ['mcp-sdk', /mcp\.SdkError/],
   ['zod', /ZodError/],
   ['ajv', /KeywordCxt/],
   ['yaml', /YAMLParseError/],

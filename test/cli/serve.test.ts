@@ -1,9 +1,9 @@
 // `via serve` (cli.md, "via serve"; ADR 0016), in-process: an MCP client talks to the serve server
 // over an in-memory transport, and every meta-tool must give exactly what the equivalent CLI command
 // prints. The stdio transport itself is covered by the built-CLI test in dist.test.ts.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/client';
+import type { CallToolResult } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
 import { makeEnv } from '../../src/cli/env';
 import { run } from '../../src/cli/run';

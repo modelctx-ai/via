@@ -1,8 +1,7 @@
 // The native-MCP column: what a framework puts in front of the model when servers are mounted
 // directly. Nothing here is estimated by hand: tool definitions come from the replay servers'
 // `tools/list` and results from their `tools/call`, through the official SDK client.
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { ReplayTool } from '../replay-server.mjs';
 import { bytesOf } from './tokens';
 import type { Task } from './types';

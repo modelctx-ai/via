@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { run } from '../../src/cli/run';
 import { cannedCalls, matchArgs, readTools, startReplayHttp } from '../../bench/replay-server.mjs';
 import type { Exec } from '../../bench/harness/exec';
