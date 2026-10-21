@@ -12,6 +12,7 @@ import type { OAuthStore } from '../client/oauth';
 import { createCredentialResolver } from '../config/credentials';
 import { pathContext, userCacheDir } from '../config/paths';
 import type {
+  CompletionRef,
   CursorGetResult,
   DaemonStatus,
   ErrorInfo,
@@ -448,6 +449,9 @@ export class DaemonServer {
       case 'prompt-get':
         if (this.stale(request)) return STALE;
         return this.sessions.getPrompt(request, String(request.name), promptArgs(request.args), { timeoutMs: request.timeoutMs });
+      case 'complete':
+        if (this.stale(request)) return STALE;
+        return this.sessions.complete(request, completionRef(request.ref), { name: String(request.argument?.name), value: String(request.argument?.value ?? '') }, request.context ? promptArgs(request.context) : undefined, { timeoutMs: request.timeoutMs });
       case 'validate':
         return this.validate(request.schema, request.label, request.data, request.compileOnly === true);
       case 'redact':
@@ -547,6 +551,14 @@ function promptArgs(value: unknown): Record<string, string> {
     for (const [key, v] of Object.entries(value)) if (typeof v === 'string') Object.defineProperty(out, key, { value: v, enumerable: true, writable: true, configurable: true });
   }
   return out;
+}
+
+/** A completion reference as the protocol defines it; anything else is refused rather than forwarded. */
+function completionRef(value: unknown): CompletionRef {
+  const ref = value as { type?: unknown; name?: unknown; uri?: unknown } | null;
+  if (ref?.type === 'ref/prompt' && typeof ref.name === 'string') return { type: 'ref/prompt', name: ref.name };
+  if (ref?.type === 'ref/resource' && typeof ref.uri === 'string') return { type: 'ref/resource', uri: ref.uri };
+  throw new ClientError({ exitCode: ExitCode.Internal, message: 'invalid completion reference' });
 }
 
 function tokenMatches(expected: string, given: unknown): boolean {

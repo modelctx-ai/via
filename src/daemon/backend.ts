@@ -9,6 +9,8 @@ import type { CallOptions, ListOptions } from '../client/session';
 import type { ServerConfig } from '../config/types';
 import type { CatalogCache } from '../cli/catalog-cache';
 import type {
+  CompletionRef,
+  CompletionResult,
   CursorGetResult,
   ErrorInfo,
   Event,
@@ -21,6 +23,7 @@ import type {
   ResourceListing,
   Response,
   ServerFeatures,
+  ServerSelf,
   ServerTarget,
   ToolCallResult,
   ValidateResult,
@@ -149,8 +152,21 @@ export class DaemonBackend implements Backend {
     return unwrap<GetPromptResult>(await this.send({ type: 'prompt-get', ...this.target(config), name, args, timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
   }
 
+  async complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options: ListOptions = {}): Promise<CompletionResult> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<CompletionResult>(
+      await this.send({ type: 'complete', ...this.target(config), ref, argument, ...(context ? { context } : {}), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }),
+    );
+  }
+
   /** The daemon returns `features` with every listing; there is no other source in this process. */
   features(): ServerFeatures | undefined {
+    return undefined;
+  }
+
+  /** What a server says about itself is written to the catalog cache by the daemon (`CatalogCache.readInfo`). */
+  info(): ServerSelf | undefined {
     return undefined;
   }
 

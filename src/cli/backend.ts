@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import type { CallOptions, McpClient } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ProtocolInfo, ServerFeatures, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, ProtocolInfo, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor, redactValue } from '../render/redact';
@@ -153,8 +153,9 @@ export class InProcessBackend implements Backend {
     const tools = await client.listTools(server.name, { timeoutMs, onTtl: (ms) => void (ttlMs = ms) });
     const features = client.features(server.name);
     const protocol = client.protocol(server.name);
+    const info = client.info(server.name);
     const fetchedAt = now();
-    const rawBytes = cache.write(server, tools, { fetchedAt, ...(features ? { features } : {}), ...(protocol ? { protocol } : {}), ...(ttlMs !== undefined ? { ttlMs } : {}) });
+    const rawBytes = cache.write(server, tools, { fetchedAt, ...(features ? { features } : {}), ...(protocol ? { protocol } : {}), ...(ttlMs !== undefined ? { ttlMs } : {}), ...(info ? { info } : {}) });
     return { tools, fetchedAt, fromCache: false, ...(rawBytes !== undefined ? { rawBytes } : {}), ...(features ? { features } : {}), ...(protocol ? { protocol } : {}) };
   }
 
@@ -169,9 +170,15 @@ export class InProcessBackend implements Backend {
   listPrompts: McpClient['listPrompts'] = async (server, options) => (await this.client()).listPrompts(server, options);
   getPrompt: McpClient['getPrompt'] = async (server, name, args, options) => (await this.client()).getPrompt(server, name, args, options);
 
+  complete: McpClient['complete'] = async (server, ref, argument, context, options) => (await this.client()).complete(server, ref, argument, context, options);
+
   features(server: string): ServerFeatures | undefined {
     // No client yet means no session, so nothing has been declared.
     return this.loaded?.features(server);
+  }
+
+  info(server: string): ServerSelf | undefined {
+    return this.loaded?.info(server);
   }
 
   protocol(server: string): ProtocolInfo | undefined {
@@ -317,12 +324,19 @@ export class FallbackBackend implements Backend {
   getPrompt: McpClient['getPrompt'] = (server, name, args, options) =>
     this.run((b) => b.getPrompt(server, name, args, options), { idempotent: true, what: `getting a prompt of ${server}` });
 
+  complete: McpClient['complete'] = (server, ref, argument, context, options) =>
+    this.run((b) => b.complete(server, ref, argument, context, options), { idempotent: true, what: `completing an argument of ${server}` });
+
   protocol(server: string): ProtocolInfo | undefined {
     return this.current.protocol(server);
   }
 
   features(server: string): ServerFeatures | undefined {
     return this.current.features(server);
+  }
+
+  info(server: string): ServerSelf | undefined {
+    return this.current.info(server);
   }
 
   compiler(): SchemaCompiler | undefined {

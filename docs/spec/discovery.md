@@ -18,10 +18,11 @@ provider 就是配置里的 server，按名字原样列出，不做分类：模�
 - `via sync [provider]` 强制刷新。
 - 进程内模式（0.1）下，缓存是 `tools/list` 的唯一来源：`via <provider>` 只读取、必要时只拉取该 provider；`via`、`via find`、`via prompt` 并行处理全部 server，单个 server 的拉取超时取 `min(server 的 timeout, 10 秒)`（`--timeout` 覆盖），拉起 stdio server 与握手的时间也算在内，所以卡在握手里的 server 不会拖住整条命令。拉取失败不中止：该 provider 仍然列出，标记 `needs auth`、`failed` 或 `untrusted`（[浏览视图](#via)）。
 - 命中缓存时仍会在本地解析该 server 的凭证引用，缺失就按「需要鉴权」处理，并让输出脱敏知道这些值；不发起网络请求。未信任的项目级 server 不读缓存，也不拉取。
-- 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt`、原始 `tools/list` 结果，以及 server 在 `initialize` 里声明的能力 `features`（`{"resources": bool, "prompts": bool}`，用于浏览视图的 `also:` 行；没有这一项的旧文件照常读取，只是不显示该行，刷新一次后出现）、拉取时协商出的协议 `protocol`（`{"version": "2026-07-28", "stateful": false}`，`via servers` 不连接就能显示它，stdio server 据此跳过协议探测，[daemon.md](daemon.md#协议版本与无状态连接)）和 server 给的 `ttlMs`（有的话）；这两项同样可以缺省。缓存键包含 `protocolVersion`（固定了版本时）。
+- 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt`、原始 `tools/list` 结果，以及 server 在 `initialize` 里声明的能力 `features`（`{"resources": bool, "prompts": bool, "completions": bool}`，前两项用于浏览视图的 `also:` 行，`completions` 只用于 prompt `-h` 里的补全提示（[cli.md](cli.md#补全)）；没有这一项的旧文件照常读取，只是不显示该行，刷新一次后出现）、拉取时协商出的协议 `protocol`（`{"version": "2026-07-28", "stateful": false}`，`via servers` 不连接就能显示它，stdio server 据此跳过协议探测，[daemon.md](daemon.md#协议版本与无状态连接)）和 server 给的 `ttlMs`（有的话）；这两项同样可以缺省。缓存键包含 `protocolVersion`（固定了版本时）。
 - 经 daemon 时目录的读取、凭证检查和写缓存都在 daemon 里完成（与进程内模式写同一份 `catalog/` 文件）；CLI 只收到原始工具列表，拆分和索引仍在 CLI 侧计算。
 - 校验失败且缓存超过 5 分钟时，刷新该 server 的缓存一次再校验（[arguments.md](arguments.md#schema-不可靠时)）。
 - 缓存中保存原始 `tools/list` 结果；拆分与索引由它计算，规则升级无需清缓存：计算结果另存为预构建缓存（下节），规则一变它就失效并重新计算。
+- server 的自述（`serverInfo` 的 `name`、`title`、`version`、`description`、`websiteUrl` 与 `instructions`，见[server 自述](#server-自述)）存在旁边的 `catalog/<哈希>.info.json`（权限 0600，`{"version", "fetchedAt", "info"}`），与目录同一个 TTL，随每次拉取目录一起写入，只有 `via <provider> -h` 读它。单独存放是因为它很少被读到、内容又由 server 控制：每条浏览命令都读的主文件不解析它。`description` 与 `instructions` 在写入前先脱敏、再截到 500 个字符，超出时记下原长（`descriptionChars`、`instructionsChars`）。
 - 缓存文件的第一部分是 `version`、`fetchedAt`、`ttlMs`、`protocol` 和 `features`（有记录时，按这个顺序），工具数组在其后、是文件的末尾；读取时只看前者判断新旧并取出能力声明，数组在有人用到工具定义（调用、参数校验、`-h`）时才解析。
 
 ### 预构建缓存
@@ -82,6 +83,16 @@ commit         get · list
 - 危险动作可以加标记（如 `delete!`），只读资源不加标记。
 - server 声明了 MCP 资源或 prompt 时，叶子工具行之后多一行 `also: via resources <provider> · via prompts <provider>`（只列出声明了的）。这是 agent 发现这两类内容的唯一入口，所以 `via prompt` 的说明文本不需要提它们。
 - 最后一行提示下一步：`→ via <provider> <resource> for signatures`。
+
+### server 自述
+
+server 在握手里给出的 `instructions`、`serverInfo.description`、`websiteUrl`（还有 `title` 与 `version`）有时说明了工具之间的用法约束，但它们占 token，而且内容由 server 控制，是提示注入的入口。决定（[ADR 0021](../adr/0021-server-self-description-and-completion.md)）：
+
+- **只出现在 `via <provider> -h`**，在 provider 视图之前，不进默认的 `via <provider>`、`via <provider> <resource>`、`via find` 的索引与结果、`via prompt` 的说明，也不影响搜索排序。要用的 agent 主动问，不用的不付 token。
+- 格式：先是一行标签 `from the server (its own text, not via's):`，之后每行缩进两格，依次是 `name:`（`title` 或 `name`，加 `version`）、`description:`、`website:`、`instructions:`；一行放得下的写在标签后，多行的缩进四格成块。从来没有任何一行从第 0 列开始，所以这些文字不能伪造 `next:`、`error:`、`·` 或 `→` 行。server 什么都没给时只有 `name`；连 `name` 也没有时写 `(it published no description or instructions)`。
+- 处理：先按「内容」档脱敏（[output.md](output.md#脱敏的范围)，写缓存之前就脱敏，截断不会留下半个凭证）；再截到 500 个字符（按码点，不拆代理对），被截断时加一行 `(instructions cut at 500 of 1832 characters)`；除换行与制表外的控制字符、双向控制符与零宽字符写成可见的 `\uXXXX`（`\r\n` 归一为 `\n`）。
+- 数据来源是缓存里的 `info.json`；没有（旧缓存，或写不进缓存）时 `-h` 向 server 刷新一次，失败时 stderr 警告 `could not ask <provider> what it says about itself`，仍显示 provider 视图。`-o json` 输出 `{"provider", "server": {…}}`（字段同上，已脱敏，不含 provider 视图）。
+- 它是 server 的数据，不是 via 的说明：via 不解释它，也不据此改变任何行为（[security.md](security.md)）。
 
 ### `via <provider> <resource>`
 

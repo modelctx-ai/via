@@ -7,7 +7,7 @@ import type { McpTool } from '../catalog/types';
 import { CATALOG_TTL_MS, CatalogCache, effectiveTtl } from '../cli/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { GetPromptResult, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, GetPromptResult, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
@@ -210,6 +210,11 @@ export class SessionManager {
     return this.ask(target, (session) => session.getPrompt(name, args, options));
   }
 
+  /** `completion/complete`, redacted. */
+  complete(target: ServerTarget, ref: CompletionRef, argument: { name: string; value: string }, context: Record<string, string> | undefined, options: { timeoutMs: number }): Promise<CompletionResult> {
+    return this.ask(target, (session) => session.complete(ref, argument, context, options));
+  }
+
   status(): SessionStatus[] {
     const now = this.options.now();
     return [...this.entries.values()].map((e) => {
@@ -380,8 +385,10 @@ export class SessionManager {
     if (ttlMs !== undefined) entry.ttlMs = ttlMs;
     else delete entry.ttlMs;
     // Keep the list in memory only if it could not be written to disk.
+    const info = entry.session.info();
     const written = this.cache.write(entry.original, tools, {
       fetchedAt: entry.fetchedAt,
+      ...(info ? { info } : {}),
       ...(entry.features ? { features: entry.features } : {}),
       ...(entry.protocol ? { protocol: entry.protocol } : {}),
       ...(ttlMs !== undefined ? { ttlMs } : {}),

@@ -13,9 +13,11 @@ const log = process.env.CLI_FIXTURE_LOG;
 if (log) appendFileSync(log, `${JSON.stringify({ spawn: process.pid })}\n`);
 // CLI_FIXTURE_FEATURES=resources,prompts switches the optional capabilities on.
 const features = (process.env.CLI_FIXTURE_FEATURES ?? '').split(',').filter(Boolean);
+// CLI_FIXTURE_ABOUT is a JSON object `{description?, websiteUrl?, instructions?}` the server announces about itself.
+const about = process.env.CLI_FIXTURE_ABOUT ? JSON.parse(process.env.CLI_FIXTURE_ABOUT) : {};
 if (process.env.CLI_FIXTURE_PROTOCOL === 'modern') {
-  serveStdio(() => createCliServer({ state, features, flavor: 'modern' }));
+  serveStdio(() => createCliServer({ state, features, about, flavor: 'modern' }));
 } else {
-  const server = createCliServer({ state, features });
+  const server = createCliServer({ state, features, about });
   await server.connect(new StdioServerTransport());
 }

@@ -69,6 +69,8 @@ export type Request =
   | ({ id: string; type: 'prompts-list'; timeoutMs: number } & ServerTarget)
   /** `prompts/get`. */
   | ({ id: string; type: 'prompt-get'; name: string; args: Record<string, string>; timeoutMs: number } & ServerTarget)
+  /** `completion/complete` for a prompt or resource-template argument. */
+  | ({ id: string; type: 'complete'; ref: CompletionRef; argument: { name: string; value: string }; context?: Record<string, string>; timeoutMs: number } & ServerTarget)
   /** Compile a JSON Schema (cached by the daemon) and check `data`; keeps ajv out of the CLI process. */
   | { id: string; type: 'validate'; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
   /**
@@ -131,7 +133,23 @@ export type Message = Response | Event | Stale;
 // Payloads ------------------------------------------------------------------------
 
 /** What a server declared at `initialize` that via can use besides tools (discovery.md, "浏览视图"). */
-export type ServerFeatures = { resources: boolean; prompts: boolean };
+export type ServerFeatures = { resources: boolean; prompts: boolean; completions?: boolean };
+
+/**
+ * What a server says about itself (`serverInfo` and `instructions`): text it controls, so it is shown
+ * only in `via <provider> -h`, cut, redacted and labeled (discovery.md, "server 自述"). `descriptionChars` and
+ * `instructionsChars` are the lengths before the cut.
+ */
+export type ServerSelf = {
+  name?: string;
+  title?: string;
+  version?: string;
+  description?: string;
+  descriptionChars?: number;
+  websiteUrl?: string;
+  instructions?: string;
+  instructionsChars?: number;
+};
 
 /**
  * What a connection negotiated (daemon.md, "协议版本与无状态连接"). `stateful` is false for the stateless
@@ -206,6 +224,12 @@ export type ReadResourceResult = { contents: Array<{ uri: string; mimeType?: str
 export type McpPromptArgument = { name: string; title?: string; description?: string; required?: boolean };
 
 export type McpPrompt = { name: string; title?: string; description?: string; arguments?: McpPromptArgument[] };
+
+/** What a `completion/complete` request is about: a prompt or a resource template (by its `uriTemplate`). */
+export type CompletionRef = { type: 'ref/prompt'; name: string } | { type: 'ref/resource'; uri: string };
+
+/** `result` of `complete`: the server's suggestions in its own order. */
+export type CompletionResult = { values: string[]; total?: number; hasMore?: boolean };
 
 /** `result` of `prompt-get`. */
 export type GetPromptResult = { description?: string; messages: Array<{ role: string; content: ContentBlock }> };

@@ -123,6 +123,16 @@ export function visibleText(text: string): string {
 }
 
 /**
+ * Server text shown as a block (`via <provider> -h`): line breaks and tabs stay, every other control, bidi
+ * or zero-width character becomes a visible `\uXXXX` escape, so it cannot move the cursor, hide text or forge a line.
+ */
+export function visibleBlock(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+/**
  * A text that cannot be quoted for a shell but has to be shown anyway (`via trust` lists the
  * command a file would start): a double-quoted string in which everything a shell, or a person
  * reading it, could mistake for syntax is a `\uXXXX` escape. It is meant to be read, and pasted it

@@ -1,6 +1,6 @@
 import type { McpTool } from '../catalog/types';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import { notFoundServer } from './errors';
 import { McpSession, type CallOptions, type ListOptions, type SessionOptions } from './session';
 
@@ -17,8 +17,12 @@ export interface McpClient {
   readResource(server: string, uri: string, options?: ListOptions): Promise<ReadResourceResult>;
   listPrompts(server: string, options?: ListOptions): Promise<McpPrompt[]>;
   getPrompt(server: string, name: string, args: Record<string, string>, options?: ListOptions): Promise<GetPromptResult>;
+  /** `completion/complete` for an argument of a prompt or resource template. */
+  complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options?: ListOptions): Promise<CompletionResult>;
   /** What the server declared at `initialize`, once a session to it exists; undefined if unknown. */
   features(server: string): ServerFeatures | undefined;
+  /** What the server says about itself (`serverInfo`, `instructions`), once a session to it exists; undefined if unknown. */
+  info(server: string): ServerSelf | undefined;
   /** The protocol version the session to the server negotiated and whether it is stateful; undefined while not connected. */
   protocol(server: string): ProtocolInfo | undefined;
   close(): Promise<void>;
@@ -63,8 +67,16 @@ export class InProcessClient implements McpClient {
     return this.session(server).getPrompt(name, args, options);
   }
 
+  async complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options?: ListOptions): Promise<CompletionResult> {
+    return this.session(server).complete(ref, argument, context, options);
+  }
+
   features(server: string): ServerFeatures | undefined {
     return this.sessions.get(this.find(server).name)?.features();
+  }
+
+  info(server: string): ServerSelf | undefined {
+    return this.sessions.get(this.find(server).name)?.info();
   }
 
   protocol(server: string): ProtocolInfo | undefined {

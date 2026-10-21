@@ -15,6 +15,7 @@
 import { Server as LegacyServer } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
+  CompleteRequestSchema,
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
   ListResourceTemplatesRequestSchema,
@@ -26,6 +27,7 @@ import {
 import { CLIENT_CAPABILITIES_META_KEY, inputRequired, ProtocolError, Server as ModernServer } from '@modelcontextprotocol/server';
 
 const LEGACY_SCHEMAS = {
+  'completion/complete': CompleteRequestSchema,
   'tools/list': ListToolsRequestSchema,
   'tools/call': CallToolRequestSchema,
   'resources/list': ListResourcesRequestSchema,
@@ -47,7 +49,7 @@ class NeedRoots extends Error {}
  */
 export function buildServer(flavor, info, capabilities, table, options = {}) {
   if (flavor === 'legacy') {
-    const server = new LegacyServer(info, { capabilities });
+    const server = new LegacyServer(info, { capabilities, ...(options.instructions ? { instructions: options.instructions } : {}) });
     for (const [method, handler] of Object.entries(table)) {
       const schema = LEGACY_SCHEMAS[method];
       if (!schema) throw new Error(`flavors.mjs: no legacy schema for ${method}`);

@@ -19,6 +19,8 @@ export interface GlobalOptions {
   schemaSnapshot?: string;
   /** `--schema-mode`: how strictly (arguments.md, "schema 快照校验"). */
   schemaMode: SchemaMode;
+  /** `--complete <argument>`: ask the server for values of that prompt or resource-template argument (cli.md, "补全"). */
+  complete?: string;
 }
 
 export function defaultOptions(): GlobalOptions {
@@ -82,6 +84,17 @@ export function extractGlobals(argv: readonly string[]): { options: GlobalOption
     }
     if (token.startsWith('--schema-mode=')) {
       options.schemaMode = parseSchemaMode(token.slice('--schema-mode='.length));
+      continue;
+    }
+    if (token === '--complete') {
+      const value = argv[i + 1];
+      if (value === undefined) throw usageFailure('--complete needs the name of an argument');
+      i += 1;
+      options.complete = value;
+      continue;
+    }
+    if (token.startsWith('--complete=')) {
+      options.complete = token.slice('--complete='.length);
       continue;
     }
     if (token === '-o' || token === '--timeout') {

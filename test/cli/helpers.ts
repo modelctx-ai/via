@@ -48,6 +48,9 @@ export const FAKE_TOKEN = 'fake-gh-token-for-cli-tests-0001';
 
 export type { Generation };
 
+/** What else the fixture server offers or announces (`createCliServer` options): its self-description, tasks, skills. */
+export type FixtureExtras = Pick<NonNullable<Parameters<typeof createCliServer>[0]>, 'about'> & Record<string, unknown>;
+
 export interface FixtureServer {
   url: string;
   state: CliState;
@@ -58,7 +61,9 @@ export interface FixtureServer {
 }
 
 /** Streamable HTTP fixture; requests need `Authorization: Bearer <token>` when `token` is set. */
-export async function startFixtureServer(options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots'>; protocol?: Generation; ttlMs?: number } = {}): Promise<FixtureServer> {
+export async function startFixtureServer(
+  options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots' | 'completions'>; protocol?: Generation; ttlMs?: number; fixture?: FixtureExtras } = {},
+): Promise<FixtureServer> {
   const state = createCliState();
   const generation = options.protocol ?? defaultGeneration();
   const result: FixtureServer = { url: '', state, requests: [], notifyToolsChanged: () => undefined, close: async () => undefined };
@@ -66,7 +71,7 @@ export async function startFixtureServer(options: { token?: string; features?: A
   let currentAuthorization: string | undefined;
   const modern =
     generation === 'modern'
-      ? modernEndpoint((notifier) => createCliServer({ state, flavor: 'modern', notifier, ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}), ...(options.features ? { features: options.features } : {}), ...(currentAuthorization ? { authorization: currentAuthorization } : {}) }))
+      ? modernEndpoint((notifier) => createCliServer({ state, flavor: 'modern', notifier, ...(options.fixture ?? {}), ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}), ...(options.features ? { features: options.features } : {}), ...(currentAuthorization ? { authorization: currentAuthorization } : {}) }))
       : undefined;
   if (modern) result.notifyToolsChanged = () => modern.notifier.toolsChanged();
   const http: HttpServer = createServer((req, res) => {
@@ -94,7 +99,7 @@ export async function startFixtureServer(options: { token?: string; features?: A
         }
         result.requests.push(req.headers);
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-        const server = createCliServer({ state, ...(options.features ? { features: options.features } : {}), ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}) });
+        const server = createCliServer({ state, ...(options.fixture ?? {}), ...(options.features ? { features: options.features } : {}), ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}) });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => {
           void transport.close();

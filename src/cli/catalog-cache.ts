@@ -11,7 +11,8 @@ import type { McpTool } from '../catalog/types';
 import { parseCredentialRef } from '../config/credentials';
 import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
-import type { ProtocolInfo, ServerFeatures } from '../protocol';
+import { validSelf } from '../client/server-info';
+import type { ProtocolInfo, ServerFeatures, ServerSelf } from '../protocol';
 
 /** Default time to live of a cached `tools/list` (discovery.md). */
 export const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -61,7 +62,9 @@ function validProtocol(value: unknown): ProtocolInfo | undefined {
 /** Features as stored: both flags must be booleans, otherwise the entry counts as written before they were recorded. */
 function validFeatures(value: unknown): ServerFeatures | undefined {
   const f = value as Partial<ServerFeatures> | null | undefined;
-  return typeof f?.resources === 'boolean' && typeof f.prompts === 'boolean' ? { resources: f.resources, prompts: f.prompts } : undefined;
+  return typeof f?.resources === 'boolean' && typeof f.prompts === 'boolean'
+    ? { resources: f.resources, prompts: f.prompts, ...(typeof f.completions === 'boolean' ? { completions: f.completions } : {}) }
+    : undefined;
 }
 
 function sortedKeys(record: Record<string, string>): string[] {
@@ -161,8 +164,9 @@ export class CatalogCache {
    * and the report agree (the prebuilt-catalog cache is keyed by it). Returns the length of the
    * text written, or undefined when nothing could be written.
    */
-  write(server: ServerConfig, tools: McpTool[], options: { fetchedAt?: number; features?: ServerFeatures; protocol?: ProtocolInfo; ttlMs?: number } = {}): number | undefined {
-    const { fetchedAt = this.now(), features, protocol, ttlMs } = options;
+  write(server: ServerConfig, tools: McpTool[], options: { fetchedAt?: number; features?: ServerFeatures; protocol?: ProtocolInfo; ttlMs?: number; info?: ServerSelf } = {}): number | undefined {
+    const { fetchedAt = this.now(), features, protocol, ttlMs, info } = options;
+    if (info) this.writeInfo(server, info, fetchedAt);
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       try {
@@ -183,8 +187,37 @@ export class CatalogCache {
     }
   }
 
+  /** What the server said about itself, next to the list and as fresh as it (`via <provider> -h`); undefined when not recorded or expired. */
+  readInfo(server: ServerConfig): ServerSelf | undefined {
+    try {
+      const data = JSON.parse(readFileSync(this.infoFile(server), 'utf8')) as { version?: unknown; fetchedAt?: unknown; info?: unknown };
+      if (data.version !== CACHE_VERSION || typeof data.fetchedAt !== 'number' || this.now() - data.fetchedAt > this.ttlMs) return undefined;
+      return validSelf(data.info);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Kept apart from the list because it is rarely read and its text is the server's: the hot path never parses it. */
+  private writeInfo(server: ServerConfig, info: ServerSelf, fetchedAt: number): void {
+    try {
+      mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+      const file = this.infoFile(server);
+      const tmp = `${file}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify({ version: CACHE_VERSION, fetchedAt, info }), { mode: 0o600 });
+      renameSync(tmp, file);
+    } catch {
+      // best effort, like the list itself
+    }
+  }
+
+  private infoFile(server: ServerConfig): string {
+    return join(this.dir, `${cacheKey(server)}.info.json`);
+  }
+
   clear(server: ServerConfig): void {
     rmSync(this.file(server), { force: true });
+    rmSync(this.infoFile(server), { force: true });
     rmSync(join(this.dir, `${cacheKey(server)}.view.json`), { force: true });
   }
 }

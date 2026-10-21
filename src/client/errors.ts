@@ -98,10 +98,10 @@ export function oauthNeedsHttp(server: ServerConfig): ClientError {
 }
 
 /** The server did not declare the capability behind `via resources` / `via prompts` (exit code 3, nothing was sent). */
-export function noFeature(server: ServerConfig, feature: 'resources' | 'prompts'): ClientError {
+export function noFeature(server: ServerConfig, feature: 'resources' | 'prompts' | 'completions'): ClientError {
   return new ClientError({
     exitCode: ExitCode.NotFound,
-    message: `${server.provider} does not offer MCP ${feature}`,
+    message: `${server.provider} does not offer MCP ${feature === 'completions' ? 'argument completion' : feature}`,
     next: `via ${server.provider}`,
   });
 }

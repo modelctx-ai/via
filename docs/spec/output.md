@@ -46,7 +46,8 @@
 - **列表**：资源、资源模板、prompt 的列表是文本表格（列宽按显示宽度对齐，描述取首行），同样受预算约束；`-o json` 输出完整的结构化数据，由 `cleanValue` 去掉空值。
 - **prompt 消息**：文本消息输出为 `[角色]` 加内容；非文本内容紧随其后。`-o raw` 的文本框架相同。`-o json` 见 cli.md。
 - **元信息行**：名称依次是 `resources <provider>`、`read <provider>`、`prompts <provider> <名称>`（不含 URI 与参数，它们可能带敏感信息）；大小按字节数写，不使用 `N rows`。
-- **退出码**：server 没有声明相应能力、资源 URI 不存在、prompt 名称不存在为 3；server 拒绝 prompt 参数为 1；鉴权、未信任、传输与超时同工具调用（4、5、6）。
+- **补全**：`--complete`（[cli.md](cli.md#补全)）的结果是每行一个取值的文本，同样走这条流水线；元信息行名称同 prompt 命令。
+- **退出码**：server 没有声明相应能力（含 `completions`）、资源 URI 不存在、prompt 名称不存在、资源模板不在列表里为 3；server 拒绝 prompt 参数为 1；鉴权、未信任、传输与超时同工具调用（4、5、6）。
 - 资源内容和 prompt 消息与工具输出一样是不可信的数据，via 不解释它们（[security.md](security.md)）。
 
 ## 输出格式

@@ -137,7 +137,7 @@ via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-1
 | e6 MCP Skills 扩展 | `skills/list`、`skills/get` 与技能的附属文件，输出前按 server 发布的清单校验大小和摘要，不符的拒绝显示。与 resources、prompts 一样不进工具语法，命令形态与 e4 一起定 | [cli.md](spec/cli.md)、[ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) 的补充或新 ADR |
 | e7 授权规范对齐 | CIMD（Client ID Metadata Document，`2025-11-25` 授权规范推荐的客户端注册方式）：托管一份 https 的客户端元数据文档，回调从随机端口改为固定的回环端口范围（文档里要列出回调地址），授权服务器不支持时退回动态注册；OAuth client credentials 扩展（无浏览器，用于 CI 与 headless）；保存的客户端凭证绑定到验证时的授权服务器，换了授权服务器的 server 拿不到它。企业托管授权（ID-JAG）排在最后，有需求再做（现状：不实现）。决定与取舍见 [ADR 0019](adr/0019-oauth-client-identity-and-credentials.md) | [auth.md](spec/auth.md)、[security.md](spec/security.md) |
 | e8 一致性测试 | 把官方 `@modelcontextprotocol/conformance` 的 client 场景接进 CI；回放 server 增加 `2026-07-28` 模式，e2e 测试对新旧两代 server 各跑一遍 | [testing.md](development/testing.md) |
-| e9 completion 与 server 自述字段 | `completion/complete` 用于 prompt 参数和资源模板参数的取值提示；`serverInfo` 的 `description`、`websiteUrl` 和 `initialize` 的 `instructions` 是否进入 provider 视图或 `find` 的检索，要在 token 预算内权衡（[待定问题](open-questions.md)） | [discovery.md](spec/discovery.md)、[output.md](spec/output.md) |
+| e9 completion 与 server 自述字段 | 已实现，未发布。`--complete <参数>` 用 `completion/complete` 查 prompt 参数和资源模板变量的取值建议（[cli.md](spec/cli.md#补全)）；`serverInfo` 的 `description`、`websiteUrl` 与 `instructions` 只在 `via <provider> -h` 里显示，截到 500 字符、脱敏、标明来自 server，不进 provider 视图和 `find`（[discovery.md](spec/discovery.md#server-自述)） | [discovery.md](spec/discovery.md)、[output.md](spec/output.md) |
 
 ### 借鉴与补齐
 

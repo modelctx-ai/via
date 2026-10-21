@@ -14,9 +14,10 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 via resources <provider>                  列出该 server 的 MCP 资源与资源模板
 via read <provider> <uri>                 读取一个 MCP 资源
 via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时取该 prompt
+via <provider> -h                         provider 视图，前面加上 server 的自述（instructions、description）
 ```
 
-最后三行不属于 `provider → 资源 → 动作` 的层级：MCP 资源按 URI 寻址，URI 自带冒号（`file:///a.txt`），不能放进以冒号标明工具的语法里，所以它们是独立的内置子命令（[ADR 0010](../adr/0010-mcp-resources-prompts-and-roots.md)）。文档里的「MCP 资源」与工具名拆出的「资源（resource）」不是一回事，见[术语表](../overview/glossary.md)。
+中间三行不属于 `provider → 资源 → 动作` 的层级：MCP 资源按 URI 寻址，URI 自带冒号（`file:///a.txt`），不能放进以冒号标明工具的语法里，所以它们是独立的内置子命令（[ADR 0010](../adr/0010-mcp-resources-prompts-and-roots.md)）。文档里的「MCP 资源」与工具名拆出的「资源（resource）」不是一回事，见[术语表](../overview/glossary.md)。
 
 各级视图的输出格式见 [discovery.md](discovery.md#浏览视图)。
 
@@ -95,6 +96,29 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 - `via read <provider> <uri>`：`<uri>` 原样发给 server，不拆分、不展开模板——资源模板里的 `{占位符}` 由调用方自己替换。有且只有两个参数。读取返回的每个内容：文本按文本结果渲染（内容是 JSON 时与工具结果一样被清理和整形，要原文用 `-o raw`），二进制 `blob` 写入缓存目录、只打印路径；一次返回多个内容时，每个前面加一行 `# <uri>`。
 - `via prompts <provider>`：每个 prompt 一行（名称、参数签名、描述的首行），最后一行 `→ via prompts <provider> <名称> -h for usage`。
 - `via prompts <provider> <名称> [参数…]`：名称按与工具相同的宽松规则匹配（原样、`-`/`_` 与大小写宽松、唯一前缀）；找不到时给出 did you mean（退出码 3），有歧义时列出候选。prompt 的参数是一组具名字符串，via 把它们当作只有字符串属性的工具 schema，复用工具的参数解析：`--名称 值`（名称按 kebab-case 书写）、`--args`、`@文件`、`-`（stdin）、唯一必填参数的位置写法、本地校验与 `-h`、`--no-validate`、校验报错与退出码 2（[arguments.md](arguments.md)）。`-h` 写在名称之后时显示这个 prompt 的用法，不含工具才有的 `alias` 与危险性标记行。结果的每条消息输出为 `[角色]` 一行加内容；非文本内容（图片、音频、嵌入资源、资源链接）紧随其后按[媒体规则](output.md#渲染流程)处理。`-o json` 输出 `{"description"?, "messages": [{"role", "content"}]}`，二进制内容只描述（`type`、`mimeType`），不内联。server 用 `-32602` 拒绝参数时退出码 1，信息取自 server。
+
+#### 补全
+
+`--complete <参数>` 调用 `completion/complete`，列出 server 为某个 prompt 参数或资源模板变量建议的取值。它是全局选项，所以参数恰好叫 `complete` 时写 `--p.complete`（[arguments.md](arguments.md)）；用在其他命令上退出码 2，不会被静默忽略。
+
+```console
+$ via prompts gh review --code 'x = 1' --lang py --complete lang
+python
+pytorch
+· prompts gh review · 120ms · 15 bytes
+
+$ via resources gh 'file:///project/logs/{date}.log' --complete date
+2026-10-18
+2026-10-19
+2026-10-20
+(3 of 40 shown; more match, type more of the value)
+```
+
+- **形式**：`via prompts <provider> <名称> [--<参数> <值>…] --complete <参数>`，或 `via resources <provider> <uri模板> [--<变量> <值>…] --complete <变量>`。要补全的那个参数已经写出的值就是前缀（没写则为空串）；其余写出的参数作为 `context.arguments` 一并发送。参数按工具的写法解析（`--名称 值`、`@文件`、`-`、kebab-case），但不做必填校验：补全发生在写完之前。`<uri模板>` 必须是 `via resources <provider>` 列出的某个 `uriTemplate`（逐字相同，含花括号，命令行里要加引号）；变量名取自模板里的 RFC 6570 表达式（`{date}`、`{+path}`、`{/a,b*}` 的 `date`、`path`、`a`、`b`）。
+- **输出**：server 给的取值，保持它的顺序，每行一个（换行等控制字符写成可见的转义），走通用的[渲染流水线](output.md#mcp-资源与-prompt)；没有建议时输出 `(no suggestions)`；server 说还有更多（`hasMore` 为真或 `total` 大于已给出的个数）时最后一行是 `(N of TOTAL shown; more match, type more of the value)`。`-o json` 输出 `{"values": […], "total"?, "hasMore"?}`。via 不缓存、不排序、不过滤 server 的建议；元信息行里的名称与 prompt 命令相同（`prompts <provider> <名称>`、`resources <provider>`）。
+- **发现**：不自动发请求。`-h` 不会为了列出取值去连接 server；目录缓存里记着 server 声明了 `completions` 能力时，prompt 的 `-h` 在用法之后多一行 `complete: --complete <argument> lists the values the server suggests for it`（只在该 prompt 有参数时）。
+- **错误**：参数不是这个 prompt 或模板的（`--complete nope`）退出码 2，列出可用的参数，`next:` 指向 `-h`；`via prompts <provider> --complete x` 缺名称退出码 2；模板不在列表里退出码 3，`next: via resources <provider>`；server 没有声明 `completions` 能力时不发请求，退出码 3（`error: gh does not offer MCP argument completion`，`next: via gh`）。
+- **不做**：不对工具参数补全（MCP 的补全只覆盖 prompt 与资源模板）；`via serve` 的元工具不提供补全（元工具集合保持固定的七个，[ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)）。
 
 server 没有在 `initialize` 里声明相应能力（`resources`、`prompts`）时不发请求，退出码 3：
 
@@ -245,9 +269,10 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `--timeout <秒>` | 覆盖本次调用的超时 |
 | `--schema-snapshot <文件>` | 调用工具或查看其用法之前，把工具当前的 `inputSchema`/`outputSchema` 与保存的快照比较；不兼容时不发调用，退出码 2（[arguments.md](arguments.md#schema-快照校验)） |
 | `--schema-mode compatible\|strict` | 快照比较的松紧，默认 `compatible` |
-| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式） |
+| `--complete <参数>` | 向 server 要这个 prompt 或资源模板参数的取值建议（[补全](#补全)），只用于 `via prompts <provider> <名称>` 与 `via resources <provider> <模板>` |
+| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)） |
 
-全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
+全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
 
 工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）；`--p.` 开头的参数不会被当作全局选项。
 

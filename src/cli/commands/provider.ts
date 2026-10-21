@@ -5,6 +5,7 @@ import { shellWords } from '../../render/shell';
 import type { App, Listing } from '../app';
 import type { ProviderEntry } from '../directory';
 import { fail, usageFailure } from '../failure';
+import { selfJson, selfLines, SELF_HEADER } from '../server-info';
 import { noteCanonical, resolveEntry, resolveInProvider } from '../target';
 import { callTool, showToolHelp, type ToolTarget } from './tool';
 
@@ -38,7 +39,10 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
       ...(opened.listing.features?.resources ? [`via resources ${shellWords(visible.provider)}`] : []),
       ...(opened.listing.features?.prompts ? [`via prompts ${shellWords(visible.provider)}`] : []),
     ];
-    app.out(withNewline(renderProvider(visible, { all: app.options.all, also })));
+    const view = withNewline(renderProvider(visible, { all: app.options.all, also }));
+    // `-h` adds what the server says about itself (instructions, description): only here (discovery.md, "server 自述").
+    if (app.options.help) return showServerSelf(app, opened, view);
+    app.out(view);
     return ExitCode.Ok;
   }
 
@@ -55,6 +59,31 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
     return showToolHelp(app, toolTarget);
   }
   return callTool(app, toolTarget, toolArgv);
+}
+
+/** `via <provider> -h`: the server's self-description, then the provider view. Reads the cache; asks the server once when the cache has none. */
+async function showServerSelf(app: App, opened: OpenProvider, view: string): Promise<number> {
+  const { server } = opened.entry;
+  const cache = await app.cache();
+  let self = cache.readInfo(server);
+  if (self === undefined) {
+    // A list cached before this was recorded, or a cache that could not be written: ask the server.
+    await app.listing(opened.entry, { refresh: true }).then(
+      () => undefined,
+      () => app.err(`warning: could not ask ${opened.entry.name} what it says about itself\n`),
+    );
+    self = cache.readInfo(server);
+  }
+  const redact = (text: string): string => app.redact(text);
+  const provider = opened.views.visible.provider;
+  if (app.options.format === 'json') {
+    app.out(`${JSON.stringify(await app.redactValue(selfJson(provider, self ?? {}, redact)), null, 2)}\n`);
+    return ExitCode.Ok;
+  }
+  const lines = self ? selfLines(self, redact) : ['  (unknown: the server could not be reached)'];
+  const text = await app.redactText(`${SELF_HEADER}\n${lines.join('\n')}\n\n`);
+  app.out(text + view);
+  return ExitCode.Ok;
 }
 
 /** `<provider>/<ref>` split at the first slash (cli.md, "工具引用的写法"). */

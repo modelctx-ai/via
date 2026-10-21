@@ -73,6 +73,10 @@ const RESOURCES = [
   { uri: 'file:///project/dir', name: 'dir', description: 'Two files at once' },
 ];
 
+/** What `features: ['completions']` completes: prompt argument `lang`, and the `{date}` of the log template. */
+const LANGS = ['python', 'pytorch', 'perl', 'rust', 'ruby', 'go'];
+const DATES = ['2026-10-18', '2026-10-19', '2026-10-20'];
+
 const TEMPLATES = [{ uriTemplate: 'file:///project/logs/{date}.log', name: 'log', description: 'Log of a day', mimeType: 'text/plain' }];
 
 const PROMPTS = [
@@ -90,15 +94,21 @@ const PROMPTS = [
 
 /** Shared, inspectable state: one Server is built per HTTP request, so it lives outside. */
 export function createCliState() {
-  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined };
+  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined, completions: [] };
 }
 
 /**
- * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number }} options
- *   `flavor` picks the protocol generation (flavors.mjs); `notifier` is the stateless handler's change publisher.
+ * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots' | 'completions'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number, about?: { description?: string, websiteUrl?: string, instructions?: string } }} options
+ *   `flavor` picks the protocol generation (flavors.mjs); `notifier` is the stateless handler's change publisher;
+ *   `about` is what the server says about itself (`serverInfo.description`, `websiteUrl`, `instructions`).
  */
-export function createCliServer({ state, authorization, features = [], flavor = 'legacy', notifier, ttlMs }) {
-  const capabilities = { tools: {}, ...(features.includes('resources') ? { resources: {} } : {}), ...(features.includes('prompts') ? { prompts: {} } : {}) };
+export function createCliServer({ state, authorization, features = [], flavor = 'legacy', notifier, ttlMs, about = {} }) {
+  const capabilities = {
+    tools: {},
+    ...(features.includes('resources') ? { resources: {} } : {}),
+    ...(features.includes('prompts') ? { prompts: {} } : {}),
+    ...(features.includes('completions') ? { completions: {} } : {}),
+  };
   const table = {};
   const secret = authorization ?? process.env.FIXTURE_SECRET ?? '<none>';
 
@@ -156,6 +166,24 @@ export function createCliServer({ state, authorization, features = [], flavor = 
         default:
           h.fail(INVALID_PARAMS, `Unknown prompt: ${name}`);
       }
+    };
+  }
+
+  if (features.includes('completions')) {
+    table['completion/complete'] = async (params) => {
+      const { ref, argument, context } = params;
+      state.completions.push({ ref, argument, context: context?.arguments });
+      const prefix = String(argument.value ?? '');
+      if (ref.type === 'ref/prompt' && ref.name === 'review' && argument.name === 'lang') {
+        const values = LANGS.filter((v) => v.startsWith(prefix));
+        return { completion: { values, total: values.length, hasMore: false } };
+      }
+      if (ref.type === 'ref/resource' && argument.name === 'date') {
+        const values = DATES.filter((v) => v.startsWith(prefix));
+        // An empty prefix matches far more than one page: the server says so.
+        return { completion: prefix === '' ? { values, total: 40, hasMore: true } : { values, total: values.length, hasMore: false } };
+      }
+      return { completion: { values: [] } };
     };
   }
 
@@ -235,5 +263,6 @@ export function createCliServer({ state, authorization, features = [], flavor = 
     }
   };
 
-  return buildServer(flavor, { name: 'cli-fixture', version: '0.0.0' }, capabilities, table, notifier ? { notifier } : {});
+  const info = { name: 'cli-fixture', version: '0.0.0', ...(about.description ? { description: about.description } : {}), ...(about.websiteUrl ? { websiteUrl: about.websiteUrl } : {}) };
+  return buildServer(flavor, info, capabilities, table, { ...(notifier ? { notifier } : {}), ...(about.instructions ? { instructions: about.instructions } : {}) });
 }

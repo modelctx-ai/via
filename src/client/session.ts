@@ -3,7 +3,7 @@
 import type { Client, ClientOptions, FetchLike, McpSubscription, StandardSchemaV1, SubscriptionFilter, Transport } from '@modelcontextprotocol/client';
 import pkg from '../../package.json';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import type { McpTool } from '../catalog/types';
 import { createRedactor } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
@@ -13,6 +13,7 @@ import { isModernProtocolVersion } from '../protocol-versions';
 import { proxyFetch } from '../proxy';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
+import { describeServer } from './server-info';
 import type { ViaOAuthProvider } from './oauth/provider';
 import type { OAuthStore } from './oauth/store';
 
@@ -213,7 +214,33 @@ export class McpSession {
   /** What the server declared at `initialize`, once connected; undefined before the first connection. */
   features(): ServerFeatures | undefined {
     const capabilities = this.handle && !this.handle.closed ? this.handle.client.getServerCapabilities() : undefined;
-    return capabilities ? { resources: capabilities.resources !== undefined, prompts: capabilities.prompts !== undefined } : undefined;
+    return capabilities ? { resources: capabilities.resources !== undefined, prompts: capabilities.prompts !== undefined, completions: capabilities.completions !== undefined } : undefined;
+  }
+
+  /** What the server says about itself (`serverInfo`, `instructions`), once connected; undefined before the first connection. */
+  info(): ServerSelf | undefined {
+    if (!this.handle || this.handle.closed) return undefined;
+    return describeServer(this.handle.client.getServerVersion() as Record<string, unknown> | undefined, this.handle.client.getInstructions(), this.redactor());
+  }
+
+  /**
+   * `completion/complete`: the server's suggestions for one argument of a prompt or resource template, given
+   * what is typed so far and the other arguments as context. A server without the capability is refused
+   * before any request. Suggestions are kept in the server's order (it sends at most 100).
+   */
+  complete(ref: CompletionRef, argument: { name: string; value: string }, context: Record<string, string> | undefined, options: ListOptions = {}): Promise<CompletionResult> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.require(handle, 'completions');
+      const params = { ref, argument, ...(context && Object.keys(context).length > 0 ? { context: { arguments: context } } : {}) };
+      const raw = (await handle.client.request({ method: 'completion/complete', params }, RAW, { timeout: left() })) as { completion?: unknown };
+      const completion = raw.completion as { values?: unknown; total?: unknown; hasMore?: unknown } | undefined;
+      if (typeof completion !== 'object' || completion === null || !Array.isArray(completion.values)) throw new Error('completion/complete result has no "completion.values" array');
+      return {
+        values: completion.values.filter((v): v is string => typeof v === 'string'),
+        ...(typeof completion.total === 'number' ? { total: completion.total } : {}),
+        ...(typeof completion.hasMore === 'boolean' ? { hasMore: completion.hasMore } : {}),
+      };
+    });
   }
 
   /** `resources/list` and `resources/templates/list` (ADR 0010). A server without the capability is refused before any request. */

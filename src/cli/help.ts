@@ -41,8 +41,8 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   auth: 'usage: via auth login <provider> [--manual] | via auth status [<provider>] | via auth logout <provider>',
   trust: 'usage: via trust [<path>] [--dry-run] | via trust <path> --yes (scripts only: needs VIA_ALLOW_NONINTERACTIVE_TRUST=1) | via trust --list | via trust --revoke <path>',
   daemon: 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>]',
-  resources: 'usage: via resources <provider>  (resources and resource templates; read one with via read <provider> <uri>)',
+  resources: 'usage: via resources <provider>  (resources and resource templates; read one with via read <provider> <uri>; via resources <provider> <template> --complete <variable> asks for values)',
   read: 'usage: via read <provider> <uri>',
   serve: 'usage: via serve  (MCP server on stdin/stdout; register it in the agent framework as a stdio server)',
-  prompts: 'usage: via prompts <provider> [<name> [--arg <value>…]]  (without a name: list; via prompts <provider> <name> -h: usage of one prompt)',
+  prompts: 'usage: via prompts <provider> [<name> [--arg <value>…]]  (without a name: list; via prompts <provider> <name> -h: usage of one prompt; --complete <argument> asks the server for its values)',
 };
