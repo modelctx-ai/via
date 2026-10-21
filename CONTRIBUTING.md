@@ -1,6 +1,8 @@
 # 参与贡献
 
-via 目前处于设计阶段，最有价值的贡献是：指出设计里的漏洞、补充真实 MCP server 的拆分案例、实现路线图上的 0.1 范围。
+via 处于预发布阶段（路线图 0.1–0.3 已实现，尚未发布），最有价值的贡献是：在真实的 MCP server 和 agent 框架上试用并报告问题、补充真实 server 的拆分案例、指出设计里的漏洞、推进[路线图](docs/roadmap.md)与[待定问题](docs/open-questions.md)。
+
+本地开发：`npm ci` 安装依赖，`npm run typecheck`、`npm test`、`npm run build` 是提交前要跑的检查（CI 同样运行这三项）。
 
 ## 文档如何组织
 
