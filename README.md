@@ -6,7 +6,7 @@ Turn the tools of any MCP server into a command line that agents discover and ca
 
 **MCP for providers, CLI for consumers.** Agent frameworks stop mounting MCP servers and stop loading hundreds of tool schemas into the context window. When an agent needs a tool, it uses `via` in the shell to browse, read the usage, and call it. via handles authentication and output formatting for every server the same way.
 
-> Status: 0.3.0 is released (`npm install -g @modelctx-ai/via`). Roadmap 0.1–0.3 is in this version: direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, and single-file executables. Commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior.
+> Status: 0.3.1 is released (`npm install -g @modelctx-ai/via`). Roadmap 0.1–0.3 is in this version: direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, and single-file executables. Commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior.
 >
 > The documentation under `docs/` is written in Chinese.
 

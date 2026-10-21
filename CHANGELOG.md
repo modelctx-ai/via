@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-21
+
 ### Changed
 
 - npm 包名由 `@modelctx/via` 改为 `@modelctx-ai/via`（[ADR 0015](docs/adr/0015-npm-scope-modelctx-ai.md)）。npm 上实际创建的组织是 `modelctx-ai`，`@modelctx` 这个 scope 不存在，所以 0.3.0 的 `npm publish` 返回 404。命令名和二进制名仍是 `via`。不涉及动词表与规范写法。
