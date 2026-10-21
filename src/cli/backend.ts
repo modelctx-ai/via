@@ -170,6 +170,8 @@ export class InProcessBackend implements Backend {
   listPrompts: McpClient['listPrompts'] = async (server, options) => (await this.client()).listPrompts(server, options);
   getPrompt: McpClient['getPrompt'] = async (server, name, args, options) => (await this.client()).getPrompt(server, name, args, options);
 
+  listSkills: McpClient['listSkills'] = async (server, options) => (await this.client()).listSkills(server, options);
+  readSkill: McpClient['readSkill'] = async (server, skill, file, options) => (await this.client()).readSkill(server, skill, file, options);
   complete: McpClient['complete'] = async (server, ref, argument, context, options) => (await this.client()).complete(server, ref, argument, context, options);
 
   features(server: string): ServerFeatures | undefined {
@@ -323,6 +325,13 @@ export class FallbackBackend implements Backend {
 
   getPrompt: McpClient['getPrompt'] = (server, name, args, options) =>
     this.run((b) => b.getPrompt(server, name, args, options), { idempotent: true, what: `getting a prompt of ${server}` });
+
+  // A skill is read and checked; nothing on the server changes, so a request that may have reached the daemon is repeated.
+  listSkills: McpClient['listSkills'] = (server, options) =>
+    this.run((b) => b.listSkills(server, options), { idempotent: true, what: `listing the skills of ${server}` });
+
+  readSkill: McpClient['readSkill'] = (server, skill, file, options) =>
+    this.run((b) => b.readSkill(server, skill, file, options), { idempotent: true, what: `reading a skill of ${server}` });
 
   complete: McpClient['complete'] = (server, ref, argument, context, options) =>
     this.run((b) => b.complete(server, ref, argument, context, options), { idempotent: true, what: `completing an argument of ${server}` });

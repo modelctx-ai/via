@@ -7,7 +7,7 @@ import type { McpTool } from '../catalog/types';
 import { CATALOG_TTL_MS, CatalogCache, effectiveTtl } from '../cli/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { CompletionRef, CompletionResult, GetPromptResult, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
+import type { SkillEntry, SkillRead, CompletionRef, CompletionResult, GetPromptResult, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
@@ -208,6 +208,16 @@ export class SessionManager {
   /** `prompts/get`, redacted. */
   getPrompt(target: ServerTarget, name: string, args: Record<string, string>, options: { timeoutMs: number }): Promise<GetPromptResult> {
     return this.ask(target, (session) => session.getPrompt(name, args, options));
+  }
+
+  /** `skills/list`, redacted. */
+  skills(target: ServerTarget, options: { timeoutMs: number; onWarning?: (message: string) => void }): Promise<SkillEntry[]> {
+    return this.ask(target, (session) => session.listSkills(options));
+  }
+
+  /** One verified file of a skill. The check ran against the bytes the server sent; only then is the content redacted. */
+  readSkill(target: ServerTarget, skill: string, file: string | undefined, options: { timeoutMs: number }): Promise<SkillRead> {
+    return this.ask(target, (session) => session.readSkill(skill, file, options));
   }
 
   /** `completion/complete`, redacted. */

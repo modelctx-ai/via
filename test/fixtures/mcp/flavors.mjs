@@ -37,6 +37,12 @@ const LEGACY_SCHEMAS = {
   'prompts/get': GetPromptRequestSchema,
 };
 
+/** Pass-through schema for the methods of extensions (`skills/list`, …), which the SDK does not know. */
+const ANY = { '~standard': { version: 1, vendor: 'fixture', validate: (value) => ({ value }) } };
+
+/** Methods the stateless server registers with explicit schemas: not in the core spec. */
+const EXTENSION_METHODS = new Set(['skills/list', 'skills/get']);
+
 /** Thrown by `h.listRoots()` on a stateless connection: the handler is asked again with the answer. */
 class NeedRoots extends Error {}
 
@@ -71,7 +77,8 @@ export function buildServer(flavor, info, capabilities, table, options = {}) {
   }
   const server = new ModernServer(info, { capabilities, ...(options.instructions ? { instructions: options.instructions } : {}) });
   for (const [method, handler] of Object.entries(table)) {
-    server.setRequestHandler(method, async (request, ctx) => {
+    const register = (fn) => (EXTENSION_METHODS.has(method) ? server.setRequestHandler(method, { params: ANY }, (params, ctx) => fn({ params }, ctx)) : server.setRequestHandler(method, fn));
+    register(async (request, ctx) => {
       const envelope = ctx.mcpReq.envelope ?? {};
       const h = {
         progressToken: ctx.mcpReq._meta?.progressToken,

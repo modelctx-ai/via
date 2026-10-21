@@ -3,17 +3,18 @@
 import type { Client, ClientOptions, FetchLike, McpSubscription, StandardSchemaV1, SubscriptionFilter, Transport } from '@modelcontextprotocol/client';
 import pkg from '../../package.json';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { CompletionRef, CompletionResult, GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, GetPromptResult, SkillEntry, SkillRead, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import type { McpTool } from '../catalog/types';
 import { createRedactor } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
-import { ClientError, internal, mapError, noFeature, notFoundServer, resourceNotFound, timedOut, untrustedServer, type Phase } from './errors';
+import { ClientError, internal, isNotFoundCode, mapError, noFeature, noSkills, notFoundServer, resourceNotFound, skillNotFound, skillRefused, timedOut, untrustedServer, type Phase } from './errors';
 import { prepareStdioCommand } from '../platform/command';
 import { isModernProtocolVersion } from '../protocol-versions';
 import { proxyFetch } from '../proxy';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
 import { describeServer } from './server-info';
+import { chooseFile, contentBytes, parseSkillEntry, SKILLS_EXTENSION, verifyFile } from './skills';
 import type { ViaOAuthProvider } from './oauth/provider';
 import type { OAuthStore } from './oauth/store';
 
@@ -214,7 +215,12 @@ export class McpSession {
   /** What the server declared at `initialize`, once connected; undefined before the first connection. */
   features(): ServerFeatures | undefined {
     const capabilities = this.handle && !this.handle.closed ? this.handle.client.getServerCapabilities() : undefined;
-    return capabilities ? { resources: capabilities.resources !== undefined, prompts: capabilities.prompts !== undefined, completions: capabilities.completions !== undefined } : undefined;
+    return capabilities ? { resources: capabilities.resources !== undefined, prompts: capabilities.prompts !== undefined, completions: capabilities.completions !== undefined, skills: this.skillsDeclared(capabilities) } : undefined;
+  }
+
+  /** Skills exist on a stateless-protocol connection to a server that declared the extension (ADR 0020). */
+  private skillsDeclared(capabilities: { extensions?: Record<string, unknown> } | undefined): boolean {
+    return this.handle?.client.getProtocolEra() === 'modern' && capabilities?.extensions?.[SKILLS_EXTENSION] !== undefined;
   }
 
   /** What the server says about itself (`serverInfo`, `instructions`), once connected; undefined before the first connection. */
@@ -291,6 +297,64 @@ export class McpSession {
         messages: messages.filter((m): m is GetPromptResult['messages'][number] => hasString(m, 'role') && typeof (m as { content?: unknown }).content === 'object'),
       };
     });
+  }
+
+  /**
+   * `skills/list`, following the pages: every skill with its manifest. An entry the extension does not allow a
+   * client to use (no `SKILL.md` URI, no `name`/`description`, no manifest) is left out, and said so once.
+   */
+  listSkills(options: ListOptions = {}): Promise<SkillEntry[]> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), options.onWarning, async (handle, left) => {
+      this.requireSkills(handle);
+      const raw = await this.pages<Record<string, unknown>>(handle, 'skills/list', 'skills', left, (e): e is Record<string, unknown> => typeof e === 'object' && e !== null);
+      const skills = raw.map(parseSkillEntry).filter((e): e is SkillEntry => e !== undefined);
+      if (skills.length < raw.length) this.warn(`${raw.length - skills.length} skill entr${raw.length - skills.length === 1 ? 'y' : 'ies'} of ${this.server.provider} ignored: the extension requires a URI, a name, a description and a manifest`);
+      return skills;
+    });
+  }
+
+  /**
+   * One file of one skill, checked before it is handed over: `skills/get` for the current entry, `resources/read` for
+   * the file (`file` is a name relative to the skill's directory, none for `SKILL.md`), then size and sha256 against
+   * the manifest. Anything that does not match is refused, never returned.
+   */
+  readSkill(skillUri: string, file: string | undefined, options: ListOptions = {}): Promise<SkillRead> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), options.onWarning, async (handle, left) => {
+      this.requireSkills(handle);
+      const redact = this.redactor();
+      const got = (await handle.client.request({ method: 'skills/get', params: { uri: skillUri } }, RAW, { timeout: left() }).catch((err: unknown) => {
+        if (isNotFoundCode(err)) throw skillNotFound(this.server, `no such skill: ${skillUri}`, redact);
+        throw err;
+      })) as { skill?: unknown };
+      const skill = parseSkillEntry(got.skill);
+      if (!skill) throw new Error('skills/get returned an entry without a URI, a name, a description or a manifest');
+      const choice = chooseFile(skill, file);
+      if ('problem' in choice) {
+        const named = skill.frontmatter.name;
+        if (choice.problem === 'unlisted') throw skillNotFound(this.server, `skill ${named} has no file ${file}`, redact, choice.files);
+        throw new ClientError({ exitCode: 2, message: choice.problem === 'empty' ? 'the file name is empty' : `the file name ${file} leaves the skill's directory (..)`, next: `via skills ${this.server.provider} ${named}` });
+      }
+      const read = (await handle.client.request({ method: 'resources/read', params: { uri: choice.uri } }, RAW, { timeout: left() }).catch((err: unknown) => {
+        throw resourceNotFound(err, choice.uri, this.server.provider, redact) ?? err;
+      })) as { contents?: unknown };
+      const contents = Array.isArray(read.contents) ? read.contents.filter((c): c is Record<string, unknown> => hasString(c, 'uri')) : [];
+      const item = contents.find((c) => c.uri === choice.uri) ?? contents[0];
+      const bytes = item ? contentBytes(item) : undefined;
+      if (!item || !bytes) throw skillRefused(this.server, choice.uri, 'the server returned no text or blob for it', redact);
+      const problem = verifyFile(skill, choice.uri, bytes);
+      if (problem) throw skillRefused(this.server, choice.uri, problem, redact);
+      return {
+        skill,
+        file: { uri: choice.uri, ...(typeof item.mimeType === 'string' ? { mimeType: item.mimeType } : {}), ...(typeof item.text === 'string' ? { text: item.text } : {}), ...(typeof item.blob === 'string' ? { blob: item.blob } : {}) },
+        verified: skill.resources !== 'dynamic',
+      };
+    });
+  }
+
+  /** Skills need the stateless protocol and the extension declared by the server; nothing is sent otherwise. */
+  private requireSkills(handle: Handle): void {
+    if (handle.client.getProtocolEra() !== 'modern') throw noSkills(this.server, { protocol: handle.protocol.version || 'before 2026-07-28' });
+    if ((handle.client.getServerCapabilities() as { extensions?: Record<string, unknown> } | undefined)?.extensions?.[SKILLS_EXTENSION] === undefined) throw noSkills(this.server, { extension: SKILLS_EXTENSION });
   }
 
   /** `tools/call`; returns the server's result untouched (`isError` included). */
@@ -386,7 +450,7 @@ export class McpSession {
   }
 
   /** Refuse a request the server did not declare support for, instead of sending it. */
-  private require(handle: Handle, feature: keyof ServerFeatures): void {
+  private require(handle: Handle, feature: 'resources' | 'prompts' | 'completions'): void {
     if (handle.client.getServerCapabilities()?.[feature] === undefined) throw noFeature(this.server, feature);
   }
 

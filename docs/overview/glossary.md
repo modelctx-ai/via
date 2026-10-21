@@ -11,6 +11,7 @@
 | **prompt（MCP prompt）** | server 提供的带参数消息模板（`prompts/list`、`prompts/get`），用 `via prompts` 访问。与 `via prompt`（生成给 agent 的说明）无关。 |
 | **server 自述** | server 在握手里给出的 `instructions` 与 `serverInfo` 的 `description`、`websiteUrl`；内容由 server 控制，只在 `via <provider> -h` 里显示（[discovery.md](../spec/discovery.md#server-自述)）。 |
 | **补全（completion）** | MCP 的 `completion/complete`：server 为 prompt 参数或资源模板变量建议取值，用 `--complete <参数>` 查询（[cli.md](../spec/cli.md#补全)）。 |
+| **技能（skill）** | server 通过 Skills 扩展（`2026-07-28`）发布的一个目录：`SKILL.md`（带 frontmatter）加附属文件，附清单（每个文件的 URI、`sha256:` 摘要、字节数）。用 `via skills` 读取，输出前按清单核对（[cli.md](../spec/cli.md#技能-via-skills)）。 |
 | **roots** | client 声明给 server 的目录列表（MCP 的 `roots` 能力）。via 默认不声明，按 server 用配置的 `roots` 字段开启。 |
 | **协议版本（protocol version）** | 一次 MCP 连接协商出的协议修订，形如 `2026-07-28`、`2025-11-25`。`2026-07-28` 起协议无状态（没有 `initialize` 握手和 server 端会话），via 默认新版本优先、自动回退，`protocolVersion` 可以固定；「有状态」的含义见 [daemon.md](../spec/daemon.md#协议版本与无状态连接)。 |
 | **动作（verb）** | 从原始名拆出的动词部分，如 `create`、`create-or-update`。 |

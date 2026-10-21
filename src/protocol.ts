@@ -71,6 +71,10 @@ export type Request =
   | ({ id: string; type: 'prompt-get'; name: string; args: Record<string, string>; timeoutMs: number } & ServerTarget)
   /** `completion/complete` for a prompt or resource-template argument. */
   | ({ id: string; type: 'complete'; ref: CompletionRef; argument: { name: string; value: string }; context?: Record<string, string>; timeoutMs: number } & ServerTarget)
+  /** `skills/list` of one server (the skills extension: manifests included), following the pages. Never cached. */
+  | ({ id: string; type: 'skills-list'; timeoutMs: number } & ServerTarget)
+  /** One file of a skill, verified against the skill's manifest: `skills/get` plus `resources/read`. `skill` is the URI of its `SKILL.md`. */
+  | ({ id: string; type: 'skill-read'; skill: string; file?: string; timeoutMs: number } & ServerTarget)
   /** Compile a JSON Schema (cached by the daemon) and check `data`; keeps ajv out of the CLI process. */
   | { id: string; type: 'validate'; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
   /**
@@ -133,7 +137,7 @@ export type Message = Response | Event | Stale;
 // Payloads ------------------------------------------------------------------------
 
 /** What a server declared at `initialize` that via can use besides tools (discovery.md, "浏览视图"). */
-export type ServerFeatures = { resources: boolean; prompts: boolean; completions?: boolean };
+export type ServerFeatures = { resources: boolean; prompts: boolean; completions?: boolean; skills?: boolean };
 
 /**
  * What a server says about itself (`serverInfo` and `instructions`): text it controls, so it is shown
@@ -230,6 +234,24 @@ export type CompletionRef = { type: 'ref/prompt'; name: string } | { type: 'ref/
 
 /** `result` of `complete`: the server's suggestions in its own order. */
 export type CompletionResult = { values: string[]; total?: number; hasMore?: boolean };
+
+// Skills (the `io.modelcontextprotocol/skills` extension) ----------------------------
+
+/** One file of a skill as its manifest publishes it: the resource URI, `sha256:<64 hex>` of the bytes, and their length. */
+export type SkillFile = { uri: string; digest: string; size: number };
+
+/** A skill's entry in `skills/list` and `skills/get`. `resources` is the complete manifest, or `"dynamic"` when the server does not publish one. */
+export type SkillEntry = { uri: string; frontmatter: { name: string; description: string; [key: string]: unknown }; resources: SkillFile[] | 'dynamic' };
+
+/**
+ * `result` of `skill-read`: the entry `skills/get` returned and one file of the skill, read and checked
+ * against the manifest (`verified` is false only for a `"dynamic"` manifest, which has nothing to check against).
+ */
+export type SkillRead = {
+  skill: SkillEntry;
+  file: { uri: string; mimeType?: string; text?: string; blob?: string };
+  verified: boolean;
+};
 
 /** `result` of `prompt-get`. */
 export type GetPromptResult = { description?: string; messages: Array<{ role: string; content: ContentBlock }> };

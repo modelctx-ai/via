@@ -22,7 +22,7 @@ import { noteCanonical, resolveEntry } from '../target';
 import { argsIo } from './tool';
 
 /** The provider the first argument names, with the canonical spelling noted on stderr. */
-async function open(app: App, command: string, typed: string): Promise<{ entry: ProviderEntry; timeoutMs: number }> {
+export async function open(app: App, command: string, typed: string): Promise<{ entry: ProviderEntry; timeoutMs: number }> {
   const entry = await resolveEntry(app, typed);
   noteCanonical(app, [command, typed], [command, entry.name]);
   return { entry, timeoutMs: app.options.timeoutMs ?? entry.server.timeout * 1000 };
@@ -32,13 +32,13 @@ async function open(app: App, command: string, typed: string): Promise<{ entry: 
  * A raw MCP result with this process's credentials replaced field by field, keeping the protocol's own
  * fields (`role`, `mimeType`, …) intact. The daemon has done the same for the credentials it holds.
  */
-const safe = <T>(app: App, value: T): T => redactProtocol(value, app.redact) as T;
+export const safe = <T>(app: App, value: T): T => redactProtocol(value, app.redact) as T;
 
 /**
  * Render `result` (built from a result that went through `safe`) as a tool result is rendered and
  * print it; the exit code of the command.
  */
-async function print(app: App, entry: ProviderEntry, ref: string, started: number, result: ToolResult, refWords?: readonly string[]): Promise<number> {
+export async function print(app: App, entry: ProviderEntry, ref: string, started: number, result: ToolResult, refWords?: readonly string[]): Promise<number> {
   const config = await app.config();
   const { server } = entry;
   const rendered = await renderToolResult(
@@ -59,7 +59,7 @@ async function print(app: App, entry: ProviderEntry, ref: string, started: numbe
   return rendered.exitCode;
 }
 
-const noOptions = (command: string, argv: readonly string[]): void => {
+export const noOptions = (command: string, argv: readonly string[]): void => {
   const flag = argv.find((a) => a.startsWith('-'));
   if (flag !== undefined) throw usageFailure(`via ${command}: unknown option ${visibleText(flag)}`, `via ${command} -h`);
 };

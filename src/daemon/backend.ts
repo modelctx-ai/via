@@ -25,6 +25,8 @@ import type {
   ServerFeatures,
   ServerSelf,
   ServerTarget,
+  SkillEntry,
+  SkillRead,
   ToolCallResult,
   ValidateResult,
 } from '../protocol';
@@ -150,6 +152,18 @@ export class DaemonBackend implements Backend {
     const config = this.find(server);
     const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
     return unwrap<GetPromptResult>(await this.send({ type: 'prompt-get', ...this.target(config), name, args, timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
+  }
+
+  async listSkills(server: string, options: ListOptions = {}): Promise<SkillEntry[]> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<SkillEntry[]>(await this.send({ type: 'skills-list', ...this.target(config), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, onEvent: (event) => this.onLog(event) }));
+  }
+
+  async readSkill(server: string, skill: string, file?: string, options: ListOptions = {}): Promise<SkillRead> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<SkillRead>(await this.send({ type: 'skill-read', ...this.target(config), skill, ...(file !== undefined ? { file } : {}), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
   }
 
   async complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options: ListOptions = {}): Promise<CompletionResult> {

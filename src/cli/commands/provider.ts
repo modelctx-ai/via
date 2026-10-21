@@ -38,6 +38,7 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
     const also = [
       ...(opened.listing.features?.resources ? [`via resources ${shellWords(visible.provider)}`] : []),
       ...(opened.listing.features?.prompts ? [`via prompts ${shellWords(visible.provider)}`] : []),
+      ...(opened.listing.features?.skills ? [`via skills ${shellWords(visible.provider)}`] : []),
     ];
     const view = withNewline(renderProvider(visible, { all: app.options.all, also }));
     // `-h` adds what the server says about itself (instructions, description): only here (discovery.md, "server 自述").

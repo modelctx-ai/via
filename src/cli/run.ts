@@ -95,6 +95,8 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
         return (await import('./commands/mcp-data')).promptsCommand(app, argv);
       case 'serve':
         return (await import('./commands/serve')).serveCommand(app, argv);
+      case 'skills':
+        return (await import('./commands/skills')).skillsCommand(app, argv);
     }
   }
   if (options.complete !== undefined) throw usageFailure('--complete applies to via prompts <provider> <name> and via resources <provider> <template>', 'via prompts -h');

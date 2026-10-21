@@ -14,6 +14,7 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 via resources <provider>                  列出该 server 的 MCP 资源与资源模板
 via read <provider> <uri>                 读取一个 MCP 资源
 via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时取该 prompt
+via skills <provider> [<名称> [<文件>]]   列出 MCP 技能；带名称时读 SKILL.md，再带文件时读该附属文件
 via <provider> -h                         provider 视图，前面加上 server 的自述（instructions、description）
 ```
 
@@ -55,12 +56,13 @@ via <provider> -h                         provider 视图，前面加上 server 
 | `via resources <provider>` | 列出 MCP 资源与资源模板（[见下](#mcp-资源与-prompt-命令)） |
 | `via read <provider> <uri>` | 读取一个 MCP 资源 |
 | `via prompts <provider> [<名称> [参数]]` | 列出 MCP prompt；带名称时取该 prompt，参数写法同工具 |
+| `via skills <provider> [<名称> [<文件>]]` | 列出 MCP 技能（`2026-07-28` 的 Skills 扩展）；带名称时读 `SKILL.md`，再带文件时读该附属文件，内容按 server 发布的清单核对后才输出（[见下](#技能-via-skills)） |
 | `via daemon status\|stop\|run` | 管理后台进程；`run` 供内部拉起使用（[daemon.md](daemon.md)） |
 | `via serve` | 以 stdio MCP server 运行，向没有 shell 的 agent 暴露元工具（[见下](#via-serve)） |
 
 内置子命令名是保留字，大小写不敏感，不接受前缀。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警，该 server 在改名前不出现在任何视图里。
 
-0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用，`serve` 自 0.4 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
+0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用，`serve`、`skills` 自 0.4 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
 
 各命令的细节：
 
@@ -135,6 +137,35 @@ $ via read fs file:///project/missing.txt
 error: no such resource: file:///project/missing.txt (Resource not found: file:///project/missing.txt)
 next: via resources fs
 ```
+
+### 技能（`via skills`）
+
+MCP 的 Skills 扩展（`io.modelcontextprotocol/skills`，只存在于 `2026-07-28`）让 server 发布「技能」：一个目录，至少有带 YAML frontmatter 的 `SKILL.md`，可以有附属文件。`skills/list` 与 `skills/get` 返回条目，内容用普通的 `resources/read` 取。命令只读，像 `via resources` 一样没有 `--yes`、`--dry-run`，`deny` 不适用；第二个参数是 provider，元信息行里的名称是 `skills <provider>`。设计理由见 [ADR 0020](../adr/0020-tasks-and-skills-commands.md)。
+
+```console
+$ via skills gh
+refunds       3 files  Handle refund requests step by step.
+acme/billing  1 file   Acme billing.
+beta/billing  1 file   Beta billing.
+dyn           dynamic  A skill without a manifest.
+→ via skills gh <name> to read a skill · <name> <file> for one of its files
+
+$ via skills gh refunds
+---
+name: refunds
+description: Handle refund requests step by step.
+---
+# Refunds
+Read references/FORMS.md first.
+· skills gh · 41ms · 114 bytes
+files: references/FORMS.md · assets/pixel.png  (via skills gh refunds <file>)
+```
+
+- **列表**：每个技能一行（名称、文件数或 `dynamic`、描述的首行）；两个技能同名时这两行改写成路径（`acme/billing`）。`-o json` 输出服务端发布的条目（`uri`、`frontmatter`、`resources` 清单）。条目缺 `SKILL.md` 的 URI、`name`、`description` 或清单时扩展不允许使用，via 把它们去掉并警告一次（`warning: 1 skill entry of gh ignored…`）。没有技能时输出 `(no skills)`。
+- **读取**：`<名称>` 先按名称或路径逐字匹配，再宽松匹配（大小写、`-`/`_`），再取唯一前缀；也接受技能的 URI（`SKILL.md` 或其目录）。两个技能同名（或前缀对应多个）时不挑一个：退出码 3，`candidates:` 列出路径。列表里找不到的名称再试约定的 `skill://<名称>/SKILL.md`（列表可以不完整），仍没有时退出码 3 并给 did you mean。`<文件>` 是相对技能目录的名字（`references/FORMS.md`，开头的 `./` 和 `/` 忽略）或清单里的完整 URI；含 `..` 的退出码 2；清单完整时不在清单里的文件不是这个技能的文件，不发请求，退出码 3 并列出可用的文件。内容按 `via read` 的方式输出（文本、JSON 内容的整形、二进制写入缓存目录只打印路径，`-o raw` 取原文，预算与游标照常）。读 `SKILL.md` 且技能还有别的文件时，stderr 在元信息行之后多一行 `files: …`（最多 8 个，其余 `… N more`），stdout 保持纯内容，可以直接 `> SKILL.md`。`-o json` 输出 `{skill: {uri, name, description, files}, file: {uri, mimeType, text}, verified}`。
+- **核对**：每次读取先 `skills/get` 取最新的条目，再 `resources/read` 取文件，比较字节数与 `sha256:`（文本按 UTF-8，`blob` 按解码后的字节）。大小或摘要不符、文件不在清单里、server 没有返回内容：**拒绝**，不输出任何内容，退出码 6，`error: refused skill://x/SKILL.md: its sha256 differs from the manifest's (…); nothing was printed`，`next: via skills <provider>`（重新取清单）。清单是 `"dynamic"` 时没有可核对的东西，照常输出并在 stderr 警告 `could not be checked`，`-o json` 里 `verified` 为 false。核对在会话层（daemon 里的会话也一样）对 server 发来的原字节进行，之后才脱敏和渲染，所以内容里恰好有凭证值时是被替换，不是被拒绝。**不核对** `SKILL.md` 自己的 frontmatter 与条目是否一致（需要 YAML 解析）。
+- **没有技能**：server 的协议版本不是 `2026-07-28`，或它没有声明 `io.modelcontextprotocol/skills`，不发 `skills/*` 请求，退出码 3：`error: gh does not offer MCP skills: it speaks MCP 2025-11-25; skills need 2026-07-28 and the io.modelcontextprotocol/skills extension`（或 `…: it did not declare the io.modelcontextprotocol/skills extension`），`next: via gh`。server 声明扩展时，provider 视图的 `also:` 行多一项 `via skills <provider>`（[discovery.md](discovery.md#via-provider)）。
+- 技能内容与工具输出一样是不可信的数据，via 不解释它们、不把它们写进任何框架的技能目录（[ADR 0003](../adr/0003-read-only-framework-configs.md)）；要保存就 `via skills gh refunds > SKILL.md`。
 
 ### 配置错误
 

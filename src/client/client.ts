@@ -1,6 +1,6 @@
 import type { McpTool } from '../catalog/types';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { CompletionRef, CompletionResult, GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, SkillEntry, SkillRead, ToolCallResult } from '../protocol';
 import { notFoundServer } from './errors';
 import { McpSession, type CallOptions, type ListOptions, type SessionOptions } from './session';
 
@@ -17,6 +17,10 @@ export interface McpClient {
   readResource(server: string, uri: string, options?: ListOptions): Promise<ReadResourceResult>;
   listPrompts(server: string, options?: ListOptions): Promise<McpPrompt[]>;
   getPrompt(server: string, name: string, args: Record<string, string>, options?: ListOptions): Promise<GetPromptResult>;
+  /** `skills/list` (the skills extension; ADR 0020). */
+  listSkills(server: string, options?: ListOptions): Promise<SkillEntry[]>;
+  /** One file of a skill, verified against its manifest. `skill` is the URI of its `SKILL.md`; `file` is relative to its directory. */
+  readSkill(server: string, skill: string, file?: string, options?: ListOptions): Promise<SkillRead>;
   /** `completion/complete` for an argument of a prompt or resource template. */
   complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options?: ListOptions): Promise<CompletionResult>;
   /** What the server declared at `initialize`, once a session to it exists; undefined if unknown. */
@@ -65,6 +69,14 @@ export class InProcessClient implements McpClient {
 
   async getPrompt(server: string, name: string, args: Record<string, string>, options?: ListOptions): Promise<GetPromptResult> {
     return this.session(server).getPrompt(name, args, options);
+  }
+
+  async listSkills(server: string, options?: ListOptions): Promise<SkillEntry[]> {
+    return this.session(server).listSkills(options);
+  }
+
+  async readSkill(server: string, skill: string, file?: string, options?: ListOptions): Promise<SkillRead> {
+    return this.session(server).readSkill(skill, file, options);
   }
 
   async complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options?: ListOptions): Promise<CompletionResult> {

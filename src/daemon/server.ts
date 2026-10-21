@@ -449,6 +449,12 @@ export class DaemonServer {
       case 'prompt-get':
         if (this.stale(request)) return STALE;
         return this.sessions.getPrompt(request, String(request.name), promptArgs(request.args), { timeoutMs: request.timeoutMs });
+      case 'skills-list':
+        if (this.stale(request)) return STALE;
+        return this.sessions.skills(request, { timeoutMs: request.timeoutMs, onWarning: (message: string): void => this.sendWarning(conn, request.id, message) });
+      case 'skill-read':
+        if (this.stale(request)) return STALE;
+        return this.sessions.readSkill(request, String(request.skill), typeof request.file === 'string' ? request.file : undefined, { timeoutMs: request.timeoutMs });
       case 'complete':
         if (this.stale(request)) return STALE;
         return this.sessions.complete(request, completionRef(request.ref), { name: String(request.argument?.name), value: String(request.argument?.value ?? '') }, request.context ? promptArgs(request.context) : undefined, { timeoutMs: request.timeoutMs });

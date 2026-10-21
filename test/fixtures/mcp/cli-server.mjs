@@ -2,6 +2,7 @@
 // output schemas, progress, a long result and failing tools. Plain ESM like mock-server.mjs.
 // With `features` it also serves resources (text, JSON, blob, several contents, a long text, templates,
 // two list pages) and prompts; the feature `roots` adds the tool `list_roots`, which asks the client for its roots.
+import { createHash } from 'node:crypto';
 import { buildServer } from './flavors.mjs';
 
 const INVALID_PARAMS = -32602;
@@ -92,13 +93,42 @@ const PROMPTS = [
   { name: 'summarize', description: 'A prompt with several messages' },
 ];
 
+// Skills (the extension is part of the stateless protocol: only the `modern` flavor serves them) ---------------------
+
+const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+const FORMS = 'Refund form fields:\n- order id\n- amount\n';
+const SKILL_FILES = {
+  'skill://refunds/SKILL.md': { mimeType: 'text/markdown', text: '---\nname: refunds\ndescription: Handle refund requests step by step.\n---\n# Refunds\nRead references/FORMS.md first.\n' },
+  'skill://refunds/references/FORMS.md': { mimeType: 'text/markdown', text: FORMS },
+  'skill://refunds/assets/pixel.png': { mimeType: 'image/png', blob: PNG },
+  'skill://acme/billing/SKILL.md': { mimeType: 'text/markdown', text: '---\nname: billing\ndescription: Acme billing.\n---\nAcme billing steps.\n' },
+  'skill://beta/billing/SKILL.md': { mimeType: 'text/markdown', text: '---\nname: billing\ndescription: Beta billing.\n---\nBeta billing steps.\n' },
+  'skill://dyn/SKILL.md': { mimeType: 'text/markdown', text: '---\nname: dyn\ndescription: A skill without a manifest.\n---\nDynamic.\n' },
+  'skill://tampered/SKILL.md': { mimeType: 'text/markdown', text: '---\nname: tampered\ndescription: Content differs from its manifest.\n---\nWhat the server really sends.\n' },
+  'skill://short/SKILL.md': { mimeType: 'text/markdown', text: '---\nname: short\ndescription: Size differs from its manifest.\n---\nTruncated.\n' },
+};
+const bytesOf = (c) => (c.blob !== undefined ? Buffer.from(c.blob, 'base64') : Buffer.from(c.text, 'utf8'));
+const fileEntry = (uri, override = {}) => ({ uri, digest: sha(bytesOf(SKILL_FILES[uri])), size: bytesOf(SKILL_FILES[uri]).length, ...override });
+/** The skills the fixture publishes: `resources` is the manifest the extension requires. */
+function skillEntries() {
+  return [
+    { uri: 'skill://refunds/SKILL.md', frontmatter: { name: 'refunds', description: 'Handle refund requests step by step.\nA second line that the list does not show.' }, resources: ['skill://refunds/SKILL.md', 'skill://refunds/references/FORMS.md', 'skill://refunds/assets/pixel.png'].map((u) => fileEntry(u)) },
+    { uri: 'skill://acme/billing/SKILL.md', frontmatter: { name: 'billing', description: 'Acme billing.' }, resources: [fileEntry('skill://acme/billing/SKILL.md')] },
+    { uri: 'skill://beta/billing/SKILL.md', frontmatter: { name: 'billing', description: 'Beta billing.' }, resources: [fileEntry('skill://beta/billing/SKILL.md')] },
+    { uri: 'skill://dyn/SKILL.md', frontmatter: { name: 'dyn', description: 'A skill without a manifest.' }, resources: 'dynamic' },
+    { uri: 'skill://tampered/SKILL.md', frontmatter: { name: 'tampered', description: 'Content differs from its manifest.' }, resources: [fileEntry('skill://tampered/SKILL.md', { digest: sha(Buffer.from('what the manifest promised')) })] },
+    ...(SKILL_FILES['skill://echo/SKILL.md'] ? [{ uri: 'skill://echo/SKILL.md', frontmatter: { name: 'echo', description: 'Its text contains the credential the server saw.' }, resources: [fileEntry('skill://echo/SKILL.md')] }] : []),
+    { uri: 'skill://short/SKILL.md', frontmatter: { name: 'short', description: 'Size differs from its manifest.' }, resources: [fileEntry('skill://short/SKILL.md', { size: 999 })] },
+  ];
+}
+
 /** Shared, inspectable state: one Server is built per HTTP request, so it lives outside. */
 export function createCliState() {
-  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined, completions: [] };
+  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined, completions: [], skillRequests: [] };
 }
 
 /**
- * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots' | 'completions'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number, about?: { description?: string, websiteUrl?: string, instructions?: string } }} options
+ * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots' | 'completions' | 'skills'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number, about?: { description?: string, websiteUrl?: string, instructions?: string } }} options
  *   `flavor` picks the protocol generation (flavors.mjs); `notifier` is the stateless handler's change publisher;
  *   `about` is what the server says about itself (`serverInfo.description`, `websiteUrl`, `instructions`).
  */
@@ -108,6 +138,8 @@ export function createCliServer({ state, authorization, features = [], flavor = 
     ...(features.includes('resources') ? { resources: {} } : {}),
     ...(features.includes('prompts') ? { prompts: {} } : {}),
     ...(features.includes('completions') ? { completions: {} } : {}),
+    // The skills extension belongs to the stateless protocol; a server of the old generation has nothing to declare.
+    ...(features.includes('skills') && flavor === 'modern' ? { resources: {}, extensions: { 'io.modelcontextprotocol/skills': {} } } : {}),
   };
   const table = {};
   const secret = authorization ?? process.env.FIXTURE_SECRET ?? '<none>';
@@ -166,6 +198,31 @@ export function createCliServer({ state, authorization, features = [], flavor = 
         default:
           h.fail(INVALID_PARAMS, `Unknown prompt: ${name}`);
       }
+    };
+  }
+
+  if (features.includes('skills') && flavor === 'modern') {
+    // The credential the server saw is part of this skill's text; the manifest digests that text, redaction comes after the check.
+    SKILL_FILES['skill://echo/SKILL.md'] = { mimeType: 'text/markdown', text: `---\nname: echo\ndescription: Its text contains the credential the server saw.\n---\nauthorization: ${secret}\n` };
+    table['skills/list'] = async () => {
+      state.skillRequests.push('skills/list');
+      return { skills: skillEntries(), ttlMs: 0, cacheScope: 'shared' };
+    };
+    table['skills/get'] = async (params, h) => {
+      state.skillRequests.push(`skills/get ${params.uri}`);
+      const skill = skillEntries().find((e) => e.uri === params.uri);
+      if (!skill) h.fail(INVALID_PARAMS, `Unknown skill: ${params.uri}`);
+      return { skill, ttlMs: 0, cacheScope: 'shared' };
+    };
+    const read = table['resources/read'];
+    table['resources/read'] = async (params, h) => {
+      const content = SKILL_FILES[params.uri];
+      if (content) {
+        state.skillRequests.push(`resources/read ${params.uri}`);
+        return { contents: [{ uri: params.uri, ...content }] };
+      }
+      if (read) return read(params, h);
+      return h.fail(-32002, `Resource not found: ${params.uri}`);
     };
   }
 

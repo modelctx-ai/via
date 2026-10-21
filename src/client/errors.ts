@@ -51,6 +51,7 @@ export interface ErrorContext {
 
 /** Longest piece of upstream text we echo into an error message. */
 const MAX_UPSTREAM_TEXT = 300;
+const SKILLS_EXTENSION_ID = 'io.modelcontextprotocol/skills';
 
 // Constructors for the fixed error kinds ------------------------------------------------------
 
@@ -119,6 +120,42 @@ export function resourceNotFound(err: unknown, uri: string, provider: string, re
     exitCode: ExitCode.NotFound,
     message: `no such resource: ${flat(uri)}${detail ? ` (${detail})` : ''}`,
     next: `via resources ${provider}`,
+  });
+}
+
+// Skills (ADR 0020) -----------------------------------------------------------------------------
+
+/** One line of server text for a message: redacted, cleaned, folded and cut. */
+function oneLine(redact: (text: string) => string, text: string): string {
+  return sanitizeText(redact(text)).replace(/\s+/g, ' ').trim().slice(0, MAX_UPSTREAM_TEXT);
+}
+
+/** `via skills` on a server that has none: an old protocol, or the extension not declared (exit code 3, nothing was sent). */
+export function noSkills(server: ServerConfig, why: { protocol: string } | { extension: string }): ClientError {
+  const reason =
+    'protocol' in why
+      ? `it speaks MCP ${why.protocol}; skills need 2026-07-28 and the ${SKILLS_EXTENSION_ID} extension`
+      : `it did not declare the ${why.extension} extension`;
+  return new ClientError({ exitCode: ExitCode.NotFound, message: `${server.provider} does not offer MCP skills: ${reason}`, next: `via ${server.provider}` });
+}
+
+/** The server does not know the skill (`skills/get` answered -32602 or -32002), or the typed file is not one of its files. */
+export function skillNotFound(server: ServerConfig, what: string, redact: (text: string) => string, candidates: readonly string[] = []): ClientError {
+  const list = candidates.slice(0, 5).map((c) => oneLine(redact, c));
+  return new ClientError({
+    exitCode: ExitCode.NotFound,
+    message: `${oneLine(redact, what)}`,
+    next: `via skills ${server.provider}`,
+    ...(list.length > 0 ? { candidates: list } : {}),
+  });
+}
+
+/** Content that does not match the skill's manifest: refused, nothing is printed (exit code 6: the server disagrees with itself). */
+export function skillRefused(server: ServerConfig, uri: string, problem: string, redact: (text: string) => string): ClientError {
+  return new ClientError({
+    exitCode: ExitCode.Upstream,
+    message: `refused ${oneLine(redact, uri)}: ${oneLine(redact, problem)}; nothing was printed`,
+    next: `via skills ${server.provider}`,
   });
 }
 
@@ -322,6 +359,12 @@ const CONNECTION_LOST = new Set(['CONNECTION_CLOSED', 'NOT_CONNECTED', 'SEND_FAI
 const CONNECTION_CLOSED = -32000;
 const INVALID_PARAMS = -32602;
 const RESOURCE_NOT_FOUND = -32002;
+
+/** Whether `err` is the server saying it does not know what was asked for (-32002), or calling it invalid (-32602). */
+export function isNotFoundCode(err: unknown): boolean {
+  const code = mcpCode(err);
+  return code === RESOURCE_NOT_FOUND || code === INVALID_PARAMS;
+}
 
 /** The JSON-RPC code of an error the server answered with (SDK `ProtocolError`); undefined for anything else. */
 function mcpCode(err: unknown): number | undefined {
