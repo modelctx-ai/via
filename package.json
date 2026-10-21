@@ -38,6 +38,7 @@
     "bench:perf": "tsup scripts/bench-perf.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-perf.js",
     "bench:tokens": "tsup scripts/bench-tokens.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-tokens.js",
     "bench:eval": "tsup scripts/bench-eval.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --external @anthropic-ai/sdk --silent && node .build/scripts/bench-eval.js",
+    "split-stats": "tsup scripts/split-stats.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-stats.js",
     "split-diff": "tsup scripts/split-diff.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/split-diff.js test/fixtures/tools test/fixtures/other"
   },
   "dependencies": {

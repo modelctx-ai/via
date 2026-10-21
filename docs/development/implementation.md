@@ -124,7 +124,7 @@ via/
 │  ├─ noise.json    # 默认噪声字段表
 │  ├─ columns.json  # 表格选列规则
 │  └─ schema/       # 上述数据文件的 JSON Schema
-├─ scripts/         # 拆分结果差异检查（npm run split-diff）、token 基准（npm run bench:tokens）、检索质量评测（npm run eval:search）、agent 评测（npm run bench:eval）
+├─ scripts/         # 拆分结果差异检查（npm run split-diff）、拆分统计（npm run split-stats）、token 基准（npm run bench:tokens）、检索质量评测（npm run eval:search）、agent 评测（npm run bench:eval）
 ├─ bench/           # token 基准：tasks/（任务）、recordings/（合成的返回值）、replay-server.mjs（回放 MCP server）、harness/、results/；eval/ 是 agent 评测的实现，复用任务与回放 server（见 bench/README.md）
 ├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；`mcp/`：模拟 MCP server（stdio 与 Streamable HTTP）；`config/`：每个框架的配置样例与 via 用户/项目配置
 └─ docs/
