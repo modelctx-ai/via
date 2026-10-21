@@ -7,7 +7,7 @@
 需要 Node.js 20 或更新版本（推荐 22）。
 
 ```bash
-npm install -g @modelctx/via
+npm install -g @modelctx-ai/via
 ```
 
 从源码安装（开发 via 本身时，需要 Node.js 20+）：

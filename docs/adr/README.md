@@ -14,12 +14,13 @@
 | [0006](0006-domain-is-a-view.md) | 域只是浏览视图，不进入命令路径和规范名 | 被 ADR-0014 取代 |
 | [0007](0007-no-gateway-specific-adaptation.md) | 不对任何网关做专门适配 | 已接受 |
 | [0008](0008-dynamic-dispatch-no-codegen.md) | 运行时动态分发，不生成代码 | 已接受 |
-| [0009](0009-project-name-via.md) | 项目名与命令名为 via | 已接受 |
+| [0009](0009-project-name-via.md) | 项目名与命令名为 via | 已接受（npm 包名见 0015） |
 | [0010](0010-mcp-resources-prompts-and-roots.md) | 提供 MCP resources、prompts 与 roots，且不进入工具语法 | 已接受 |
 | [0011](0011-find-synonym-expansion-and-optional-embeddings.md) | `via find` 默认用确定性同义词扩展，embedding 检索是用户显式开启的可选项 | 已接受 |
 | [0012](0012-windows-pipe-name-and-batch-files.md) | Windows：管道名由令牌派生，批处理文件拒绝而不转义 | 已接受 |
 | [0013](0013-agent-instructions-are-a-marked-block.md) | agent 说明以标记块注入，而不是覆盖整份文件 | 已接受 |
 | [0014](0014-drop-the-domain-view.md) | 去掉「域」：provider 按名字列出，不做分类 | 已接受 |
+| [0015](0015-npm-scope-modelctx-ai.md) | npm 包名为 `@modelctx-ai/via` | 已接受 |
 
 ## 流程
 

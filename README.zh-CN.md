@@ -6,7 +6,7 @@
 
 **MCP 做提供方协议，CLI 做消费方接口。** agent 框架不再挂载 MCP，也不再把成百上千个工具的 schema 塞进上下文；需要工具时，agent 在 shell 里用 `via` 逐级发现、查看用法、调用，鉴权和输出格式由 via 统一处理。
 
-> 状态：0.3.0 已发布（`npm install -g @modelctx/via`）。这个版本包含路线图 0.1–0.3：直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行。1.0 之前命令与输出可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
+> 状态：0.3.0 已发布（`npm install -g @modelctx-ai/via`）。这个版本包含路线图 0.1–0.3：直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行。1.0 之前命令与输出可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
 
 ## 为什么需要 via
 
@@ -64,7 +64,7 @@ via linear issue:create --team ENG --title "$title" --description "From acme/api
 需要 Node.js 20 或更新版本（推荐 22）。
 
 ```bash
-npm install -g @modelctx/via
+npm install -g @modelctx-ai/via
 via --version
 ```
 

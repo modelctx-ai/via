@@ -4,7 +4,7 @@ name: Release
 # 各平台在原生的 runner 上编译并跑冒烟测试，通过后再汇总、生成 SHA-256 校验和并上传到 GitHub Release。
 # Intel macOS（在 Apple 芯片的 runner 上交叉编译）、Windows（冒烟测试尚未适配）与 musl（需要 Alpine）
 # 不跑冒烟测试，只构建。
-# v* 标签同时把 @modelctx/via 发到 npm。npm 上的 trusted publisher 登记的是这个文件名（release.yml）。
+# v* 标签同时把 @modelctx-ai/via 发到 npm。npm 上的 trusted publisher 登记的是这个文件名（release.yml）。
 # 手动触发只重做单文件产物，不重复发 npm。
 on:
   push:
