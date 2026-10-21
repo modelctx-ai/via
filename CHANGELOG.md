@@ -41,6 +41,7 @@
   - OAuth 登录的探测请求（`src/client/oauth/login.ts`）不再写死 `2025-06-18`：先发无状态协议的 `server/discover`，再发带 SDK 最新版本的 `initialize`，取先得到 401/403 的那个的挑战头。
   - 新增 `test/protocol-versions.test.ts` 与 `src/protocol-versions.ts`：via 自己保存的协议版本列表（配置加载器要校验 `protocolVersion`，不能为此加载 SDK）对照 node_modules 里的 SDK 检查，SDK 升级后增减版本会让测试失败。
   - 代价（[implementation.md](docs/development/implementation.md#mcp-sdkv2)）：进程内模式的一次调用中位数多约 40 ms，走 daemon 的 CLI 与浏览命令不受影响，daemon 建立会话后常驻内存约多 5 MiB（测量噪声 ±5 MiB），单文件可执行 86 → 89 MiB，热 daemon 的调用开销不变。
+- `deny` 规则同时匹配每个工具的**叶子写法**（`provider/叶子名`：原始名去掉 provider 词后各词用 `-` 连接，即不拆成 `资源:动作` 时的名字，naming.md 规则 5），在原来的当前规范写法、原始名、默认规范写法之外（config.md「deny」）。叶子写法只取决于原始名与 provider 名，不取决于动词表，所以动词表、单数化规则以后怎么改，按叶子名或原始名写的规则都不会因此漏掉工具：工具在「叶子」与「`资源:动作`」之间变化时仍然命中；覆盖不到的只有从一个 `资源:动作` 变成另一个（例如资源名的单数化变了），那类改动继续在这里单独列出。已有的 `deny` 行为不变，只会多命中：规则 `^filesystem/edit-file$` 对叶子 `edit-file` 与（动词表加了 `edit` 之后的）`file:edit` 都命中。`CatalogTool` 新增 `leafSingleRef`，预构建目录（`.view.json`）的工具条目多存一项叶子写法、文件版本由 3 升到 4，旧的预构建文件自动作废并重新计算（构建出的规则指纹本来就包含 `src/catalog/` 的源码哈希）。不涉及动词表与规范写法。
 - `serve` 成为内置子命令的保留字。名字恰好是 `serve` 的 server 需要在配置里用 `alias` 改名，改名前不出现在任何视图里（cli.md「内置子命令」）。动词表与单数化规则没有变化，其余规范写法不受影响。
 
 ## [0.3.1] - 2026-10-21

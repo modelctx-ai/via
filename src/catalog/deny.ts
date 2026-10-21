@@ -10,13 +10,16 @@ import type { CatalogTool } from './types';
  */
 export const MAX_DENY_INPUT_LENGTH = 256;
 
-type DenyTarget = Pick<CatalogTool, 'provider' | 'rawName' | 'singleRef' | 'defaultSingleRef'>;
+type DenyTarget = Pick<CatalogTool, 'provider' | 'rawName' | 'singleRef' | 'defaultSingleRef' | 'leafSingleRef'>;
 
-/** The spellings of a tool that a rule is matched against. */
+/**
+ * The spellings of a tool that a rule is matched against: the current canonical form, the raw name,
+ * the default canonical form (without `rename` and conflict handling) and the leaf form. The leaf
+ * form does not depend on the verb list, so a rule written against what a tool was called before
+ * the split rules changed (a leaf that is now `resource:verb`, or the reverse) still matches.
+ */
 export function denyForms(tool: DenyTarget): string[] {
-  const forms = [tool.singleRef, `${tool.provider}/${tool.rawName}`];
-  if (!forms.includes(tool.defaultSingleRef)) forms.push(tool.defaultSingleRef);
-  return forms;
+  return [...new Set([tool.singleRef, `${tool.provider}/${tool.rawName}`, tool.defaultSingleRef, tool.leafSingleRef])];
 }
 
 /**

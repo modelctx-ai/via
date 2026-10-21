@@ -24,7 +24,7 @@ import { stringHash } from '../hash';
 import { cacheKey } from './catalog-cache';
 
 /** Bumped when the file layout changes. */
-const VIEW_VERSION = 3;
+const VIEW_VERSION = 4;
 
 interface ViewFile {
   v: number;
