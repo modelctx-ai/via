@@ -1,0 +1,14 @@
+usage: via acme thing:do --title <str> --filter <json> --pages <json>
+         --point <json> --due <str> [--legacy-tuple <json>] [--count <num>]
+         [--draft]
+
+Do the thing
+  --filter.state    open|closed
+  --filter.labels   json
+  --filter.range    json
+  --point           repeat the flag or pass a JSON array
+  --legacy-tuple    repeat the flag or pass a JSON array
+  --draft           default: false
+accepts extra fields: --<name> <value>
+example: via acme thing:do --title text --filter.state open --filter.range.from 2026-01-15 --pages '[{"title":"text","children":[]}]' --point '[1,1]' --due 2026-01-15T09:00:00Z
+alias: thing_do

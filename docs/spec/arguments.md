@@ -73,6 +73,7 @@ usage: via github issue:read --owner <str> --repo <str> --issue-number <num>
 
 Get issue details
   --method   get: Get issue details · get_comments: Get issue comments · …
+example: via github issue:read --owner text --repo text --issue-number 1 --method get
 alias: issue_read · read-only
 ```
 
@@ -80,7 +81,24 @@ alias: issue_read · read-only
 - usage 行超过 120 列时按 80 列折行，续行缩进 9 格，每个参数不拆开；错误信息里的 usage 最多列出 8 个可选参数，其余写成 `[…]`，完整列表见 `-h`。
 - 类型写法：string `<str>`、number/integer `<num>`、object/array `<json>`、boolean 只写开关；enum 直接写 `a|b|c`（超过 60 个字符时退回类型，完整列表放在参数行）。与全局选项重名的参数显示为 `--p.<name>`。
 - 参数行只列有描述、默认值或需要说明的参数；多行描述压成一行，列表项以 ` · ` 连接，放不下时以 ` · …` 结尾。标量数组注明「repeat the flag or pass a JSON array」。
-- 末尾显示原始名、只读或危险标记。
+- 末尾显示原始名、只读或危险标记；其上一行是[调用示例](#调用示例)。
+
+### 调用示例
+
+`-h` 在 `alias:` 行之前给出一行 `example:`，是按 `inputSchema` 生成、可以直接粘贴运行的调用（`via prompts <provider> <名称> -h` 同样有，写的是 prompt 的参数）。agent 读了它就知道嵌套对象、对象数组、tuple 该怎么写，不必再去翻映射规则；这行文字会进入 agent 的上下文，所以只给一条、尽量短（上例约 25 个 token）。错误信息里的 `usage:` 不带它。
+
+- **选哪些参数**：所有必填参数，之后补可选参数，直到共 3 个；必填参数已有 3 个以上时只写必填。可选参数的值是空容器（`'{}'`、`'[]'`，没有教学意义），或补上它会让整行超过 200 个字符时，跳过。没有参数的工具不显示。必填参数连一个可写的值都没有，或只写必填就超过 400 个字符时，整行不显示。
+- **取什么值**：`enum`/`const` 的第一个值；其次 `examples` 的第一个、`default`（长度超过 60 字符的不用；boolean 不用 `default`，直接写开关）；都没有时按类型生成：string 写 `text`（有 `format` 时写该格式的合法值：`date-time`、`date`、`time`、`email`、`uri`、`hostname`、`ipv4`），integer/number 取 `minimum`（`exclusiveMinimum` 加 1；不超过 `maximum`，默认 1），boolean 写 `--flag`。
+- **写成什么形态**，与[映射规则](#映射规则)一致：
+  - 声明了字段的 object：点号路径，只写必填字段（没有必填字段时写第一个声明的字段），最多嵌套 3 层：`--filter.state open --filter.range.from 2026-01-15`；
+  - 标量数组：重复的 flag 写一项：`--tag text`；
+  - 对象数组、tuple（`prefixItems`，或数组形式的 `items`）、没有声明字段的 object：整体写 JSON，用引号包住：`--pages '[{"title":"text"}]'`、`--point '[1,1]'`；
+  - nullable（`type: ["string", "null"]`、`anyOf`/`oneOf` 带 `null` 分支）：写非 null 分支的值，`anyOf`/`oneOf` 取第一个非 null 分支；
+  - 本地 `$ref` 展开，对象字段最多展开 4 层，到顶的数组写 `[]`、对象写 `{}`，自引用的 schema 不会无限展开；
+  - 值以 `-` 开头时写成 `--name=-5`（否则会被当成选项）。
+- **安全**：整行是一条可粘贴的命令，每个词都遵循[可粘贴的命令行](output.md#可粘贴的命令行)的引用规则，值来自 server 的 schema 也不例外：`enum`/`default`/`examples` 里的值没有安全写法（含换行、控制字符，或引号加 shell 语法字符），或以 `@` 开头（会被读成文件）、等于 `-`（会被读成 stdin）时，换用下一个候选值，最终退回按类型生成的值；一个参数的所有可选值都不能写，则跳过它（必填时整行不显示）。参数名按[参数名](#参数名)的规则写；没有安全写法的原名（归一化后同名时保留的原名）加引号，不能引用的参数跳过。
+- **Windows**：PowerShell 与 `cmd.exe` 没有共同的、能带双引号的写法（[output.md](output.md#可粘贴的命令行)），所以需要 JSON 的参数（对象数组、tuple）在 Windows 上不写进示例；必填时整行不显示，改用 `--args @文件`。
+- 示例是为了展示写法，不保证业务上有意义（`text`、`1`）；但它按同一个解析器和校验器检查：测试对夹具里全部工具的示例逐条解析并校验，必须通过。
 
 ## 校验与报错
 

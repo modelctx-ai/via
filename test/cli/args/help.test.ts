@@ -15,6 +15,7 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
         '',
         'Get issue details',
         '  --method   get: Get issue details · get_comments: Get issue comments · …',
+        'example: via github issue:read --owner text --repo text --issue-number 1 --method get',
         'alias: issue_read · read-only',
       ].join('\n'),
     );
@@ -56,6 +57,7 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
         --priority   Priority · default: 3
         --tags       repeat the flag or pass a JSON array
         --level      one of: level-number-0, level-number-1, level-number-2, level-number-3, …
+      example: via acme issue:create --title text --body text --draft
       alias: issue_create"
     `);
   });
@@ -82,6 +84,7 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
         --filter            Which issues
         --filter.state      open|closed · Issue state
         --filter.per-page   num · default: 30
+      example: via acme thing:do --filter.state open
       alias: thing_do"
     `);
   });

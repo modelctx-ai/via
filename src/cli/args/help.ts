@@ -3,6 +3,7 @@ import { extractParams } from '../../catalog/signature';
 import type { JsonSchema, McpTool, ParamInfo } from '../../catalog/types';
 import { shellArg, shellQuote, shellWords, visibleText } from '../../render/shell';
 import { alignRows, truncateChars } from '../../render/width';
+import { formatCallExample } from './example';
 import { type Pos, rootFlagName, SchemaModel } from './schema';
 import type { ToolArgsContext } from './types';
 
@@ -205,6 +206,9 @@ export function formatToolHelp(tool: McpTool, ctx: ToolArgsContext): string {
   for (const group of clashes) {
     out.push(`note: ${group.join(' and ')} become the same flag; pass each by its original name`);
   }
+
+  const example = formatCallExample(tool, ctx);
+  if (example) out.push(example);
 
   const marks = [`alias: ${shellArg(ctx.rawName, { placeholder: 'name' })}`];
   if (ctx.readOnly) marks.push('read-only');
