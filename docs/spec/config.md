@@ -113,6 +113,16 @@ search:
 | `budget` | 全部 | 覆盖输出预算 |
 | `noise` | 全部 | 追加的噪声字段名或通配 |
 | `roots` | 全部 | 声明给 server 的 roots，见下 |
+| `protocolVersion` | 全部 | 固定 MCP 协议版本，见下；默认不固定（新版本优先，自动回退） |
+
+#### `protocolVersion`
+
+默认不写：via 先按最新的协议版本（`2026-07-28` 的无状态协议）谈，server 不支持就退回 `initialize` 握手，用户什么都不用配（[daemon.md](daemon.md#协议版本与无状态连接)）。写了 `protocolVersion` 就只用这一个版本，**server 不支持时报错（退出码 6，`next:` 提示去掉这个字段或改成 server 支持的版本），不回退**。
+
+- 取值：`2026-07-28`、`2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05`、`2024-10-07`（与 SDK 支持的一致，由测试对照）。其他值是 `invalid-field` 错误（`servers.<name>.protocolVersion: expected one of …`），该字段被忽略。
+- 用途：绕过某个 server 在新协议上的缺陷；或要求一个必须是无状态的部署（`2026-07-28`）；对 stdio server 还可以固定旧版本，省去协议探测多启动的那个进程。
+- 当前协商出的版本和连接是否有状态由 `via servers`（上次拉取时记下的）与 `via doctor`（实时）显示，固定了的标注 `pinned`（[cli.md](cli.md#内置子命令)）。
+- 合并时后者覆盖前者，与 `timeout` 相同；它不改变 via 连到哪里、启动什么，所以项目级配置设置它不需要 `via trust`。它参与目录缓存键和 daemon 会话键。
 
 #### `roots`
 
@@ -120,7 +130,7 @@ search:
 
 - **默认没有**：不写或写 `[]` 时 via 不声明 `roots` 能力，server 无从得知任何本机目录。要让 server 看到当前目录写 `roots: ["."]`，这是明确的授权，via 不替用户做这个决定。
 - 路径中的 `~` 展开为家目录，相对路径相对于**运行 `via` 的当前目录**（与 stdio 的 `cwd` 一致），都转成绝对 `file://` URI；`file://` URI 原样使用。其他 scheme 的 URI 是 error 级诊断（`servers.<name>.roots[0]: expected a path or file:// URI`）。每个 root 的名字取路径的末段。
-- 声明时 `listChanged` 为 `false`：一个会话的 roots 在它的一生里不变。daemon 里 roots 参与会话键，相对路径依赖调用目录时不同目录使用不同的会话（[daemon.md](daemon.md#环境与工作目录)）。
+- 声明时 `listChanged` 为 `false`：一个会话的 roots 在它的一生里不变。无状态协议（`2026-07-28`）里 server 在调用结果中要求提供 roots，via 用同一份配置回答，配置、声明条件和授权含义都不变（该协议已把 roots 标为弃用，[daemon.md](daemon.md#协议版本与无状态连接)）。daemon 里 roots 参与会话键，相对路径依赖调用目录时不同目录使用不同的会话（[daemon.md](daemon.md#环境与工作目录)）。
 - 合并时整体替换，不按元素合并。项目配置设置**非空**的 `roots` 要求 `via trust`（它改变 server 的访问边界），写 `[]`（收窄）不需要；`via trust` 会显示 roots（[security.md](security.md#项目级配置的信任)）。
 - 给 HTTP server 配 `roots` 时，加载时有一条 `warning`：这些本地路径会发往远端服务。
 

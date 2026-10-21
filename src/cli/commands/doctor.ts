@@ -19,9 +19,9 @@ export async function doctorCommand(app: App): Promise<number> {
       const entry = entryOf.get(server);
       if (!entry) return { ...base, status: 'error', message: skipped.get(server) ?? 'provider name is not usable' };
       try {
-        const { tools } = await app.listing(entry, { refresh: true, many: true });
+        const { tools, protocol } = await app.listing(entry, { refresh: true, many: true });
         const warning = await loginStoreWarning(app, server);
-        return { ...base, status: 'ok', toolCount: tools.length, schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), ...(warning ? { warning } : {}) };
+        return { ...base, status: 'ok', toolCount: tools.length, ...(protocol ? { protocol } : {}), schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), ...(warning ? { warning } : {}) };
       } catch (error) {
         const probe: ServerProbe = { ...base, status: statusOf(error), message: app.redact.scan(error instanceof Error ? error.message : String(error)) };
         const next = error instanceof ClientError || error instanceof CredentialError ? error.next : undefined;

@@ -29,7 +29,7 @@ secrets:
 
 输出分四节，节间空一行：
 
-- **servers**：按状态计数（`ok`、`needs auth`、`failed`、`untrusted`、`disabled`），非 ok 的状态列出 provider 名；需要鉴权、连接失败、未信任的 server 各占一行并附 `next:`（OAuth server 为 `via auth login <provider>`，未信任的项目级文件为 `via trust <路径>`，凭证缺失时用凭证解析给出的提示）。
+- **servers**：按状态计数（`ok`、`needs auth`、`failed`、`untrusted`、`disabled`），非 ok 的状态列出 provider 名；探测成功的 server 各占一行写出协商出的 MCP 协议版本和连接是否有状态（`  github: MCP 2026-07-28 stateless`；`protocolVersion` 固定了版本的加 `(pinned)`，[config.md](../spec/config.md#protocolversion)）；需要鉴权、连接失败、未信任的 server 各占一行并附 `next:`（OAuth server 为 `via auth login <provider>`，未信任的项目级文件为 `via trust <路径>`，凭证缺失时用凭证解析给出的提示）。
 - **frameworks still injecting MCP schemas**：按框架归并，数据来自 server 定义所在的框架配置（`origin.framework`），以及 `conflicts` 里被忽略的其他框架定义（同名 server 在多个框架里各被注入一次）。框架里可能已经关掉的 server 无从得知，所以按「仍在注入」估算。每个框架一行：server 数与 token 估算，下一行是 `data/frameworks/` 中的 `disableHint`。
 - **secrets**：明文凭证告警，见下。
 - **config**：配置诊断（`error`、`warning`，不含 `info`；明文凭证的告警并入 secrets，不重复）和目录告警（与内置子命令重名、重复的 provider），仅在有内容时出现。项目配置里的 `cmd:`（`cmd-forbidden`）附 `next:` 说明改在用户配置里定义；信任记录损坏附 `next:` 说明删除后重新 `via trust`。

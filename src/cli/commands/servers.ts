@@ -8,6 +8,7 @@ import { ExitCode } from '../../render/exit-codes';
 import type { App } from '../app';
 import { authState } from '../auth-state';
 import { buildProviderTable } from '../directory';
+import { protocolLabel } from '../protocol-label';
 import { parseLocal } from '../options';
 import { usageFailure } from '../failure';
 
@@ -39,6 +40,8 @@ export async function serversCommand(app: App, argv: readonly string[]): Promise
   if (positionals.length > 0) throw usageFailure('via servers takes no arguments', 'via servers -h');
 
   const config = await app.config({ allowErrors: true });
+  // What each server negotiated the last time its catalog was fetched; nothing is connected here.
+  const cache = await app.cache();
   const table = buildProviderTable(config.servers);
   const skipped = new Map(table.skipped.map((s, i) => [s, table.warnings[i]!.message]));
   const rows: string[][] = [];
@@ -55,7 +58,7 @@ export async function serversCommand(app: App, argv: readonly string[]): Promise
     const skip = skipped.get(server);
     if (skip) notes.push(skip);
     const source = server.origin.path ? shorten(server.origin.path, app.io.home) : server.origin.scope;
-    rows.push([server.provider, describeTransport(server), await authStatus(app, server), source, notes.join('; ')]);
+    rows.push([server.provider, describeTransport(server), protocolLabel(server.disabled ? undefined : cache.read(server)?.protocol, server.protocolVersion) ?? '-', await authStatus(app, server), source, notes.join('; ')]);
   }
   if (rows.length === 0) app.out('no MCP servers found\n');
   else app.out(`${alignRows(rows).join('\n')}\n`);

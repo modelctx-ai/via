@@ -8,6 +8,7 @@
 
 ### Added
 
+- 协议版本可见、可固定（路线图 e3）：`via servers` 多一列协议（上次拉取目录时协商出的版本与连接是否有状态，如 `2026-07-28 stateless`；没有记录时写 `-`），`via doctor` 对探测成功的 server 各加一行 `github: MCP 2026-07-28 stateless`。配置字段 `servers.<name>.protocolVersion` 固定一个版本（`2026-07-28`、`2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05`、`2024-10-07`），server 不支持时报错（退出码 6，`next:` 说明去掉或改值）而不是回退，显示时标注 `(pinned)`；不是已知版本的值是 `invalid-field` 错误。它参与目录缓存键与 daemon 会话键，项目级配置设置它不需要 `via trust`。config.md 新增 `protocolVersion` 一节，cli.md 与 agent-integration.md 的 `via servers`、`via doctor` 说明随之更新。**`via servers` 的输出多了一列**，按列解析它的脚本需要跟着改。
 - 支持 MCP `2026-07-28` 的无状态协议，新版本优先、自动回退（路线图 e2，[ADR 0017](docs/adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](docs/spec/daemon.md#协议版本与无状态连接)）：建立连接时先发 `server/discover`，server 支持 `2026-07-28` 就按新协议谈（无 `initialize`、无会话 ID，请求带 `MCP-Protocol-Version` 与 `Mcp-Method` 头，`serverInfo` 读自响应的 `_meta`），被拒绝（旧 server 对陌生方法的 4xx）时在同一条连接上退回 `initialize` 握手（`2025-11-25` 至 `2024-10-07`）；用户不需要配置，旧版 server 上的行为不变。要点：
   - 变更通知：新协议下 daemon 订阅 `subscriptions/listen` 流，与旧协议的 `notifications/tools/list_changed` 进同一个刷新入口；流意外断开时按 1 秒到 30 秒的退避重订，重订成功后立即刷新一次目录。
   - server 在 `tools/list` 结果里给的 `ttlMs` 与 24 小时的目录 TTL 取较短者，随缓存保存；`0` 或缺省视为没有提示（SDK 构造的 server 默认发 `0`，照字面当作立刻过期会让浏览命令每次都连接 server）。
