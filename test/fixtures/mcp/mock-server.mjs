@@ -15,6 +15,7 @@ export const TOOLS = [
   { name: 'max_busy', description: 'Highest number of overlapping busy calls so far', inputSchema: object() },
   { name: 'crash_once', description: 'Exits the first time (marker file in MOCK_MARKER), answers afterwards', inputSchema: object() },
   { name: 'pid', description: 'Process id of the server', inputSchema: object() },
+  { name: 'regional', description: 'Echoes the region it was called with; declares x-mcp-header on region', inputSchema: object({ region: { type: 'string', 'x-mcp-header': 'Region' } }, ['region']) },
   { name: 'add_tool', description: 'Adds a tool to the list and sends notifications/tools/list_changed', inputSchema: object() },
 ];
 
@@ -77,6 +78,10 @@ export function createMockServer({ pageSize = 0, state = createState(), flavor =
         }
         case 'pid':
           return text(process.pid);
+        case 'regional':
+          // What a server that enforces SEP-2243 does: the argument must also arrive as a header (-32020 otherwise).
+          if (flavor === 'modern' && h.header('mcp-param-region') === undefined) h.fail(-32020, 'Mcp-Param-Region header is required');
+          return text(`region: ${args.region}`);
         case 'add_tool': {
           const added = `extra_${state.extra.length + 1}`;
           state.extra.push({ name: added, description: 'Added at runtime', inputSchema: object() });

@@ -10,6 +10,7 @@
 //   h.clientCapabilities()     what the client declared
 //   h.listRoots()              ask the client for its roots (a result `{ roots }`, or undefined when not declared)
 //   h.toolsChanged()           tell listeners the tool list changed
+//   h.header(name)             an HTTP request header (stateless protocol over HTTP only; undefined otherwise)
 //   h.fail(code, message)      answer with a JSON-RPC error
 import { Server as LegacyServer } from '@modelcontextprotocol/sdk/server/index.js';
 import {
@@ -57,6 +58,7 @@ export function buildServer(flavor, info, capabilities, table, options = {}) {
           clientCapabilities: () => server.getClientCapabilities(),
           listRoots: async () => (server.getClientCapabilities()?.roots ? server.listRoots() : undefined),
           toolsChanged: () => server.sendToolListChanged(),
+          header: () => undefined,
           fail: (code, message) => {
             throw new McpError(code, message);
           },
@@ -79,6 +81,7 @@ export function buildServer(flavor, info, capabilities, table, options = {}) {
           if (answered) return answered;
           throw new NeedRoots();
         },
+        header: (name) => ctx.http?.req?.headers.get(name) ?? undefined,
         toolsChanged: () => (options.notifier ? options.notifier.toolsChanged() : server.sendToolListChanged()),
         fail: (code, message) => {
           throw new ProtocolError(code, message);

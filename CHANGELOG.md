@@ -14,7 +14,7 @@
 - 支持 MCP `2026-07-28` 的无状态协议，新版本优先、自动回退（路线图 e2，[ADR 0017](docs/adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](docs/spec/daemon.md#协议版本与无状态连接)）：建立连接时先发 `server/discover`，server 支持 `2026-07-28` 就按新协议谈（无 `initialize`、无会话 ID，请求带 `MCP-Protocol-Version` 与 `Mcp-Method` 头，`serverInfo` 读自响应的 `_meta`），被拒绝（旧 server 对陌生方法的 4xx）时在同一条连接上退回 `initialize` 握手（`2025-11-25` 至 `2024-10-07`）；用户不需要配置，旧版 server 上的行为不变。要点：
   - 变更通知：新协议下 daemon 订阅 `subscriptions/listen` 流，与旧协议的 `notifications/tools/list_changed` 进同一个刷新入口；流意外断开时按 1 秒到 30 秒的退避重订，重订成功后立即刷新一次目录。
   - server 在 `tools/list` 结果里给的 `ttlMs` 与 24 小时的目录 TTL 取较短者，随缓存保存；`0` 或缺省视为没有提示（SDK 构造的 server 默认发 `0`，照字面当作立刻过期会让浏览命令每次都连接 server）。
-  - 目录缓存文件记下协商出的 `protocol`（`{version, stateful}`）和 `ttlMs`，都是可缺省的新字段，旧文件照常读取。stdio server 据此跳过协议探测：SDK 在 server 进程的副本上探测，对旧版 stdio server 等于每次连接多启动一个进程，所以缓存新鲜且记录是旧协议时直接握手（失败，超时除外，才再探测一次）；缓存为空或过期后的第一次连接仍会多启动一个进程。stdio 的探测 3 秒无应答视为旧版 server。
+  - 目录缓存文件记下协商出的 `protocol`（`{version, stateful}`）和 `ttlMs`，都是可缺省的新字段，旧文件照常读取。stdio server 据此跳过协议探测：SDK 在 server 进程的副本上探测，对旧版 stdio server 等于每次连接多启动一个进程，所以缓存新鲜且记录是旧协议时直接握手（失败，超时除外，才再探测一次）；缓存为空或过期后的第一次连接仍会多启动一个进程（升级前写下的缓存没有 `protocol`，同样要探测一次，`via sync` 或 `via doctor` 刷新后记下）。stdio 的探测 3 秒无应答视为旧版 server。
   - `roots` 在新协议里经 `input_required` 由 SDK 用同一个处理器应答，配置与声明条件不变；`logging/setLevel` 被新协议去掉，via 从不发它；无状态连接没有会话要终止、也没有会话 ID 存盘。
   - 新协议的 `tools/call` 走 SDK 的 `callTool()`，按 `x-mcp-header` 镜像 `Mcp-Param-*` 请求头；结果仍按 server 给的样子显示。
   - 配置新增 `servers.<name>.protocolVersion`（取值、语义与可见性见 config.md、cli.md，路线图 e3）；daemon 的 `list` 应答与 `status` 多了可选的 `protocol`。
@@ -38,7 +38,7 @@
   - 行为差异：v2 的 HTTP 传输默认只跟随同源重定向（1.x 会跟随到任何地方并带上自定义请求头）；重定向到别处时报错并带目标地址。错误映射改为识别 v2 的 `SdkError`/`SdkHttpError`/`ProtocolError`（退出码不变）。OAuth 错误码从 `errorCode` 改读 `code`。
   - OAuth 登录的探测请求（`src/client/oauth/login.ts`）不再写死 `2025-06-18`：先发无状态协议的 `server/discover`，再发带 SDK 最新版本的 `initialize`，取先得到 401/403 的那个的挑战头。
   - 新增 `test/protocol-versions.test.ts` 与 `src/protocol-versions.ts`：via 自己保存的协议版本列表（配置加载器要校验 `protocolVersion`，不能为此加载 SDK）对照 node_modules 里的 SDK 检查，SDK 升级后增减版本会让测试失败。
-  - 代价（[implementation.md](docs/development/implementation.md#mcp-sdkv2)）：进程内模式的一次调用中位数多约 50 ms，走 daemon 的 CLI 与浏览命令不受影响，daemon 建立会话后常驻内存约多 5–10 MiB（测量噪声 ±7 MiB）。
+  - 代价（[implementation.md](docs/development/implementation.md#mcp-sdkv2)）：进程内模式的一次调用中位数多约 40 ms，走 daemon 的 CLI 与浏览命令不受影响，daemon 建立会话后常驻内存约多 5 MiB（测量噪声 ±5 MiB），单文件可执行 86 → 89 MiB，热 daemon 的调用开销不变。
 - `serve` 成为内置子命令的保留字。名字恰好是 `serve` 的 server 需要在配置里用 `alias` 改名，改名前不出现在任何视图里（cli.md「内置子命令」）。动词表与单数化规则没有变化，其余规范写法不受影响。
 
 ## [0.3.1] - 2026-10-21

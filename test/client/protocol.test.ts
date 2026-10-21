@@ -226,3 +226,15 @@ describe('a pinned protocol version', () => {
     expect(err.message).toBe('cannot start mock: it does not support protocol version 2026-07-28; servers.mock.protocolVersion pins it');
   });
 });
+
+describe('tool arguments mirrored into headers (x-mcp-header, stateless protocol)', () => {
+  it('are sent as Mcp-Param-* headers, also when via listed the tools itself and the SDK holds no definitions', async () => {
+    const http = await startHttpServer({ protocol: 'modern' });
+    servers.push(http);
+    const s = session(httpServer(http.url));
+    await s.listTools();
+    expect(textOf(await s.callTool('regional', { region: 'eu-west-1' }))).toBe('region: eu-west-1');
+    const calls = http.requests.filter((r) => r['mcp-method'] === 'tools/call');
+    expect(calls.at(-1)?.['mcp-param-region']).toBe('eu-west-1');
+  });
+});

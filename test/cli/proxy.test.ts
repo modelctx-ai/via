@@ -3,6 +3,7 @@
 // the variable that matters is HTTP_PROXY; the CONNECT path for https is in test/proxy.test.ts.
 import { describe, expect, it } from 'vitest';
 import { startOAuthServer } from '../fixtures/mcp/oauth-server.mjs';
+import { startEmbeddingsServer } from '../helpers/embeddings-server';
 import { startProxy } from '../helpers/proxy-server';
 import { FAKE_TOKEN, ghConfig, makeSandbox, startFixtureServer, useCleanup } from './helpers';
 
@@ -111,5 +112,23 @@ describe('OAuth', () => {
     expect(proxy.log.length).toBeGreaterThan(before);
     const out = await sb.via(['auth', 'logout', 'linear'], { env });
     expect(out.code).toBe(0);
+  });
+});
+
+describe('via find with search.semantic', () => {
+  it('sends the embedding requests through the proxy', async () => {
+    const srv = await startFixtureServer();
+    useCleanup(() => srv.close());
+    const emb = await startEmbeddingsServer({ concepts: { zorp: 'echo' } });
+    useCleanup(() => emb.close());
+    const proxy = await startProxy();
+    useCleanup(() => proxy.close());
+    const sb = makeSandbox({ GH_TOKEN: FAKE_TOKEN });
+    sb.userConfig(`${ghConfig(srv.url)}search:\n  semantic:\n    url: ${emb.url}\n    model: fake-embed\n`);
+    const r = await sb.via(['find', 'zorp'], { env: { HTTP_PROXY: proxy.url } });
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim().split('\n')[0]).toContain('echo');
+    expect(proxy.log.some((l) => l.line.startsWith(`POST ${emb.url}`))).toBe(true);
+    expect(emb.requests.length).toBeGreaterThan(0);
   });
 });
