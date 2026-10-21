@@ -4,7 +4,7 @@
 
 **MCP 做提供方协议，CLI 做消费方接口。** agent 框架不再挂载 MCP，也不再把成百上千个工具的 schema 塞进上下文；需要工具时，agent 在 shell 里用 `via` 逐级发现、查看用法、调用，鉴权和输出格式由 via 统一处理。
 
-> **状态：设计阶段，0.1 实现刚开始。** 目前落地的是工具名拆分、分域、搜索、浏览视图和输出渲染这几个纯函数模块；命令行本身还不能调用 server。文档即规范，实现以 [`docs/spec/`](docs/spec/) 为准。
+> **状态：预发布，尚未发布到 npm。** 路线图 0.1–0.3 的功能已经实现（直连与 daemon、OAuth、`find`、`batch`、`trust`、resources/prompts、Windows、单文件可执行），目前需要[从源码安装](#安装)。版本号仍是 `0.0.0`，命令与输出在 1.0 之前可能调整，行为以 [`docs/spec/`](docs/spec/) 为准。
 
 ## 为什么需要 via
 
@@ -12,70 +12,155 @@
 - **鉴权各配一遍**：每个框架各自保存 server 地址和凭证，轮换一次要改所有地方。
 - **输出冗长**：工具返回的原始 JSON 键名逐行重复，截断和翻页各家各做。
 
-via 的做法：作为一个独立的 MCP client，只读引用各框架已有的 MCP 配置，按 server 自动注入凭证，以 `provider → 资源 → 动作` 的命令形态暴露工具，并用一套统一模板渲染输出。
+via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，按 server 注入凭证，以 `provider → 资源 → 动作` 的命令形态暴露工具，并用一套统一规则渲染输出。agent 上下文里只剩一段约 150 token 的使用说明。
+
+在 [token 基准](bench/results/0.1.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），via 的总占用约为原生 MCP 注入方式的 4%。这是按脚本化命令序列估算的；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。真实模型的成功率评测（`npm run bench:eval`）尚未发布结果。
 
 ## 先看一眼
 
 ```console
 $ via
-9 providers · 214 tools · 1 needs auth (linear)
-code     github · sentry
-search   exa · context7
-project  linear
+7 providers · 177 tools
+code     github
+search   context7 · exa
 browser  playwright
+docs     notion
+project  linear
+cloud    cloudflare
 → via <provider> to browse · via find <query> to search
 
-$ via linear
-issue     create · get · list · update · archive
-comment   create · list
-project   create · get · list · update
-→ via linear <resource> for signatures
+$ via linear issue
+issue:get     id                                                               Retrieve detailed information about an issue by ID. [read-only]
+issue:list    [team], [state], [assignee], [label], [query], [limit], …        List issues in the user's Linear workspace. [read-only]
+issue:create  title, team, [description], [priority], [assignee], [labels], …  Create a new Linear issue.
+issue:update  id, [title], [description], [priority], [assignee], [labels], …  Update an existing Linear issue.
+→ via linear issue:<verb> -h for usage
 
-$ via linear issue:create --team ENG --title "Support OAuth DCR"
-id: ENG-123
-url: https://linear.app/acme/issue/ENG-123
-state: Backlog
+$ via linear issue:create --title "Rate limiter fails closed when Redis is down" --team Platform --priority 2
+identifier: PLT-331
+title: Rate limiter fails closed when Redis is down
+priority:
+  value: 2
+  name: High
+url: https://linear.app/acme/issue/PLT-331/rate-limiter-fails-closed-when-redis-is-down
+status: Todo
+…
+· linear issue:create · 286ms · 568 bytes
 ```
 
 中间结果可以直接在 shell 里流转，不经过模型上下文：
 
 ```bash
-title=$(via github issue:read --owner acme --repo api --issue-number 42 --method get -o json | jq -r .title)
+title=$(via github issue:read --method get --owner acme --repo api --issue-number 42 -o json | jq -r .title)
 via linear issue:create --team ENG --title "$title" --description "From acme/api#42"
 ```
 
-## 核心设计
+## 安装
 
-| | |
+需要 Node.js 20 或更新版本（推荐 22）。
+
+```bash
+git clone https://github.com/modelctx-ai/via.git
+cd via
+npm ci
+npm run build
+npm link          # 把 via 链接到全局 PATH
+via --version
+```
+
+发布之后可以用 `npm install -g @modelctx/via`，或从 GitHub Release 下载不依赖 Node.js 的单文件可执行版本。各平台的说明（含 Windows 与单文件版本）见[快速上手](docs/guides/getting-started.md#1-安装)。
+
+## 快速上手
+
+**1. 检查现有配置。** via 自动读取 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Gemini CLI、GitHub Copilot CLI、Devin Desktop / Windsurf、Antigravity、Amp 里已经配好的 MCP server，不需要重新配置，也从不写入这些文件：
+
+```bash
+via doctor        # server 状态、仍在注入 schema 的框架与 token 估算、明文凭证告警
+```
+
+**2. 补齐鉴权。** OAuth 型 server 由 via 自己授权一次（不读取其他客户端存下的 token）；API key 写成凭证引用，放进 `~/.config/via/config.yaml`：
+
+```bash
+via auth login linear      # 配置里写 auth: oauth；无浏览器环境加 --manual
+```
+
+```yaml
+servers:
+  github:
+    url: https://api.githubcopilot.com/mcp/
+    auth: { bearer: "keychain:via/github" }   # 也可以是 env:、file:、cmd:
+  exa:                                         # 定义来自框架配置，这里只补凭证
+    env: { EXA_API_KEY: "env:EXA_KEY" }
+deny: ["^github/.*:delete$"]                   # 不想让 agent 碰的工具
+```
+
+**3. 发现与调用。**
+
+```bash
+via                                   # 所有 provider，按域分组
+via linear                            # 资源与动作
+via linear issue                      # 每个动作的签名
+via linear issue:create -h            # 参数用法
+via find "create issue"               # 跨 provider 搜索
+```
+
+**4. 交给 agent。** 把 `via prompt` 的输出放进 AGENTS.md、CLAUDE.md 或 skill，再按 `via doctor` 的提示在框架里关闭 MCP 注入（过渡期两边可以并存）：
+
+```bash
+via prompt                  # 打印说明和域摘要
+via prompt --out AGENTS.md  # 或写入文件
+```
+
+完整流程见[快速上手](docs/guides/getting-started.md)与[与 agent 框架集成](docs/guides/agent-integration.md)。
+
+## 常用命令
+
+| 命令 | 作用 |
 | --- | --- |
-| 零注入 | agent 上下文里只有一段 100–300 token 的使用说明（`via prompt` 生成） |
-| 不碰原配置 | 只读引用 Claude Code、Cursor、Codex、VS Code 等框架的 MCP 配置，从不写入 |
-| 统一鉴权 | 凭证按 server 绑定，支持 env、文件、系统钥匙串、命令和 OAuth，调用时自动注入 |
-| 启发式发现 | 命令即目录：`via` → `via <provider>` → `via <provider> <resource>` → `-h`，配合 `via find` |
-| 统一紧凑输出 | 表格化、去噪、截断游标、stdout 与 stderr 分离、语义化退出码 |
-| 薄 | 不生成代码，运行时按 `tools/list` 动态分发；常驻 daemon 按需拉起、空闲退出 |
+| `via` · `via <provider>` · `via <provider> <资源>` | 逐级浏览；`-h` 查看单个工具的用法 |
+| `via <provider> <资源>:<动作> [--参数 值]` | 调用工具；`-o json` 输出 JSON，`--dry-run` 只打印将要发出的调用 |
+| `via find <查询>` | 跨 provider 搜索工具 |
+| `via more <游标>` | 续读被截断的输出 |
+| `via batch` | 从 stdin 读 JSON Lines，并发调用，按输入顺序输出 |
+| `via resources` · `via read` · `via prompts` | MCP resources 与 prompts |
+| `via auth login\|status\|logout` | OAuth 登录与状态 |
+| `via trust` | 放行项目级 `.via.yaml` 里的命令与端点 |
+| `via doctor` · `via servers` · `via sync` | 诊断、server 列表、刷新工具缓存 |
+
+语法、全局选项与退出码见[命令规范](docs/spec/cli.md)和[输出规范](docs/spec/output.md)；更多组合写法见[组合用法](docs/guides/recipes.md)。
+
+## 安全须知
+
+- **via 不是网关**。它与 agent 以同一用户运行，解决的是「方便」和「省上下文」，只能降低凭证意外暴露的概率，不能防止有意读取。需要权限隔离和审计时，在 via 背后接一个网关（例如 [Asterlane](https://github.com/komiyoo/asterlane)），via 把它当作普通 MCP server。
+- 配置里只存凭证引用；解析后的凭证值在所有输出中替换为 `***`。
+- 标记为破坏性的工具需要 `--yes`；`deny` 规则优先于一切。
+- 项目级配置（`.via.yaml`、仓库里的 `.mcp.json` 等）中的命令和端点首次使用前需要你在终端里执行 `via trust` 确认；不要让 agent 替你运行。
+
+完整的威胁模型见[安全模型](docs/spec/security.md)。
 
 ## 文档
 
 | 想了解 | 去看 |
 | --- | --- |
-| 为什么做、做什么、不做什么 | [愿景与定位](docs/overview/vision.md) |
+| 为什么做、做什么、不做什么，与 mcp2cli 等工具的区别 | [愿景与定位](docs/overview/vision.md) |
 | 整体怎么组成 | [架构](docs/overview/architecture.md) |
-| 命令怎么写 | [命令规范](docs/spec/cli.md) |
+| 配置字段与凭证引用 | [配置](docs/spec/config.md)、[鉴权](docs/spec/auth.md) |
 | GitHub、Linear、Notion、Cloudflare 怎么用 | [Provider 指南](docs/guides/providers/) |
-| 怎么接入现有 agent 框架 | [与 agent 框架集成](docs/guides/agent-integration.md) |
-| 怎么参与实现 | [实现说明](docs/development/implementation.md)、[CONTRIBUTING](CONTRIBUTING.md) |
+| 接下来做什么 | [路线图](docs/roadmap.md)、[待定问题](docs/open-questions.md) |
 | 为什么这样决定 | [架构决策记录](docs/adr/) |
 
 完整索引见 [docs/README.md](docs/README.md)。
 
-## 与网关的关系
+## 参与开发
 
-via 不是网关。它与 agent 以同一用户运行，解决的是「方便」和「省上下文」，不提供凭证隔离。团队、多 agent 或生产环境需要权限隔离和审计时，可以在 via 背后再接一个网关（例如 [Asterlane](https://github.com/komiyoo/asterlane)），via 把它当作普通的 MCP server 使用。详见 [网关类 server](docs/guides/providers/gateways.md)。
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build      # 产物在 dist/，入口 dist/via.js
+```
 
-## 路线图
-
-0.1 先做进程内直连和核心命令，用 token 基准和 agent 评测证明「不注入 schema、按需发现」既省 token 又不降低成功率；之后加 daemon 与 OAuth，再做扩展。详见 [路线图](docs/roadmap.md)。
+`docs/spec/` 是规范：改变用户可见行为时，在同一个 PR 里同步更新规范和 `CHANGELOG.md`。流程与约定见 [CONTRIBUTING](CONTRIBUTING.md)，实现说明与测试分层见 [docs/development/](docs/development/implementation.md)。
 
 ## 许可
 

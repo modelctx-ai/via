@@ -1,11 +1,18 @@
 # 快速上手
 
-> via 尚未发布。本文描述的是目标体验，命令与输出以 [规范](../spec/) 为准。
+> via 尚未发布到 npm，发布前请按下面「从源码安装」操作。命令与输出以 [规范](../spec/) 为准。
 
 ## 1. 安装
 
 ```bash
 npm install -g @modelctx/via
+```
+
+从源码安装（发布前唯一的方式，需要 Node.js 20+）：
+
+```bash
+git clone https://github.com/modelctx-ai/via.git && cd via
+npm ci && npm run build && npm link
 ```
 
 没有 Node.js 的机器（容器、CI 镜像）可以改用单文件可执行版本：从发布页下载与平台对应的 `via-<系统>-<架构>` 文件，用同一页的 `SHA256SUMS` 校验，放到 `PATH` 里即可，不需要其他依赖。
