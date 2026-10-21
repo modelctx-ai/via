@@ -197,13 +197,13 @@ The threat model is in the [security spec](docs/spec/security.md).
 | Credentials | Copied into each framework | Passed per call | One reference per server |
 | Output | Raw JSON, each framework does it differently | Varies by tool | One set of rendering rules, cursors |
 
-See the [vision document](docs/overview/vision.md#与相近工具的区别) for how via differs from mcp2cli, mcporter `generate-cli` and gateways.
+See the [vision document](docs/overview/vision.md#与相近工具的区别) for how via differs from mcpc, mcp2cli, mcporter and gateways.
 
 ## Documentation
 
 | Topic | Where |
 | --- | --- |
-| Goals, non-goals, and how via differs from mcp2cli and similar tools | [Vision](docs/overview/vision.md) |
+| Goals, non-goals, and how via differs from mcpc, mcp2cli and similar tools | [Vision](docs/overview/vision.md) |
 | How the pieces fit together | [Architecture](docs/overview/architecture.md) |
 | Configuration fields and credential references | [Configuration](docs/spec/config.md), [authentication](docs/spec/auth.md) |
 | Using GitHub, Linear, Notion and Cloudflare | [Provider guides](docs/guides/providers/) |

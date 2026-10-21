@@ -197,13 +197,13 @@ via prompt --check AGENTS.md     # 块过期时退出码 1，可放进 CI
 | 凭证 | 每个框架各抄一份 | 每次调用传入 | 每个 server 一个引用 |
 | 输出 | 原始 JSON，各家处理不同 | 因工具而异 | 一套渲染规则，带续读游标 |
 
-与 mcp2cli、mcporter `generate-cli`、网关的具体区别见[愿景与定位](docs/overview/vision.md#与相近工具的区别)。
+与 mcpc、mcp2cli、mcporter、网关的具体区别见[愿景与定位](docs/overview/vision.md#与相近工具的区别)。
 
 ## 文档
 
 | 想了解                                              | 去看                                                          |
 | --------------------------------------------------- | ------------------------------------------------------------- |
-| 为什么做、做什么、不做什么，与 mcp2cli 等工具的区别 | [愿景与定位](docs/overview/vision.md)                         |
+| 为什么做、做什么、不做什么，与 mcpc、mcp2cli 等工具的区别 | [愿景与定位](docs/overview/vision.md)                         |
 | 整体怎么组成                                        | [架构](docs/overview/architecture.md)                         |
 | 配置字段与凭证引用                                  | [配置](docs/spec/config.md)、[鉴权](docs/spec/auth.md)        |
 | GitHub、Linear、Notion、Cloudflare 怎么用           | [Provider 指南](docs/guides/providers/)                       |

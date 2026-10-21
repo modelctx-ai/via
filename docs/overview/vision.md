@@ -38,10 +38,11 @@ via 是一个独立的 MCP client，以 CLI 形态让 agent 按需发现和调�
 | 工具 | 做法 | 与 via 的区别 |
 | --- | --- | --- |
 | [mcp2cli](https://github.com/knowsuchagency/mcp2cli) | 运行时把单个 MCP server、OpenAPI 或 GraphQL 端点转成 CLI，每次调用指定来源，或用 `bake` 保存连接参数 | 它面向单个来源：先知道连哪个端点，再 `--list`。via 面向 agent 这一侧：读取框架现有配置，把所有 server 汇成一个目录，跨 server 浏览和 `find`，凭证按 server 绑定，输出统一渲染 |
-| mcporter `generate-cli` | 为每个 server 生成专属 CLI | via 不生成代码（[ADR 0008](../adr/0008-dynamic-dispatch-no-codegen.md)） |
+| [mcpc](https://github.com/apify/mcpc) | 通用的 MCP 命令行客户端：命令与 MCP 操作一一对应（`tools-list`、`tools-call <name> key:=value`），先 `connect` 出命名会话再使用，`--json` 保持 MCP 结果的原始形状；也能自动发现框架配置一次连接全部 server、跨会话 `grep`。协议覆盖最全（tasks、Skills 扩展、completion、`2026-07-28`），另有凭证隔离用的本地代理和 x402 支付 | 判断相同（CLI 是 agent 用 MCP 的本地接口），取舍不同：mcpc 忠实于协议，工具名和结果原样给出，也服务于手工调试 server；via 是消费层，工具拆成 `resource:verb`、参数按 schema 生成 `--flag`、输出统一去噪渲染，不需要建会话，凭证隔离交给网关 |
+| [mcporter](https://github.com/openclaw/mcporter) | 运行时调用 MCP 工具，另有 `generate-cli` 为每个 server 生成专属 CLI | via 不生成代码（[ADR 0008](../adr/0008-dynamic-dispatch-no-codegen.md)）；运行时调用部分的区别同 mcpc 一行 |
 | 网关（如 Asterlane） | 服务端托管凭证、划分权限、审计 | via 是本地 client，网关可以接在 via 背后（[ADR 0002](../adr/0002-standalone-client-not-gateway.md)） |
 
-「运行时分发、不注入 schema、省 token」不是 via 独有的；via 的差异在**多 server 聚合与跨 server 发现**、**只读复用框架配置**、**统一的命名与渲染规则**。评测也以此为准（[测试与评测](../development/testing.md#agent-评测)）。
+「运行时分发、不注入 schema、省 token」不是 via 独有的，多 server 聚合、跨 server 搜索和读取框架配置也不是（mcpc 都有）。via 的差异在**统一的命名与渲染规则**：`resource:verb` 拆分、按 schema 生成的参数、去噪与截断游标、每步的 `next:` 提示，以及 `deny`、`--yes` 这类面向 agent 的护栏；其次是不需要建会话的聚合目录，和覆盖更多框架（含 Codex 的 TOML）的只读配置复用。这些是否真的减少 token 和错误调用，要由评测回答（[测试与评测](../development/testing.md#agent-评测)，对照组含 mcp2cli 与 mcpc，见[路线图 d1](../roadmap.md#04验证与打磨)）。协议覆盖不是 via 的差异点，但必须跟上官方规范（[路线图 0.5](../roadmap.md#05mcp-协议对齐)）。
 
 ## 适用边界
 
