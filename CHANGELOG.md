@@ -61,6 +61,12 @@
 
 ### Changed
 
+- 重新标定性能目标（路线图 d3，采纳 [perf-0.3-cold-start](bench/results/perf-0.3-cold-start.md#目标重新标定的建议已在-04-采纳) 的三条建议；[testing.md](docs/development/testing.md#性能目标)、[perf-0.4](bench/results/perf-0.4.md)）。这只改目标与测量口径，不改行为，也不影响命令的规范写法：
+  - 冷启动不再写绝对毫秒数，改为比同一次运行里交替测量的 `node -e 0` 多多少：`via`、`via <provider>`、`via find` 不超过 50 ms（原来是墙钟 < 80 ms）；经热 daemon 的 `via`、`via find` < 70 ms，带框架配置的 `via`、`via find` < 80 ms，这两项原来没有单独的目标。
+  - `find` 的 1,000 个工具目标明确为库路径（新进程、命中预构建缓存的还原 + 索引 + 首次查询）< 30 ms；整进程（50 个 provider）单列，比 `node -e 0` 多不超过 80 ms。
+  - daemon 常驻内存改为匿名内存 RssAnon < 55 MiB（原来是 RSS < 80 MB，其中约 45–49 MiB 是共享的 node 二进制页）；没有 `/proc` 的平台退回 RSS < 105 MiB 并标明。阈值是实测定的：建议里的 40 MiB 在当前代码上过不去（RssAnon 34–49.5 MiB，0.3 复测时 27–30 MiB）。
+  - `npm run bench:perf` 按新口径测量与判定：每一行冷启动与 `node -e 0` 交替运行并给出差值，daemon 内存读 `/proc/<pid>/status` 的 RssAnon，开头与结尾打印平均负载。时间仍只报告、不断言。
+  - 0.4 的复测（[perf-0.4](bench/results/perf-0.4.md)）里有几项没有达到新目标：浏览类命令比裸 node 多 49–56 ms，经热 daemon 的 `via find`、带框架配置的两条命令、整进程 `find` 超出 2–16 ms；比 0.3 的复测高，回归没有二分过。
 - 迁移到官方 TypeScript SDK v2（路线图 e1）：client 端换成 `@modelcontextprotocol/client` 2.3.1，`via serve` 换成 `@modelcontextprotocol/server` 2.3.1，1.x 的 `@modelcontextprotocol/sdk` 降为开发依赖（只给测试用的模拟 server）。v2 是唯一支持 `2026-07-28` 无状态协议的官方实现，这一步先不改变协商行为（仍是 `initialize` 握手），为 e2 铺路。输出、退出码、命名与 `next:` 提示不变，没有动词表或单数化规则的改动，规范写法不受影响。
   - 结果仍由 via 自己宽松地处理：不经 SDK 的类型化方法校验，一个畸形的工具条目不会让整次 `tools/list` 失败（`src/client/session.ts` 的 `RAW`）。
   - 行为差异：v2 的 HTTP 传输默认只跟随同源重定向（1.x 会跟随到任何地方并带上自定义请求头）；重定向到别处时报错并带目标地址。错误映射改为识别 v2 的 `SdkError`/`SdkHttpError`/`ProtocolError`（退出码不变）。OAuth 错误码从 `errorCode` 改读 `code`。

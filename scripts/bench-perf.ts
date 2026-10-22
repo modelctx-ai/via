@@ -1,5 +1,6 @@
-// Performance benchmark (testing.md, "性能目标"): CLI cold start, `find` over 1,000 tools,
-// per-call overhead against a direct SDK client, and which modules each command loads. Run with
+// Performance benchmark (testing.md, "性能目标"): CLI cold start (as milliseconds over a bare
+// `node -e 0` measured alternately in the same run), `find` over 1,000 tools, per-call overhead
+// against a direct SDK client, daemon memory (RssAnon on Linux), and which modules each command loads. Run with
 // `npm run bench:perf` after `npm run build`; it measures the built `dist/via.js`, in an isolated
 // HOME with no real framework configs. Timings are reported against the targets, never asserted
 // (CI is too noisy for that); the deterministic parts are covered by vitest.
@@ -14,8 +15,8 @@
 import { spawn, type SpawnOptions } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { arch, cpus, release, tmpdir, totalmem, type as osType } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { arch, cpus, loadavg, release, tmpdir, totalmem, type as osType } from 'node:os';
 import { basename, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -39,10 +40,16 @@ const FIXTURES = join(ROOT, 'test', 'fixtures');
 const TRACE_HOOK = join(ROOT, 'scripts', 'lib', 'load-trace.mjs');
 const BUILTIN_TRACE = join(ROOT, 'scripts', 'lib', 'builtin-trace.cjs');
 
-// Targets from testing.md, "性能目标" (ms).
-const TARGET_COLD_START = 80;
-const TARGET_FIND_1000 = 30;
-const TARGET_DAEMON_OVERHEAD = 15;
+// Targets from testing.md, "性能目标". Start-up targets are relative: milliseconds over `node -e 0`,
+// measured alternately with the command so both see the same machine load.
+const TARGET_COLD_OVER_NODE = 50; // via, via <provider>, via find; at most
+const TARGET_DAEMON_OVER_NODE = 70; // via, via find through a warm daemon; less than
+const TARGET_FRAMEWORK_OVER_NODE = 80; // via, via find with framework config files; less than
+const TARGET_FIND_PROCESS_OVER_NODE = 80; // whole-process via find over 1,000 tools; at most
+const TARGET_FIND_1000 = 30; // ms, the library path (prebuilt cache, fresh process)
+const TARGET_DAEMON_OVERHEAD = 15; // ms, absolute
+const TARGET_DAEMON_ANON_MIB = 55; // RssAnon, Linux: the highest seen over repeated runs is 49.5 (testing.md has the reasoning)
+const TARGET_DAEMON_RSS_MIB = 105; // RSS, where /proc/<pid>/status does not exist (labelled as such): the RssAnon target plus the node binary's ~49 MiB of file pages
 
 const FIND_QUERIES = ['create issue', 'send email message', 'github pull request merge', 'list files in directory', 'query database', 'take screenshot'];
 
@@ -81,6 +88,9 @@ function stats(samples: readonly number[]): Stats {
 
 const ms = (n: number): string => (n < 10 ? n.toFixed(2) : n.toFixed(1));
 const verdict = (value: number, target: number): string => (value < target ? `ok (< ${target})` : `OVER (< ${target})`);
+/** "At most N" targets (the +50 ms and +80 ms over bare node). */
+const verdictAtMost = (value: number, target: number): string => (value <= target ? `ok (<= ${target})` : `OVER (<= ${target})`);
+const signed = (n: number): string => `${n < 0 ? '-' : '+'}${ms(Math.abs(n))}`;
 
 function printTable(headers: string[], rows: string[][]): void {
   const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
@@ -136,6 +146,48 @@ async function measure(
     if (i >= WARMUP) samples.push(r.ms);
   }
   return stats(samples);
+}
+
+interface Contender {
+  label: string;
+  command: string;
+  args: string[];
+  env: (run: number) => Record<string, string>;
+}
+
+/** Runs of several commands, alternating, so a change in machine load hits all of them alike. */
+async function measureAlternating(contenders: readonly Contender[], cwd: string, okCodes: readonly number[] = [0]): Promise<Map<string, Stats>> {
+  const samples = new Map(contenders.map((c) => [c.label, [] as number[]]));
+  for (let i = 0; i < WARMUP + RUNS; i += 1) {
+    for (const c of contenders) {
+      const r = await spawnTimed(c.command, c.args, { env: c.env(i), cwd });
+      if (r.code === null || !okCodes.includes(r.code)) throw new Error(`${c.label}: ${basename(c.command)} ${c.args.join(' ')} exited with ${String(r.code)}\n${r.stderr.slice(0, 600)}`);
+      if (i >= WARMUP) samples.get(c.label)!.push(r.ms);
+    }
+  }
+  return new Map([...samples].map(([label, xs]) => [label, stats(xs)]));
+}
+
+/** A command measured next to `node -e 0` (alternating): `delta` is the milliseconds the command adds to a bare node. */
+interface Paired {
+  stats: Stats;
+  bare: Stats;
+  delta: number;
+}
+
+async function measurePaired(sb: Sandbox, args: string[], env: (run: number) => Record<string, string>, okCodes?: readonly number[]): Promise<Paired> {
+  const bareEnv = (): Record<string, string> => sb.env;
+  const measured = await measureAlternating(
+    [
+      { label: 'bare', command: process.execPath, args: ['-e', '0'], env: bareEnv },
+      { label: 'command', command: process.execPath, args, env },
+    ],
+    sb.project,
+    okCodes,
+  );
+  const stats = measured.get('command')!;
+  const bare = measured.get('bare')!;
+  return { stats, bare, delta: stats.median - bare.median };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -244,43 +296,46 @@ const VARIANTS: Variant[] = [
   { label: 'cache warm', env: (sb) => sb.env },
 ];
 
-const COLD_COMMANDS: Array<{ id: string; args: string[]; ok?: number[] }> = [
+// `browse`: the commands the cold-start target (at most +50 ms over bare node) applies to.
+const COLD_COMMANDS: Array<{ id: string; args: string[]; ok?: number[]; browse?: boolean }> = [
   { id: '--version', args: ['--version'] },
   { id: '-h', args: ['-h'] },
-  { id: 'via (root)', args: [] },
-  { id: 'via github', args: ['github'] },
-  { id: 'via find', args: ['find', 'create issue'] },
+  { id: 'via (root)', args: [], browse: true },
+  { id: 'via github', args: ['github'], browse: true },
+  { id: 'via find', args: ['find', 'create issue'], browse: true },
 ];
 
 // `via doctor` probes every server live (refresh), so it is measured against running servers.
 const DOCTOR = { id: 'via doctor (live servers)', args: ['doctor'], ok: [0, 2, 4, 5, 6] };
 
-async function benchColdStart(sb: Sandbox): Promise<Map<string, number>> {
-  section('1. CLI cold start (spawn to exit)');
+async function benchColdStart(sb: Sandbox): Promise<Map<string, Paired>> {
+  section('1. CLI cold start (spawn to exit; each row alternates with node -e 0)');
   const bare = await measure(process.execPath, ['-e', '0'], { env: sb.env, cwd: sb.project });
-  const medians = new Map<string, number>();
-  const rows: string[][] = [['node -e 0 (baseline)', '-', ms(bare.median), ms(bare.p95), ms(bare.min), '-', '-']];
+  const results = new Map<string, Paired>();
+  const rows: string[][] = [['node -e 0 (baseline)', '-', ms(bare.median), ms(bare.p95), ms(bare.min), '-', '-', '']];
   const compileCache = typeof (await import('node:module')).enableCompileCache === 'function';
 
   for (const cmd of COLD_COMMANDS) {
     for (const variant of VARIANTS) {
-      const s = await measure(process.execPath, [DIST, ...cmd.args], { env: variant.env(sb, 0), cwd: sb.project }, cmd.ok, (i) => variant.env(sb, i));
-      if (variant.label === 'cache warm') medians.set(cmd.id, s.median);
+      const p = await measurePaired(sb, [DIST, ...cmd.args], (i) => variant.env(sb, i), cmd.ok);
+      const warm = variant.label === 'cache warm';
+      if (warm) results.set(cmd.id, p);
       rows.push([
         cmd.id,
         variant.label,
-        ms(s.median),
-        ms(s.p95),
-        ms(s.min),
-        ms(s.median - bare.median),
-        variant.label === 'cache warm' ? verdict(s.median, TARGET_COLD_START) : '',
+        ms(p.stats.median),
+        ms(p.stats.p95),
+        ms(p.stats.min),
+        ms(p.bare.median),
+        signed(p.delta),
+        warm && cmd.browse ? verdictAtMost(p.delta, TARGET_COLD_OVER_NODE) : '',
       ]);
     }
   }
   await withLiveScenario(async (live) => {
     for (const variant of VARIANTS) {
-      const s = await measure(process.execPath, [DIST, ...DOCTOR.args], { env: variant.env(live, 0), cwd: live.project }, DOCTOR.ok, (i) => variant.env(live, i));
-      rows.push([DOCTOR.id, variant.label, ms(s.median), ms(s.p95), ms(s.min), ms(s.median - bare.median), '']);
+      const p = await measurePaired(live, [DIST, ...DOCTOR.args], (i) => variant.env(live, i), DOCTOR.ok);
+      rows.push([DOCTOR.id, variant.label, ms(p.stats.median), ms(p.stats.p95), ms(p.stats.min), ms(p.bare.median), signed(p.delta), '']);
     }
   });
   // The entry file itself is not compiled through the cache on the trivial paths (it only enables
@@ -288,37 +343,18 @@ async function benchColdStart(sb: Sandbox): Promise<Map<string, number>> {
   if (compileCache) {
     const dir = join(sb.tmp, 'env-cache');
     for (const cmd of COLD_COMMANDS.slice(0, 2)) {
-      const env = { ...sb.env, NODE_COMPILE_CACHE: dir };
-      const s = await measure(process.execPath, [DIST, ...cmd.args], { env, cwd: sb.project });
-      rows.push([cmd.id, 'NODE_COMPILE_CACHE env', ms(s.median), ms(s.p95), ms(s.min), ms(s.median - bare.median), '']);
+      const p = await measurePaired(sb, [DIST, ...cmd.args], () => ({ ...sb.env, NODE_COMPILE_CACHE: dir }));
+      rows.push([cmd.id, 'NODE_COMPILE_CACHE env', ms(p.stats.median), ms(p.stats.p95), ms(p.stats.min), ms(p.bare.median), signed(p.delta), '']);
     }
   }
-  printTable(['command', 'compile cache', 'median ms', 'p95 ms', 'min ms', 'median - bare', `target < ${TARGET_COLD_START} ms`], rows);
+  printTable(['command', 'compile cache', 'median ms', 'p95 ms', 'min ms', 'node -e 0 (paired) ms', 'over node -e 0 ms', `target: at most +${TARGET_COLD_OVER_NODE} ms`], rows);
   if (!compileCache) console.log(`note: this Node (${process.version}) has no module.enableCompileCache(); the cache rows are the same as "no cache".\n`);
-  console.log(`runs: ${RUNS} measured, ${WARMUP} warmup; "cache warm" uses the default cache directory under the sandbox TMPDIR.\n`);
-  return medians;
+  console.log(`runs: ${RUNS} measured, ${WARMUP} warmup; "cache warm" uses the default cache directory under the sandbox TMPDIR. The first row is a separate measurement; every other row alternates its command with \`node -e 0\` and subtracts the medians of the two, so a machine that is slow right now is slow for both. The target applies to the "cache warm" rows of via, via github and via find.\n`);
+  return results;
 }
 
 // ---------------------------------------------------------------------------------------------
 // 1b. scenarios nearer to real use: framework configs, 1,000 tools, a warm daemon
-
-/** Runs of several builds of the CLI, alternating, so a change in machine load hits all of them alike. */
-async function measureBuilds(
-  builds: ReadonlyArray<{ label: string; dist: string }>,
-  args: string[],
-  options: SpawnOptions & { env: Record<string, string> },
-  okCodes: readonly number[] = [0],
-): Promise<Map<string, Stats>> {
-  const samples = new Map(builds.map((b) => [b.label, [] as number[]]));
-  for (let i = 0; i < WARMUP + RUNS; i += 1) {
-    for (const b of builds) {
-      const r = await spawnTimed(process.execPath, [join(b.dist, 'via.js'), ...args], options);
-      if (r.code === null || !okCodes.includes(r.code)) throw new Error(`${b.label}: ${args.join(' ')} exited with ${String(r.code)}\n${r.stderr.slice(0, 600)}`);
-      if (i >= WARMUP) samples.get(b.label)!.push(r.ms);
-    }
-  }
-  return new Map([...samples].map(([label, xs]) => [label, stats(xs)]));
-}
 
 /** `~/.claude.json`-shaped file: a few servers among the history of many projects (this is most of its size). */
 function bulkClaudeJson(servers: Record<string, unknown>): string {
@@ -380,7 +416,15 @@ async function makeScaleScenario(): Promise<ScenarioSandbox> {
   return { sb, describe: root.stdout.split('\n')[0] ?? '' };
 }
 
-let scenarioResults = new Map<string, number>();
+let scenarioResults = new Map<string, Paired>();
+
+/** A scenario command and its target, in milliseconds over bare node: `limit` (strictly below when `strict`, else at most). */
+interface ScenarioCommand {
+  id: string;
+  args: string[];
+  limit?: number;
+  strict?: boolean;
+}
 
 async function benchScenarios(base: Sandbox): Promise<void> {
   section('1b. cold start in scenarios nearer to real use (spawn to exit, warm compile cache and warm catalog)');
@@ -390,25 +434,54 @@ async function benchScenarios(base: Sandbox): Promise<void> {
   const esm = await measure(process.execPath, [esmFile], { env: base.env, cwd: base.project });
   const builds = [{ label: 'this build', dist: DIST_DIR }, ...(COMPARE_DIST ? [{ label: 'compared build', dist: COMPARE_DIST }] : [])];
   const rows: string[][] = [
-    ['node -e 0', '-', '', ms(bare.median), ms(bare.p95), ms(bare.min), '-', ''],
-    ['node empty.mjs (an ES module entry)', '-', '', ms(esm.median), ms(esm.p95), ms(esm.min), ms(esm.median - bare.median), 'the floor of an ESM entry point'],
+    ['node -e 0', '-', '', ms(bare.median), ms(bare.p95), ms(bare.min), '', '-', ''],
+    ['node empty.mjs (an ES module entry)', '-', '', ms(esm.median), ms(esm.p95), ms(esm.min), '', signed(esm.median - bare.median), 'the floor of an ESM entry point'],
   ];
   const framework = await makeFrameworkScenario();
   const scale = await makeScaleScenario();
-  const results = new Map<string, number>();
+  const results = new Map<string, Paired>();
   try {
-    const scenarios: Array<{ name: string; sb: Sandbox; env: Record<string, string>; commands: Array<{ id: string; args: string[] }> }> = [
-      { name: '8 providers, warm daemon', sb: base, env: withDaemon(base.env), commands: [{ id: 'via', args: [] }, { id: 'via github', args: ['github'] }, { id: 'via find', args: ['find', 'create issue'] }] },
-      { name: 'framework configs', sb: framework.sb, env: framework.sb.env, commands: [{ id: 'via', args: [] }, { id: 'via find', args: ['find', 'create issue'] }] },
-      { name: '1,000 tools / 50 providers', sb: scale.sb, env: scale.sb.env, commands: [{ id: 'via', args: [] }, { id: 'via find', args: ['find', 'create issue'] }, { id: 'via <provider>', args: ['github'] }] },
+    const scenarios: Array<{ name: string; sb: Sandbox; env: Record<string, string>; commands: ScenarioCommand[] }> = [
+      {
+        name: '8 providers, warm daemon',
+        sb: base,
+        env: withDaemon(base.env),
+        commands: [
+          { id: 'via', args: [], limit: TARGET_DAEMON_OVER_NODE, strict: true },
+          { id: 'via github', args: ['github'] },
+          { id: 'via find', args: ['find', 'create issue'], limit: TARGET_DAEMON_OVER_NODE, strict: true },
+        ],
+      },
+      {
+        name: 'framework configs',
+        sb: framework.sb,
+        env: framework.sb.env,
+        commands: [
+          { id: 'via', args: [], limit: TARGET_FRAMEWORK_OVER_NODE, strict: true },
+          { id: 'via find', args: ['find', 'create issue'], limit: TARGET_FRAMEWORK_OVER_NODE, strict: true },
+        ],
+      },
+      {
+        name: '1,000 tools / 50 providers',
+        sb: scale.sb,
+        env: scale.sb.env,
+        commands: [{ id: 'via', args: [] }, { id: 'via find', args: ['find', 'create issue'], limit: TARGET_FIND_PROCESS_OVER_NODE }, { id: 'via <provider>', args: ['github'] }],
+      },
     ];
     for (const sc of scenarios) {
       for (const c of sc.commands) {
-        const measured = await measureBuilds(builds, c.args, { env: sc.env, cwd: sc.sb.project });
+        const contenders: Contender[] = [
+          { label: 'bare', command: process.execPath, args: ['-e', '0'], env: () => sc.sb.env },
+          ...builds.map((b) => ({ label: b.label, command: process.execPath, args: [join(b.dist, 'via.js'), ...c.args], env: () => sc.env })),
+        ];
+        const measured = await measureAlternating(contenders, sc.sb.project);
+        const pairedBare = measured.get('bare')!;
         for (const b of builds) {
           const m = measured.get(b.label)!;
-          if (b.label === 'this build') results.set(`${sc.name}: ${c.id}`, m.median);
-          rows.push([sc.name, c.id, builds.length > 1 ? b.label : '', ms(m.median), ms(m.p95), ms(m.min), ms(m.median - bare.median), b.label === 'this build' ? verdict(m.median, TARGET_COLD_START) : '']);
+          const delta = m.median - pairedBare.median;
+          if (b.label === 'this build') results.set(`${sc.name}: ${c.id}`, { stats: m, bare: pairedBare, delta });
+          const target = b.label !== 'this build' || c.limit === undefined ? '' : c.strict ? verdict(delta, c.limit) : verdictAtMost(delta, c.limit);
+          rows.push([sc.name, c.id, builds.length > 1 ? b.label : '', ms(m.median), ms(m.p95), ms(m.min), ms(pairedBare.median), signed(delta), target]);
         }
       }
       if (sc.sb === base) await stopDaemon(base).catch(() => undefined);
@@ -417,8 +490,10 @@ async function benchScenarios(base: Sandbox): Promise<void> {
     rmSync(framework.sb.root, { recursive: true, force: true });
     rmSync(scale.sb.root, { recursive: true, force: true });
   }
-  printTable(['scenario', 'command', 'build', 'median ms', 'p95 ms', 'min ms', 'median - bare', `target < ${TARGET_COLD_START} ms`], rows);
-  console.log(`framework configs = ${framework.describe}; 1,000 tools = ${scale.describe}. The daemon rows start the sandbox daemon on the first run (a warmup) and stop it afterwards. With --compare the two builds run alternately.\n`);
+  printTable(['scenario', 'command', 'build', 'median ms', 'p95 ms', 'min ms', 'node -e 0 (paired) ms', 'over node -e 0 ms', 'target (over node -e 0)'], rows);
+  console.log(
+    `framework configs = ${framework.describe}; 1,000 tools = ${scale.describe}. Targets, over \`node -e 0\`: warm daemon \`via\` and \`via find\` < ${TARGET_DAEMON_OVER_NODE} ms; framework configs \`via\` and \`via find\` < ${TARGET_FRAMEWORK_OVER_NODE} ms; whole-process \`via find\` over 1,000 tools at most ${TARGET_FIND_PROCESS_OVER_NODE} ms (the library path is section 2). The daemon rows start the sandbox daemon on the first run (a warmup) and stop it afterwards. Every row alternates with \`node -e 0\`, and with --compare the two builds run alternately too.\n`,
+  );
   scenarioResults = results;
 }
 
@@ -531,23 +606,23 @@ async function benchFind(sb: Sandbox): Promise<{ coldTotal: number; restoredTota
   const restoredTotal = pickRestored((c) => c.cold.restore + c.cold.index + c.cold.query);
   const steadyQuery = pick((c) => c.steady.query);
   printTable(
-    ['phase', 'median ms', 'p95 ms', 'min ms', `target < ${TARGET_FIND_1000} ms`],
+    ['phase', 'median ms', 'p95 ms', 'min ms', `library target < ${TARGET_FIND_1000} ms`],
     [
       row('catalog build (split), first call', pick((c) => c.cold.build)),
       row('index build, first call', pick((c) => c.cold.index)),
       row('query, first call', pick((c) => c.cold.query)),
       row('render hits, first call', pick((c) => c.cold.render)),
-      row('build + index + first query (one-shot CLI)', coldTotal, verdict(coldTotal.median, TARGET_FIND_1000)),
+      row('build + index + first query (one-shot CLI, no prebuilt cache)', coldTotal, 'reference, no target'),
       row('prebuilt cache: restore the snapshots, first call', pickRestored((c) => c.cold.restore)),
       row('prebuilt cache: index from stored terms (restores the tools), first call', pickRestored((c) => c.cold.index)),
       row('prebuilt cache: query, first call', pickRestored((c) => c.cold.query)),
       row('prebuilt cache: restore + index + first query (one-shot CLI)', restoredTotal, verdict(restoredTotal.median, TARGET_FIND_1000)),
       row('catalog build, steady state', pick((c) => c.steady.build)),
       row('index build, steady state', pick((c) => c.steady.index)),
-      row('query, steady state', steadyQuery, verdict(steadyQuery.median, TARGET_FIND_1000)),
+      row('query, steady state', steadyQuery, 'reference, no target'),
     ],
   );
-  console.log(`catalog: ${tools} tools, ${50} providers (deterministic, seed 1); ${children.length} fresh processes, "first call" is the first use in each; steady state is the median of 15 rounds x ${FIND_QUERIES.length} queries. The prebuilt-cache rows read snapshots written by this process in fresh ones that never ran the build code; the whole-process \`via find\` over this catalog is in section 1b.\n`);
+  console.log(`catalog: ${tools} tools, ${50} providers (deterministic, seed 1); ${children.length} fresh processes, "first call" is the first use in each; steady state is the median of 15 rounds x ${FIND_QUERIES.length} queries. The prebuilt-cache rows read snapshots written by this process in fresh ones that never ran the build code; the whole-process \`via find\` over this catalog is in section 1b. The target applies to the "prebuilt cache: restore + index + first query" row, the library path of a one-shot CLI that finds its catalog in the cache.\n`);
   return { coldTotal: coldTotal.median, restoredTotal: restoredTotal.median, steadyQuery: steadyQuery.median };
 }
 
@@ -764,20 +839,34 @@ async function stopDaemon(sb: Sandbox): Promise<void> {
 
 const MiB = 1024 * 1024;
 
-/** Anonymous and file-backed resident memory of a process in MiB (Linux; the node binary's own pages are the file part). */
-function residentSplit(pid: number): string {
-  if (process.platform !== 'linux') return 'n/a';
+/** Anonymous and file-backed resident memory of a process in bytes (Linux /proc; the node binary's own pages are the file part). */
+function residentSplit(pid: number): { anon: number; file: number } | undefined {
+  if (process.platform !== 'linux') return undefined;
   try {
     const status = readFileSync(`/proc/${pid}/status`, 'utf8');
-    const kb = (key: string): number => Number(new RegExp(`${key}:\\s+(\\d+)`).exec(status)?.[1] ?? 0) / 1024;
-    return `${kb('RssAnon').toFixed(1)} / ${kb('RssFile').toFixed(1)}`;
+    const kb = (key: string): number | undefined => {
+      const m = new RegExp(`${key}:\\s+(\\d+)`).exec(status);
+      return m ? Number(m[1]) * 1024 : undefined;
+    };
+    const anon = kb('RssAnon');
+    const file = kb('RssFile');
+    return anon === undefined || file === undefined ? undefined : { anon, file };
   } catch {
-    return 'n/a';
+    return undefined;
   }
 }
 
-async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakMiB: number } | undefined> {
-  section('5. hot daemon (0.2): call overhead and resident memory');
+interface DaemonResult {
+  overhead: number;
+  /** What the memory target is measured on: RssAnon where /proc has it, RSS otherwise. */
+  metric: 'RssAnon' | 'RSS';
+  targetMiB: number;
+  idleMiB: number;
+  peakMiB: number;
+}
+
+async function benchDaemon(): Promise<DaemonResult | undefined> {
+  section('5. hot daemon: call overhead and resident memory');
   if (process.platform === 'win32') {
     console.log('skipped: the daemon is not available on Windows before 0.3.\n');
     return undefined;
@@ -879,17 +968,35 @@ async function benchDaemon(): Promise<{ overhead: number; idleMiB: number; peakM
         row('  hot daemon over bare node', delta(procHot, bare), 'the whole CLI cost of a call'),
       ],
     );
+    // The memory target is on anonymous memory (RssAnon): RSS also counts the node binary's pages,
+    // which are shared with every other node process. Without /proc/<pid>/status, RSS stands in.
+    const readings = [
+      { label: 'idle, just started', rss: idle, split: idleSplit },
+      { label: 'after one HTTP session and call', rss: afterHttp, split: httpSplit },
+      { label: 'after a stdio session and call', rss: afterStdio, split: stdioSplit },
+      { label: `after ${(WARMUP + RUNS) * 3 + 4} more calls`, rss: afterAll.rssBytes, split: allSplit },
+    ];
+    const metric = readings.every((r) => r.split) ? 'RssAnon' : 'RSS';
+    const targetMiB = metric === 'RssAnon' ? TARGET_DAEMON_ANON_MIB : TARGET_DAEMON_RSS_MIB;
+    const measuredMiB = (r: (typeof readings)[number]): number => (metric === 'RssAnon' ? r.split!.anon : r.rss) / MiB;
     printTable(
-      ['daemon resident memory', 'RSS MiB', 'anon / file MiB', `target < ${80} MiB (excluding stdio children)`],
-      [
-        ['idle, just started', (idle / MiB).toFixed(1), idleSplit, verdict(idle / MiB, 80)],
-        ['after one HTTP session and call', (afterHttp / MiB).toFixed(1), httpSplit, verdict(afterHttp / MiB, 80)],
-        ['after a stdio session and call', (afterStdio / MiB).toFixed(1), stdioSplit, verdict(afterStdio / MiB, 80)],
-        [`after ${(WARMUP + RUNS) * 3 + 4} more calls`, (afterAll.rssBytes / MiB).toFixed(1), allSplit, verdict(afterAll.rssBytes / MiB, 80)],
-      ],
+      ['daemon resident memory', 'RSS MiB', 'RssAnon MiB', 'RssFile MiB', `${metric} (target < ${targetMiB} MiB, excluding stdio children)`],
+      readings.map((r) => [
+        r.label,
+        (r.rss / MiB).toFixed(1),
+        r.split ? (r.split.anon / MiB).toFixed(1) : 'n/a',
+        r.split ? (r.split.file / MiB).toFixed(1) : 'n/a',
+        `${measuredMiB(r).toFixed(1)}: ${verdict(measuredMiB(r), targetMiB)}`,
+      ]),
     );
-    console.log('the daemon runs as a separate process started with `via daemon run` in the sandbox and stopped with `via daemon stop` afterwards; RSS is what `via daemon status` reports; anon / file is RssAnon / RssFile from /proc (the file part is the node binary mapped into the process: about 44 MiB of the idle figure, shared with every other node process).\n');
-    return { overhead: overhead.median, idleMiB: idle / MiB, peakMiB: Math.max(idle, afterHttp, afterStdio, afterAll.rssBytes) / MiB };
+    console.log(
+      `the daemon runs as a separate process started with \`via daemon run\` in the sandbox and stopped with \`via daemon stop\` afterwards; RSS is what \`via daemon status\` reports. The target is judged on ${
+        metric === 'RssAnon'
+          ? "RssAnon (anonymous memory, /proc/<pid>/status): the file part is the node binary mapped into the process, about 44 MiB, shared with every other node process and not under via's control."
+          : `RSS, labelled as such: this platform (${process.platform}) has no RssAnon, so the less strict RSS < ${TARGET_DAEMON_RSS_MIB} MiB stands in.`
+      }\n`,
+    );
+    return { overhead: overhead.median, metric, targetMiB, idleMiB: measuredMiB(readings[0]!), peakMiB: Math.max(...readings.map(measuredMiB)) };
   } finally {
     await stopDaemon(sb).catch(() => undefined);
     if (standalone && standalone.exitCode === null) standalone.kill('SIGKILL');
@@ -909,6 +1016,8 @@ function environmentLines(): string[] {
     `os: ${osType()} ${release()} ${arch()}`,
     `node: ${process.version}`,
     `runs: ${RUNS} measured + ${WARMUP} warmup per row`,
+    // Other work on the machine inflates every start-up number; the delta over node -e 0 is only as good as this is low.
+    `load average at start (1 / 5 / 15 min): ${loadavg().map((x) => x.toFixed(2)).join(' / ')}${process.platform === 'win32' ? ' (always 0 on Windows)' : ''}`,
   ];
 }
 
@@ -947,7 +1056,7 @@ async function main(): Promise<void> {
     const root = await spawnTimed(process.execPath, [DIST], { env: sb.env, cwd: sb.project });
     console.log(`scenario: ${SCENARIO_PROVIDERS.length} providers from test/fixtures/tools, tools/list cached on disk (${root.stdout.split('\n').find((l) => /providers/.test(l)) ?? 'root view'}), servers stopped; HOME and TMPDIR are in ${sb.root}.\n`);
 
-    const cold = wanted('cold') ? await benchColdStart(sb) : new Map<string, number>();
+    const cold = wanted('cold') ? await benchColdStart(sb) : new Map<string, Paired>();
     if (wanted('scenarios')) await benchScenarios(sb);
     const findResult = wanted('find') ? await benchFind(sb) : undefined;
     if (wanted('call')) await benchCall();
@@ -955,35 +1064,42 @@ async function main(): Promise<void> {
     const daemonResult = wanted('daemon') ? await benchDaemon() : undefined;
 
     section('Summary against the targets');
-    const startup = (label: string, value: number | undefined): string[] => [label, value === undefined ? 'n/a' : `${ms(value)} ms`, value === undefined ? 'not measured' : verdict(value, TARGET_COLD_START)];
+    // Start-up targets are on the milliseconds a command adds to `node -e 0` (measured alternately, same run).
+    const startup = (label: string, r: Paired | undefined, limit: number, strict = false): string[] => [
+      label,
+      r === undefined ? 'n/a' : `${ms(r.stats.median)} ms (${signed(r.delta)} over node -e 0 at ${ms(r.bare.median)})`,
+      r === undefined ? 'not measured' : strict ? verdict(r.delta, limit) : verdictAtMost(r.delta, limit),
+    ];
+    const cap = TARGET_COLD_OVER_NODE;
+    const ofScenario = (key: string): Paired | undefined => scenarioResults.get(key);
     printTable(
       ['target', 'measured (median)', 'result'],
       [
-        startup('CLI cold start < 80 ms: --version (cache warm)', cold.get('--version')),
-        startup('CLI cold start < 80 ms: via (root, 180 tools, no daemon)', cold.get('via (root)')),
-        startup('CLI cold start < 80 ms: via github (180 tools, no daemon)', cold.get('via github')),
-        startup('CLI cold start < 80 ms: via find (180 tools, no daemon)', cold.get('via find')),
-        startup('CLI cold start < 80 ms: via, warm daemon', scenarioResults.get('8 providers, warm daemon: via')),
-        startup('CLI cold start < 80 ms: via find, warm daemon', scenarioResults.get('8 providers, warm daemon: via find')),
-        startup('CLI cold start < 80 ms: via, with framework configs', scenarioResults.get('framework configs: via')),
-        startup('whole-process via find over 1,000 tools (reference; library target below)', scenarioResults.get('1,000 tools / 50 providers: via find')),
+        startup(`cold start, at most +${cap} ms over node -e 0: via (root, 180 tools, no daemon)`, cold.get('via (root)'), cap),
+        startup(`cold start, at most +${cap} ms over node -e 0: via github (180 tools, no daemon)`, cold.get('via github'), cap),
+        startup(`cold start, at most +${cap} ms over node -e 0: via find (180 tools, no daemon)`, cold.get('via find'), cap),
+        startup(`warm daemon, < +${TARGET_DAEMON_OVER_NODE} ms over node -e 0: via`, ofScenario('8 providers, warm daemon: via'), TARGET_DAEMON_OVER_NODE, true),
+        startup(`warm daemon, < +${TARGET_DAEMON_OVER_NODE} ms over node -e 0: via find`, ofScenario('8 providers, warm daemon: via find'), TARGET_DAEMON_OVER_NODE, true),
+        startup(`framework configs, < +${TARGET_FRAMEWORK_OVER_NODE} ms over node -e 0: via`, ofScenario('framework configs: via'), TARGET_FRAMEWORK_OVER_NODE, true),
+        startup(`framework configs, < +${TARGET_FRAMEWORK_OVER_NODE} ms over node -e 0: via find`, ofScenario('framework configs: via find'), TARGET_FRAMEWORK_OVER_NODE, true),
+        startup(`whole-process find, at most +${TARGET_FIND_PROCESS_OVER_NODE} ms over node -e 0: via find over 1,000 tools`, ofScenario('1,000 tools / 50 providers: via find'), TARGET_FIND_PROCESS_OVER_NODE),
         findResult
-          ? ['find over 1,000 tools < 30 ms: library, restore + index + first query', `${ms(findResult.restoredTotal)} ms`, verdict(findResult.restoredTotal, TARGET_FIND_1000)]
-          : ['find over 1,000 tools < 30 ms', 'n/a', 'not measured'],
-        findResult
-          ? ['find over 1,000 tools < 30 ms: library, build + index + first query (no cache)', `${ms(findResult.coldTotal)} ms`, verdict(findResult.coldTotal, TARGET_FIND_1000)]
-          : ['find over 1,000 tools < 30 ms (no cache)', 'n/a', 'not measured'],
-        findResult
-          ? ['find over 1,000 tools < 30 ms: query on a resident index', `${ms(findResult.steadyQuery)} ms`, verdict(findResult.steadyQuery, TARGET_FIND_1000)]
-          : ['find over 1,000 tools < 30 ms (resident)', 'n/a', 'not measured'],
+          ? [`find over 1,000 tools < ${TARGET_FIND_1000} ms, library path: prebuilt cache, restore + index + first query`, `${ms(findResult.restoredTotal)} ms`, verdict(findResult.restoredTotal, TARGET_FIND_1000)]
+          : [`find over 1,000 tools < ${TARGET_FIND_1000} ms, library path`, 'n/a', 'not measured'],
         daemonResult
-          ? ['hot daemon overhead < 15 ms (over a reused SDK call)', `${ms(daemonResult.overhead)} ms`, verdict(daemonResult.overhead, TARGET_DAEMON_OVERHEAD)]
-          : ['hot daemon overhead < 15 ms', 'n/a', 'not measured'],
+          ? [`hot daemon overhead < ${TARGET_DAEMON_OVERHEAD} ms (over a reused SDK call)`, `${ms(daemonResult.overhead)} ms`, verdict(daemonResult.overhead, TARGET_DAEMON_OVERHEAD)]
+          : [`hot daemon overhead < ${TARGET_DAEMON_OVERHEAD} ms`, 'n/a', 'not measured'],
         daemonResult
-          ? ['daemon memory < 80 MB (idle / highest seen)', `${daemonResult.idleMiB.toFixed(1)} / ${daemonResult.peakMiB.toFixed(1)} MiB`, verdict(daemonResult.peakMiB, 80)]
-          : ['daemon memory < 80 MB', 'n/a', 'not measured'],
+          ? [
+              `daemon memory ${daemonResult.metric} < ${daemonResult.targetMiB} MiB (idle / highest seen)`,
+              `${daemonResult.idleMiB.toFixed(1)} / ${daemonResult.peakMiB.toFixed(1)} MiB ${daemonResult.metric}`,
+              verdict(daemonResult.peakMiB, daemonResult.targetMiB),
+            ]
+          : [`daemon memory RssAnon < ${TARGET_DAEMON_ANON_MIB} MiB`, 'n/a', 'not measured'],
       ],
     );
+    console.log(`load average at the end (1 / 5 / 15 min): ${loadavg().map((x) => x.toFixed(2)).join(' / ')}`);
+    console.log('reference rows without a target (no prebuilt cache, resident index, via github through the daemon, via <provider> over 1,000 tools) are in their sections. Timings are reported against the targets, never asserted.\n');
   } finally {
     rmSync(sb.root, { recursive: true, force: true });
   }

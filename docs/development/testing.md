@@ -192,18 +192,28 @@ mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不�
 
 ## 性能目标
 
-以下是初始目标，在 0.1 的基准测试中校准（实测、环境和校准建议见 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)，目标本身尚未改动）：
+初始目标在 0.1 的基准里定下（[bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)），0.3 的冷启动工作后发现绝对毫秒数的冷启动目标会随机器浮动、而不是随 via 变化（[perf-0.3-cold-start.md](../../bench/results/perf-0.3-cold-start.md#目标重新标定的建议已在-04-采纳)），0.4 按那里的建议重新标定（路线图 d3），现行目标如下：
 
 | 指标 | 目标 |
 | --- | --- |
-| CLI 冷启动（Node 22，编译缓存） | < 80 ms |
-| 经热 daemon 调用的额外开销 | < 15 ms |
-| 1,000 个工具上的 `find` | < 30 ms |
-| daemon 常驻内存 | < 80 MB（不含 stdio 子进程） |
+| CLI 冷启动：`via`、`via <provider>`、`via find`（Node 22，缓存热，无 daemon） | 比同机 `node -e 0` 多不超过 50 ms |
+| 同上，经热 daemon：`via`、`via find` | 比 `node -e 0` 多 < 70 ms |
+| 同上，带框架配置：`via`、`via find`（4 个配置文件，含 71 KiB 的 `.claude.json`） | 比 `node -e 0` 多 < 80 ms |
+| 经热 daemon 调用的额外开销 | < 15 ms（比复用连接的 SDK 调用多） |
+| 1,000 个工具上的 `find`：库路径（新进程，命中[预构建缓存](../spec/discovery.md#预构建缓存)：还原 + 索引 + 首次查询） | < 30 ms |
+| 1,000 个工具（50 个 provider）上的 `find`：整进程 | 比 `node -e 0` 多不超过 80 ms |
+| daemon 常驻匿名内存（建立 HTTP 与 stdio 会话之后的最高值，不含 stdio 子进程） | RssAnon < 55 MiB |
 
-0.2 的实测（Linux，Node 22，一个 stdio server）：热 daemon 上一次请求的往返约 0.3 ms（`status`、`validate`）到 1 ms（`list`、`call`），连接加握手约 2–6 ms，一次调用（`list`、两次校验、`call`）合计远低于 15 ms 的目标；daemon 空闲时约 58 MB，建立一个会话并加载 MCP SDK 与 ajv 后约 79–86 MB，在 80 MB 目标附近，尚未优化。CLI 自身的冷启动（约 130 ms 加载命令、配置与目录）与是否使用 daemon 无关。
+几点约定：
 
-0.3 的冷启动工作之后（[bench/results/perf-0.3-cold-start.md](../../bench/results/perf-0.3-cold-start.md)，同一次交替运行里与改动前比较）：浏览类命令比裸 `node -e 0` 多 44–51 ms（`via` 44.3、`via <provider>` 47.9、`via find` 50.7，改动前 72–102），墙钟 74–80 ms；一千个工具上 `find` 的库路径（新进程，命中预构建缓存）21 ms（无缓存 81 ms）；daemon 建立 HTTP 与 stdio 会话后 76–79 MiB（改动前 89–92）。仍未达到的：`find` 恰在 80 ms 线上，经热 daemon 与带框架配置的浏览命令（83–110 ms），一千个工具的整进程 `find`（110 ms）；daemon 内存只有 1–4 MiB 的余量。结果文件末尾给出了重新标定目标的建议，规范里的数字没有改动。
+- **冷启动看增量，不看墙钟。** 墙钟里包含 `node` 自己的启动，它在共享的虚拟机上就在 28–43 ms 之间浮动，不由 via 控制。「`node -e 0`」必须是**同一次运行里与被测命令交替测量**的基线，不是另一次运行的数字。`--version` 与 `-h` 不设目标，只列数字。
+- **`find` 的库路径与整进程分开。** 库路径是 `restoreProvider` + `SearchIndex` + 首次查询，对应命中预构建缓存的一次性 CLI；没有预构建缓存的构建（约 55–80 ms）与常驻索引上的稳态查询（不到 1 ms）列为参考，不判定。整进程再加进程启动、50 个 provider 的缓存文件读取与渲染。
+- **daemon 内存看匿名内存。** RSS 里约 45–49 MiB 是 node 可执行文件映射进来的页，与别的 node 进程共享，不随 via 的改动变化；RssAnon（Linux 的 `/proc/<pid>/status`）才反映 daemon 自己占用的内存。55 MiB 是 0.4 的实测定的：同样的操作在当前代码上 RssAnon 是 34–49.5 MiB（0.3 复测时 27–30 MiB，之后的 SDK v2 迁移等改动抬高了它），55 MiB 比测到的最高值高约 11%。没有 `/proc` 的平台（macOS）退回 RSS，标明是 RSS，阈值为 105 MiB（RssAnon 的阈值加约 49 MiB 的文件页）。
+- 目标是报告，不是门禁：时间不进 vitest 断言（见下），`npm run bench:perf` 逐项打印是否达到，未达到的项不会让脚本失败。改目标要在同一个 PR 里更新这一节与结果文件。
+
+0.4 的复测（[bench/results/perf-0.4.md](../../bench/results/perf-0.4.md)，Linux，Node 22，4 核虚拟机，负载 1–3，四次运行）：达到的有库路径 `find`（22.6 ms）、热 daemon 的额外开销（4.8–7.9 ms）、daemon 的 RssAnon（最高 37.7–48.0 MiB）、经热 daemon 的 `via`（62.6–71.7 ms）。没有达到的：`via`、`via <provider>`、`via find` 比裸 node 多 49–56 ms（目标不超过 50），经热 daemon 的 `via find`（74–81 ms，目标 < 70），带框架配置的 `via`（78–82 ms，在线上）与 `via find`（85–96 ms，目标 < 80），整进程 `find`（82–87 ms，目标不超过 80）。这些比 0.3 的复测（44–51 ms，热 daemon 的 `via` 约 51 ms）高，回归没有二分过。
+
+历史：0.2 的实测（Linux，Node 22，一个 stdio server）热 daemon 上一次请求的往返约 0.3 ms（`status`、`validate`）到 1 ms（`list`、`call`），连接加握手约 2–6 ms；daemon 空闲时约 58 MB，建立一个会话并加载 MCP SDK 与 ajv 后约 79–86 MB。0.3 的冷启动工作（同一次交替运行里与改动前比较）让浏览类命令比裸 `node -e 0` 少 28–51 ms（`via` 71.8 变 44.3，`via <provider>` 82.2 变 47.9，`via find` 102.1 变 50.7），一千个工具上 `find` 的库路径从 81 ms 变 21 ms，daemon 建立两个会话后从 89–92 MiB 变 76–79 MiB（RSS）。
 
 ### 性能基准
 
@@ -213,17 +223,17 @@ npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调�
                      # --only cold,scenarios,find,call,loads,daemon 只跑某几节；--compare <目录> 在场景一节里与另一份构建交替运行；--plain-daemon 让第 5 节的 daemon 不带 V8 与 malloc 设置（测更早的构建时用）
 ```
 
-`scripts/bench-perf.ts` 在隔离的 HOME 与 TMPDIR 里运行（不读取任何真实的框架配置）；除热 daemon 一节外都设 `VIA_NO_DAEMON=1`，保证各项可比。每项预热后取多次的中位数、p95 与最小值，并对照上表：
+`scripts/bench-perf.ts` 在隔离的 HOME 与 TMPDIR 里运行（不读取任何真实的框架配置）；除热 daemon 一节外都设 `VIA_NO_DAEMON=1`，保证各项可比。每项预热后取多次的中位数、p95 与最小值，并对照上表（冷启动与场景类的行同时给出与 `node -e 0` 的差值）：
 
-- **冷启动**：`node dist/via.js` 的 `--version`、`-h`、`via`、`via <provider>`、`via find`、`via doctor`，从进程创建到退出；各自在无编译缓存、缓存冷（每次新目录）、缓存热三种状态下测量，并减去 `node -e 0` 的基线，得到 via 自己的耗时。浏览类命令使用 8 个真实 `tools/list` 快照写入磁盘缓存后的目录；`doctor` 会实时探测 server，所以对着运行中的本地 server 测。
-- **更接近真实使用的场景**（第 1b 节）：热 daemon（每次 `list` 走一次往返）、带框架配置（四个文件，含 71 KiB 的 `.claude.json`、TOML 与带注释的 JSONC）、一千个工具分在 50 个 provider 里的整进程命令。加 `--compare <目录>` 时与另一份构建交替运行，两者经历同样的机器负载，这是比较改动前后唯一可靠的办法（虚拟机的 `node -e 0` 在不同运行里能差 10 ms 以上）。
-- **1,000 个工具上的 `find`**：用 `scripts/lib/synth-catalog.ts` 从夹具确定性地合成 1,000 个工具（固定种子，同一输入在任何机器上得到同一份目录），分别计时目录构建、索引构建、查询和渲染。新进程里的首次调用对应一次性的 CLI，稳态对应将来常驻的 daemon。另有一组「预构建缓存」行：父进程把快照写好，新进程只还原快照、用存下的检索词建索引再查询（没有跑过构建代码），对应命中[预构建缓存](../spec/discovery.md#预构建缓存)的一次性 CLI；30 ms 的目标按这一行判定。
+- **冷启动**：`node dist/via.js` 的 `--version`、`-h`、`via`、`via <provider>`、`via find`、`via doctor`，从进程创建到退出；各自在无编译缓存、缓存冷（每次新目录）、缓存热三种状态下测量；每一行都与 `node -e 0` 交替运行（每轮各一次），「比 `node -e 0` 多」是两者中位数之差，也就是 via 自己的耗时，目标按缓存热的 `via`、`via <provider>`、`via find` 三行判定。浏览类命令使用 8 个真实 `tools/list` 快照写入磁盘缓存后的目录；`doctor` 会实时探测 server，所以对着运行中的本地 server 测。
+- **更接近真实使用的场景**（第 1b 节）：热 daemon（每次 `list` 走一次往返；`via` 与 `via find` 按 < 70 ms 判定）、带框架配置（四个文件，含 71 KiB 的 `.claude.json`、TOML 与带注释的 JSONC；`via` 与 `via find` 按 < 80 ms 判定）、一千个工具分在 50 个 provider 里的整进程命令（`via find` 按不超过 80 ms 判定），差值同样相对交替运行的 `node -e 0`。加 `--compare <目录>` 时与另一份构建交替运行，两者经历同样的机器负载，这是比较改动前后唯一可靠的办法（虚拟机的 `node -e 0` 在不同运行里能差 10 ms 以上）。机器上有别的任务在跑时差值会被放大，脚本在开头与结尾打印平均负载；在负载低（可运行任务不超过 2）的时候测。
+- **1,000 个工具上的 `find`**：用 `scripts/lib/synth-catalog.ts` 从夹具确定性地合成 1,000 个工具（固定种子，同一输入在任何机器上得到同一份目录），分别计时目录构建、索引构建、查询和渲染。新进程里的首次调用对应一次性的 CLI，稳态对应将来常驻的 daemon。另有一组「预构建缓存」行：父进程把快照写好，新进程只还原快照、用存下的检索词建索引再查询（没有跑过构建代码），对应命中[预构建缓存](../spec/discovery.md#预构建缓存)的一次性 CLI；30 ms 的库路径目标按这一行判定，无缓存与稳态两行只作参考。
 - **调用开销（无 daemon）**：对本地 Streamable HTTP 模拟 server，比较 `via <provider> <tool>` 端到端与官方 SDK client 直接调用（进程内与整进程两个口径）。
-- **热 daemon**：同一个 server 加一个 stdio server，另起 `via daemon run`，测 `via` 经热 daemon 调用的耗时，对照无 daemon 的 `via` 与复用连接的 SDK 调用（目标里的「额外开销」取前者减后者），并读 `via daemon status` 的 RSS：刚启动、建立一个 HTTP 会话后、再建立一个 stdio 会话后、多次调用后。脚本结束时执行 `via daemon stop`，不留下 daemon。
+- **热 daemon**：同一个 server 加一个 stdio server，另起 `via daemon run`，测 `via` 经热 daemon 调用的耗时，对照无 daemon 的 `via` 与复用连接的 SDK 调用（目标里的「额外开销」取前者减后者），并读 daemon 的内存：`via daemon status` 的 RSS，以及 Linux 上 `/proc/<pid>/status` 的 RssAnon 与 RssFile，在刚启动、建立一个 HTTP 会话后、再建立一个 stdio 会话后、多次调用后各取一次；内存目标按 RssAnon 的最高值判定，没有 `/proc` 的平台退回 RSS 并标明。脚本结束时执行 `via daemon stop`，不留下 daemon。
 - **模块加载**：用 `scripts/lib/load-trace.mjs`（`node --import` 的加载钩子）记录每条命令加载了哪些打包分块和 `node_modules` 包；`--version` 与 `-h` 不得加载任何包，命中缓存的浏览命令不得加载 MCP SDK 和 ajv，也不得初始化 `crypto`、`net`、`tty`、`stream`、`fs/promises`、`readline`、`child_process` 这些 Node 内部模块（`scripts/lib/builtin-trace.cjs` 读 `process.moduleLoadList`），违反时脚本以非零退出码结束。`test/cli/dist.test.ts` 对同样的约束做了不依赖时间的断言。
 - 曾经有过的 Bun 一节（第 6 节，比较 `bun dist/via.js` 与 `bun build --compile` 的单文件产物）随单文件可执行一起删除（[ADR 0023](../adr/0023-npm-is-the-only-distribution-channel.md)）；历史结果仍在 [perf-0.3](../../bench/results/perf-0.3.md)。
 
-性能数字不进 vitest 断言（CI 机器噪声太大）；测试只覆盖确定性的部分：合成目录的生成、`find` 在其上的结果、加载约束、各层缓存的正确性（见下）。0.1 的实测结果、环境和校准建议记录在 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)，0.3 的冷启动工作记录在 [bench/results/perf-0.3-cold-start.md](../../bench/results/perf-0.3-cold-start.md)。
+性能数字不进 vitest 断言（CI 机器噪声太大）；测试只覆盖确定性的部分：合成目录的生成、`find` 在其上的结果、加载约束、各层缓存的正确性（见下）。0.1 的实测结果、环境和校准建议记录在 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)，0.3 的冷启动工作记录在 [bench/results/perf-0.3-cold-start.md](../../bench/results/perf-0.3-cold-start.md)，按新目标的复测记录在 [bench/results/perf-0.4.md](../../bench/results/perf-0.4.md)。
 
 ### 性能缓存的测试
 
