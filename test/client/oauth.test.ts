@@ -849,3 +849,122 @@ describe('binding stored credentials to the authorization server', () => {
     expect(memory.records.get(key)?.issuer).toBe(a.issuer);
   });
 });
+
+describe('pinning the authorization server (auth.oauth.issuer)', () => {
+  const WRONG = 'https://other-as.example.invalid';
+  const pinnedServer = (url: string, issuer: string) => httpServer(url, { provider: 'linear', name: 'linear', auth: { type: 'oauth', issuer } as never });
+
+  it('reaches the login and the provider through oauthTarget', () => {
+    expect(oauthTarget(pinnedServer('https://m.example/mcp', WRONG))?.issuer).toBe(WRONG);
+    expect(oauthTarget(httpServer('https://m.example/mcp', { provider: 'm', name: 'm', auth: { type: 'oauth' } }))).not.toHaveProperty('issuer');
+  });
+
+  it('refuses an authorization server other than the pinned one before registering or authorizing (authorization code login)', async () => {
+    const srv = await mockServer();
+    const store = createMemoryOAuthStore();
+    const target = { provider: 'linear', url: srv.url, issuer: WRONG };
+    const error = await performLogin({ target, store, manual: false, timeoutMs: 2000, io: io(srv), now: () => T0 }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 4, next: 'check auth.oauth.issuer of linear in your via config' });
+    expect((error as Error).message).toBe(`linear: its authorization server is ${srv.issuer}, not ${WRONG} as pinned by auth.oauth.issuer; nothing was sent to it`);
+    expect(srv.state.registrations).toHaveLength(0);
+    expect(srv.state.authorizeRequests).toHaveLength(0);
+    expect(srv.state.tokenRequests).toHaveLength(0);
+    expect(store.records.size).toBe(0);
+  });
+
+  it('accepts the pinned authorization server, with or without a trailing slash (authorization code login, then calls)', async () => {
+    const srv = await mockServer();
+    for (const issuer of [srv.issuer, `${srv.issuer}/`]) {
+      const store = createMemoryOAuthStore();
+      const result = await performLogin({ target: { provider: 'linear', url: srv.url, issuer }, store, manual: false, timeoutMs: 10_000, io: io(srv), now: () => T0 });
+      expect(result.record.issuer).toBe(srv.issuer);
+      const provider = createCallProvider(pinnedServer(srv.url, issuer), store, { now: () => T0 + 2 * HOUR });
+      expect(await provider.accessToken()).toMatch(/^at-/); // refreshed at the pinned server
+    }
+  });
+
+  it('compares exactly apart from the trailing slash: no case folding or other normalization of the pin', async () => {
+    const srv = await mockServer();
+    const upper = srv.issuer.replace('http://', 'HTTP://');
+    const error = await performLogin({ target: { provider: 'linear', url: srv.url, issuer: upper }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 2000, io: io(srv), now: () => T0 }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 4 });
+  });
+
+  it('a refresh goes only to the pinned authorization server, and a login from another one is not used', async () => {
+    const srv = await mockServer();
+    const { store } = await loggedIn(srv);
+    const tokens = srv.state.tokenRequests.length;
+    // Pinned to the server that issued the login: refreshes as before.
+    expect(await createCallProvider(pinnedServer(srv.url, srv.issuer), store, { now: () => T0 + 2 * HOUR }).accessToken()).toMatch(/^at-/);
+    expect(srv.state.tokenRequests.length).toBe(tokens + 1);
+    // Pinned to another one (set after the login): the saved login and its refresh token stay where they are.
+    const provider = createCallProvider(pinnedServer(srv.url, WRONG), store, { now: () => T0 + 4 * HOUR });
+    await expect(provider.accessToken()).rejects.toMatchObject({ name: 'PinnedIssuerMismatchError', pinned: WRONG, actual: srv.issuer, savedLogin: true });
+    expect(srv.state.tokenRequests.length).toBe(tokens + 1);
+    // Not even a still-valid access token is used.
+    const valid = createCallProvider(pinnedServer(srv.url, WRONG), store, { now: () => T0 + 2 * HOUR });
+    await expect(valid.accessToken()).rejects.toMatchObject({ name: 'PinnedIssuerMismatchError' });
+    const client = new InProcessClient([pinnedServer(srv.url, WRONG)], new FakeResolver({}), { oauthStore: store, now: () => T0 });
+    cleanups.push(() => client.close());
+    await expect(client.listTools('linear')).rejects.toMatchObject({ exitCode: 4, next: 'via auth logout linear' });
+  });
+
+  it('a refresh that has to rediscover refuses a server that now names another authorization server', async () => {
+    const a = await mockServer();
+    const b = await mockServer();
+    const { store } = await loggedIn(a);
+    const memory = store as MemoryStore;
+    const [key, saved] = [...memory.records.entries()][0]!;
+    delete saved.discovery;
+    memory.records.set(key, saved);
+    a.state.authorizationServers = [b.issuer];
+    const provider = createCallProvider(pinnedServer(a.url, a.issuer), store, { now: () => T0 + 2 * HOUR });
+    // The record says "a" and so does the pin: the refusal is the pin's, not the binding's.
+    await expect(provider.accessToken()).rejects.toMatchObject({ name: 'PinnedIssuerMismatchError', pinned: a.issuer, actual: b.issuer });
+    expect(b.state.tokenRequests).toHaveLength(0);
+  });
+
+  describe('client credentials', () => {
+    const machine = (url: string, issuer: string) => machineServer(url, { issuer });
+
+    it('login refuses another authorization server before any credential is sent', async () => {
+      const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+      const { resolve } = secrets({ CI_SECRET: SECRET });
+      const target = { provider: 'ci', url: srv.url, clientId: 'ci-client', grant: 'client_credentials' as const, clientSecret: 'env:CI_SECRET', issuer: WRONG };
+      const error = await performLogin({ target, store: createMemoryOAuthStore(), manual: false, timeoutMs: 5000, io: io(srv), credentials: resolve, now: () => T0 }).catch((e: unknown) => e);
+      expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 4, next: 'check auth.oauth.issuer of ci in your via config' });
+      expect((error as Error).message).toBe(`ci: its authorization server is ${srv.issuer}, not ${WRONG} as pinned by auth.oauth.issuer; nothing was sent to it`);
+      expect(srv.state.tokenAuth).toHaveLength(0);
+      expect(srv.state.tokenRequests).toHaveLength(0);
+    });
+
+    it('a call refuses another authorization server before any credential is sent, and works with the right pin', async () => {
+      const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+      const store = createMemoryOAuthStore();
+      const { resolve } = secrets({ CI_SECRET: SECRET });
+      const wrong = createCallProvider(machine(srv.url, WRONG), store, { resolveCredential: resolve, now: () => T0 });
+      await expect(wrong.accessToken()).rejects.toMatchObject({ name: 'PinnedIssuerMismatchError', pinned: WRONG, actual: srv.issuer });
+      expect(srv.state.tokenAuth).toHaveLength(0);
+      const client = new InProcessClient([machine(srv.url, WRONG)], new FakeResolver({ CI_SECRET: SECRET }), { oauthStore: store, now: () => T0 });
+      cleanups.push(() => client.close());
+      await expect(client.listTools('ci')).rejects.toMatchObject({ exitCode: 4, next: 'check auth.oauth.issuer of ci in your via config' });
+      expect(srv.state.tokenAuth).toHaveLength(0);
+
+      const right = createCallProvider(machine(srv.url, `${srv.issuer}/`), store, { resolveCredential: resolve, now: () => T0 });
+      expect(await right.accessToken()).toMatch(/^cc-/);
+      expect(srv.state.tokenAuth).toHaveLength(1);
+      // The saved token was issued by the pinned server; pinning another one afterwards stops it being used.
+      await expect(createCallProvider(machine(srv.url, WRONG), store, { resolveCredential: resolve, now: () => T0 }).accessToken()).rejects.toMatchObject({ name: 'PinnedIssuerMismatchError', savedLogin: true });
+      expect(srv.state.tokenAuth).toHaveLength(1);
+    });
+
+    it('login accepts the pinned authorization server', async () => {
+      const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+      const { resolve } = secrets({ CI_SECRET: SECRET });
+      const target = { provider: 'ci', url: srv.url, clientId: 'ci-client', grant: 'client_credentials' as const, clientSecret: 'env:CI_SECRET', issuer: srv.issuer };
+      const result = await performLogin({ target, store: createMemoryOAuthStore(), manual: false, timeoutMs: 5000, io: io(srv), credentials: resolve, now: () => T0 });
+      expect(result.record.issuer).toBe(srv.issuer);
+      expect(srv.state.tokenAuth).toHaveLength(1);
+    });
+  });
+});

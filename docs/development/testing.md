@@ -27,7 +27,7 @@
 MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[ADR 0017](../adr/0017-protocol-versions-newest-first-with-fallback.md)）。模拟 server 能讲其中任何一代，端到端测试对两代各跑一遍：
 
 - **同一张处理表，两种 server。** `test/fixtures/mcp/mock-server.mjs` 与 `cli-server.mjs` 把自己回答什么写成一张表（`tools/list`、`tools/call`、`resources/*`、`prompts/*`），`flavors.mjs` 把表装配成旧一代的 server（1.x SDK，`legacy`，默认）或无状态的 server（2.x SDK，`modern`）。工具、资源、prompt、进度、roots、`list_changed` 等行为两代相同；差别只在协议。无状态的 HTTP 端点是 `modern-http.mjs`（`createMcpHandler`，`legacy: 'reject'`：退回握手的客户端会被告知版本不受支持，所以测试不会在旧协议上误过）。stdio 夹具有 `-modern` 孪生脚本（`stdio-server-modern.mjs`、`cli-stdio-server-modern.mjs`）。
-- **扩展与任务的夹具。** `cli-server.mjs` 的 `features` 还能开 `completions`、`skills`、`tasks`、`tasks-nolist`，并用 `about` 给出 server 自述。`skills` 只在无状态一代声明扩展（扩展属于 `2026-07-28`），带清单、摘要不符、大小不符与 `"dynamic"` 的技能；`tasks` 在旧一代讲 `2025-11-25` 的 `tasks/*`，在无状态一代讲 `io.modelcontextprotocol/tasks`（`report_job` 的 `--ms`/`--mode` 控制时长与结局），任务 ID 形如 `job/1`（带 `/`，用来测只在第一个斜杠处拆分）。扩展方法在无状态 server 上用显式 schema 注册（`flavors.mjs` 的 `EXTENSION_METHODS`）。
+- **扩展与任务的夹具。** `cli-server.mjs` 的 `features` 还能开 `completions`、`skills`、`tasks`、`tasks-nolist`，并用 `about` 给出 server 自述。`skills` 只在无状态一代声明扩展（扩展属于 `2026-07-28`），带清单、摘要不符、大小不符与 `"dynamic"` 的技能；`tasks` 在旧一代讲 `2025-11-25` 的 `tasks/*`，在无状态一代讲 `io.modelcontextprotocol/tasks`（`report_job` 的 `--ms`/`--mode` 控制时长与结局；`--mode ask` 让任务停在 `input_required` 等用户回答「Which region?」：旧一代在 `tasks/result` 里向 client 发 `elicitation/create`，无状态一代在 `tasks/get` 里给 `inputRequests` 并接受 `tasks/update`，答案读自 `h.inputResponses()`；`--mode input` 在无状态一代等一个 via 答不了的 sampling 请求；只有 stdio 与 daemon 的夹具能让旧一代提问，HTTP 夹具每个请求一个新 server），任务 ID 形如 `job/1`（带 `/`，用来测只在第一个斜杠处拆分）。扩展方法在无状态 server 上用显式 schema 注册（`flavors.mjs` 的 `EXTENSION_METHODS`）。
 - **选哪一代。** 助手 `startHttpServer`、`startFixtureServer`、`stdioServer`、`CLI_STDIO_SERVER` 默认讲旧一代；环境变量 `VIA_TEST_PROTOCOL=modern`（`test/helpers/generation.ts`）把默认换成无状态一代。专讲某一代的测试（`test/client/protocol.test.ts`、`test/cli/protocol.test.ts`）显式传 `protocol`。`npm run test:stateless` 用 `modern` 重跑依赖 server 的套件（`test/cli`、`test/daemon`、`test/client`、`test/bench`），CI 里是单独的 `stateless` 任务；`npm test` 仍是旧一代。
 - **回放 server。** `bench/replay-server.mjs` 同样有两种：默认旧一代，`--protocol 2026-07-28`（选项 `protocol`）讲无状态协议；`VIA_REPLAY_PROTOCOL=2026-07-28` 让 token 基准与 agent 评测在无状态的回放 server 上跑。
 - **协议版本常量。** via 自己保存的版本列表（`src/protocol-versions.ts`）由 `test/protocol-versions.test.ts` 对照 SDK 检查：旧版列表等于 SDK 的 `SUPPORTED_PROTOCOL_VERSIONS`，无状态版本等于 SDK server 在 `server/discover` 里给出的列表，SDK client 能钉住每个版本连接。SDK 升级后增减版本会让它失败。
@@ -70,7 +70,7 @@ MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[AD
 - `windows-latest`（Node 22）上执行同样四步，再用空的用户目录运行 `dist/via.js`（`--version`、浏览、`doctor`、`daemon status`）；
 - `auto-merge.yml`：CI 在仓库所有者从本仓库分支开的 PR 上通过后，开启 squash 自动合并，合入后删除该 PR 的分支（合入后分支又有新提交，或它是其他打开的 PR 的基准时保留）。合并用的是 `GITHUB_TOKEN`，所以仓库的「自动删除分支」设置不会生效，删除由这个工作流完成；同样因为是 `GITHUB_TOKEN`，合入 `main` 的提交不会再触发 `main` 上的 CI。
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
-- 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，同时把 `@modelctx-ai/via` 发到 npm（发布前再跑一遍 typecheck 与测试）；不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。npm 发布成功后 `homebrew` 任务用 registry 上的 tarball 渲染 Homebrew formula 并附到 Release（[实现说明](implementation.md#homebrew)）；`test/packaging/homebrew.test.ts` 在日常 CI 里检查模板与渲染脚本，Homebrew 本身（`brew audit`、`brew install`）不在 CI 里运行。
+- 发布：`v*` 标签触发的 `release.yml` 不在日常 CI 里运行：它先跑一遍 typecheck、构建与测试，再把 `@modelctx-ai/via` 发到 npm，成功后建 GitHub Release（只有自动生成的发布说明，没有附件）。via 只在 npm 分发，没有单文件可执行、Homebrew 与签名的构建或测试（[ADR 0023](../adr/0023-npm-is-the-only-distribution-channel.md)、[实现说明](implementation.md#发布)）。
 
 ## token 基准
 
@@ -196,7 +196,7 @@ mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不�
 
 | 指标 | 目标 |
 | --- | --- |
-| CLI 冷启动（Node 22，单文件 + 编译缓存） | < 80 ms |
+| CLI 冷启动（Node 22，编译缓存） | < 80 ms |
 | 经热 daemon 调用的额外开销 | < 15 ms |
 | 1,000 个工具上的 `find` | < 30 ms |
 | daemon 常驻内存 | < 80 MB（不含 stdio 子进程） |
@@ -209,8 +209,8 @@ mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不�
 
 ```bash
 npm run build        # 基准测量的是 dist/，先打包
-npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调整次数，--skip-bun 跳过 Bun，--dist <目录> 测另一份构建（用来对比改动前后）
-                     # --only cold,scenarios,find,call,loads,daemon,bun 只跑某几节；--compare <目录> 在场景一节里与另一份构建交替运行；--plain-daemon 让第 5 节的 daemon 不带 V8 与 malloc 设置（测更早的构建时用）
+npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调整次数，--dist <目录> 测另一份构建（用来对比改动前后）
+                     # --only cold,scenarios,find,call,loads,daemon 只跑某几节；--compare <目录> 在场景一节里与另一份构建交替运行；--plain-daemon 让第 5 节的 daemon 不带 V8 与 malloc 设置（测更早的构建时用）
 ```
 
 `scripts/bench-perf.ts` 在隔离的 HOME 与 TMPDIR 里运行（不读取任何真实的框架配置）；除热 daemon 一节外都设 `VIA_NO_DAEMON=1`，保证各项可比。每项预热后取多次的中位数、p95 与最小值，并对照上表：
@@ -221,7 +221,7 @@ npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调�
 - **调用开销（无 daemon）**：对本地 Streamable HTTP 模拟 server，比较 `via <provider> <tool>` 端到端与官方 SDK client 直接调用（进程内与整进程两个口径）。
 - **热 daemon**：同一个 server 加一个 stdio server，另起 `via daemon run`，测 `via` 经热 daemon 调用的耗时，对照无 daemon 的 `via` 与复用连接的 SDK 调用（目标里的「额外开销」取前者减后者），并读 `via daemon status` 的 RSS：刚启动、建立一个 HTTP 会话后、再建立一个 stdio 会话后、多次调用后。脚本结束时执行 `via daemon stop`，不留下 daemon。
 - **模块加载**：用 `scripts/lib/load-trace.mjs`（`node --import` 的加载钩子）记录每条命令加载了哪些打包分块和 `node_modules` 包；`--version` 与 `-h` 不得加载任何包，命中缓存的浏览命令不得加载 MCP SDK 和 ajv，也不得初始化 `crypto`、`net`、`tty`、`stream`、`fs/promises`、`readline`、`child_process` 这些 Node 内部模块（`scripts/lib/builtin-trace.cjs` 读 `process.moduleLoadList`），违反时脚本以非零退出码结束。`test/cli/dist.test.ts` 对同样的约束做了不依赖时间的断言。
-- **Bun**：已安装 `bun` 时，另测 `bun dist/via.js`、不带标志的 `bun build --compile`、逐个加 `--bytecode` 与 `--splitting` 的版本以及 `npm run build:bin` 的产物的冷启动（第 6 节；`--only-bun` 只跑这一节），第 5 节再加上产物经热 daemon 与无 daemon 的整进程调用，用来回答[运行时与分发](../open-questions.md)这个开放问题；未安装则跳过并说明。结果见 [perf-0.3](../../bench/results/perf-0.3.md)。
+- 曾经有过的 Bun 一节（第 6 节，比较 `bun dist/via.js` 与 `bun build --compile` 的单文件产物）随单文件可执行一起删除（[ADR 0023](../adr/0023-npm-is-the-only-distribution-channel.md)）；历史结果仍在 [perf-0.3](../../bench/results/perf-0.3.md)。
 
 性能数字不进 vitest 断言（CI 机器噪声太大）；测试只覆盖确定性的部分：合成目录的生成、`find` 在其上的结果、加载约束、各层缓存的正确性（见下）。0.1 的实测结果、环境和校准建议记录在 [bench/results/perf-0.1.md](../../bench/results/perf-0.1.md)，0.3 的冷启动工作记录在 [bench/results/perf-0.3-cold-start.md](../../bench/results/perf-0.3-cold-start.md)。
 

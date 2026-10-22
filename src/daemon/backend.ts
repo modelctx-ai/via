@@ -149,7 +149,7 @@ export class DaemonBackend implements Backend {
     return unwrap<DetachedCall>(response);
   }
 
-  private onCallEvent(event: Event, options: CallOptions): void {
+  private onCallEvent(event: Event, options: Pick<CallOptions, 'onProgress' | 'onTask' | 'elicit'>): void {
     this.onLog(event);
     if (event.event === 'progress' && options.onProgress) options.onProgress(event.data as Parameters<NonNullable<CallOptions['onProgress']>>[0]);
     if (event.event === 'task' && options.onTask) options.onTask(event.data as TaskInfo);
@@ -159,7 +159,14 @@ export class DaemonBackend implements Backend {
   private async taskRequest<T>(server: string, action: 'get' | 'wait' | 'cancel' | 'list', taskId: string | undefined, options: ListOptions): Promise<T> {
     const config = this.find(server);
     const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
-    return unwrap<T>(await this.send({ type: 'task', action, ...(taskId !== undefined ? { taskId } : {}), ...this.target(config), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
+    // Only waiting can lead to a question (a task in `input_required`); the daemon relays it like a call's.
+    const elicit = action === 'wait' ? options.elicit : undefined;
+    return unwrap<T>(
+      await this.send(
+        { type: 'task', action, ...(taskId !== undefined ? { taskId } : {}), ...this.target(config), timeoutMs, ...(elicit ? { elicit: true as const } : {}) },
+        { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, ...(elicit ? { onEvent: (event: Event) => this.onCallEvent(event, { elicit }) } : {}) },
+      ),
+    );
   }
 
   getTask(server: string, taskId: string, options: ListOptions = {}): Promise<TaskInfo> {

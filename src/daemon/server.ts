@@ -514,9 +514,16 @@ export class DaemonServer {
       case 'prompt-get':
         if (this.stale(request)) return STALE;
         return this.sessions.getPrompt(request, String(request.name), promptArgs(request.args), { timeoutMs: request.timeoutMs });
-      case 'task':
+      case 'task': {
         if (this.stale(request)) return STALE;
-        return this.sessions.task(request, request.action, typeof request.taskId === 'string' ? request.taskId : undefined, { timeoutMs: request.timeoutMs });
+        // A task in `input_required` asks the person behind this request, like a call does (ADR 0018).
+        const elicit: ElicitSink | undefined = request.action === 'wait' && request.elicit === true ? { ask: (question) => this.askCli(conn, request.id, question) } : undefined;
+        try {
+          return await this.sessions.task(request, request.action, typeof request.taskId === 'string' ? request.taskId : undefined, { timeoutMs: request.timeoutMs, ...(elicit ? { elicit } : {}) });
+        } finally {
+          if (elicit) this.cancelElicits(conn, request.id);
+        }
+      }
       case 'skills-list':
         if (this.stale(request)) return STALE;
         return this.sessions.skills(request, { timeoutMs: request.timeoutMs, onWarning: (message: string): void => this.sendWarning(conn, request.id, message) });

@@ -181,7 +181,7 @@ describe('built dist/via.js', () => {
       let stderr = '';
       transport.stderr?.on('data', (c: Buffer) => (stderr += c.toString('utf8')));
       await client.connect(transport);
-      expect((await client.listTools()).tools).toHaveLength(7);
+      expect((await client.listTools()).tools).toHaveLength(9);
       const r = (await client.callTool({ name: 'via_call', arguments: { tool: 'gh/issue:read', args: { owner: 'acme', repo: 'api', issue_number: 3, method: 'get' } } })) as CallToolResult;
       expect(r.isError).toBeUndefined();
       expect(r.content[0]).toEqual({ type: 'text', text: 'number: 3\ntitle: Support OAuth DCR\nstate: open\n' });

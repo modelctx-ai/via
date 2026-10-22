@@ -7,7 +7,7 @@ import type { LoginTarget } from './login';
 import { ViaOAuthProvider } from './provider';
 import type { OAuthStore } from './store';
 
-export { AuthorizationServerChangedError, ClientCredentialsRejectedError, LoginFailedError, LoginRequiredError, TokenRefreshError, type LoginRequiredReason } from './errors';
+export { AuthorizationServerChangedError, ClientCredentialsRejectedError, LoginFailedError, LoginRequiredError, PinnedIssuerMismatchError, TokenRefreshError, type LoginRequiredReason } from './errors';
 export { performLogin, type LoginIO, type LoginOptions, type LoginResult, type LoginTarget } from './login';
 export { performLogout, type LogoutResult, type RevokeOutcome } from './logout';
 export { browserUnavailable, openBrowser, openerCommand, type OpenResult } from './opener';
@@ -46,6 +46,7 @@ export function oauthTarget(server: ServerConfig): LoginTarget | undefined {
     ...(auth.clientId ? { clientId: auth.clientId } : {}),
     // CIMD is on by default; `clientMetadataUrl: false` is the opt-out, a URL replaces the hosted document.
     ...(auth.clientMetadataUrl === false ? {} : { clientMetadataUrl: auth.clientMetadataUrl ?? CLIENT_METADATA_URL }),
+    ...(auth.issuer ? { issuer: auth.issuer } : {}),
     ...(auth.grant ? { grant: auth.grant } : {}),
     ...(auth.clientSecret ? { clientSecret: auth.clientSecret } : {}),
     ...(auth.privateKey ? { privateKey: auth.privateKey } : {}),
@@ -73,6 +74,7 @@ export function createCallProvider(
     ...(target.scopes ? { scopes: target.scopes } : {}),
     ...(target.clientId ? { clientId: target.clientId } : {}),
     ...(target.clientMetadataUrl ? { clientMetadataUrl: target.clientMetadataUrl } : {}),
+    ...(target.issuer ? { pinnedIssuer: target.issuer } : {}),
     ...(target.grant ? { grant: target.grant } : {}),
     ...(target.clientSecret ? { clientSecret: target.clientSecret } : {}),
     ...(target.privateKey ? { privateKey: target.privateKey } : {}),

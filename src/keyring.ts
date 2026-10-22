@@ -1,6 +1,5 @@
 // The one place that imports the native keychain binding (`@napi-rs/keyring`), always on first use.
-// The specifier must stay a literal: tsup keeps it external (npm package) and the single-file build
-// maps it to the platform's `.node` file (scripts/build-bin.ts).
+// The specifier must stay a literal: tsup keeps it external.
 
 /**
  * Load the binding. A platform without a prebuilt binary, a missing optional dependency or an

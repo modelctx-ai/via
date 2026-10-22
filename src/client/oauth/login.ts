@@ -3,7 +3,7 @@
 // (showing the URL, opening a browser, reading a pasted URL) goes through `LoginIO`, so the flow
 // is the same for the terminal, for tests and for anything else that wants to log in.
 import { randomBytes } from 'node:crypto';
-import { AuthorizationServerChangedError, ClientCredentialsRejectedError, LoginFailedError, TokenRefreshError, oauthErrorCode } from './errors';
+import { AuthorizationServerChangedError, ClientCredentialsRejectedError, LoginFailedError, PinnedIssuerMismatchError, TokenRefreshError, oauthErrorCode } from './errors';
 import type { OpenResult } from './opener';
 import { probeChallenge } from './probe';
 import { ViaOAuthProvider } from './provider';
@@ -30,6 +30,8 @@ export interface LoginTarget {
   clientId?: string;
   /** Client ID Metadata Document URL (CIMD) to offer as `client_id`; absent: dynamic registration only. */
   clientMetadataUrl?: string;
+  /** Pinned authorization server (`auth.oauth.issuer`); discovery that names another one is refused. */
+  issuer?: string;
   /** `client_credentials`: the machine grant, no browser (auth.md, "OAuth client credentials"). */
   grant?: 'client_credentials';
   /** Credential references (unresolved) for a pre-registered secret or the machine grant. */
@@ -81,6 +83,13 @@ function loginFailure(error: unknown, target: LoginTarget): LoginFailedError {
       `${target.provider}: its authorization server changed from ${printable(error.recorded)} to ${printable(error.current)}; the saved client credentials belong to the first and were not sent to the second`,
       4,
       `via auth logout ${target.provider}`,
+    );
+  }
+  if (error instanceof PinnedIssuerMismatchError) {
+    return new LoginFailedError(
+      `${target.provider}: its authorization server is ${printable(error.actual)}, not ${printable(error.pinned)} as pinned by auth.oauth.issuer; nothing was sent to it`,
+      4,
+      error.savedLogin ? `via auth logout ${target.provider}` : `check auth.oauth.issuer of ${target.provider} in your via config`,
     );
   }
   if (error instanceof ClientCredentialsRejectedError) {
@@ -162,6 +171,7 @@ export async function performLogin(options: LoginOptions): Promise<LoginResult> 
     ...(target.scopes ? { scopes: target.scopes } : {}),
     ...(target.clientId ? { clientId: target.clientId } : {}),
     ...(target.clientMetadataUrl ? { clientMetadataUrl: target.clientMetadataUrl } : {}),
+    ...(target.issuer ? { pinnedIssuer: target.issuer } : {}),
     ...(target.clientSecret ? { clientSecret: target.clientSecret } : {}),
     ...(options.credentials ? { resolveCredential: options.credentials } : {}),
     store: options.store,
@@ -254,6 +264,7 @@ async function performMachineLogin(options: LoginOptions): Promise<LoginResult> 
     ...(target.scopes ? { scopes: target.scopes } : {}),
     ...(target.clientId ? { clientId: target.clientId } : {}),
     grant: 'client_credentials',
+    ...(target.issuer ? { pinnedIssuer: target.issuer } : {}),
     ...(target.clientSecret ? { clientSecret: target.clientSecret } : {}),
     ...(target.privateKey ? { privateKey: target.privateKey } : {}),
     ...(target.keyAlgorithm ? { keyAlgorithm: target.keyAlgorithm } : {}),

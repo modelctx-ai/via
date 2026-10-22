@@ -239,6 +239,14 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
       next: `via auth logout ${provider}`,
     });
   }
+  if (err instanceof Error && err.name === 'PinnedIssuerMismatchError') {
+    const { pinned, actual, savedLogin } = err as Error & { pinned: string; actual: string; savedLogin: boolean };
+    return new ClientError({
+      exitCode: ExitCode.Auth,
+      message: `${provider}: its authorization server is ${clean(actual, ctx)}, not ${clean(pinned, ctx)} as pinned by auth.oauth.issuer; nothing was sent to it`,
+      next: savedLogin ? `via auth logout ${provider}` : `check auth.oauth.issuer of ${provider} in your via config`,
+    });
+  }
   if (err instanceof Error && err.name === 'ClientCredentialsRejectedError') {
     return new ClientError({
       exitCode: ExitCode.Auth,

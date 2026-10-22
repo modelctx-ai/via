@@ -91,6 +91,21 @@ describe('via doctor', () => {
     expect((await sb.via(['doctor'])).code).toBe(0);
   });
 
+  it('says where the logs are, and how much they take once there are some', async () => {
+    const sb = makeSandbox();
+    const shown = join('~', '.cache', 'via', 'logs'); // the platform's separator, as doctor prints it
+    expect((await sb.via(['doctor'])).stdout).toContain(`\nlogs      ${shown} (none yet)\n`);
+    const dir = join(sb.cacheDir, 'logs');
+    mkdirSync(join(dir, 'servers'), { recursive: true });
+    writeFileSync(join(dir, 'daemon.log'), 'x'.repeat(2048));
+    writeFileSync(join(dir, 'servers', 'gh.log'), 'x'.repeat(1024 * 1024));
+    writeFileSync(join(dir, 'servers', 'gh.log.1'), 'x'.repeat(512 * 1024));
+    writeFileSync(join(dir, 'servers', 'notes.txt'), 'not a log'); // only logs are counted
+    const r = await sb.via(['doctor']);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`\nlogs      ${shown} (3 files, 1.5 MiB)\n`);
+  });
+
   it('prints config errors instead of stopping, with exit 2', async () => {
     const { srv, sb } = await setup();
     sb.userConfig(`${ghConfig(srv.url)}deny: ["(unclosed"]\n`);

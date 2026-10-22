@@ -1,0 +1,43 @@
+via_browse [read-only]: List providers, the resources and verbs of a provider, the verbs of a resource with signatures, or the usage of one tool.
+  path (string): Empty for all providers, or "<provider>", "<provider> <resource>", "<provider> <resource>:<verb>"
+
+via_find [read-only]: Search tools across all providers.
+  query* (string): What the tool should do, e.g. "create issue"
+  limit (integer): Results to show (default 10)
+
+via_call: Call a tool. Read its usage with via_browse first. Tools marked destructive need yes: true.
+  tool* (string): "<provider>/<resource>:<verb>", e.g. "linear/issue:create"
+  args (object): Tool arguments by their original names
+  yes (boolean): Confirm a destructive tool
+  detach (boolean): Return the task id at once instead of waiting
+  timeout (number): Seconds to wait (default 60)
+
+via_more [read-only]: Continue output that was truncated, with the cursor from its "via more <cursor>" hint.
+  cursor* (string): The cursor
+
+via_resources [read-only]: List the MCP resources and templates of a provider, or complete a template variable.
+  provider* (string): Provider name
+  template (string): Listed URI template to complete
+  args (object): Variable values typed so far
+  complete (string): Variable to complete (with template)
+
+via_read [read-only]: Read an MCP resource of a provider.
+  provider* (string): Provider name
+  uri* (string): Resource URI, with template placeholders filled in
+
+via_prompts [read-only]: List the MCP prompts of a provider, get one, or complete an argument.
+  provider* (string): Provider name
+  name (string): Prompt name; omit to list
+  args (object): Prompt arguments (strings)
+  complete (string): Argument to complete, the others in args (with name)
+
+via_skills [read-only]: List the skills of a provider, read one, or one of its files.
+  provider* (string): Provider name
+  name (string): Skill name; omit to list
+  file (string): File of the skill; omit for SKILL.md
+
+via_tasks: List the tasks of a provider, or wait for, check or cancel one.
+  provider (string): Provider name; alone, lists its tasks
+  task (string): Task id as printed ("gh/job/1"), or "job/1" with provider
+  action (status|cancel): Omit to wait
+  timeout (number): Seconds to wait (default 30)

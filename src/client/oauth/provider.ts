@@ -12,7 +12,7 @@
 // The SDK is loaded on demand; importing this module costs nothing at CLI start.
 import type { FetchLike, OAuthClientInformationContext, OAuthClientInformationMixed, OAuthClientMetadata, OAuthClientProvider, OAuthDiscoveryState, OAuthTokens } from '@modelcontextprotocol/client';
 import { MIN_REDACTED_LITERAL_LENGTH } from '../../config/credentials';
-import { AuthorizationServerChangedError, ClientCredentialsRejectedError, LoginRequiredError, oauthErrorCode, TokenRefreshError } from './errors';
+import { AuthorizationServerChangedError, ClientCredentialsRejectedError, LoginRequiredError, oauthErrorCode, PinnedIssuerMismatchError, TokenRefreshError } from './errors';
 import { probeChallenge } from './probe';
 import { oauthKey, secretsOf, type OAuthRecord, type OAuthStore, type SetResult } from './store';
 
@@ -44,6 +44,11 @@ export interface OAuthProviderOptions {
    * registers dynamically. Absent: CIMD is not used.
    */
   clientMetadataUrl?: string;
+  /**
+   * The authorization server this server must use (`auth.oauth.issuer`). Discovery, or a saved login, that names another
+   * one is refused before a token request, a client secret or a registration is sent to it.
+   */
+  pinnedIssuer?: string;
   /**
    * `client_credentials`: the machine grant (no browser, no refresh token). Needs `clientId` and one of `clientSecret`
    * and `privateKey`, plus `resolveCredential`. Default: the authorization code flow.
@@ -114,6 +119,11 @@ function assertBound(record: OAuthRecord | undefined, current: string): void {
   if (bound !== undefined && !sameIssuer(bound, current)) throw new AuthorizationServerChangedError(bound, current);
 }
 
+/** The authorization server a saved login belongs to: its bound issuer, else the one in its cached discovery. */
+function recordIssuer(record: OAuthRecord): string | undefined {
+  return boundIssuer(record) ?? (record.discovery ? issuerOf(record.discovery) : undefined);
+}
+
 interface Draft {
   client?: OAuthClientInformationMixed;
   tokens?: OAuthTokens;
@@ -155,6 +165,24 @@ export class ViaOAuthProvider implements OAuthClientProvider {
   /** Whether this is the machine grant: tokens come from the client credentials, never from a person. */
   get machine(): boolean {
     return this.options.grant === 'client_credentials';
+  }
+
+  // Pinned authorization server --------------------------------------------------------------
+
+  /**
+   * Refuse an authorization server other than the pinned one (`auth.oauth.issuer`, auth.md "钉住授权服务器"). Compared
+   * the way the binding is: the issuer identifiers are equal apart from a trailing slash. Runs before anything is
+   * sent to that server (a token request, a client secret, a registration).
+   */
+  private assertPinned(actual: string, savedLogin = false): void {
+    const pinned = this.options.pinnedIssuer;
+    if (pinned !== undefined && !sameIssuer(pinned, actual)) throw new PinnedIssuerMismatchError(pinned, actual, savedLogin);
+  }
+
+  /** A saved login issued by another authorization server than the pinned one is not used either. */
+  private assertRecordPinned(record: OAuthRecord | undefined): void {
+    const issuer = record ? recordIssuer(record) : undefined;
+    if (issuer !== undefined) this.assertPinned(issuer, true);
   }
 
   // Calls ---------------------------------------------------------------------------------------
@@ -218,6 +246,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
     const record = await this.load(rejected !== undefined);
     const tokens = record?.tokens;
     if (!record || !tokens) throw new LoginRequiredError('missing');
+    this.assertRecordPinned(record);
     // Someone else (another process) may already have replaced the token the server refused.
     const refused = rejected !== undefined && tokens.access_token === rejected;
     const state = tokenState(record, this.now());
@@ -264,6 +293,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
   private async resolveMachineToken(rejected: string | undefined): Promise<string> {
     const record = await this.load(rejected !== undefined);
     const tokens = record?.tokens;
+    this.assertRecordPinned(record);
     if (tokens) {
       const refused = rejected !== undefined && tokens.access_token === rejected;
       const state = tokenState(record!, this.now());
@@ -306,6 +336,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
         discovery = { ...info };
       }
       const issuer = issuerOf(discovery);
+      this.assertPinned(issuer);
       assertBound(record, issuer);
       const metadata = discovery.authorizationServerMetadata;
       const configured = this.options.scopes && this.options.scopes.length > 0 ? this.options.scopes.join(' ') : undefined;
@@ -323,7 +354,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
       });
       return await this.commitMachine(record, { ...tokens, issuer }, discovery, issuer, scope, options.strict === true);
     } catch (error) {
-      if (error instanceof AuthorizationServerChangedError) throw error;
+      if (error instanceof AuthorizationServerChangedError || error instanceof PinnedIssuerMismatchError) throw error;
       const code = oauthErrorCode(error);
       if (typeof code === 'string' && !TRANSIENT_CODES.has(code)) throw new ClientCredentialsRejectedError(code);
       throw new TokenRefreshError(firstLine(error), 'get an access token with the client credentials');
@@ -371,6 +402,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
         discovery = { ...info };
       }
       // The refresh token and the client's credentials go to the authorization server they were issued by, only.
+      this.assertPinned(issuerOf(discovery));
       assertBound(record, issuerOf(discovery));
       const fresh = await sdk.refreshAuthorization(discovery.authorizationServerUrl, {
         clientInformation: client,
@@ -382,7 +414,7 @@ export class ViaOAuthProvider implements OAuthClientProvider {
       });
       return await this.commit(record, { ...fresh, issuer: record.tokens?.issuer ?? issuerOf(discovery) }, discovery);
     } catch (error) {
-      if (error instanceof AuthorizationServerChangedError) throw error;
+      if (error instanceof AuthorizationServerChangedError || error instanceof PinnedIssuerMismatchError) throw error;
       const code = oauthErrorCode(error);
       if (typeof code === 'string' && !TRANSIENT_CODES.has(code)) {
         // The server no longer accepts this refresh token. Another process may have rotated it
@@ -481,6 +513,9 @@ export class ViaOAuthProvider implements OAuthClientProvider {
     // redirect URI (the port is whichever was free), so the record's client is not consulted.
     // A configured client id is stamped with the authorization server the SDK resolved: unstamped it
     // would make the SDK print a warning about credentials it cannot bind to an issuer.
+    // The SDK calls this right after discovery and before it registers a client or sends anything else to the
+    // authorization server it found, so the pin is checked here for every login (and for the callback leg).
+    if (ctx?.issuer) this.assertPinned(ctx.issuer);
     const configured = await this.configuredClient();
     if (configured) {
       // A configured secret was validated against the authorization server of the earlier login: not sent to another.

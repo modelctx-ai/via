@@ -42,6 +42,11 @@ export interface DoctorInput {
    * is set. Absent: not reported (config.md, "代理").
    */
   proxy?: readonly string[];
+  /**
+   * Where the logs are (daemon.md, "日志") and how much they take; `files` and `bytes` are absent when the
+   * directory does not exist yet. Absent: not reported.
+   */
+  logs?: { dir: string; files?: number; bytes?: number };
 }
 
 export interface DoctorOutput {
@@ -173,6 +178,27 @@ function renderServers(rows: readonly Row[], home: string | undefined, pins: Rea
 function renderProxy(lines: readonly string[]): string[] {
   if (lines.length === 0) return ['proxy     none'];
   return lines.map((line, i) => `${i === 0 ? 'proxy     ' : '          '}${line}`);
+}
+
+// logs ---------------------------------------------------------------------------------------
+
+/** 812 -> `812 B`, 49152 -> `48 KiB`, 1258291 -> `1.2 MiB`. */
+function formatLogSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function renderLogs(logs: NonNullable<DoctorInput['logs']>, home: string | undefined): string[] {
+  const where = shorten(logs.dir, home);
+  if (logs.files === undefined || logs.bytes === undefined) return [`logs      ${where} (none yet)`];
+  return [`logs      ${where} (${logs.files} ${logs.files === 1 ? 'file' : 'files'}, ${formatLogSize(logs.bytes)})`];
+}
+
+/** The `proxy` and `logs` lines share one section: both say where via's own traffic and records go. */
+function environment(input: DoctorInput): string[][] {
+  const lines = [...(input.proxy ? renderProxy(input.proxy) : []), ...(input.logs ? renderLogs(input.logs, input.home) : [])];
+  return lines.length > 0 ? [lines] : [];
 }
 
 // frameworks ---------------------------------------------------------------------------------
@@ -315,7 +341,7 @@ export function renderDoctor(input: DoctorInput): DoctorOutput {
   const rows = collectRows(input);
   const config = renderConfigProblems(input);
   const pins = new Map(input.config.servers.flatMap((s) => (s.protocolVersion !== undefined ? [[s.name, s.protocolVersion] as const] : [])));
-  const sections = [renderServers(rows, input.home, pins), ...(input.proxy ? [renderProxy(input.proxy)] : []), renderFrameworks(input), renderSecrets(input.config, input.home)];
+  const sections = [renderServers(rows, input.home, pins), ...environment(input), renderFrameworks(input), renderSecrets(input.config, input.home)];
   if (config.length > 0) sections.push(config);
 
   let exitCode: number = ExitCode.Ok;

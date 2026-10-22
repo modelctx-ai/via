@@ -17,6 +17,7 @@ import { formatToolHelp, parseToolArgs } from '../args';
 import type { App } from '../app';
 import type { ProviderEntry } from '../directory';
 import { CliFailure, usageFailure } from '../failure';
+import type { Elicitation } from '../elicit';
 import { completionResult, promptListing, promptResult, promptTool, readResult, resourceListing, templateTool } from '../mcp-data';
 import { noteCanonical, resolveEntry } from '../target';
 import { argsIo } from './tool';
@@ -38,7 +39,16 @@ export const safe = <T>(app: App, value: T): T => redactProtocol(value, app.reda
  * Render `result` (built from a result that went through `safe`) as a tool result is rendered and
  * print it; the exit code of the command.
  */
-export async function print(app: App, entry: ProviderEntry, ref: string, started: number, result: ToolResult, refWords?: readonly string[]): Promise<number> {
+export async function print(
+  app: App,
+  entry: ProviderEntry,
+  ref: string,
+  started: number,
+  result: ToolResult,
+  refWords?: readonly string[],
+  /** `next`: the command the meta line suggests. `elicitation`: told what the output is, it adds what a question nobody could answer means for it (ADR 0018). */
+  extra: { next?: string; elicitation?: Elicitation } = {},
+): Promise<number> {
   const config = await app.config();
   const { server } = entry;
   const rendered = await renderToolResult(
@@ -52,11 +62,20 @@ export async function print(app: App, entry: ProviderEntry, ref: string, started
       secrets: app.secrets(),
       redacted: true,
     }),
-    { ref, ...(refWords ? { refWords } : {}), elapsedMs: app.io.now() - started, media: new FileMediaSink(join(app.cacheDir, 'media')), cursors: (await app.backend()).cursors(), now: app.io.now },
+    {
+      ref,
+      ...(refWords ? { refWords } : {}),
+      elapsedMs: app.io.now() - started,
+      media: new FileMediaSink(join(app.cacheDir, 'media')),
+      cursors: (await app.backend()).cursors(),
+      now: app.io.now,
+      ...(extra.next ? { next: extra.next } : {}),
+    },
   );
+  const outcome = extra.elicitation ? await extra.elicitation.apply({ exitCode: rendered.exitCode as number, stderr: rendered.stderr, ...(rendered.error ? { error: rendered.error } : {}) }) : { exitCode: rendered.exitCode as number, stderr: rendered.stderr };
   app.out(rendered.stdout);
-  app.err(rendered.stderr);
-  return rendered.exitCode;
+  app.err(outcome.stderr);
+  return outcome.exitCode;
 }
 
 export const noOptions = (command: string, argv: readonly string[]): void => {

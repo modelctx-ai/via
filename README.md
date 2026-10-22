@@ -27,7 +27,7 @@ English | [简体中文](README.zh-CN.md)
 **MCP for providers, CLI for consumers.** Agent frameworks stop mounting MCP servers and stop loading hundreds of tool schemas into the context window. When an agent needs a tool, it uses `via` in the shell to browse, read the usage, and call it. via handles authentication and output formatting for every server the same way.
 
 > [!NOTE]
-> 0.3.1 is released (`npm install -g @modelctx-ai/via`). Roadmap 0.1–0.3 is in this version: direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts, Windows, and single-file executables. Commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior. The documentation under `docs/` is written in Chinese.
+> 0.3.1 is released (`npm install -g @modelctx-ai/via`). Roadmap 0.1–0.3 is in this version: direct and daemon modes, OAuth, `find`, `batch`, `trust`, resources/prompts and Windows. Commands and output may change before 1.0. [`docs/spec/`](docs/spec/) defines the behavior. The documentation under `docs/` is written in Chinese.
 
 ## Why via
 
@@ -50,7 +50,7 @@ On the 9 tasks of the [token benchmark](bench/results/0.4-tokens.md) (github, li
 - **Compact, predictable output.** One set of rendering rules for every server, a `next:` hint after every error, cursors for truncated output, and `-o json` for scripts.
 - **Built for the shell.** Pipe results between tools without passing them through the model, or send many calls through `via batch` at once.
 - **Guard rails.** `deny` rules hide tools, destructive tools need `--yes`, and project-level commands and endpoints need `via trust` before first use.
-- **Fast and portable.** Browsing a warm cache takes about 80 ms. A local daemon keeps MCP sessions open between calls. Runs on macOS, Linux and Windows, with single-file executables that do not need Node.js.
+- **Fast and portable.** Browsing a warm cache takes about 80 ms. A local daemon keeps MCP sessions open between calls. Runs on macOS, Linux and Windows.
 
 ## A quick look
 
@@ -100,9 +100,7 @@ npm install -g @modelctx-ai/via
 via --version
 ```
 
-On macOS and Linux, Homebrew installs the same npm package (and Homebrew's `node`): `brew install modelctx-ai/tap/via`. The formula is generated for every release; it reaches the tap by hand, so it can trail npm by a few days.
-
-Single-file executables that do not need Node.js are attached to the [GitHub Release](https://github.com/modelctx-ai/via/releases/latest). Platform notes, including Windows and those builds, are in the [getting-started guide](docs/guides/getting-started.md#1-安装).
+npm is the only distribution channel: there is no Homebrew formula and no prebuilt executable. Platform notes, including Windows, are in the [getting-started guide](docs/guides/getting-started.md#1-安装).
 
 To work on via itself: `git clone https://github.com/modelctx-ai/via.git && cd via && npm ci && npm run build && npm link`.
 
@@ -156,7 +154,7 @@ via prompt --skill --out <dir>/via/SKILL.md   # a SKILL.md instead, for agents t
 
 The block says what via is and asks the agent to prefer `via` over the MCP tools it already has. Keep one copy of it: Claude Code can pull that file in from CLAUDE.md with `@AGENTS.md` instead of keeping a second one.
 
-An agent without a shell (Claude Desktop, an IDE chat panel) mounts `via serve` as its only MCP server instead and gets seven meta-tools (`via_browse`, `via_find`, `via_call`, …, about 730 tokens) that behave exactly like the commands:
+An agent without a shell (Claude Desktop, an IDE chat panel) mounts `via serve` as its only MCP server instead and gets nine meta-tools (`via_browse`, `via_find`, `via_call`, …, about 1,150 tokens) that behave exactly like the commands:
 
 ```json
 { "mcpServers": { "via": { "command": "via", "args": ["serve"] } } }
@@ -176,7 +174,7 @@ See the [getting-started guide](docs/guides/getting-started.md) and [agent frame
 | `via resources` · `via read` · `via prompts` | MCP resources and prompts |
 | `via auth login\|status\|logout` | OAuth sign-in and status |
 | `via trust` | Approve the commands and endpoints in a project's `.via.yaml` |
-| `via serve` | Run as a stdio MCP server with seven meta-tools, for agents without a shell |
+| `via serve` | Run as a stdio MCP server with nine meta-tools, for agents without a shell |
 | `via doctor` · `via servers` · `via sync` | Diagnostics, server list, refresh the tool cache |
 
 Syntax, global options and exit codes are in the [CLI spec](docs/spec/cli.md) and [output spec](docs/spec/output.md); more combinations are in [recipes](docs/guides/recipes.md).

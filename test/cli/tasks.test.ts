@@ -115,13 +115,33 @@ describe.each(['legacy', 'modern'] as const)('tasks on the %s protocol', (protoc
     expect(late.stderr).toContain('error: gh/job/2 was not cancelled: it already completed\nnext: via tasks gh job/2\n');
   });
 
-  it('does not answer a task that waits for input: it says so and leaves the task alone', async () => {
+  it('does not answer a task that waits for input it cannot give: it says so and leaves the task alone', async () => {
     const { sb } = await setup(protocol);
     await detach(sb, ['report_job', '--ms', '100', '--mode', 'input']);
     const r = await sb.via(['tasks', 'gh', 'job/1']);
     expect(r.code).toBe(1);
-    expect(r.stderr).toMatch(/^error: gh\/job\/1 is waiting for input( \(elicitation\/create\))?, which via cannot give\nnext: via tasks gh job\/1 --cancel\n$/);
-    if (protocol === 'modern') expect(r.stderr).toContain('(elicitation/create)');
+    expect(r.stderr).toMatch(/^error: gh\/job\/1 is waiting for input( \((elicitation\/create|sampling\/createMessage)\))?, which via cannot give\nnext: via tasks gh job\/1 --cancel\n$/);
+    if (protocol === 'modern') expect(r.stderr).toContain('(sampling/createMessage)');
+  });
+
+  it('shows a task that waits for the user without asking, and says in next: how to answer it', async () => {
+    const { srv, sb } = await setup(protocol);
+    await detach(sb, ['report_job', '--ms', '100', '--mode', 'ask']);
+    const status = await sb.via(['tasks', 'gh', 'job/1', '--status'], { answers: ['Oslo', 'y'] });
+    expect(status.code).toBe(0);
+    expect(status.asked).toEqual([]);
+    expect(status.stdout).toMatch(/^task: gh\/job\/1\nstatus: input_required\n/);
+    expect(status.stdout).toContain('note: the server is waiting for the user to answer a question; the command in next: asks it in a terminal\n');
+    expect(normalize(status.stderr)).toMatch(/^· tasks gh · <t> · \d+ bytes · next: via tasks gh job\/1\n$/);
+    expect(JSON.parse((await sb.via(['tasks', 'gh', 'job/1', '--status', '-o', 'json'])).stdout)).toMatchObject({ status: 'input_required' });
+
+    const listed = await sb.via(['tasks', 'gh']);
+    expect(listed.stdout).toMatch(/^gh\/job\/1\s+input_required\s+/);
+    expect(listed.stderr).toMatch(/next: via tasks gh job\/1\n$/);
+    expect(listed.asked).toEqual([]);
+    // nothing was answered, nothing was fetched on the person's behalf
+    expect(srv.state.taskRequests.filter((r) => r.startsWith('result') || r.startsWith('update'))).toEqual([]);
+    expect(srv.state.elicited).toEqual([]);
   });
 
   it('lists the tasks, from the server where it keeps a list and from via’s own record where it does not', async () => {
@@ -171,6 +191,62 @@ describe.each(['legacy', 'modern'] as const)('tasks on the %s protocol', (protoc
     expect(Object.keys(record).sort()).toEqual(['createdAt', 'id', 'status', 'tool', 'version']);
     expect(record).toMatchObject({ id: 'job/1', version: 1 });
     expect(String(record.tool)).toMatch(/^gh report[-_:a-z]*job$/);
+  });
+});
+
+// The server's question is carried by `inputRequests` and `tasks/update` on the stateless protocol; the old protocol
+// carries it on `tasks/result` as a server-to-client request, which the stateless-JSON HTTP fixture cannot (the
+// stdio and daemon tests cover that one: test/cli/tasks-input.test.ts, test/daemon/tasks.test.ts).
+describe('waiting for a task that needs the user (stateless protocol, over HTTP)', () => {
+  it('asks at a terminal, sends the answer with tasks/update and prints the result', async () => {
+    const { srv, sb } = await setup('modern');
+    await detach(sb, ['report_job', '--ms', '100', '--mode', 'ask']);
+    const r = await sb.via(['tasks', 'gh', 'job/1'], { answers: ['Oslo', 'y'] });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe('report for Oslo ready after 100ms\n');
+    expect(r.asked).toEqual(['1/1 Region (region) - text, required: ', 'Send these answers to gh? [y]es / [n]o (decline) / [c]ancel: ']);
+    expect(r.stderr).toContain('? gh asks for your input (1 field;');
+    expect(srv.state.elicited).toEqual([{ tool: 'report_job', action: 'accept', content: { region: 'Oslo' } }]);
+    expect(srv.state.taskRequests.filter((x) => x.startsWith('update'))).toEqual(['update job/1']);
+    // The answer was given once: the next wait just prints the result.
+    const again = await sb.via(['tasks', 'gh', 'job/1'], { answers: [] });
+    expect(again.stdout).toBe('report for Oslo ready after 100ms\n');
+    expect(again.asked).toEqual([]);
+  });
+
+  it('declines without a terminal: the task goes on, and the outcome says the user was needed (exit code 5)', async () => {
+    const { srv, sb } = await setup('modern');
+    await detach(sb, ['report_job', '--ms', '100', '--mode', 'ask']);
+    const r = await sb.via(['tasks', 'gh', 'job/1']);
+    expect(r.code).toBe(5);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toBe(
+      [
+        'error: gh asked for user input ("Which region?") and no terminal was available to answer',
+        'the server then said: no region (decline)',
+        'next: ask the user to run this in a terminal',
+        '',
+      ].join('\n'),
+    );
+    expect(srv.state.elicited).toEqual([{ tool: 'report_job', action: 'decline' }]);
+  });
+
+  it('a person who cancels is not a refusal: the server decides what the task comes to', async () => {
+    const { sb } = await setup('modern');
+    await detach(sb, ['report_job', '--ms', '100', '--mode', 'ask']);
+    const r = await sb.via(['tasks', 'gh', 'job/1'], { answers: ['Oslo', 'c'] });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('no region (cancel)');
+    expect(r.stderr).not.toContain('no terminal');
+  });
+
+  it('does not answer a request that is not a question (sampling): it says so, as before', async () => {
+    const { srv, sb } = await setup('modern');
+    await detach(sb, ['report_job', '--ms', '100', '--mode', 'input']);
+    const r = await sb.via(['tasks', 'gh', 'job/1'], { answers: ['x'] });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toBe('error: gh/job/1 is waiting for input (sampling/createMessage), which via cannot give\nnext: via tasks gh job/1 --cancel\n');
+    expect(srv.state.taskRequests.filter((x) => x.startsWith('update'))).toEqual([]);
   });
 });
 

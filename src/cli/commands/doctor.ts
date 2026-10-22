@@ -32,7 +32,18 @@ export async function doctorCommand(app: App): Promise<number> {
     }),
   );
 
-  const out = renderDoctor({ config, frameworks: BUNDLED_FRAMEWORKS, probes, catalogWarnings: table.warnings, home: app.io.home, proxy: describeProxy(proxySettings(app.io.env)) });
+  const { logDir, logsSummary } = await import('../../log');
+  const dir = logDir(app.cacheDir);
+  const used = await logsSummary(dir);
+  const out = renderDoctor({
+    config,
+    frameworks: BUNDLED_FRAMEWORKS,
+    probes,
+    catalogWarnings: table.warnings,
+    home: app.io.home,
+    proxy: describeProxy(proxySettings(app.io.env)),
+    logs: { dir, ...(used ?? {}) },
+  });
   app.out(`${out.text}\n`);
   return out.exitCode;
 }

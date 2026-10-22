@@ -56,8 +56,9 @@
 
 - **跟随**：任务的结果就是工具结果，渲染、预算、游标、脱敏与元信息行都与同步调用一致；任务的存在只多一行 stderr 的 `progress: task <provider>/<任务ID> <状态>`（与 `progress:` 的进度行同一类，`-o json` 时同样写 stderr）。
 - **`--detach`**：`task:`、`status:`（有 `statusMessage` 时 `message:`）三行内的对象，元信息行以 `next: via tasks <provider> <任务ID>` 结尾（调用的元信息行名称是工具的规范写法）；没有任务时就是结果加标记 `no task`。
+- **`input_required`**：`--detach`、`--status` 与任务列表只显示状态，不提问；`--status` 的对象多一行 `note:`，元信息行以 `next: via tasks <provider> <任务ID>`（ID 按[引号规则](#可粘贴的命令行)引用）结尾，那条命令在终端里提问。列表里有这样的任务时，元信息行同样以它的 `next:` 结尾。跟随与 `via tasks <provider> <任务ID>` 的等待才提问，规则同调用中途的提问（下「server 向用户提问」）。
 - **`via tasks`**：任务列表是对齐的文本表（任务 ID、状态、工具、创建时间）；`--status`、`--cancel` 是 `key: value` 对象；等待的结果同工具结果，元信息行名称是 `tasks <provider>`，不含任务 ID（它相当于凭据）。
-- **退出码**：成功 0；任务 `failed`/`cancelled` 为 1（同 `isError`）；`--detach` 不能满足为 2；任务或 provider 的 tasks 不存在为 3；`--timeout` 到而任务仍在跑为 6（任务没有被取消，`next:` 是继续等的命令）；`input_required` 为 1（`next:` 是 `--cancel`）。
+- **退出码**：成功 0；任务 `failed`/`cancelled` 为 1（同 `isError`）；`--detach` 不能满足为 2；任务或 provider 的 tasks 不存在为 3；`--timeout` 到而任务仍在跑为 6（任务没有被取消，`next:` 是继续等的命令）；任务在 `input_required` 时 via 答复它的提问（见下「server 向用户提问」），没有终端可答而任务因此失败为 5；任务等的是 via 不能给的输入（不是 elicitation）为 1（`next:` 是 `--cancel`）。
 
 ## 输出格式
 
@@ -149,6 +150,7 @@ next: via auth login linear
   - 因其他原因失败（超时、传输错误）：原来的错误与退出码不变，错误前多上面的 `warning:` 与 `next:` 两行。
   - `-o json`：退出码 5 的错误照常是 `{"error": {"code": 5, "message": …, "next": …}}`；成功时的两行仍是文本。
   - `next:` 里的命令行由[引用函数](#可粘贴的命令行)拼出，参数来自 stdin（`-`）时不写命令，只写 `ask the user to run this in a terminal`；`via batch` 的行写成 `via call <工具> --args '<json>'`（参数超过 500 字符时省略命令）。
+- **任务里的提问**：任务进入 `input_required`（[cli.md](cli.md#任务via-tasks-与---detach)）时，调用跟随它、`via tasks <provider> <任务ID>` 等待它的那条命令就是被问的人，规则与上面相同：有人则提问并继续等，没有人则回答 `decline`、任务继续。任务最终成功：退出码 0，元信息行之前多 `warning:` 与 `next:`；任务因此失败（`failed`，或 `isError` 的结果）：退出码 5，`next:` 同上；调用跟随的任务，`next:` 里是原命令行，`via tasks` 没有原命令可写，`next:` 只写 `ask the user to run this in a terminal`。`--detach`、`--status` 与列表不提问。
 - server 的文字用 `"…"` 引起来、折成一行并限长 120 字符；它不能制造一行 `next:` 或移动光标。
 - 答案与问题的内容不进日志、不进游标（[security.md](security.md#elicitation)）。
 

@@ -8,16 +8,10 @@
 
 ```bash
 npm install -g @modelctx-ai/via
-```
-
-macOS 和 Linux 上也可以用 Homebrew（会同时装 Homebrew 的 `node`）：
-
-```bash
-brew install modelctx-ai/tap/via
 via --version
 ```
 
-这个 formula 装的是同一个 npm 包；每个 Release 附带渲染好的 `via.rb`，tap 仓库（`modelctx-ai/homebrew-tap`）在手工合入之后才有新版本，所以 Homebrew 上的版本可能比 npm 晚几天。生成方式与取舍见[实现说明](../development/implementation.md#homebrew)。
+via 只通过 npm 分发（[ADR 0023](../adr/0023-npm-is-the-only-distribution-channel.md)）：没有 Homebrew formula，没有免装 Node 的单文件可执行，也没有签名或公证的安装包。没有 Node.js 的机器（容器、CI 镜像）先装 Node 再用 npm。
 
 从源码安装（开发 via 本身时，需要 Node.js 20+）：
 
@@ -25,26 +19,6 @@ via --version
 git clone https://github.com/modelctx-ai/via.git && cd via
 npm ci && npm run build && npm link
 ```
-
-没有 Node.js 的机器（容器、CI 镜像）可以改用单文件可执行版本：从发布页下载与平台对应的 `via-<系统>-<架构>` 文件，用同一页的 `SHA256SUMS` 校验，放到 `PATH` 里即可，不需要其他依赖。
-
-```bash
-sha256sum --check --ignore-missing SHA256SUMS      # macOS 上用 shasum -a 256 -c
-chmod +x via-linux-x64 && mv via-linux-x64 ~/.local/bin/via
-via --version
-```
-
-| 文件 | 平台 |
-| --- | --- |
-| `via-linux-x64`、`via-linux-arm64` | Linux（glibc）；x64 版本要求 CPU 支持 AVX2 |
-| `via-linux-x64-musl`、`via-linux-arm64-musl` | Alpine 等 musl 发行版 |
-| `via-darwin-arm64`、`via-darwin-x64` | macOS |
-| `via-windows-x64.exe` | Windows（见下「Windows」；单文件版本尚未在 Windows 上实测） |
-
-- 行为与 npm 版本一致（配置、daemon、OAuth、钥匙串），冷启动更快；文件约 65–95 MiB，因为里面带着完整的 Bun 运行时。
-- macOS 上经浏览器下载的文件带有隔离属性，首次运行会被 Gatekeeper 拦下（发布的文件没有 Apple 公证）：用 `curl -L -o` 下载，或执行 `xattr -d com.apple.quarantine via`。
-- 钥匙串模块在文件里；加载不了时（例如 Linux 服务器上没有 Secret Service）`keychain:` 引用会报错并提示改用 `env:` 或 `file:`，OAuth 登录自动退回私有文件。
-- 自己构建：`bun` 装好之后 `npm run build:bin`，产物在 `dist/bin/`（[实现说明](../development/implementation.md#单文件可执行)）。
 
 ### Windows
 

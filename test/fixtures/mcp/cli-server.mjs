@@ -118,18 +118,25 @@ const PROMPTS = [
 ];
 
 // Tasks ---------------------------------------------------------------------------------------------------------
-// `report_job` takes `ms` (how long the job runs) and `mode`: `ok`, `fail`, `input` (waits for input for ever) or `stubborn`
-// (does not stop when cancelled). The old generation (2025-11-25) makes a task when the client asks for one (`params.task`);
+// `report_job` takes `ms` (how long the job runs) and `mode`: `ok`, `fail`, `input` (waits for input for ever: on the
+// stateless generation for a sampling request, which via cannot answer), `ask` (is `input_required` until the client's user
+// answers a question: through `tasks/result` and `elicitation/create` on the old generation, through `inputRequests` of
+// `tasks/get` and `tasks/update` on the stateless one) or `stubborn` (does not stop when cancelled). The old generation (2025-11-25) makes a task when the client asks for one (`params.task`);
 // the stateless generation (2026-07-28, the `io.modelcontextprotocol/tasks` extension) makes one when the client declared
 // the extension and the job takes 100 ms or more. A task's status follows the clock.
 
 const TASK_TOOLS = [
-  { name: 'report_job', description: 'Builds a report (a long job)', execution: { taskSupport: 'optional' }, inputSchema: object({ ms: { type: 'number' }, mode: { type: 'string', enum: ['ok', 'fail', 'input', 'stubborn'] } }) },
-  { name: 'must_task', description: 'Only runs as a task', execution: { taskSupport: 'required' }, inputSchema: object({ ms: { type: 'number' } }) },
+  { name: 'report_job', description: 'Builds a report (a long job)', execution: { taskSupport: 'optional' }, inputSchema: object({ ms: { type: 'number' }, mode: { type: 'string', enum: ['ok', 'fail', 'input', 'ask', 'stubborn'] } }) },
+  { name: 'must_task', description: 'Only runs as a task', execution: { taskSupport: 'required' }, inputSchema: object({ ms: { type: 'number' }, mode: { type: 'string', enum: ['ok', 'fail', 'ask'] } }) },
 ];
 const TASKS_EXTENSION = 'io.modelcontextprotocol/tasks';
-const taskStatus = (t, now = Date.now()) => (t.cancelled ? 'cancelled' : t.mode === 'input' ? 'input_required' : now - t.createdAt < t.ms ? 'working' : t.mode === 'fail' ? 'failed' : 'completed');
-const taskResult = (t) => ({ content: [{ type: 'text', text: `report ready after ${t.ms}ms` }] });
+const taskStatus = (t, now = Date.now()) => (t.cancelled ? 'cancelled' : t.mode === 'input' || (t.mode === 'ask' && !t.answer) ? 'input_required' : now - t.createdAt < t.ms ? 'working' : t.mode === 'fail' ? 'failed' : 'completed');
+/** The question of an `ask` job. */
+const ASK = { message: 'Which region?', requestedSchema: { type: 'object', properties: { region: { type: 'string', title: 'Region' } }, required: ['region'] } };
+const taskResult = (t) =>
+  t.answer && t.answer.action !== 'accept'
+    ? { content: [{ type: 'text', text: `no region (${t.answer.action})` }], isError: true }
+    : { content: [{ type: 'text', text: t.answer ? `report for ${t.answer.content?.region} ready after ${t.ms}ms` : `report ready after ${t.ms}ms` }] };
 const iso = (ms) => new Date(ms).toISOString();
 
 // Skills (the extension is part of the stateless protocol: only the `modern` flavor serves them) ---------------------
@@ -266,6 +273,13 @@ export function createCliServer({ state, authorization, features = [], flavor = 
       state.taskRequests.push(`result ${params.taskId}`);
       const t = state.tasks.get(params.taskId);
       if (!t) return unknownTask(h, params.taskId);
+      if (t.mode === 'ask' && !t.answer && !t.cancelled) {
+        // The task waits for the client's user: ask them here, on the stream of this request.
+        const answer = await h.elicit('ask', ASK);
+        if (!answer) return h.fail(-32603, 'the client cannot be asked');
+        t.answer = answer;
+        state.elicited.push({ tool: t.tool, action: answer.action, content: answer.content });
+      }
       for (let i = 0; i < 100 && taskStatus(t) === 'working'; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
       const status = taskStatus(t);
       if (status === 'completed') return { ...taskResult(t), _meta: { 'io.modelcontextprotocol/related-task': { taskId: t.id } } };
@@ -295,8 +309,19 @@ export function createCliServer({ state, authorization, features = [], flavor = 
         ...base(t),
         ...(status === 'completed' ? { result: taskResult(t) } : {}),
         ...(status === 'failed' ? { error: { code: -32603, message: 'job failed' }, statusMessage: 'job failed' } : {}),
-        ...(status === 'input_required' ? { inputRequests: { ask: { method: 'elicitation/create', params: { message: 'Which region?', mode: 'form', requestedSchema: { type: 'object', properties: {} } } } } } : {}),
+        ...(status === 'input_required' ? { inputRequests: t.mode === 'ask' ? { ask: { method: 'elicitation/create', params: { ...ASK, mode: 'form' } } } : { pick: { method: 'sampling/createMessage', params: { messages: [], maxTokens: 1 } } } } : {}),
       };
+    };
+    table['tasks/update'] = async (params, h) => {
+      state.taskRequests.push(`update ${params.taskId}`);
+      const t = state.tasks.get(params.taskId);
+      if (!t) return unknownTask(h, params.taskId);
+      const answer = h.inputResponses()?.ask;
+      if (t.mode === 'ask' && !t.answer && answer) {
+        t.answer = answer;
+        state.elicited.push({ tool: t.tool, action: answer.action, content: answer.content });
+      }
+      return {};
     };
     table['tasks/cancel'] = async (params, h) => {
       state.taskRequests.push(`cancel ${params.taskId}`);

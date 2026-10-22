@@ -16,10 +16,13 @@ import { originOf, programOf, type ServerLog } from '../log';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
 import { describeServer } from './server-info';
-import { CreatedTaskShim, inlineResult, isTerminal, pollDelay, readTask, TASKS_EXTENSION } from './tasks';
+import { CreatedTaskShim, inlineResult, inputRequestsOf, isTerminal, pollDelay, readTask, TASKS_EXTENSION } from './tasks';
 import { chooseFile, contentBytes, parseSkillEntry, SKILLS_EXTENSION, verifyFile } from './skills';
 import type { ViaOAuthProvider } from './oauth/provider';
 import type { OAuthStore } from './oauth/store';
+
+/** Whoever answers a server's questions for the operation running now, and the time that operation has left. */
+type Asker = { sink: ElicitSink; left: () => number };
 
 export interface CallOptions {
   /** Overrides `ServerConfig.timeout` for this call. */
@@ -48,6 +51,11 @@ export interface ListOptions {
   onTtl?: (ttlMs: number) => void;
   /** Something the person should know about, caused by this operation (see `SessionOptions.onWarning`). */
   onWarning?: (message: string) => void;
+  /**
+   * Who answers the questions of a task in `input_required` while it is waited for (`waitForTask`; elicitation,
+   * ADR 0018, cli.md "任务"). None: the wait stops at a task that needs input. Other operations ignore it.
+   */
+  elicit?: ElicitSink;
 }
 
 export interface SessionOptions {
@@ -206,7 +214,7 @@ export class McpSession {
   /** Abandons the connection being made (`close()` while connecting). */
   private abortConnect?: () => void;
   /** The calls running now that can be asked to answer a server's question, oldest first. */
-  private readonly askers = new Set<{ sink: ElicitSink; left: () => number }>();
+  private readonly askers = new Set<Asker>();
   private readonly log: ServerLog | undefined;
 
   constructor(
@@ -425,7 +433,7 @@ export class McpSession {
           made = started.task;
           options.onTask?.(started.task);
           if (detach) return started;
-          const outcome = await this.waitTask(handle, { task: started.task, fresh: false }, left, timeoutMs, true);
+          const outcome = await this.waitTask(handle, { task: started.task, fresh: false }, left, timeoutMs, true, asker);
           return { result: outcome.result! };
         });
       };
@@ -455,7 +463,7 @@ export class McpSession {
   }
 
   /** Send `tools/call` and sort the answer into a result or a created task. */
-  private async startCall(handle: Handle, rawName: string, args: Record<string, unknown> | undefined, options: CallOptions, detach: boolean, left: () => number, asker: { sink: ElicitSink; left: () => number } | undefined): Promise<DetachedCall> {
+  private async startCall(handle: Handle, rawName: string, args: Record<string, unknown> | undefined, options: CallOptions, detach: boolean, left: () => number, asker: Asker | undefined): Promise<DetachedCall> {
     const modern = handle.client.getProtocolEra() === 'modern';
     const capabilities = handle.client.getServerCapabilities() as { tasks?: { requests?: { tools?: { call?: unknown } } }; extensions?: Record<string, unknown> } | undefined;
     // The old protocol: the client asks for a task, for a tool that requires one or when detaching, if the server and the tool allow it.
@@ -521,23 +529,39 @@ export class McpSession {
   /**
    * Follow a task until it ends or `left()` runs out: ask at the pace the server suggests, then take the result from where
    * the generation keeps it (`tasks/result` on the old protocol, inline in `tasks/get` on the stateless one). A failed or
-   * cancelled task gives an error result, as a failing tool would. A task that waits for input stops the wait: `follow`
-   * (a call) turns that into an error, the task commands report the state. Running out of time is an error that names the
+   * cancelled task gives an error result, as a failing tool would. A task in `input_required` is answered through `asker`
+   * (elicitation, ADR 0018; see `blockOnTaskResult` and `answerTaskInput` for the two generations) and then followed on. A
+   * task that needs input nobody can give (no `asker`, or a request that is not an elicitation) stops the wait: `follow` (a
+   * call) turns that into an error, the task commands report the state. Running out of time is an error that names the
    * task and does not cancel it.
    */
-  private async waitTask(handle: Handle, initial: { task: TaskInfo; raw?: unknown; fresh: boolean }, left: () => number, timeoutMs: number, follow: boolean): Promise<TaskOutcome> {
+  private async waitTask(handle: Handle, initial: { task: TaskInfo; raw?: unknown; fresh: boolean }, left: () => number, timeoutMs: number, follow: boolean, asker?: Asker): Promise<TaskOutcome> {
     const modern = handle.client.getProtocolEra() === 'modern';
     let { task, raw, fresh } = initial;
     // On the old protocol the status of a created task can be acted on at once; on the stateless one the answer to `tools/call`
     // never carries the outcome, so a task that is already over still needs its `tasks/get`.
     if (!modern) fresh = true;
     const seconds = String(Math.round(timeoutMs / 100) / 10);
+    // The keys of the requests already answered: a server that is slow to move on still lists them for a moment.
+    const answered = new Set<string>();
+    const cannotGive = (): TaskOutcome => {
+      if (follow) throw taskNeedsInput(this.server, task.id, task.inputMethods ?? [], this.redactor());
+      return { task };
+    };
     for (;;) {
       if (task.status === 'input_required') {
-        if (follow) throw taskNeedsInput(this.server, task.id, task.inputMethods ?? [], this.redactor());
-        return { task };
-      }
-      if (isTerminal(task.status) && fresh) break;
+        if (!asker) return cannotGive();
+        if (modern) {
+          if ((await this.answerTaskInput(handle, task, raw, asker, answered, left)) === 'unanswerable') return cannotGive();
+        } else {
+          const blocked = await this.blockOnTaskResult(handle, task, left, seconds);
+          if (blocked.result) return blocked;
+          ({ task } = blocked);
+          fresh = true;
+          if (task.status === 'input_required') return cannotGive();
+          continue;
+        }
+      } else if (isTerminal(task.status) && fresh) break;
       if (!isTerminal(task.status)) {
         if (left() <= 1) throw taskStillRunning(this.server, task.id, seconds, this.redactor());
         await new Promise<void>((resolve) => setTimeout(resolve, Math.min(pollDelay(task), left())));
@@ -561,6 +585,55 @@ export class McpSession {
     return { task, result: failure(task.status === 'cancelled' ? `task was cancelled${why ? `: ${why}` : ''}` : (why ?? 'task failed')) };
   }
 
+  /**
+   * 2025-11-25: a task in `input_required` is resolved by calling `tasks/result`, which blocks while the server sends its
+   * `elicitation/create` requests to the client (the session's handler hands them to the asker) and answers with the
+   * task's result once it ended. The result is the outcome; when the request fails instead (a failed task answers it with
+   * the error of the request it stood for) the task's state is asked for and returned without a result, for the caller to
+   * look at again.
+   */
+  private async blockOnTaskResult(handle: Handle, task: TaskInfo, left: () => number, seconds: string): Promise<TaskOutcome> {
+    try {
+      const result = await handle.client.request({ method: 'tasks/result', params: { taskId: task.id } } as never, RAW, { timeout: left() });
+      if (typeof result !== 'object' || result === null || Array.isArray(result)) throw new Error('tasks/result answered with something that is not a result');
+      const done = result as ToolCallResult;
+      return { task: { ...task, status: done.isError ? 'failed' : 'completed' }, result: done };
+    } catch (err) {
+      if (isNotFoundCode(err)) throw taskNotFound(this.server, task.id, this.redactor());
+      // The time ran out while the server (or the person) was taking its time.
+      if (left() <= 5) throw taskStillRunning(this.server, task.id, seconds, this.redactor());
+      const now = await this.fetchTask(handle, task.id, left).then((f) => f.task, () => undefined);
+      if (now === undefined) throw err;
+      return { task: now };
+    }
+  }
+
+  /**
+   * 2026-07-28: `tasks/get` of a task in `input_required` lists its `inputRequests`; the client answers them with
+   * `tasks/update` (`inputResponses`, keyed like the requests, each the bare result of the request) and polls on. Only
+   * elicitation is answered (via declares no sampling, and roots are not asked for in tasks): any other request, or none,
+   * is `unanswerable`. Requests already answered are not asked again. `waiting`: nothing new to answer yet.
+   */
+  private async answerTaskInput(handle: Handle, task: TaskInfo, raw: unknown, asker: Asker, answered: Set<string>, left: () => number): Promise<'sent' | 'waiting' | 'unanswerable'> {
+    if (raw === undefined) return 'waiting'; // the answer to `tools/call` carries no requests: the next `tasks/get` does
+    const requests = inputRequestsOf(raw);
+    if (!requests || requests.some((r) => r.method !== 'elicitation/create')) return 'unanswerable';
+    const pending = requests.filter((r) => !answered.has(r.key));
+    if (pending.length === 0) return 'waiting';
+    const redact = this.redactor();
+    const responses: Array<[string, ElicitAnswer]> = [];
+    for (const request of pending) {
+      const question = parseQuestion(redactValue(request.params, (text) => redact(text)), this.server.provider);
+      responses.push([request.key, question ? await this.askPerson(asker, question) : { action: 'decline' }]);
+    }
+    await handle.client.request({ method: 'tasks/update', params: { taskId: task.id, inputResponses: Object.fromEntries(responses) } } as never, RAW, { timeout: left() }).catch((err: unknown) => {
+      if (isNotFoundCode(err)) throw taskNotFound(this.server, task.id, this.redactor());
+      throw err;
+    });
+    for (const [key] of responses) answered.add(key);
+    return 'sent';
+  }
+
   /** `tasks/get` for a task id. */
   getTask(taskId: string, options: ListOptions = {}): Promise<TaskInfo> {
     return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
@@ -575,7 +648,14 @@ export class McpSession {
     return this.operate(timeoutMs, undefined, async (handle, left) => {
       this.requireTasks(handle);
       const first = await this.fetchTask(handle, taskId, left);
-      return this.waitTask(handle, { ...first, fresh: true }, left, timeoutMs, false);
+      // While the task is waited for, the server may ask the person behind this command something (elicitation, ADR 0018).
+      const asker = options.elicit ? { sink: options.elicit, left } : undefined;
+      if (asker) this.askers.add(asker);
+      try {
+        return await this.waitTask(handle, { ...first, fresh: true }, left, timeoutMs, false, asker);
+      } finally {
+        if (asker) this.askers.delete(asker);
+      }
     });
   }
 
@@ -960,7 +1040,7 @@ export class McpSession {
     return this.askPerson(asker, question);
   }
 
-  private async askPerson(asker: { sink: ElicitSink; left: () => number }, question: ElicitQuestion): Promise<ElicitAnswer> {
+  private async askPerson(asker: Asker, question: ElicitQuestion): Promise<ElicitAnswer> {
     let answer: ElicitAnswer;
     try {
       answer = parseAnswer(await asker.sink.ask({ ...question, timeLeftMs: asker.left() }));
@@ -976,7 +1056,7 @@ export class McpSession {
    * `err` is `URLElicitationRequired` (2025-11-25) and the person visited every page it names, so the call can
    * be made again. False for any other error, with nobody to ask, or when the person declined or cancelled.
    */
-  private async visitedUrls(err: unknown, asker: { sink: ElicitSink; left: () => number } | undefined): Promise<boolean> {
+  private async visitedUrls(err: unknown, asker: Asker | undefined): Promise<boolean> {
     const urls = urlElicitationsOf(err);
     if (!urls || !asker) return false;
     const redact = this.redactor();

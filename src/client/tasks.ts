@@ -42,6 +42,24 @@ export function readTask(raw: unknown): TaskInfo | undefined {
   return task;
 }
 
+/** One request a 2026-07-28 task in `input_required` waits for an answer to (`inputRequests` of `tasks/get`): its key, method and parameters. */
+export interface TaskInputRequest {
+  key: string;
+  method: string;
+  params: unknown;
+}
+
+/**
+ * The requests a stateless-protocol `tasks/get` result carries for a task in `input_required`: a map from the
+ * server's keys to `{method, params}`, the same objects a `tools/call` answered with `input_required` embeds. Undefined
+ * when there are none; an entry without a method string is kept as `unknown request` so that it can be reported.
+ */
+export function inputRequestsOf(raw: unknown): TaskInputRequest[] | undefined {
+  if (!isRecord(raw) || !isRecord(raw.inputRequests)) return undefined;
+  const requests = Object.entries(raw.inputRequests).map(([key, r]): TaskInputRequest => ({ key, method: isRecord(r) && typeof r.method === 'string' ? r.method : 'unknown request', params: isRecord(r) ? r.params : undefined }));
+  return requests.length > 0 ? requests : undefined;
+}
+
 /** Milliseconds to wait before asking again: what the server suggested, kept between 100 ms and 5 s (default 1 s). */
 export function pollDelay(task: TaskInfo): number {
   const hint = task.pollMs;

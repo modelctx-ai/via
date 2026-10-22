@@ -7,7 +7,7 @@ import { daemonSandbox } from '../helpers/daemon';
 import { fixtureScript, type Generation } from '../helpers/generation';
 
 const config = (generation: Generation) =>
-  `sources: false\nservers:\n  fs:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(fixtureScript('cli-stdio-server', generation))}]\n    env: { CLI_FIXTURE_FEATURES: "tasks" }\n`;
+  `sources: false\nservers:\n  fs:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(fixtureScript('cli-stdio-server', generation))}]\n    env: { CLI_FIXTURE_FEATURES: "tasks,elicit" }\n`;
 
 describe.each(['legacy', 'modern'] as const)('tasks through the daemon, %s protocol', (generation) => {
   it('follows a call, detaches, waits, lists and cancels', async () => {
@@ -40,5 +40,48 @@ describe.each(['legacy', 'modern'] as const)('tasks through the daemon, %s proto
     expect(slow.code).toBe(6);
     expect(slow.stderr).toContain('error: still running as task fs/job/1 after 0.5s; it was not cancelled\nnext: via tasks fs job/1\n');
     expect((await d.via(['tasks', 'fs', 'job/1', '--status'])).stdout).toContain('status: working');
+  });
+
+  // A task in `input_required` asks the person behind the command that waits for it, through the daemon: an `elicit`
+  // event to that CLI and its `elicit-reply` back (daemon.md, "elicitation"); the daemon itself has no terminal.
+  it('relays the question of a task that needs the user to the CLI that follows it', async () => {
+    const d = await daemonSandbox(config(generation), { GH_TOKEN: FAKE_TOKEN });
+    const followed = await d.via(['fs', 'must_task', '--ms', '100', '--mode', 'ask'], { answers: ['Oslo', 'y'] });
+    expect(followed.code).toBe(0);
+    expect(followed.stdout).toBe('report for Oslo ready after 100ms\n');
+    expect(followed.asked).toEqual(['1/1 Region (region) - text, required: ', 'Send these answers to fs? [y]es / [n]o (decline) / [c]ancel: ']);
+    expect(followed.stderr).toContain('? fs asks for your input (1 field;');
+  });
+
+  it('shows a waiting task without asking, then asks at the terminal that waits for it with `via tasks`', async () => {
+    const d = await daemonSandbox(config(generation), { GH_TOKEN: FAKE_TOKEN });
+    const detached = await d.via(['fs', '--detach', 'must_task', '--ms', '100', '--mode', 'ask'], { answers: ['never asked'] });
+    expect(detached.code).toBe(0);
+    expect(detached.asked).toEqual([]);
+
+    const status = await d.via(['tasks', 'fs', 'job/1', '--status'], { answers: ['never asked'] });
+    expect(status.asked).toEqual([]);
+    expect(status.stdout).toMatch(/^task: fs\/job\/1\nstatus: input_required\n/);
+    expect(status.stderr).toMatch(/next: via tasks fs job\/1\n$/);
+
+    const waited = await d.via(['tasks', 'fs', 'job/1'], { answers: ['Oslo', 'y'] });
+    expect(waited.code).toBe(0);
+    expect(waited.stdout).toBe('report for Oslo ready after 100ms\n');
+    expect(waited.asked).toEqual(['1/1 Region (region) - text, required: ', 'Send these answers to fs? [y]es / [n]o (decline) / [c]ancel: ']);
+  });
+
+  it('declines the question of a waiting task where there is no terminal: exit code 5, the task has its answer', async () => {
+    const d = await daemonSandbox(config(generation), { GH_TOKEN: FAKE_TOKEN });
+    await d.via(['fs', '--detach', 'must_task', '--ms', '100', '--mode', 'ask']);
+    const r = await d.via(['tasks', 'fs', 'job/1']);
+    expect(r.code).toBe(5);
+    expect(r.stderr).toBe(
+      [
+        'error: fs asked for user input ("Which region?") and no terminal was available to answer',
+        'the server then said: no region (decline)',
+        'next: ask the user to run this in a terminal',
+        '',
+      ].join('\n'),
+    );
   });
 });

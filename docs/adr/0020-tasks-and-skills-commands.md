@@ -47,7 +47,10 @@ via tasks <provider> <任务ID> --cancel         取消任务
 - 默认：调用照常，server 建了任务（2026 由 server 决定；2025 只在工具声明 `taskSupport: required` 时 via 才去要，`optional` 的工具照旧同步调用）就轮询到结束，期间用 `progress:` 行报告任务 ID，最后输出与同步调用一致。整个过程受 `--timeout`（缺省为 server 的 `timeout`）约束；超时时任务**不被取消**，报错（退出码 6）给出任务 ID 和 `next: via tasks <provider> <任务ID>`，用同一个命令继续等。
 - `--detach`（全局选项）：任务创建后立即返回，输出 `task: <provider>/<任务ID>` 与 `status:`，`next:` 指向 `via tasks`。2026 的 server 可以不建任务而直接回结果，这时照常输出结果并在元信息行标 `no task`。server（2025 还要加上工具）不支持任务时 `--detach` 是错误，不悄悄改成同步调用——它的意图就是不阻塞。
 - 任务 ID 的**对外写法带 provider 前缀**：`gh/9f3a…`，与单字符串的工具引用 `gh/issue:read` 同一个约定。`via tasks` 两种写法都接受（`via tasks gh 9f3a…`、`via tasks gh/9f3a…`）：先把第一个参数当 provider 解析，不成再按第一个 `/` 拆开。任务 ID 是 server 给的不透明字符串，可能含 `/`，所以只拆第一个。命令行里的 `next:` 提示用两词写法，ID 按[引号规则](../spec/output.md#可粘贴的命令行)引用。
-- 有 `input_required` 状态的任务（server 要 client 回答问题）：via 不回答，停止跟随，报告任务 ID 与需要什么，退出码 1，`next:` 为 `--cancel`。回答需要 elicitation，不在这里做。
+- 有 `input_required` 状态的任务（server 要 client 回答问题）：**via 回答 elicitation**，然后继续跟随（初版不回答，停下并给出 `--cancel`；补充于 2026-10-22，没有改变上面的任何决定，所以不另开 ADR）。跟随一个任务的命令（调用的默认路径、`via tasks <provider> <任务ID>` 的等待）就是被问的人，规则与调用中途的提问相同（[ADR 0018](0018-elicitation-in-a-terminal-declined-elsewhere.md)）：有终端就提问，没有（`via batch`、`via serve`、agent 经 shell）就回答 `decline`，任务继续，结果里说明（退出码 0 加 `warning:`，或任务因此失败为 5）。`--detach`、`--status` 与任务列表**不**提问：只显示状态，`next:` 是 `via tasks <provider> <任务ID>`，在终端里运行它即回答。两代协议的做法不同，都得到支持：
+  - `2025-11-25`：任务在 `input_required` 时 client 调 `tasks/result`。它一直阻塞到任务结束，server 的 `elicitation/create` 请求沿同一条连接发给 client，由 via 注册的同一个处理器交给当前命令的 `ElicitSink`，`tasks/result` 最后返回任务的结果。`tasks/result` 失败而任务已经结束（失败的任务用请求的错误回答它）时取任务状态，按失败任务输出。
+  - `2026-07-28`：`tasks/get` 在 `input_required` 时带 `inputRequests`（键 → `{method, params}`，与 `tools/call` 的 `input_required` 里嵌的请求同形）。client 用 `tasks/update` 回答：`{taskId, inputResponses}`，键与请求相同，值是请求的结果本身（elicitation 的 `{action, content?}`，不包 `{method, result}` 信封），之后继续轮询 `tasks/get`。SDK 2.3.1 没有 `tasks/update` 的类型（它只在 `Mcp-Name` 请求头的映射里出现），via 经 `request()` 自己发；同一个键只回答一次。
+  - 只回答 `elicitation/create`。任务等的是别的请求（`sampling/createMessage`：via 不声明 sampling；`roots/list`：任务里不回答），或没有可答的请求时，仍然停止、退出码 1、`next:` 为 `--cancel`。
 - **via 自己的记录**：2026 的扩展没有 `tasks/list`，所以 `via tasks <provider>` 只能列出 via 建的任务。记录放在用户缓存目录的 `tasks/<server 哈希>/`（哈希同目录缓存键，绑定 server 定义而不是别名），每个任务一个小文件（权限 0600，目录 0700）：任务 ID、规范写法的工具引用、创建时间、最近一次看到的状态；**不含参数与结果**。任务一创建（`progress:` 行同时）就写，所以跟随被中断也找得回；每个 server 最多 50 个、最长 30 天，超出时写入时清理。它是缓存：删掉只会失去「列出」，已知 ID 的 `via tasks <provider> <ID>` 照常工作。2025 的 server 声明了 `tasks.list` 时列表取自 server（并按 ID 补上记录里的工具名），否则同样用记录。列表对记录里的每个任务（最近 20 个）向 server 要当前状态，server 已不认识的标 `expired` 并从记录里删除。
 - 任务 ID 相当于凭证（扩展里它就是访问任务的凭据）：不进元信息行里的名称；记录文件的权限同缓存目录。
 
@@ -78,4 +81,4 @@ via tasks <provider> <任务ID> --cancel         取消任务
 - 全局选项 `--detach` 成为需要 `--p.` 前缀的参数名（同 `--full`、`--yes`、`--complete`）；用在没有工具调用的命令上退出码 2。
 - `ServerFeatures` 多一个可缺省的 `skills`；daemon 协议的 `call` 多 `detach`、`taskSupport` 和 `task` 事件，另有 `task`、`skills-list`、`skill-read` 请求；`McpClient` 多对应的方法。SDK 在首次连接时才加载，冷启动不变；`io.modelcontextprotocol/tasks` 在 client 能力里声明（所有连接，所有请求），所以 2026 的 server 可能把任何调用变成任务，via 总是跟随它。
 - 任务相关的 `tasks/*` 请求经 SDK 发出（`Mcp-Name` 请求头由 SDK 设置），响应解码前由 via 的小垫片取出 `resultType: "task"`，SDK 提供自己的扩展 API 后可以删掉。
-- 附带的限制：不回答 `input_required`；2026 的 `tasks/update` 与 `notifications/tasks/status` 不实现（轮询足够）；`tasks/list` 的分页取全。
+- 附带的限制：只回答 `input_required` 里的 elicitation（见上）；2026 的 `notifications/tasks/status` 不实现（轮询足够），`tasks/update` 只用来送回 elicitation 的答案；`tasks/list` 的分页取全。

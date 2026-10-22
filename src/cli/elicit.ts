@@ -45,6 +45,11 @@ export class Elicitation {
     this.sink = { ask: (question) => this.ask(question) };
   }
 
+  /** Whether a question was declined because nobody could be asked. */
+  get declined(): boolean {
+    return this.unanswered.length > 0;
+  }
+
   private async ask(question: ElicitQuestion): Promise<ElicitAnswer> {
     if (!this.options.interactive()) {
       this.unanswered.push({ provider: question.provider, message: oneLine(question.message) });
