@@ -13,9 +13,14 @@ export type Runner = (argv: readonly string[], overrides: Partial<CliEnv>) => Pr
 
 const INSTRUCTIONS = `via connects to the user's MCP servers and lets you discover their tools on demand instead of loading every schema up front.
 Browse with via_browse (no path: all providers; then "<provider>", "<provider> <resource>", "<provider> <resource>:<verb>" for usage), search with via_find, call with via_call.
-Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more, "via resources|read|prompts ..." are via_resources, via_read and via_prompts.`;
+Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more, "via resources|read|prompts|skills|tasks ..." are the matching via_* tools, "--complete" is complete, "--detach" is detach, "--timeout" is timeout.
+A call that outlives its wait is not cancelled: continue it with via_tasks. For a long job pass detach: true to get its task id at once.`;
+
+/** How long `via_tasks` waits for a task's result when the caller gives no `timeout`: below the 60 s that MCP clients commonly allow a tool call, so the answer arrives instead of the client giving up first (ADR 0024). */
+export const TASK_WAIT_SECONDS = 30;
 
 const str = (description: string): Record<string, string> => ({ type: 'string', description });
+const seconds = (description: string): JSONObject => ({ type: 'number', exclusiveMinimum: 0, description });
 const object = (properties: Record<string, JSONObject>, required: string[] = []): Tool['inputSchema'] => ({
   type: 'object',
   properties,
@@ -44,6 +49,8 @@ export const SERVE_TOOLS: Tool[] = [
         tool: str('"<provider>/<resource>:<verb>", e.g. "linear/issue:create"'),
         args: { type: 'object', description: 'Tool arguments by their original names', additionalProperties: true },
         yes: { type: 'boolean', description: 'Confirm a destructive tool' },
+        detach: { type: 'boolean', description: 'Return the task id at once instead of waiting' },
+        timeout: seconds('Seconds to wait (default 60)'),
       },
       ['tool'],
     ),
@@ -57,8 +64,16 @@ export const SERVE_TOOLS: Tool[] = [
   },
   {
     name: 'via_resources',
-    description: 'List the MCP resources and resource templates of a provider.',
-    inputSchema: object({ provider: str('Provider name') }, ['provider']),
+    description: 'List the MCP resources and templates of a provider, or complete a template variable.',
+    inputSchema: object(
+      {
+        provider: str('Provider name'),
+        template: str('Listed URI template to complete'),
+        args: { type: 'object', description: 'Variable values typed so far', additionalProperties: { type: 'string' } },
+        complete: str('Variable to complete (with template)'),
+      },
+      ['provider'],
+    ),
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
@@ -69,16 +84,34 @@ export const SERVE_TOOLS: Tool[] = [
   },
   {
     name: 'via_prompts',
-    description: 'List the MCP prompts of a provider, or get one prompt with its arguments.',
+    description: 'List the MCP prompts of a provider, get one, or complete an argument.',
     inputSchema: object(
       {
         provider: str('Provider name'),
         name: str('Prompt name; omit to list'),
         args: { type: 'object', description: 'Prompt arguments (strings)', additionalProperties: { type: 'string' } },
+        complete: str('Argument to complete, the others in args (with name)'),
       },
       ['provider'],
     ),
     annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: 'via_skills',
+    description: 'List the skills of a provider, read one, or one of its files.',
+    inputSchema: object({ provider: str('Provider name'), name: str('Skill name; omit to list'), file: str('File of the skill; omit for SKILL.md') }, ['provider']),
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: 'via_tasks',
+    description: 'List the tasks of a provider, or wait for, check or cancel one.',
+    inputSchema: object({
+      provider: str('Provider name; alone, lists its tasks'),
+      task: str('Task id as printed ("gh/job/1"), or "job/1" with provider'),
+      action: { type: 'string', enum: ['status', 'cancel'], description: 'Omit to wait' },
+      timeout: seconds(`Seconds to wait (default ${TASK_WAIT_SECONDS})`),
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
 ];
 
@@ -101,6 +134,14 @@ function text(input: Input, key: string, required = false): string | undefined {
   // (`--yes`, `-o raw`); a value must never be able to set one.
   if (value.startsWith('-')) throw new ServeUsageError(`${key} must not start with "-"`);
   return value;
+}
+
+/** `--timeout <seconds>` from the `timeout` argument, if given. */
+function timeout(input: Input): string[] {
+  const value = input.timeout;
+  if (value === undefined || value === null) return [];
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) throw new ServeUsageError('timeout must be a positive number of seconds');
+  return ['--timeout', String(value)];
 }
 
 function args(input: Input, key: string): string | undefined {
@@ -131,23 +172,62 @@ export function commandLine(tool: string, input: Input): string[] {
       const ref = text(input, 'tool', true);
       const yes = input.yes;
       if (yes !== undefined && typeof yes !== 'boolean') throw new ServeUsageError('yes must be a boolean');
-      return ['call', ref, '--args', args(input, 'args') ?? '{}', ...(yes === true ? ['--yes'] : [])];
+      const detach = input.detach;
+      if (detach !== undefined && typeof detach !== 'boolean') throw new ServeUsageError('detach must be a boolean');
+      return ['call', ref, '--args', args(input, 'args') ?? '{}', ...(yes === true ? ['--yes'] : []), ...(detach === true ? ['--detach'] : []), ...timeout(input)];
     }
     case 'via_more':
       return ['more', text(input, 'cursor', true)];
-    case 'via_resources':
-      return ['resources', text(input, 'provider', true)];
+    case 'via_resources': {
+      const provider = text(input, 'provider', true);
+      const template = text(input, 'template');
+      const complete = text(input, 'complete');
+      const json = args(input, 'args');
+      if (template === undefined) {
+        if (complete !== undefined || json !== undefined) throw new ServeUsageError('complete and args need template');
+        return ['resources', provider];
+      }
+      if (complete === undefined) throw new ServeUsageError('template needs complete');
+      return ['resources', provider, template, ...(json === undefined ? [] : ['--args', json]), '--complete', complete];
+    }
     case 'via_read':
       return ['read', text(input, 'provider', true), text(input, 'uri', true)];
     case 'via_prompts': {
       const provider = text(input, 'provider', true);
       const name = text(input, 'name');
       const json = args(input, 'args');
+      const complete = text(input, 'complete');
       if (name === undefined) {
         if (json !== undefined) throw new ServeUsageError('args needs name');
+        if (complete !== undefined) throw new ServeUsageError('complete needs name');
         return ['prompts', provider];
       }
-      return ['prompts', provider, name, ...(json === undefined ? [] : ['--args', json])];
+      return ['prompts', provider, name, ...(json === undefined ? [] : ['--args', json]), ...(complete === undefined ? [] : ['--complete', complete])];
+    }
+    case 'via_skills': {
+      const provider = text(input, 'provider', true);
+      const name = text(input, 'name');
+      const file = text(input, 'file');
+      if (name === undefined) {
+        if (file !== undefined) throw new ServeUsageError('file needs name');
+        return ['skills', provider];
+      }
+      return ['skills', provider, name, ...(file === undefined ? [] : [file])];
+    }
+    case 'via_tasks': {
+      const provider = text(input, 'provider');
+      const task = text(input, 'task');
+      const action = input.action;
+      if (action !== undefined && action !== 'status' && action !== 'cancel') throw new ServeUsageError('action must be "status" or "cancel"');
+      if (task === undefined) {
+        if (provider === undefined) throw new ServeUsageError('provider or task is required');
+        if (action !== undefined) throw new ServeUsageError('action needs task');
+        return ['tasks', provider, ...timeout(input)];
+      }
+      // `gh/job/1` alone is the printed form; with a provider the id stands alone, like the `next:` hint's second word.
+      if (provider === undefined && task.indexOf('/') < 1) throw new ServeUsageError('task must be "<provider>/<id>" as printed, or give provider');
+      const wait = action === undefined && input.timeout === undefined;
+      return ['tasks', ...(provider === undefined ? [task] : [provider, task]), ...(action === undefined ? [] : [`--${action}`]), ...(wait ? ['--timeout', String(TASK_WAIT_SECONDS)] : timeout(input))];
     }
     default:
       throw new ServeUsageError(`unknown tool ${tool}`);

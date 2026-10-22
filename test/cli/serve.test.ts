@@ -7,14 +7,16 @@ import type { CallToolResult } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
 import { makeEnv } from '../../src/cli/env';
 import { run } from '../../src/cli/run';
-import { commandLine, createServeServer, SERVE_TOOLS } from '../../src/cli/serve';
+import { commandLine, createServeServer, SERVE_TOOLS, TASK_WAIT_SECONDS } from '../../src/cli/serve';
 import { shellQuote } from '../../src/render/shell';
-import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, makeSandbox, startFixtureServer, SYSTEM_ENV, useCleanup, type Sandbox } from './helpers';
+import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, makeSandbox, normalize, startFixtureServer, SYSTEM_ENV, useCleanup, type Generation, type Sandbox } from './helpers';
 
 const NOW = 1_800_000_000_000;
 
-async function setup(extra = '', topLevel = '') {
-  const srv = await startFixtureServer({ token: FAKE_TOKEN, features: ['resources', 'prompts'] });
+type Feature = NonNullable<Parameters<typeof startFixtureServer>[0]>['features'];
+
+async function setup(extra = '', topLevel = '', features: Feature = ['resources', 'prompts'], protocol?: Generation) {
+  const srv = await startFixtureServer({ token: FAKE_TOKEN, features, ...(protocol ? { protocol } : {}) });
   useCleanup(() => srv.close());
   const sb = makeSandbox();
   sb.userConfig(`${ghConfig(srv.url, extra)}${topLevel}`);
@@ -69,11 +71,27 @@ describe('via serve', () => {
     const { sb } = await setup();
     const client = await connect(sb);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(['via_browse', 'via_find', 'via_call', 'via_more', 'via_resources', 'via_read', 'via_prompts']);
+    expect(tools.map((t) => t.name)).toEqual(['via_browse', 'via_find', 'via_call', 'via_more', 'via_resources', 'via_read', 'via_prompts', 'via_skills', 'via_tasks']);
     expect(client.getInstructions()).toContain('via_browse');
     expect(client.getServerCapabilities()).toEqual({ tools: {} });
-    // The point of serve is a small context: the whole tools/list result stays under ~900 tokens (4 bytes a token).
-    expect(JSON.stringify(SERVE_TOOLS).length).toBeLessThan(3600);
+    // The point of serve is a small context: the whole tools/list result stays under ~1,200 tokens (4 bytes a token).
+    expect(JSON.stringify(tools).length).toBeLessThan(4800);
+    expect(JSON.stringify(SERVE_TOOLS).length).toBeLessThan(4800);
+  });
+
+  // What an agent is charged for, as it is written: the definitions and the instructions (rewrite with `vitest -u`).
+  it('keeps the tool definitions and instructions as in the snapshots', async () => {
+    const { sb } = await setup();
+    const client = await connect(sb);
+    const { tools } = await client.listTools();
+    const lines = tools.map((t) => {
+      const props = (t.inputSchema.properties ?? {}) as Record<string, { type?: string; enum?: string[]; description?: string }>;
+      const required = new Set(t.inputSchema.required ?? []);
+      const params = Object.entries(props).map(([name, p]) => `  ${name}${required.has(name) ? '*' : ''} (${p.enum ? p.enum.join('|') : p.type}): ${p.description ?? ''}`);
+      return [`${t.name}${t.annotations?.readOnlyHint ? ' [read-only]' : ''}: ${t.description}`, ...params].join('\n');
+    });
+    await expect(`${lines.join('\n\n')}\n`).toMatchFileSnapshot('./__snapshots__/serve-tools.txt');
+    await expect(`${client.getInstructions()}\n`).toMatchFileSnapshot('./__snapshots__/serve-instructions.txt');
   });
 
   it.each(EQUIVALENT)('%s %j prints what `via %s` prints', async (tool, args, argv) => {
@@ -142,6 +160,22 @@ describe('via serve', () => {
       ['via_call', { tool: 'gh/echo-text', args: ['x'] }, 'args must be an object'],
       ['via_call', { tool: 'gh/echo-text', yes: 'true' }, 'yes must be a boolean'],
       ['via_prompts', { provider: 'gh', args: { name: 'x' } }, 'args needs name'],
+      ['via_prompts', { provider: 'gh', complete: 'lang' }, 'complete needs name'],
+      ['via_prompts', { provider: 'gh', name: 'review', complete: '--yes' }, 'complete must not start with "-"'],
+      ['via_resources', { provider: 'gh', complete: 'date' }, 'complete and args need template'],
+      ['via_resources', { provider: 'gh', template: 'file:///{date}' }, 'template needs complete'],
+      ['via_browse', { path: 'tasks' }, '"tasks" is a via command, not a provider; use the matching via_* tool'],
+      ['via_browse', { path: 'skills gh' }, '"skills" is a via command, not a provider; use the matching via_* tool'],
+      ['via_skills', { provider: 'gh', file: 'a' }, 'file needs name'],
+      ['via_skills', { provider: 'gh', name: '--yes' }, 'name must not start with "-"'],
+      ['via_tasks', {}, 'provider or task is required'],
+      ['via_tasks', { provider: 'gh', action: 'cancel' }, 'action needs task'],
+      ['via_tasks', { provider: 'gh', task: 'job/1', action: 'kill' }, 'action must be "status" or "cancel"'],
+      ['via_tasks', { task: 'job' }, 'task must be "<provider>/<id>" as printed, or give provider'],
+      ['via_tasks', { task: 'gh/job/1', timeout: 0 }, 'timeout must be a positive number of seconds'],
+      ['via_tasks', { provider: 'gh', task: '--cancel' }, 'task must not start with "-"'],
+      ['via_call', { tool: 'gh/echo-text', detach: 'yes' }, 'detach must be a boolean'],
+      ['via_call', { tool: 'gh/echo-text', timeout: '5' }, 'timeout must be a positive number of seconds'],
     ];
     for (const [tool, args, message] of cases) {
       expect(await call(client, tool, args), `${tool} ${JSON.stringify(args)}`).toEqual({ texts: [`error: ${message}\n`], isError: true, exitCode: 2 });
@@ -153,6 +187,22 @@ describe('via serve', () => {
     const { client } = await setup();
     const r = await call(client, 'via_call', { tool: 'gh/echo-text', args: { message: '--yes' } });
     expect(r.texts[0]).toBe('echo: --yes\n');
+  });
+
+  it('builds the command lines of the newer tools', () => {
+    expect(commandLine('via_skills', { provider: 'gh' })).toEqual(['skills', 'gh']);
+    expect(commandLine('via_skills', { provider: 'gh', name: 'refunds', file: 'references/FORMS.md' })).toEqual(['skills', 'gh', 'refunds', 'references/FORMS.md']);
+    expect(commandLine('via_tasks', { provider: 'gh' })).toEqual(['tasks', 'gh']);
+    expect(commandLine('via_tasks', { provider: 'gh', task: 'job/1', action: 'cancel' })).toEqual(['tasks', 'gh', 'job/1', '--cancel']);
+    expect(commandLine('via_tasks', { task: 'gh/job/1', action: 'status' })).toEqual(['tasks', 'gh/job/1', '--status']);
+    // waiting is bounded unless the caller says otherwise, so the answer comes back before the client's own timeout
+    expect(commandLine('via_tasks', { task: 'gh/job/1' })).toEqual(['tasks', 'gh/job/1', '--timeout', String(TASK_WAIT_SECONDS)]);
+    expect(commandLine('via_tasks', { task: 'gh/job/1', timeout: 120 })).toEqual(['tasks', 'gh/job/1', '--timeout', '120']);
+    // via_call waits as the CLI does (the server's timeout) unless it is told to detach or given a timeout
+    expect(commandLine('via_call', { tool: 'gh/report:generate' })).toEqual(['call', 'gh/report:generate', '--args', '{}']);
+    expect(commandLine('via_call', { tool: 'gh/report:generate', detach: true, timeout: 5 })).toEqual(['call', 'gh/report:generate', '--args', '{}', '--detach', '--timeout', '5']);
+    expect(commandLine('via_prompts', { provider: 'gh', name: 'review', args: { code: 'x' }, complete: 'lang' })).toEqual(['prompts', 'gh', 'review', '--args', '{"code":"x"}', '--complete', 'lang']);
+    expect(commandLine('via_resources', { provider: 'gh', template: 'file:///logs/{date}.log', args: { date: '2026' }, complete: 'date' })).toEqual(['resources', 'gh', 'file:///logs/{date}.log', '--args', '{"date":"2026"}', '--complete', 'date']);
   });
 
   it('builds command lines without a shell', () => {
@@ -223,5 +273,130 @@ describe('via serve and a server that asks the user something', () => {
     expect(r).toMatchObject({ isError: true, exitCode: 5 });
     expect(r.texts.join('')).toContain('error: ask asked for user input ("Really proceed?") and no terminal was available to answer');
     expect(r.texts.join('')).toContain(`next: ask the user to run this in a terminal: via ask elicit-confirm --args ${shellQuote('{}')}`);
+  });
+});
+
+// Skills, tasks and completion through the meta-tools (ADR 0024): the same output as the command, on both generations of the protocol.
+describe.each(['legacy', 'modern'] as const)('via serve: tasks on the %s protocol', (protocol) => {
+  const features: Feature = ['tasks'];
+  // The old protocol asks for a task only for a tool that requires one; the stateless one lets the server decide.
+  const tool = protocol === 'legacy' ? 'gh/must_task' : 'gh/report_job';
+
+  it('follows a task to its result, as the call does without a shell', async () => {
+    const { client } = await setup('', '', features, protocol);
+    const r = await call(client, 'via_call', { tool, args: { ms: 200 } });
+    expect(r.exitCode).toBe(0);
+    expect(r.texts[0]).toBe('report ready after 200ms\n');
+    expect(r.texts[1]).toContain('progress: task gh/job/1 working\n');
+  });
+
+  it('detaches on request, then waits, checks, lists and cancels through via_tasks', async () => {
+    const { client } = await setup('', '', features, protocol);
+    const detached = await call(client, 'via_call', { tool, args: { ms: 600 }, detach: true });
+    expect(detached.exitCode).toBe(0);
+    expect(detached.texts[0]).toBe('task: gh/job/1\nstatus: working\n');
+    expect(normalize(detached.texts[1]!)).toMatch(/· next: via tasks gh job\/1\n$/);
+
+    // the id as printed, or as the next: hint writes it
+    const status = await call(client, 'via_tasks', { task: 'gh/job/1', action: 'status' });
+    expect(status.texts[0]).toMatch(/^task: gh\/job\/1\nstatus: working\n/);
+    const waited = await call(client, 'via_tasks', { provider: 'gh', task: 'job/1' });
+    expect(waited).toMatchObject({ isError: false, exitCode: 0 });
+    expect(waited.texts[0]).toBe('report ready after 600ms\n');
+    expect(waited.texts[1]).toMatch(/^· tasks gh · \d+ms · 25 bytes\n$/);
+
+    const listed = await call(client, 'via_tasks', { provider: 'gh' });
+    expect(listed.exitCode).toBe(0);
+    expect(listed.texts[0]).toMatch(/^gh\/job\/1\s+(completed|working)\s+/);
+
+    await call(client, 'via_call', { tool, args: { ms: 5000 }, detach: true });
+    const cancelled = await call(client, 'via_tasks', { task: 'gh/job/2', action: 'cancel' });
+    expect(cancelled.exitCode).toBe(0);
+    expect(cancelled.texts[0]).toMatch(/^task: gh\/job\/2\nstatus: cancelled\n/);
+  });
+
+  it('stops waiting at the timeout, leaves the task running and names the tool that continues it', async () => {
+    const { client } = await setup('', '', features, protocol);
+    const r = await call(client, 'via_call', { tool, args: { ms: 5000 }, timeout: 0.5 });
+    expect(r).toMatchObject({ isError: true, exitCode: 6 });
+    expect(r.texts.join('')).toContain('error: still running as task gh/job/1 after 0.5s; it was not cancelled\nnext: via tasks gh job/1\n');
+    const again = await call(client, 'via_tasks', { provider: 'gh', task: 'job/1', timeout: 0.2 });
+    expect(again).toMatchObject({ isError: true, exitCode: 6 });
+    expect((await call(client, 'via_tasks', { task: 'gh/job/1', action: 'status' })).texts[0]).toContain('status: working');
+  });
+
+  it('does not answer a task that waits for input', async () => {
+    const { client } = await setup('', '', features, protocol);
+    await call(client, 'via_call', { tool: 'gh/report_job', args: { ms: 100, mode: 'input' }, detach: true });
+    const r = await call(client, 'via_tasks', { task: 'gh/job/1' });
+    expect(r).toMatchObject({ isError: true, exitCode: 1 });
+    expect(r.texts.join('')).toContain('is waiting for input');
+    expect(r.texts.join('')).toContain('next: via tasks gh job/1 --cancel');
+  });
+
+  it('refuses to detach where the server cannot, instead of waiting', async () => {
+    const { client } = await setup('', '', ['resources'], protocol);
+    const r = await call(client, 'via_call', { tool: 'gh/echo-text', args: { message: 'x' }, detach: true });
+    expect(r).toMatchObject({ isError: true, exitCode: 2 });
+    expect(r.texts.join('')).toContain('cannot detach');
+    const none = await call(client, 'via_tasks', { provider: 'gh' });
+    expect(none).toMatchObject({ isError: true, exitCode: 3 });
+  });
+});
+
+describe('via serve: skills', () => {
+  const CASES: Array<[Record<string, unknown>, string[]]> = [
+    [{ provider: 'gh' }, ['skills', 'gh']],
+    [{ provider: 'gh', name: 'refunds' }, ['skills', 'gh', 'refunds']],
+    [{ provider: 'gh', name: 'refunds', file: 'references/FORMS.md' }, ['skills', 'gh', 'refunds', 'references/FORMS.md']],
+  ];
+
+  it.each(CASES)('via_skills %j prints what `via skills` prints', async (args, argv) => {
+    const { sb, client } = await setup('', '', ['skills'], 'modern');
+    const cli = await sb.via(argv, { now: NOW });
+    expect(cli.code).toBe(0);
+    expect(await call(client, 'via_skills', args)).toEqual({ texts: [cli.stdout, cli.stderr].filter((t) => t !== ''), isError: false, exitCode: 0 });
+  });
+
+  it('refuses a skill whose content differs from its manifest, printing nothing', async () => {
+    const { client } = await setup('', '', ['skills'], 'modern');
+    const r = await call(client, 'via_skills', { provider: 'gh', name: 'tampered' });
+    expect(r).toMatchObject({ isError: true, exitCode: 6 });
+    expect(r.texts).toHaveLength(1);
+    expect(r.texts[0]).toMatch(/^error: refused skill:\/\/tampered\/SKILL\.md: its sha256 differs from the manifest's/);
+  });
+
+  it('says why a server on the older protocol has none', async () => {
+    const { client } = await setup('', '', ['skills'], 'legacy');
+    const r = await call(client, 'via_skills', { provider: 'gh' });
+    expect(r).toMatchObject({ isError: true, exitCode: 3 });
+    expect(r.texts.join('')).toContain('gh does not offer MCP skills');
+  });
+});
+
+describe('via serve: completion', () => {
+  const features: Feature = ['resources', 'prompts', 'completions'];
+  const TEMPLATE = 'file:///project/logs/{date}.log';
+
+  it('completes a prompt argument given the others, as --complete does', async () => {
+    const { sb, client } = await setup('', '', features);
+    const cli = await sb.via(['prompts', 'gh', 'review', '--code', 'x = 1', '--lang', 'py', '--complete', 'lang'], { now: NOW });
+    expect(cli.stdout).toBe('python\npytorch\n');
+    const r = await call(client, 'via_prompts', { provider: 'gh', name: 'review', args: { code: 'x = 1', lang: 'py' }, complete: 'lang' });
+    expect(r).toEqual({ texts: [cli.stdout, cli.stderr], isError: false, exitCode: 0 });
+  });
+
+  it('completes a resource template variable', async () => {
+    const { sb, client } = await setup('', '', features);
+    const cli = await sb.via(['resources', 'gh', TEMPLATE, '--date', '2026-10-2', '--complete', 'date'], { now: NOW });
+    expect(cli.stdout).toBe('2026-10-20\n');
+    expect(await call(client, 'via_resources', { provider: 'gh', template: TEMPLATE, args: { date: '2026-10-2' }, complete: 'date' })).toEqual({ texts: [cli.stdout, cli.stderr], isError: false, exitCode: 0 });
+  });
+
+  it('reports a server without completions as the command does', async () => {
+    const { client } = await setup('', '', ['resources', 'prompts']);
+    const r = await call(client, 'via_prompts', { provider: 'gh', name: 'review', complete: 'lang' });
+    expect(r).toMatchObject({ isError: true, exitCode: 3 });
+    expect(r.texts.join('')).toContain('gh does not offer MCP argument completion');
   });
 });

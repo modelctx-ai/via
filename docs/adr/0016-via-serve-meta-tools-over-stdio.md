@@ -1,6 +1,6 @@
 # 0016. `via serve`：以 stdio MCP server 暴露七个元工具
 
-- 状态：已接受
+- 状态：已接受（工具集合由 [ADR 0024](0024-via-serve-tasks-skills-and-completion.md) 扩展为九个，其余不变）
 - 日期：2026-10-21
 
 ## 背景

@@ -124,7 +124,7 @@ $ via resources gh 'file:///project/logs/{date}.log' --complete date
 - **输出**：server 给的取值，保持它的顺序，每行一个（换行等控制字符写成可见的转义），走通用的[渲染流水线](output.md#mcp-资源与-prompt)；没有建议时输出 `(no suggestions)`；server 说还有更多（`hasMore` 为真或 `total` 大于已给出的个数）时最后一行是 `(N of TOTAL shown; more match, type more of the value)`。`-o json` 输出 `{"values": […], "total"?, "hasMore"?}`。via 不缓存、不排序、不过滤 server 的建议；元信息行里的名称与 prompt 命令相同（`prompts <provider> <名称>`、`resources <provider>`）。
 - **发现**：不自动发请求。`-h` 不会为了列出取值去连接 server；目录缓存里记着 server 声明了 `completions` 能力时，prompt 的 `-h` 在用法之后多一行 `complete: --complete <argument> lists the values the server suggests for it`（只在该 prompt 有参数时）。
 - **错误**：参数不是这个 prompt 或模板的（`--complete nope`）退出码 2，列出可用的参数，`next:` 指向 `-h`；`via prompts <provider> --complete x` 缺名称退出码 2；模板不在列表里退出码 3，`next: via resources <provider>`；server 没有声明 `completions` 能力时不发请求，退出码 3（`error: gh does not offer MCP argument completion`，`next: via gh`）。
-- **不做**：不对工具参数补全（MCP 的补全只覆盖 prompt 与资源模板）；`via serve` 的元工具不提供补全（元工具集合保持固定的七个，[ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)）。
+- **不做**：不对工具参数补全（MCP 的补全只覆盖 prompt 与资源模板）；`via serve` 里补全是 `via_prompts` 的 `complete` 与 `via_resources` 的 `template` + `complete`（[见下](#via-serve)）。
 
 server 没有在 `initialize` 里声明相应能力（`resources`、`prompts`）时不发请求，退出码 3：
 
@@ -223,7 +223,7 @@ $ via tasks gh job/1 --cancel              请求取消，输出取消后的状�
 - **未知任务**（server 没有、已过期）：退出码 3，`error: no such task: job/1 (it may have expired)`，`next: via tasks gh`。server 没有声明 tasks（2025 的 `tasks` 能力，2026 的扩展）：退出码 3，不发请求，`gh does not offer MCP tasks: …`，`next: via gh`。
 - **via 的记录**：用户缓存目录下 `tasks/<server 哈希>/<ID 的哈希>.json`（权限 0600，目录 0700；哈希同[目录缓存键](discovery.md#缓存)，所以记录绑定 server 的定义，改别名不丢）。内容是 `{version, id, tool（规范写法的工具引用）, createdAt, status}`，**不含参数与结果**。任务一创建就由 CLI 写入（daemon 通过 `task` 事件告知，进程内模式直接得到），所以被中断的跟随也找得回；状态在 `via tasks` 与调用结束时更新。每个 server 最多 50 个、最长 30 天，写入时清理。它是缓存：删掉只失去列表，已知 ID 的命令照常工作；任务 ID 在扩展里相当于访问任务的凭据，记录因此与其他缓存同样按用户私有数据对待（[security.md](security.md)）。
 
-任务 ID 与任务里的文字（`statusMessage`、`error`）是 server 的数据：脱敏、控制字符写成可见转义，规则同其他输出。`via serve` 没有任务的元工具：经 `via_call` 的调用照常跟随到结果，`--detach` 与任务管理需要 shell（[ADR 0020](../adr/0020-tasks-and-skills-commands.md)）。
+任务 ID 与任务里的文字（`statusMessage`、`error`）是 server 的数据：脱敏、控制字符写成可见转义，规则同其他输出。`via serve` 里任务由 `via_call` 的 `detach` 与 `timeout`、`via_tasks` 提供（[见下](#via-serve)，[ADR 0024](../adr/0024-via-serve-tasks-skills-and-completion.md)）。
 
 ### 配置错误
 
@@ -270,29 +270,38 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 
 ### via serve
 
-`via serve` 在 stdin/stdout 上运行一个 MCP server（只有 stdio 传输，不监听端口），供没有 shell 的 agent 在框架里当作普通 stdio server 登记，例如 `{"command": "via", "args": ["serve"]}`。stdin 关闭时退出；不接受参数，带参数时报用法错误（退出码 2）。设计理由见 [ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)。
+`via serve` 在 stdin/stdout 上运行一个 MCP server（只有 stdio 传输，不监听端口），供没有 shell 的 agent 在框架里当作普通 stdio server 登记，例如 `{"command": "via", "args": ["serve"]}`。stdin 关闭时退出；不接受参数，带参数时报用法错误（退出码 2）。设计理由见 [ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)，任务、技能与补全的工具见 [ADR 0024](../adr/0024-via-serve-tasks-skills-and-completion.md)。
 
-- **能力**：只声明 `tools`。工具列表固定为下表七个，不随目录变化，不发 `tools/list_changed`。`initialize` 的 `instructions` 说明怎么用这些工具，以及输出里的 CLI 写法与工具的对应关系。
+- **能力**：只声明 `tools`。工具列表固定为下表九个，不随目录变化，不发 `tools/list_changed`。`initialize` 的 `instructions` 说明怎么用这些工具，以及输出里的 CLI 写法与工具的对应关系。
 - **每次调用就是一次 CLI 命令**：按下表拼出命令行，在 `via serve` 进程里执行（环境变量、工作目录、用户目录与 `via serve` 进程相同；stdin 为空，不交互，`interactive` 为假），捕获 stdout 与 stderr。daemon、缓存、凭证解析、`deny`、危险操作确认、本地校验、渲染、预算、游标、脱敏与元信息行都与命令行完全相同；`via serve` 自己不连接任何 MCP server。
 
 | 工具 | 参数 | 执行的命令 |
 | --- | --- | --- |
 | `via_browse` | `path`：省略或空串、`<provider>`、`<provider> <resource>`、`<provider> <resource>:<verb>`（按空白分词，至多三个词） | `via [path…]`；有带 `:` 的词时追加 `-h`，即该工具的用法 |
 | `via_find` | `query`（必填）、`limit`（正整数） | `via find <query> [-n <limit>]` |
-| `via_call` | `tool`（必填，单字符串引用）、`args`（对象）、`yes`（布尔） | `via call <tool> --args <args 的 JSON，缺省 {}> [--yes]` |
+| `via_call` | `tool`（必填，单字符串引用）、`args`（对象）、`yes`（布尔）、`detach`（布尔）、`timeout`（正数，秒） | `via call <tool> --args <args 的 JSON，缺省 {}> [--yes] [--detach] [--timeout <秒>]` |
 | `via_more` | `cursor`（必填） | `via more <cursor>` |
-| `via_resources` | `provider`（必填） | `via resources <provider>` |
+| `via_resources` | `provider`（必填）、`template`、`args`（字符串值的对象）、`complete`（`template` 与 `complete` 同时给，`args` 需要 `template`） | `via resources <provider>`；有 `template` 时 `via resources <provider> <template> [--args <json>] --complete <complete>` |
 | `via_read` | `provider`、`uri`（必填） | `via read <provider> <uri>` |
-| `via_prompts` | `provider`（必填）、`name`、`args`（字符串值的对象，需要 `name`） | `via prompts <provider>`；有 `name` 时 `via prompts <provider> <name> [--args <json>]` |
+| `via_prompts` | `provider`（必填）、`name`、`args`（字符串值的对象，需要 `name`）、`complete`（需要 `name`） | `via prompts <provider>`；有 `name` 时 `via prompts <provider> <name> [--args <json>] [--complete <complete>]` |
+| `via_skills` | `provider`（必填）、`name`、`file`（需要 `name`） | `via skills <provider> [<name> [<file>]]` |
+| `via_tasks` | `provider`、`task`（至少一个）、`action`（`status` 或 `cancel`，需要 `task`）、`timeout`（正数，秒） | `via tasks <provider>`（只有 `provider`）；`via tasks <task>` 或 `via tasks <provider> <task>`，加 `--status` 或 `--cancel`；等结果时（没有 `action`）加 `--timeout`，缺省 30 |
 
 - **结果**：stdout 非空时是第一段文本，stderr（元信息行、警告、错误与 `next:` 提示）非空时是下一段文本，两者都空时是一段空文本；`structuredContent` 为 `{"exitCode": <退出码>}`；退出码非 0 时 `isError: true`。提示保持 CLI 写法，例如 `next: via gh issue:read -h` 对应 `via_browse` 的 `path: "gh issue:read"`。
 - **参数检查**：在拼命令行之前进行，失败时不运行任何命令，结果是 `error: <原因>` 一行，退出码 2：
   - 必填参数缺失或为空、类型不对（字符串参数不是字符串，`args` 不是对象，`yes` 不是布尔，`limit` 不是正整数）；
   - 字符串参数以 `-` 开头（它会成为一个全局选项或命令选项，例如 `--yes`、`-o raw`）。工具参数在 `args` 的 JSON 里，不受这条限制；
   - `via_browse` 的第一个词是内置子命令名（`"trust"` 会变成 `via trust`），`path` 超过三个词；
-  - `via_prompts` 给了 `args` 而没有 `name`。
-- **不提供**：`trust`、`auth`、`daemon`、`prompt`、`sync`、`batch`、`doctor`、`servers` 没有对应的工具。`via trust` 与 `via auth login` 必须由人在终端里完成。
-- **工具定义的大小**：七个工具的 `tools/list` 结果约 2.9 KB（约 730 token，按 4 字节一 token），`instructions` 约 0.6 KB；测试限制前者不超过 3.6 KB。
+  - `via_prompts` 给了 `args` 或 `complete` 而没有 `name`；`via_resources` 给了 `complete` 或 `args` 而没有 `template`，或给了 `template` 而没有 `complete`；`via_skills` 给了 `file` 而没有 `name`；
+  - `via_tasks` 既没有 `provider` 也没有 `task`，有 `action` 而没有 `task`，`action` 不是 `status` 或 `cancel`，只有 `task` 而它不是 `<provider>/<id>` 的写法（第一个 `/` 前至少一个字符）；
+  - `detach` 不是布尔，`timeout` 不是正数。
+- **不提供**：`trust`、`auth`、`daemon`、`prompt`、`sync`、`batch`、`doctor`、`servers` 没有对应的工具。`via trust` 与 `via auth login` 必须由人在终端里完成。`via_browse` 的第一个词是 `skills` 或 `tasks` 时同样拒绝。
+- **任务与超时**：
+  - `detach` 不是缺省：`--detach` 在 server 或工具不支持任务时是错误（退出码 2），绝大多数调用不是任务，所以只有 agent 显式传 `detach: true` 时才加。不满足时的错误与 `next: rerun without --detach` 与命令行相同。
+  - `via_call` 不传 `timeout` 时等待与命令行一致（server 的 `timeout`，缺省 60 秒）；传了就是 `--timeout`。任务超时不被取消，退出码 6，`next: via tasks <provider> <ID>` 对应 `via_tasks`。
+  - `via_tasks` 等结果（没有 `action`）且没有 `timeout` 时，serve 追加 `--timeout 30`，这是 serve 唯一不同于命令行缺省的一处：许多 client 给一次工具调用约 60 秒，缺省的 60 秒会赶在 client 放弃的同一刻，结果与任务 ID 都丢；到点时退出码 6、任务继续，再调一次即可。`status`、`cancel` 与列表是单次请求，不加缺省。
+  - `input_required` 的任务与 elicitation 一样不回答（[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）：退出码 1，`next: via tasks <provider> <ID> --cancel` 对应 `action: "cancel"`。
+- **工具定义的大小**：九个工具的 `tools/list` 结果约 4.6 KB（约 1,150 token，按 4 字节一 token），`instructions` 约 0.7 KB；测试限制前者不超过 4.8 KB，并用快照钉住所有定义与 `instructions` 的文字（`test/cli/__snapshots__/serve-tools.txt`、`serve-instructions.txt`）。
 - **框架配置里的 `via serve`**：登记了 `via serve` 的框架配置会被 via 自己读到，这样的条目不进入目录（[config.md](config.md#校验与诊断)）。
 
 ### via batch

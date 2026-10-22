@@ -21,7 +21,7 @@
 | [0013](0013-agent-instructions-are-a-marked-block.md) | agent 说明以标记块注入，而不是覆盖整份文件 | 已接受 |
 | [0014](0014-drop-the-domain-view.md) | 去掉「域」：provider 按名字列出，不做分类 | 已接受 |
 | [0015](0015-npm-scope-modelctx-ai.md) | npm 包名为 `@modelctx-ai/via` | 已接受 |
-| [0016](0016-via-serve-meta-tools-over-stdio.md) | `via serve`：以 stdio MCP server 暴露七个元工具，每次调用就是一次 CLI 命令 | 已接受 |
+| [0016](0016-via-serve-meta-tools-over-stdio.md) | `via serve`：以 stdio MCP server 暴露七个元工具，每次调用就是一次 CLI 命令 | 已接受（工具集合由 0024 扩展） |
 | [0017](0017-protocol-versions-newest-first-with-fallback.md) | MCP 协议版本：新版本优先，自动回退，可以固定 | 已接受 |
 | [0018](0018-elicitation-in-a-terminal-declined-elsewhere.md) | elicitation：终端里交互回答，其他情形一律拒绝并说明 | 已接受 |
 | [0019](0019-oauth-client-identity-and-credentials.md) | OAuth 客户端身份与凭据：CIMD、固定回调端口、client credentials、绑定授权服务器 | 已接受 |
@@ -29,6 +29,7 @@
 | [0021](0021-server-self-description-and-completion.md) | server 自述只在 `via <provider> -h` 里显示；补全用 `--complete` 显式查询 | 已接受 |
 | [0022](0022-per-server-logs-rotated-and-redacted.md) | 日志：按 server 分文件，按大小轮转，写盘前脱敏，不挡调用 | 已接受 |
 | [0023](0023-npm-is-the-only-distribution-channel.md) | npm 是唯一的分发渠道：不做 Homebrew、单文件可执行与签名公证 | 已接受 |
+| [0024](0024-via-serve-tasks-skills-and-completion.md) | `via serve` 暴露任务、技能与补全：两个新元工具，其余是已有工具的可选参数；不默认 detach | 已接受 |
 
 ## 流程
 

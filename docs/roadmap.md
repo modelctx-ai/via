@@ -80,14 +80,14 @@ flowchart LR
 | c2 可选语义检索 | 已实现 | 默认开启确定性的同义词扩展；embedding 检索由用户配置 `search.semantic` 开启，默认关闭（[ADR 0011](adr/0011-find-synonym-expansion-and-optional-embeddings.md)） |
 | c3 resources、prompts 与 roots | 已实现 | [ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) |
 | c4 Windows 支持 | 已实现 | daemon 走命名管道（[ADR 0012](adr/0012-windows-pipe-name-and-batch-files.md)），CI 在 Windows 上跑完整检查 |
-| c5 `via serve` | 已实现，未发布 | stdio MCP server，七个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[cli.md](spec/cli.md#via-serve)） |
+| c5 `via serve` | 已实现，未发布 | stdio MCP server，九个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[ADR 0024](adr/0024-via-serve-tasks-skills-and-completion.md)、[cli.md](spec/cli.md#via-serve)） |
 | d1 agent 评测 | 部分实现 | mcpc 对照列已加入 `bench:tokens` 与 `bench:eval`，token 结果见 [0.4-tokens](../bench/results/0.4-tokens.md)；agent 评测的成功率还没有发布（需要 `ANTHROPIC_API_KEY`） |
 | d2 OAuth 实测、d3 性能目标 | 计划中（0.4） | d2 需要在真实远程 server 上登录；d3 等维护者决定 |
 | d4 单文件分发 | 已按决定结案 | 只在 npm 分发；签名、公证、Homebrew 与单文件不做（[ADR 0023](adr/0023-npm-is-the-only-distribution-channel.md)） |
 | d5 拆分规则与截断预算 | 部分实现 | `npm run split-stats` 与 [0.4-split](../bench/results/0.4-split.md)；动词表新增 7 个通用动词，`deny` 同时匹配叶子写法；截断预算等 d1 的评测 |
 | d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
 | e1 SDK v2、e2 2026-07-28 无状态协议、e3 协议版本可见与固定、e8 一致性测试 | 已实现，未发布 | `@modelcontextprotocol/client` 2.3.1；`server/discover` 探测并自动回退（[ADR 0017](adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](spec/daemon.md)）；`protocolVersion` 配置字段；CI 新增 `conformance` 与 `stateless` 任务，预期失败的场景列在 `test/conformance/expected-failures.yml` |
-| e4 tasks、e6 Skills、e9 completion 与 server 自述 | 已实现，未发布 | `via tasks`、`via skills`（[ADR 0020](adr/0020-tasks-and-skills-commands.md)），`--detach`；server 自述只在 `via <provider> -h`，`--complete` 显式补全（[ADR 0021](adr/0021-server-self-description-and-completion.md)）；`via serve` 暂不暴露这些命令 |
+| e4 tasks、e6 Skills、e9 completion 与 server 自述 | 已实现，未发布 | `via tasks`、`via skills`（[ADR 0020](adr/0020-tasks-and-skills-commands.md)），`--detach`；server 自述只在 `via <provider> -h`，`--complete` 显式补全（[ADR 0021](adr/0021-server-self-description-and-completion.md)）；`via serve` 经 `via_skills`、`via_tasks` 与 `via_call`/`via_prompts`/`via_resources` 的新参数暴露（[ADR 0024](adr/0024-via-serve-tasks-skills-and-completion.md)） |
 | e5 elicitation | 已实现，未发布 | 终端里交互回答，其他情形拒绝并在调用结果里说明（退出码 5）；URL 模式只开 `http(s)`；daemon 经 `elicit` 事件与 `elicit-reply` 转给发起调用的 CLI（[ADR 0018](adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)、[output.md](spec/output.md)、[daemon.md](spec/daemon.md)） |
 | e7 授权规范对齐 | 已实现，未发布 | CIMD（`https://modelctx-ai.github.io/via/client-metadata.json`，GitHub Pages 已启用）、固定回调端口 29842–29851、预注册客户端的 secret、client credentials（secret 与私钥断言）、绑定授权服务器；企业托管授权（ID-JAG）有意不做；后续：配置里钉住授权服务器（[ADR 0019](adr/0019-oauth-client-identity-and-credentials.md)、[auth.md](spec/auth.md)） |
 | f1 schema 快照校验 | 已实现，未发布 | `--schema-snapshot <文件>`、`--schema-mode compatible\|strict`（[arguments.md](spec/arguments.md#schema-快照校验)） |

@@ -1,0 +1,4 @@
+via connects to the user's MCP servers and lets you discover their tools on demand instead of loading every schema up front.
+Browse with via_browse (no path: all providers; then "<provider>", "<provider> <resource>", "<provider> <resource>:<verb>" for usage), search with via_find, call with via_call.
+Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more, "via resources|read|prompts|skills|tasks ..." are the matching via_* tools, "--complete" is complete, "--detach" is detach, "--timeout" is timeout.
+A call that outlives its wait is not cancelled: continue it with via_tasks. For a long job pass detach: true to get its task id at once.
