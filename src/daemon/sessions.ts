@@ -11,6 +11,7 @@ import type { DetachedCall, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutco
 import { ExitCode } from '../render/exit-codes';
 import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
+import { openLog, ServerLog, serverLogPath } from '../log';
 import { effectiveServer, sessionKey } from './target';
 
 /** Resolved credentials are forgotten after this long, so a rotated token or key is picked up (config.md, "凭证引用"). */
@@ -77,6 +78,8 @@ interface Entry {
   protocol?: ProtocolInfo;
   /** The server's own freshness hint for the list (stateless protocol); the shorter of it and 24 hours applies. */
   ttlMs?: number;
+  /** This server's log file (shared by its sessions); absent when the daemon has no log directory. */
+  log?: ServerLog;
   calls: number;
   active: number;
   lastUsed: number;
@@ -100,6 +103,8 @@ export interface SessionManagerOptions {
   platform: NodeJS.Platform;
   /** Replaces the default login store (tests). */
   oauthStore?: OAuthStore;
+  /** Where the servers' logs are written (`logs/` in the user cache directory); none: no logs. */
+  logDir?: string;
 }
 
 export class SessionManager {
@@ -360,7 +365,10 @@ export class SessionManager {
     }
     const previous = this.byName.get(server.name);
     if (previous !== undefined) this.retire(previous);
+    const log = this.options.logDir ? new ServerLog(openLog(serverLogPath(this.options.logDir, server.name)), this.redact) : undefined;
+    log?.event(`session opened (${server.transport.type}${previous !== undefined ? '; replaces the session of an older definition' : ''})`);
     const entry: Entry = {
+      ...(log ? { log } : {}),
       key,
       original: target.server,
       server,
@@ -375,6 +383,7 @@ export class SessionManager {
     };
     // `server.roots` is already absolute here (`effectiveServer`), so no base directory is needed.
     entry.session = new McpSession(server, this.options.resolver, {
+      log: () => log,
       onToolsChanged: () => this.toolsChanged(entry),
       knownProtocol: () => this.cache.read(entry.original)?.protocol,
       // Proxy variables come from the daemon's own environment, like `env:` credentials (config.md, "代理").
@@ -396,6 +405,7 @@ export class SessionManager {
   }
 
   private async drop(entry: Entry): Promise<void> {
+    entry.log?.event('session closed (replaced by a newer definition)');
     clearTimeout(entry.idleTimer);
     clearTimeout(entry.refreshTimer);
     if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key);
@@ -423,12 +433,16 @@ export class SessionManager {
     }
     if (entry.server.transport.type !== 'stdio') return;
     if (entry.server.exclusive) {
+      entry.log?.event('exclusive server: stopping it after the last request');
       void entry.session.close().catch(() => undefined);
       return;
     }
     clearTimeout(entry.idleTimer);
     entry.idleTimer = setTimeout(() => {
-      if (entry.active === 0) void entry.session.close().catch(() => undefined);
+      if (entry.active === 0) {
+        entry.log?.event(`idle for ${Math.round(entry.idleMs / 1000)}s: stopping the server process`);
+        void entry.session.close().catch(() => undefined);
+      }
     }, entry.idleMs);
     entry.idleTimer.unref();
   }
@@ -475,7 +489,8 @@ export class SessionManager {
       let ttlMs: number | undefined;
       const tools = await entry.session.listTools({ timeoutMs: entry.server.timeout * 1000, onTtl: (ms) => void (ttlMs = ms) });
       this.store(entry, tools, ttlMs);
-    } catch {
+    } catch (error) {
+      entry.log?.error(`refreshing the tool list failed: ${error instanceof Error ? (error.message.split('\n')[0] ?? '').slice(0, 300) : 'unknown error'}`);
       // The copy is known to be out of date and cannot be renewed now: forget it so the next list asks the server.
       delete entry.tools;
       delete entry.fetchedAt;

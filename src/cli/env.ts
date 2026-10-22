@@ -27,6 +27,8 @@ export interface CliEnv {
   /** Opens a URL in a browser; the default uses the platform opener (`via auth login`). */
   openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }>;
   now: () => number;
+  /** Ends long-running commands (`via daemon logs --follow`); default: SIGINT and SIGTERM of this process. */
+  interrupt?: AbortSignal;
   /** How to start `via daemon run` detached: the executable and the arguments before the subcommand. */
   daemonCommand: { command: string; args: string[] };
 }

@@ -118,7 +118,7 @@ export class DaemonBackend implements Backend {
         ...(options.onProgress ? { progress: true } : {}),
         ...(options.taskSupport !== undefined ? { taskSupport: options.taskSupport } : {}),
         ...(options.onTask ? { tasks: true } : {}),
-        ...(options.elicit ? { elicit: options.elicit.interactive ? ('interactive' as const) : ('decline' as const) } : {}),
+        ...(options.elicit ? { elicit: true as const } : {}),
       },
       {
         deadlineMs: timeoutMs * (options.retry ? 2 : 1) + DEADLINE_SLACK_MS,
@@ -142,7 +142,7 @@ export class DaemonBackend implements Backend {
         ...(options.onProgress ? { progress: true } : {}),
         ...(options.taskSupport !== undefined ? { taskSupport: options.taskSupport } : {}),
         ...(options.onTask ? { tasks: true } : {}),
-        ...(options.elicit ? { elicit: options.elicit.interactive ? ('interactive' as const) : ('decline' as const) } : {}),
+        ...(options.elicit ? { elicit: true as const } : {}),
       },
       { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, onEvent: (event) => this.onCallEvent(event, options) },
     );
@@ -189,7 +189,7 @@ export class DaemonBackend implements Backend {
       answer = { action: 'cancel' };
     }
     try {
-      await this.send({ type: 'elicit-reply', call: event.id, key, answer }, { deadlineMs: 10_000 });
+      await this.send({ type: 'elicit-reply', call: event.id, key, answer }, { deadlineMs: 10_000, spawn: false });
     } catch {
       // The daemon is gone or the call is over: nobody is waiting for the answer any more.
     }

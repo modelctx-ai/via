@@ -28,6 +28,7 @@ import type {
   Stale,
   ValidateResult,
 } from '../protocol';
+import { daemonLogPath, logDir as logsIn, openLog, pruneLogs, ServerLog } from '../log';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/sanitize';
@@ -55,6 +56,8 @@ export interface DaemonOptions {
   cursorDir?: string;
   /** Replaces the default OAuth login store (tests). */
   oauthStore?: OAuthStore;
+  /** Where the logs are written; default: `logs/` in the user cache directory. */
+  logDir?: string;
   /** Keep a record of this process in `paths.records` (`via daemon run`; see records.ts). */
   record?: boolean;
 }
@@ -99,6 +102,8 @@ export class DaemonServer {
   /** What the server listens on: the socket path, or for a derived pipe its full name. */
   private endpoint = '';
   private sessions!: SessionManager;
+  /** The daemon's own log (`daemon.log`). */
+  private log?: ServerLog;
   /** Cursors live in the user cache directory (like in-process mode), so they outlive the daemon. */
   private readonly cursors: FileCursorStore;
   private readonly schemas = new Map<string, JsonSchema>();
@@ -110,6 +115,16 @@ export class DaemonServer {
     this.cursors = new FileCursorStore(options.cursorDir ?? join(userCacheDir(cacheCtx), 'cursors'), { now: this.now });
     this.closed = new Promise((resolve) => (this.resolveClosed = resolve));
     if (options.record) this.record = new ProcessRecord(options.paths.records);
+  }
+
+  private logDir(): string {
+    return this.options.logDir ?? logsIn(userCacheDir(pathContext({ home: this.options.home, env: this.options.env, platform: this.options.platform })));
+  }
+
+  /** A line in `daemon.log` (a crash that `via daemon run` caught, say). */
+  note(kind: 'event' | 'error', text: string): void {
+    if (kind === 'error') this.log?.error(text);
+    else this.log?.event(text);
   }
 
   get paths(): DaemonPaths {
@@ -166,12 +181,17 @@ export class DaemonServer {
         this.now,
       ),
       catalogDir: join(userCacheDir(ctx), 'catalog'),
+      logDir: this.logDir(),
       env: this.options.env,
       now: this.now,
       home: this.options.home,
       platform: this.options.platform,
       ...(this.options.oauthStore ? { oauthStore: this.options.oauthStore } : {}),
     });
+    this.log = new ServerLog(openLog(daemonLogPath(this.logDir())), this.sessions.redact);
+    // A pipe's name is derived from the token: it is not written down.
+    this.log.event(`started: pid ${process.pid}, version ${this.options.version}${paths.pipe ? '' : `, socket ${this.endpoint}`}`);
+    void pruneLogs(this.logDir(), this.now());
     this.updateIdle();
     this.watchTimer = setInterval(() => this.watchSocket(), this.options.watchMs ?? 5000);
     this.watchTimer.unref();
@@ -181,6 +201,7 @@ export class DaemonServer {
   /** Finish what is running, then exit. New connections are no longer accepted. */
   drain(): void {
     if (this.state !== 'running') return;
+    this.log?.event('draining: no new connections, finishing the requests in flight');
     this.state = 'draining';
     this.record?.write('stopping');
     this.closeListener();
@@ -203,6 +224,8 @@ export class DaemonServer {
     }
     this.connections.clear();
     if (!wasNew) await this.sessions.closeAll();
+    this.log?.event('stopped');
+    await this.log?.flush();
     this.removeToken();
     this.forget();
     this.resolveClosed();
@@ -295,7 +318,10 @@ export class DaemonServer {
    */
   private watchSocket(): void {
     if (this.state !== 'running') return;
-    if (this.options.paths.pipe ? readFileOrEmpty(this.options.paths.token) !== this.token : !this.ownsSocket()) void this.stop();
+    if (this.options.paths.pipe ? readFileOrEmpty(this.options.paths.token) !== this.token : !this.ownsSocket()) {
+      this.log?.event('the socket was removed or replaced: exiting');
+      void this.stop();
+    }
   }
 
   // Idle exit ---------------------------------------------------------------------------
@@ -309,7 +335,10 @@ export class DaemonServer {
     this.idleDeadline = undefined;
     if (this.state !== 'running' || this.busy() || this.options.idleTimeoutMs <= 0) return;
     this.idleDeadline = this.now() + this.options.idleTimeoutMs;
-    this.idleTimer = setTimeout(() => void this.stop(), this.options.idleTimeoutMs);
+    this.idleTimer = setTimeout(() => {
+      this.log?.event(`idle for ${Math.round(this.options.idleTimeoutMs / 1000)}s: exiting`);
+      void this.stop();
+    }, this.options.idleTimeoutMs);
     this.idleTimer.unref();
   }
 
@@ -326,6 +355,7 @@ export class DaemonServer {
     }
     const conn: Connection = { socket, greeted: false, inflight: 0, elicits: new Map() };
     this.connections.add(conn);
+    this.log?.event(`connection opened (${this.connections.size} open)`);
     this.updateIdle();
     const decoder = new LineDecoder();
     socket.on('data', (chunk) => {
@@ -342,6 +372,7 @@ export class DaemonServer {
     socket.on('close', () => {
       this.cancelElicits(conn);
       this.connections.delete(conn);
+      this.log?.event(`connection closed (${this.connections.size} open)`);
       this.updateIdle();
       this.maybeFinishDrain();
     });
@@ -376,6 +407,7 @@ export class DaemonServer {
     }
     const hello = message as unknown as Hello;
     if (!tokenMatches(this.token, hello.token)) {
+      this.log?.event('handshake refused: wrong token');
       refuse('token');
       return;
     }
@@ -383,6 +415,7 @@ export class DaemonServer {
       // A daemon of another version is of no use to this CLI: answer, then stop listening (the
       // socket is gone before the CLI can read the answer, so its successor binds a free path),
       // finish what is running, and exit.
+      this.log?.event(`handshake refused: the CLI is version ${String(hello.version).slice(0, 40)}, this daemon ${version}`);
       refuse('version');
       this.drain();
       return;
@@ -404,7 +437,10 @@ export class DaemonServer {
       if (result === STALE) this.send(conn, { id: request.id, type: 'stale', reason: 'environment' } satisfies Stale);
       else this.send(conn, { id: request.id, type: 'result', ok: true, result, meta: { elapsedMs: this.now() - started } });
     } catch (error) {
-      this.send(conn, { id: request.id, type: 'result', ok: false, error: this.errorInfo(error) });
+      const info = this.errorInfo(error);
+      this.send(conn, { id: request.id, type: 'result', ok: false, error: info });
+      // A failed call is in the log of its server; the other requests are only here.
+      if (request.type !== 'call' && request.type !== 'status') this.log?.error(`${request.type} failed (exit ${info.exitCode}): ${info.message.split('\n')[0]!.slice(0, 300)}`);
     } finally {
       this.inflight -= 1;
       conn.inflight -= 1;
@@ -442,10 +478,7 @@ export class DaemonServer {
             }
           : undefined;
         // The server may ask the person behind this call something; the CLI that made it answers (ADR 0018).
-        const elicit: ElicitSink | undefined =
-          request.elicit === 'interactive' || request.elicit === 'decline'
-            ? { interactive: request.elicit === 'interactive', ask: (question) => this.askCli(conn, request.id, question) }
-            : undefined;
+        const elicit: ElicitSink | undefined = request.elicit === true ? { ask: (question) => this.askCli(conn, request.id, question) } : undefined;
         const callOptions = {
           ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
           ...(typeof request.taskSupport === 'string' ? { taskSupport: request.taskSupport } : {}),
@@ -505,6 +538,7 @@ export class DaemonServer {
         return { record: record ?? null } satisfies CursorGetResult;
       }
       case 'shutdown':
+        this.log?.event(`shutdown requested${request.force === true ? ' (force)' : ''}`);
         // Stop listening before answering: the caller may start its successor as soon as it hears back.
         this.drain();
         // `force`: abandon what is in flight and exit now, once this answer is on its way.

@@ -42,7 +42,7 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   batch: 'usage: via batch [--concurrency <n>]  (JSON Lines on stdin: {"tool":"<provider>/<resource>:<verb>","args":{…}})',
   auth: 'usage: via auth login <provider> [--manual] | via auth status [<provider>] | via auth logout <provider>',
   trust: 'usage: via trust [<path>] [--dry-run] | via trust <path> --yes (scripts only: needs VIA_ALLOW_NONINTERACTIVE_TRUST=1) | via trust --list | via trust --revoke <path>',
-  daemon: 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>]',
+  daemon: 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>] | via daemon logs [<provider>] [-n <lines>] [--follow] [--since <duration>]',
   resources: 'usage: via resources <provider>  (resources and resource templates; read one with via read <provider> <uri>; via resources <provider> <template> --complete <variable> asks for values)',
   read: 'usage: via read <provider> <uri>',
   skills: 'usage: via skills <provider> [<name> [<file>]]  (without a name: list; with one: read its SKILL.md; with a file: read that file of the skill; content is checked against the server\'s manifest before it is printed)',

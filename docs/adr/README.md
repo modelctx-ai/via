@@ -27,6 +27,7 @@
 | [0019](0019-oauth-client-identity-and-credentials.md) | OAuth 客户端身份与凭据：CIMD、固定回调端口、client credentials、绑定授权服务器 | 已接受 |
 | [0020](0020-tasks-and-skills-commands.md) | tasks 与 Skills：两个内置子命令 `via tasks`、`via skills`，像 resources 与 prompts 一样按 provider 取用 | 已接受 |
 | [0021](0021-server-self-description-and-completion.md) | server 自述只在 `via <provider> -h` 里显示；补全用 `--complete` 显式查询 | 已接受 |
+| [0022](0022-per-server-logs-rotated-and-redacted.md) | 日志：按 server 分文件，按大小轮转，写盘前脱敏，不挡调用 | 已接受 |
 
 ## 流程
 

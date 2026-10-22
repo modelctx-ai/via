@@ -207,7 +207,7 @@ export interface CallOutcome {
 export async function executeCall(app: App, request: CallRequest, sink: CallSink): Promise<CallOutcome> {
   const warnings: string[] = [];
   // A server may ask the person for input in the middle of the call; with nobody to ask, the outcome says so (ADR 0018).
-  const elicitation = new Elicitation(app, { interactive: request.interactive ?? app.io.interactive, ...(request.rerun !== undefined ? { rerun: request.rerun } : {}) });
+  const elicitation = new Elicitation(app, { interactive: () => request.interactive ?? app.io.interactive, ...(request.rerun !== undefined ? { rerun: request.rerun } : {}) });
   try {
     return await elicitation.apply(await attemptCall(app, request, sink, warnings, elicitation));
   } catch (error) {

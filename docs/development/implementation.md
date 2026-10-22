@@ -151,6 +151,7 @@ via/
 │  ├─ client/       # MCP 会话、鉴权、OAuth
 │  ├─ render/       # 输出流水线：清理、形状判断、表格、截断、游标
 │  ├─ platform/     # 平台差异：Windows 上命令的解析与 cmd.exe 启动（command.ts）、BOM / UTF-16 文本解码（text.ts）
+│  ├─ log/          # 日志：按大小轮转的异步追加（index.ts）、读取与跟随（read.ts，`via daemon logs`）；调用路径与 daemon 才加载
 │  ├─ daemon/       # socket 服务（server）、会话与目录（sessions）、CLI 侧连接与拉起（client、backend）、路径与安全检查（paths）、协议帧（wire）
 │  └─ protocol.ts   # CLI 与 daemon 之间的消息类型
 ├─ data/

@@ -32,9 +32,9 @@ via 的调用是一次性的 CLI 命令，调用方常常是 agent，没有人�
 
 **URL 模式只打开 `http(s)`，规则与 OAuth 回调相同**（[auth.md](../spec/auth.md#流程)）：完整 URL 与主机名（IDN 以 punycode 显示）总是先打印，由用户确认后才打开，从不自动打开；平台打开命令与 OAuth 共用（Windows 用 `rundll32 url.dll,FileProtocolHandler`，不经 `cmd.exe`）；其他 scheme、带用户名密码的 URL 直接 `decline`；SSH 会话、无显示器时不尝试打开，只打印让用户自己打开。`accept` 只表示「用户同意去做这件事」，via 不知道也不检查用户是否完成。
 
-**daemon：问题经 socket 交给发起调用的 CLI，答案从同一条连接回来。** `call` 请求带 `elicit: "interactive" | "decline"`（这个 CLI 是否有终端），daemon 在 `call` 的会话里登记一个应答人；server 提问时 daemon 向该请求发一个 `elicit` 事件（已脱敏的请求），CLI 提示用户后用新的 `elicit-reply` 请求把答案送回，daemon 转给 server。连接断开、调用结束、期限到时，未答的问题按 `cancel` 处理。同一会话上同时有几个调用时，协议无法说明是哪个调用引出的提问：交给最早的、有终端的调用；一个都没有终端就拒绝，并通知最早的调用。daemon 不弹窗、不读自己的 stdin。
+**daemon：问题经 socket 交给发起调用的 CLI，答案从同一条连接回来。** `call` 请求带 `elicit: true`（这个 CLI 会处理提问：有终端就问，没有就拒绝并记下；有没有终端等问题到来时才查，因为查终端要加载 `node:tty`，每次调用都付这笔冷启动代价不值得），daemon 在 `call` 的会话里登记一个应答人；server 提问时 daemon 向该请求发一个 `elicit` 事件（已脱敏的请求），CLI 提示用户后用新的 `elicit-reply` 请求把答案送回，daemon 转给 server。连接断开、调用结束、期限到时，未答的问题按 `cancel` 处理。同一会话上同时有几个调用时，协议无法说明是哪个调用引出的提问：交给最早的调用（它若没有终端就拒绝，这是保守的方向）；一个调用都没有就直接拒绝。daemon 不弹窗、不读自己的 stdin。
 
-**答案与问题的内容不进日志。** 日志只记「在 provider X 上有一次表单/URL 提问、字段个数、结果是 accept/decline/cancel」（[ADR 0019](0019-per-server-logs-rotated-and-redacted.md)）。用户键入的答案只发给提问的 server，不写盘、不进 daemon 的日志。
+**答案与问题的内容不进日志。** 日志只记「在 provider X 上有一次表单/URL 提问、字段个数、结果是 accept/decline/cancel」（[ADR 0022](0022-per-server-logs-rotated-and-redacted.md)）。用户键入的答案只发给提问的 server，不写盘、不进 daemon 的日志。
 
 **`--timeout` 仍然约束整个调用，包括用户作答的时间。** SDK 的请求超时无法暂停；提示里显示剩余时间，到期按 `cancel`，再由调用本身报超时。需要更多时间时加大 `--timeout`。
 

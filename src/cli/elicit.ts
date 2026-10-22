@@ -23,8 +23,12 @@ export interface Outcome {
 }
 
 export interface ElicitOptions {
-  /** Whether a person can be asked: a terminal on stdin and stderr, and not `via serve` or `via batch`. */
-  interactive: boolean;
+  /**
+   * Whether a person can be asked: a terminal on stdin and stderr, and not `via serve` or `via batch`. Called
+   * when a question arrives and not before (finding out loads `node:tty`, which a call without a question
+   * must not pay for).
+   */
+  interactive: () => boolean;
   /** The command a person could run themselves to answer, as pasteable words (output.md "可粘贴的命令行"). */
   rerun?: string;
 }
@@ -38,11 +42,11 @@ export class Elicitation {
     private readonly app: App,
     private readonly options: ElicitOptions,
   ) {
-    this.sink = { interactive: options.interactive, ask: (question) => this.ask(question) };
+    this.sink = { ask: (question) => this.ask(question) };
   }
 
   private async ask(question: ElicitQuestion): Promise<ElicitAnswer> {
-    if (!this.options.interactive) {
+    if (!this.options.interactive()) {
       this.unanswered.push({ provider: question.provider, message: oneLine(question.message) });
       return { action: 'decline' };
     }

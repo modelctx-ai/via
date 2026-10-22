@@ -58,7 +58,7 @@ describe('the elicit event and elicit-reply', () => {
     const conn = await connect();
     const events: Event[] = [];
     const response = await conn.request(
-      { type: 'call', ...target(), rawName: 'elicit_confirm', args: { what: 'ship it' }, elicit: 'interactive' },
+      { type: 'call', ...target(), rawName: 'elicit_confirm', args: { what: 'ship it' }, elicit: true },
       {
         onEvent: (event) => {
           events.push(event);
@@ -85,7 +85,7 @@ describe('the elicit event and elicit-reply', () => {
     expect(none).toMatchObject({ ok: true, result: { delivered: false } });
     const seen: Event[] = [];
     const call = conn.request(
-      { type: 'call', ...target(), rawName: 'elicit_confirm', args: {}, elicit: 'interactive' },
+      { type: 'call', ...target(), rawName: 'elicit_confirm', args: {}, elicit: true },
       { onEvent: (event) => void seen.push(event) },
     );
     while (!seen.some((e) => e.event === 'elicit')) await new Promise((r) => setTimeout(r, 10));
@@ -102,7 +102,7 @@ describe('the elicit event and elicit-reply', () => {
     const { connect } = await start();
     const conn = await connect();
     const response = await conn.request(
-      { type: 'call', ...target(), rawName: 'elicit_form', args: { plain: true }, elicit: 'interactive' },
+      { type: 'call', ...target(), rawName: 'elicit_form', args: { plain: true }, elicit: true },
       {
         onEvent: (event) => {
           if (event.event === 'elicit') void conn.request({ type: 'elicit-reply', call: event.id, key: (event.data as { key: string }).key, answer: { action: 'accept', content: { name: { nested: true } } } as never });
@@ -118,7 +118,7 @@ describe('the elicit event and elicit-reply', () => {
     const other = await connect();
     let sawQuestion!: () => void;
     const asked = new Promise<void>((resolve) => (sawQuestion = resolve));
-    void conn.request({ type: 'call', ...target(), rawName: 'elicit_confirm', args: {}, elicit: 'interactive' }, { onEvent: (e) => e.event === 'elicit' && sawQuestion() }).catch(() => undefined);
+    void conn.request({ type: 'call', ...target(), rawName: 'elicit_confirm', args: {}, elicit: true }, { onEvent: (e) => e.event === 'elicit' && sawQuestion() }).catch(() => undefined);
     await asked;
     conn.close();
     // the server got a cancel and finished its call: nothing is active on the session any more
@@ -127,17 +127,17 @@ describe('the elicit event and elicit-reply', () => {
       if (status.ok && (status.result as { sessions: Array<{ active: number }> }).sessions[0]!.active === 0) break;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    const next = await other.request({ type: 'call', ...target(), rawName: 'elicit_confirm', args: {}, elicit: 'decline' }, { onEvent: (e) => e.event === 'elicit' && void other.request({ type: 'elicit-reply', call: e.id, key: (e.data as { key: string }).key, answer: { action: 'decline' } }) });
+    const next = await other.request({ type: 'call', ...target(), rawName: 'elicit_confirm', args: {}, elicit: true }, { onEvent: (e) => e.event === 'elicit' && void other.request({ type: 'elicit-reply', call: e.id, key: (e.data as { key: string }).key, answer: { action: 'decline' } }) });
     expect(next).toMatchObject({ ok: true });
     expect((next as { result: { content: Array<{ text: string }> } }).result.content[0]!.text).toBe('not confirmed (decline)');
   });
 
-  it('a CLI without a terminal gets the question too, to say it was declined', async () => {
+  it('a CLI that will decline gets the question too, to say so', async () => {
     const { connect } = await start();
     const conn = await connect();
     const kinds: string[] = [];
     const response = await conn.request(
-      { type: 'call', ...target(), rawName: 'elicit_confirm', args: {}, elicit: 'decline' },
+      { type: 'call', ...target(), rawName: 'elicit_confirm', args: {}, elicit: true },
       {
         onEvent: (event) => {
           kinds.push(event.event);

@@ -34,6 +34,7 @@
 | **绑定授权服务器** | 客户端凭据与 refresh token 只发给验证它们时所在的授权服务器，换了就拒绝（[auth.md](../spec/auth.md#绑定授权服务器)）。 |
 | **凭证引用** | 配置中对凭证的间接写法，如 `env:NAME`、`keychain:service/account`，不写明文。 |
 | **daemon** | 按需拉起、空闲退出的 per-user 后台进程，持有 MCP 会话、目录和凭证。 |
+| **日志（log）** | daemon 与各 server 的运行记录（stdio 子进程的 stderr、连接与协议事件、每次调用一行），在用户缓存目录的 `logs/` 下，按大小轮转、写盘前脱敏，`via daemon logs` 查看（[daemon.md](../spec/daemon.md#日志)）。 |
 | **进程内模式** | 不经 daemon、在 CLI 进程内直连 server 的运行方式。 |
 | **独占 server** | 锁定文件、端口或浏览器 profile，无法与框架中的同名实例并存的 server，配置为 `exclusive: true`。 |
 | **危险工具** | annotations 中 `destructiveHint: true` 的工具，调用需要 `--yes`。 |

@@ -62,8 +62,8 @@ export type Request =
   | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   /**
    * `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. `elicit` says
-   * the CLI can answer the server's questions to the person (`elicit` events, answered with `elicit-reply`):
-   * `interactive` when it has a terminal, `decline` when it only wants to be told that they were declined.
+   * the CLI answers the server's questions to the person (`elicit` events, answered with `elicit-reply`),
+   * by asking at its terminal or by declining them and noting it for the call's outcome.
    */
   | ({
       id: string;
@@ -79,7 +79,8 @@ export type Request =
       taskSupport?: string;
       /** Send a `task` event when the call became a task. */
       tasks?: boolean;
-      elicit?: 'interactive' | 'decline';
+      /** The CLI answers (or declines) the server's questions to the person: `elicit` events, `elicit-reply` requests. */
+      elicit?: true;
     } & ServerTarget)
   /** The answer to an `elicit` event of the `call` request `call`; the result says whether somebody was still waiting for it. */
   | { id: string; type: 'elicit-reply'; call: string; key: string; answer: ElicitAnswer }

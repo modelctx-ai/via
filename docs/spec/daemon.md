@@ -4,7 +4,7 @@ CLI 是短进程，每次调用都重新握手、重新拉起 stdio server 会�
 
 ## 生命周期
 
-1. CLI 检查 socket：Linux 为 `$XDG_RUNTIME_DIR/via.sock`（未设置时退回用户缓存目录），macOS 为用户缓存目录下的 `via.sock`，Windows 为 named pipe（见下「Windows」，名字由握手令牌派生）。同目录下还有 `via.sock.lock`（启动锁）、`via.sock.token`（握手令牌）、`via.sock.log`（分离启动的 daemon 的 stderr，只在启动失败时读来拼错误信息，超过 64 KB 在下次启动时清空）。Windows 上没有 socket 文件，这三个文件在用户缓存目录 `%LOCALAPPDATA%\via\Cache` 下，名为 `via.lock`、`via.token`、`via-daemon.log`。
+1. CLI 检查 socket：Linux 为 `$XDG_RUNTIME_DIR/via.sock`（未设置时退回用户缓存目录），macOS 为用户缓存目录下的 `via.sock`，Windows 为 named pipe（见下「Windows」，名字由握手令牌派生）。同目录下还有 `via.sock.lock`（启动锁）、`via.sock.token`（握手令牌）、`via.sock.log`（分离启动的 daemon 的 stderr：日志模块起来之前的错误和未捕获的异常栈，只在启动失败时读来拼错误信息，超过 64 KB 在下次启动时清空；daemon 平时的记录在[日志](#日志)里）。Windows 上没有 socket 文件，这三个文件在用户缓存目录 `%LOCALAPPDATA%\via\Cache` 下，名为 `via.lock`、`via.token`、`via-daemon.log`。
 2. 不存在则以 `via daemon run` 分离启动（`--socket`、`--idle-timeout` 由 CLI 传入），最多等待 2 秒就绪（Windows 上 5 秒，冷启动的 node.exe 与杀毒扫描更慢），然后转发请求。运行时是 Node 时，CLI 另给它 `--max-semi-space-size=2`（Node 文档列出的 V8 选项；新生代上限 2 MiB，默认会在加载 MCP SDK 的那一阵分配后涨到 16 MiB 并一直留着），Linux 上再设 `MALLOC_ARENA_MAX=2`（glibc 默认每个线程一个 arena）；两者合计让建立会话之后的常驻内存少 5 到 10 MiB。Bun 或编译出的单文件可执行不收到 Node 的选项。启动出错（可执行文件不存在、进程立即退出）时不必等满 2 秒，直接回退。拉起的是当前程序自身，而不是 PATH 上的 `via` 或 `node`：以脚本运行时为 `<node 或 bun> <入口脚本> daemon run …`，以单文件可执行运行时为 `<该可执行文件> daemon run …`（它的入口脚本只存在于可执行文件内部，无法再传给别的进程）。
 3. 握手时交换版本；CLI 与 daemon 版本不一致时，daemon 回复 `ok: false, reason: "version"`，**先停止监听并删除 socket**，处理完在途请求后退出，由本次 CLI 重新拉起一个版本一致的 daemon（旧 daemon 与新 daemon 因此可以短暂并存）。
 4. daemon 空闲 10 分钟退出（没有连接、没有在途请求）；单个 stdio server 空闲 5 分钟停止子进程（均可配置，见 [config.md](config.md)）。HTTP 会话不因空闲关闭（它们不占本机进程，保留下来才能继续订阅 `list_changed`），随 daemon 退出而结束。socket 文件被删除或被别的 daemon 替换后，旧 daemon 在几秒内自行退出，避免出现无法连上的常驻进程。
@@ -68,7 +68,7 @@ type Request =
   | { id; type: "status" }
   | ({ id; type: "list"; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   | ({ id; type: "call"; rawName: string; args: object; timeoutMs?: number; retry?: boolean; progress?: boolean;
-        detach?: boolean; taskSupport?: string; tasks?: boolean; elicit?: "interactive" | "decline" } & ServerTarget)
+        detach?: boolean; taskSupport?: string; tasks?: boolean; elicit?: true } & ServerTarget)
   | ({ id; type: "task"; action: "get" | "wait" | "cancel" | "list"; taskId?: string; timeoutMs: number } & ServerTarget)
   | ({ id; type: "skills-list"; timeoutMs: number } & ServerTarget)
   | ({ id; type: "skill-read"; skill: string; file?: string; timeoutMs: number } & ServerTarget)
@@ -110,7 +110,7 @@ type ErrorInfo = {
 | 请求 | 行为 |
 | --- | --- |
 | `list` | 返回 `{ tools, fetchedAt, fromCache, features?, protocol? }`，`features` 是 `{ resources, prompts }`（server 是否声明了这两种能力，缓存里没有记录时省略），`protocol` 是 `{ version, stateful }`（最近一次连接协商出的协议版本与连接是否有状态，同样记在缓存里，没有记录时省略）。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5。`have` 是 CLI 手里已有预构建目录的那份列表的 `fetchedAt`：daemon 的列表恰好是这一份时，应答为 `{ unchanged: true, fetchedAt, fromCache: true, features?, protocol? }`，不带 `tools`（凭证与信任检查照常先做；带 `refresh` 时忽略 `have`）。CLI 只在磁盘缓存里的列表也是这一份时才带 `have`，收到 `unchanged` 后需要工具时从那个缓存文件读，所以浏览类命令不必让 daemon 把整份列表再传一遍 |
-| `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样。调用变成任务时（[cli.md](cli.md#任务via-tasks-与---detach)）daemon 的会话就地跟随到结束，结果与同步调用一样；`tasks: true` 时任务一创建就推送一个 `task` 事件（任务的 `{id, status, …}`），CLI 据此写记录、打印 `progress: task …`；`taskSupport` 是工具声明的 `execution.taskSupport`（决定 2025 要不要带 `task`）。`detach: true` 时任务创建后立即返回 `{ task }`，server 没建任务则返回 `{ result }`。超时、`input_required` 与已创建任务后的失败不重试 |
+| `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。`elicit: true` 说明发起调用的 CLI 会处理 server 对用户的提问：有终端就问，没有就拒绝并记在调用的结果里（有没有终端由 CLI 在问题到来时才判断，不在每次调用前判断，查终端要加载 `node:tty`）；没有这个字段的调用，提问直接被拒绝、不通知任何人（见下「elicitation」）。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样。调用变成任务时（[cli.md](cli.md#任务via-tasks-与---detach)）daemon 的会话就地跟随到结束，结果与同步调用一样；`tasks: true` 时任务一创建就推送一个 `task` 事件（任务的 `{id, status, …}`），CLI 据此写记录、打印 `progress: task …`；`taskSupport` 是工具声明的 `execution.taskSupport`（决定 2025 要不要带 `task`）。`detach: true` 时任务创建后立即返回 `{ task }`，server 没建任务则返回 `{ result }`。超时、`input_required` 与已创建任务后的失败不重试 |
 | `elicit-reply` | 回答一个 `elicit` 事件：`call` 是发出事件的 `call` 请求的 id，`key` 是事件里的 `key`。返回 `{ delivered: boolean }`：问题还在等这个答案（同一连接、同一 `call`、`key` 对得上）才是 `true`，答过的、已被取消的、别人的都是 `false`，不报错 |
 | `task` | `action`：`get` 返回 `{id, status, message?, …}`（`tasks/get`）；`wait` 等到任务结束或 `timeoutMs`，返回 `{ task, result? }`（`result` 在 `completed` 时是工具结果，`failed`/`cancelled` 时是 `isError` 结果，`input_required` 时没有）；`cancel` 发 `tasks/cancel`（2026 的扩展再取一次状态）并返回取消后的任务；`list` 返回 `{ tasks? }`，没有任务列表的 server（2026 的扩展，或 2025 没有声明 `tasks.list`）不带 `tasks`。server 没有声明 tasks 时退出码 3，不发请求；不认识的任务退出码 3；等待超时退出码 6，`next: via tasks <provider> <ID>`。任务由 server 持有，daemon 不保存任务：via 自己的记录在 CLI 一侧（[cli.md](cli.md#任务via-tasks-与---detach)） |
 | `skills-list` | 返回技能条目数组（`skills/list` 分页拉全，附清单）。不缓存。协议不是 `2026-07-28` 或没有声明 `io.modelcontextprotocol/skills` 时退出码 3，不发请求。不合格的条目（缺 URI、`name`、`description` 或清单）丢弃并推送一条 `log` 警告 |
@@ -153,11 +153,27 @@ MCP 的 `2026-07-28` 把协议改成无状态：没有 `initialize` 握手，没
 
 server 在一次调用中途向用户要输入（表单或 URL；旧协议里是 server 发给 client 的 `elicitation/create` 请求，`2026-07-28` 里是调用结果的 `input_required`，SDK 把两者交给同一个处理器；[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）。via 声明 `elicitation`（表单与 URL 两种模式，`applyDefaults`），**不**声明 `sampling`。能力是会话级的，所以所有会话都声明，按调用决定怎么处理：
 
-1. 会话把提问交给**正在运行的某个 `call`**：协议没有说明一个提问属于哪个调用（旧协议里提问是同一连接上的独立请求），所以按顺序选——最早的、`elicit: "interactive"` 的调用；没有这样的就选最早的调用（它会拒绝并留下记录）；一个调用都没有（列目录、读资源时 server 提问）就直接拒绝，并给当前操作一条 `log` 警告（`<provider> asked for user input outside of a tool call; it was declined`）。daemon 里同一会话被多个 CLI 同时使用时，提问因此可能出现在不是它引出的那条命令的终端上；提示里总是写明提问的 provider 与 server 的原文，用户据此判断。
+1. 会话把提问交给**正在运行的某个 `call`**：协议没有说明一个提问属于哪个调用（旧协议里提问是同一连接上的独立请求），所以选最早的、带 `elicit` 的调用；一个调用都没有（列目录、读资源时 server 提问）就直接拒绝，并给当前操作一条 `log` 警告（`<provider> asked for user input outside of a tool call; it was declined`）。daemon 里同一会话被多个 CLI 同时使用时，提问因此可能被交给不是它引出的那条命令（比如一个没有终端的 agent 调用，于是被拒绝），或出现在另一条命令的终端上；提示里总是写明提问的 provider 与 server 的原文，用户据此判断。
 2. 提问先在会话里脱敏（所有字符串值，键不动），再由 daemon 作为 `elicit` 事件发到那次 `call` 的连接上。CLI 在自己的进程里处理（终端提示，或拒绝并记下，[output.md](output.md#server-向用户提问elicitation)、[cli.md](cli.md#server-向用户提问)），用 `elicit-reply` 把答案送回；daemon 按严格的形状校验答案（`accept` 的 `content` 只允许字符串、有限数字、布尔和字符串数组，其他一律按 `cancel`，不转发畸形内容）再交给 server。daemon 不弹窗、不读自己的 stdin。
 3. 等待中的问题在这些情形按 `cancel` 结束：该 `call` 结束、CLI 的连接断开、答案形状不对。`timeLeftMs`（问题里带的，调用剩余的预算）到时 CLI 自己按 `cancel` 处理；SDK 的请求超时无法暂停，所以用户作答的时间计入调用的 `--timeout`。
 4. 内容不落盘：问题与答案不进日志（[安全](security.md#elicitation)）。`elicit-reply` 里的答案是用户键入的，只经 socket 到 server，不经任何缓存。
 5. 进程内模式（无 daemon、daemon 回退）里没有 socket：同一个 `ElicitSink` 直接是 CLI 的终端提示或拒绝，其余相同。daemon 连接在作答途中断开时，按「连接中断」处理（`call` 非只读，退出码 6，可能已执行）。
+
+## 日志
+
+daemon 与各个 server 的运行记录，用来回答「为什么连不上、为什么慢、为什么这次失败」（[ADR 0022](../adr/0022-per-server-logs-rotated-and-redacted.md)）。进程内模式（没有 daemon）同样写 server 的日志，那里最需要它：一次性进程出错后什么都不剩。
+
+- **位置**：用户缓存目录下的 `logs/`（Linux `~/.cache/via/logs`，macOS `~/Library/Caches/via/logs`，Windows `%LOCALAPPDATA%\via\Cache\logs`），目录 0700、文件 0600，与游标、媒体、目录缓存同处同权限；Windows 没有这类权限位，私密性来自用户目录的默认 ACL（[security.md](security.md#windows-上的文件权限)），via 不宣称 0600。
+  - `logs/daemon.log`：daemon 自己的。
+  - `logs/servers/<名字>.log`：一个 server 一个文件，`<名字>` 是配置里 `servers` 下的键。含 `[A-Za-z0-9._-]` 以外字符、以点开头、或是 Windows 保留名（`con`、`nul` 等）的名字，先换成安全字符并加 `~` 与名字 SHA-256 的前 8 位，所以不同的名字不会共用一个文件。同一个 server 的各个会话（不同目录下的同名 stdio server，daemon 里是不同的会话）写同一个文件。
+- **格式**：一行一条，`<UTC 时间，毫秒> <标签> <文本>`，标签 `event`、`error`、`stderr`（宽 6 个字符，后跟一个空格）。控制字符、转义序列、双向文本控制符写成 `\xNN`/`\uNNNN`，所以一行就是一行。一行超过 4096 个字符时截断并写明省略的字数。
+- **server 日志的内容**：子进程的启动（只写程序名，不写命令行参数）或 HTTP 连接（只写 scheme 与主机）；协议策略与协商结果（`newest first`、`plain handshake, no probe`，版本、有无状态、子进程 pid；带探测的重试）；连接关闭；`list_changed` 与订阅流的重订；**stdio 子进程的 stderr，一行一条**；每次调用一行（工具的原始名、`ok` / `returned isError` / 失败的退出码与首行原因、耗时）；对用户提问的类型与结果（[elicitation](#elicitation)，不含文字）；连接失败的原因；daemon 里的会话开启与关闭、空闲停止。
+- **daemon 日志的内容**：启动（pid、版本、socket 路径；Windows 的管道名由令牌派生，不写）、连接的建立与关闭（当前连接数）、握手被拒绝的原因（版本、令牌）、非调用请求的失败（退出码与首行原因）、`shutdown`、收尾、空闲退出、socket 被替换而退出、未捕获的异常（首行）。
+- **不记录**：工具参数、调用结果、资源与 prompt 的内容、elicitation 的问题与答案、凭证。HTTP 请求的 URL 只记 scheme 与主机。
+- **脱敏**：每一行在写盘之前脱敏，与输出同一个脱敏器（[output.md](output.md#脱敏的范围)）。via 自己写的行按「via 组合的文字」（8 个字符以上的凭证）；子进程的 stderr 是内容，任何长度的凭证都替换。stderr 按行处理：写完整的一行才脱敏、才入队，凭证被切在两个数据块之间也能认出；超过 4096 个字符的行在脱敏**之后**截断；没有换行却累积到 16 KiB 的片段，丢掉最后 4096 个字符（凭证可能刚好从那里开始）并忽略这一行余下的部分。daemon 里用 daemon 解析过的全部凭证（含已过期、仍在脱敏名单里的）。
+- **轮转**：文件超过 1 MiB 时 `x.log` → `x.log.1` → `x.log.2` → `x.log.3`，最旧的丢弃，所以一份日志最多约 4 MiB。daemon 启动时删除两周没有写过的日志文件。大小与份数固定，没有配置项。
+- **写入不挡调用**：一行日志只是放进内存队列。一个异步写入器在约 100 毫秒后（或队列达到 32 KiB 时）把积累的行一次追加到文件，并在需要时轮转；不长期持有文件句柄，每次写之前看一眼文件大小，所以 daemon 与进程内的 CLI 可以同时写同一个文件（每次写入是一次 `O_APPEND`，不会把一行写成两半；两个进程恰好同时轮转最多丢几行）。写不进去（只读的缓存目录、磁盘满）时这份日志在本进程内放弃，不影响任何调用。会话关闭、daemon 停止时先写完队列；进程被杀会丢最后不到 100 毫秒的行。
+- **查看**：`via daemon logs [<provider>] [-n <行数>] [--follow] [--since <时长>]`（[cli.md](cli.md#daemon-logs)）。
 
 ## 校验
 

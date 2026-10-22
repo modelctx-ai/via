@@ -42,12 +42,13 @@ export type ElicitAnswer =
   | { action: 'cancel' };
 
 /**
- * Whoever can answer a server's question on behalf of one call: the CLI process that made it (in
- * process), or the CLI at the other end of the daemon's socket. `interactive` says whether a person
- * can be asked at all; a sink that cannot declines and keeps a note of it for the call's outcome.
+ * Whoever answers a server's question on behalf of one call: the CLI process that made it (in
+ * process), or the CLI at the other end of the daemon's socket. Whether a person can be asked at all
+ * is the sink's business, found out only when a question arrives (looking for a terminal costs a
+ * module load that no call without a question should pay); a sink that cannot ask declines and keeps
+ * a note of it for the call's outcome.
  */
 export interface ElicitSink {
-  readonly interactive: boolean;
   ask(question: ElicitQuestion): Promise<ElicitAnswer>;
 }
 
