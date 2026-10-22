@@ -1,6 +1,6 @@
 # 0004. 使用 TypeScript 实现
 
-- 状态：已接受
+- 状态：已接受。「另提供单文件可执行版本」这一条被 [ADR 0023](0023-npm-is-the-only-distribution-channel.md) 取代，其余仍然有效。
 - 日期：2026-10-20
 
 ## 背景

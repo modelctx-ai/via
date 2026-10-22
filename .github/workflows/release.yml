@@ -1,104 +1,21 @@
 name: Release
 
-# 发布：只在 v* 标签（或手动触发）时运行，普通的推送与 PR 不会触发。
-# 各平台在原生的 runner 上编译并跑冒烟测试，通过后再汇总、生成 SHA-256 校验和并上传到 GitHub Release。
-# Intel macOS（在 Apple 芯片的 runner 上交叉编译）、Windows（冒烟测试尚未适配）与 musl（需要 Alpine）
-# 不跑冒烟测试，只构建。
-# v* 标签同时把 @modelctx-ai/via 发到 npm。npm 上的 trusted publisher 登记的是这个文件名（release.yml）。
-# 手动触发只重做单文件产物，不重复发 npm。
-# npm 发布成功、Release 建好之后，homebrew 任务用 registry 上的 tarball 生成 Homebrew formula（via.rb）并附到 Release；
-# 它不需要任何密钥，也不推送到 tap：把 via.rb 放进 tap 仓库是手工的一步（docs/development/implementation.md，「Homebrew」）。
+# 发布：只在 v* 标签时运行，普通的推送与 PR 不会触发。
+# via 只通过 npm 分发（docs/adr/0023-npm-is-the-only-distribution-channel.md）：这里把 @modelctx-ai/via 发到 npm，
+# 成功之后建 GitHub Release（带自动生成的发布说明，不附任何文件）。
+# npm 上的 trusted publisher 登记的是这个文件名（release.yml）。
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: '上传到哪个已存在的标签/Release（如 v0.3.0）；留空则只构建，产物留作工作流 artifact，不上传'
-        required: false
-        default: ''
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: build (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - { os: ubuntu-latest, target: linux-x64, test: true }
-          - { os: ubuntu-24.04-arm, target: linux-arm64, test: true }
-          - { os: macos-latest, target: darwin-x64, test: false }
-          - { os: macos-latest, target: darwin-arm64, test: true }
-          - { os: windows-latest, target: windows-x64, test: false }
-          - { os: ubuntu-latest, target: linux-x64-musl, test: false }
-          - { os: ubuntu-latest, target: linux-arm64-musl, test: false }
-    env:
-      VIA_REQUIRE_BUN: '1'
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - run: npm ci
-      - run: npm run build:bin -- --target ${{ matrix.target }}
-      - name: smoke test
-        if: matrix.test
-        run: npx vitest run test/cli/bin.test.ts test/bin-targets.test.ts test/runtime.test.ts
-      - uses: actions/upload-artifact@v4
-        with:
-          name: via-${{ matrix.target }}
-          path: dist/bin/via-*
-          if-no-files-found: error
-
-  publish:
-    name: checksums and upload
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: assets
-          merge-multiple: true
-      - name: SHA-256 checksums
-        working-directory: assets
-        run: |
-          # The per-file .sha256 files are build outputs; the release carries one combined list.
-          rm -f ./*.sha256
-          sha256sum via-* | tee SHA256SUMS
-          sha256sum --check SHA256SUMS
-      - name: upload to the release
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
-          gh release upload "$TAG" assets/via-* assets/SHA256SUMS --clobber
-      - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        with:
-          name: via-release-assets
-          path: assets/
-
   # npm 的 trusted publisher 用 OIDC，不读 NPM_TOKEN。npm CLI 11.5.1+ 才会走这条登录路径。
   # 公开仓库发布公开包时，provenance 由 registry 自动附带，不必再加 --provenance。
   npm:
     name: publish to npm
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -125,28 +42,16 @@ jobs:
           fi
       - run: npm publish
 
-  # Homebrew formula：装 npm 包（依赖 Homebrew 的 node），不装单文件可执行；理由见 implementation.md「Homebrew」。
-  # 校验和取自 registry 上的 tarball（脚本会先核对 registry 给出的 sha512 完整性），Homebrew 下载的正是这个文件。
-  # 只生成并附到 Release，不推送到 tap 仓库，因此不需要额外的密钥。
-  homebrew:
-    name: render the Homebrew formula
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [publish, npm]
+  release:
+    name: GitHub Release
+    needs: npm
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-      - name: render via.rb
-        run: node scripts/render-homebrew.mjs --version "${GITHUB_REF_NAME#v}" --out via.rb
-      - run: cat via.rb
-      - name: ruby syntax check
-        run: ruby -c via.rb
-      - name: upload to the release
+      - name: create the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload "$GITHUB_REF_NAME" via.rb --clobber
+          TAG: ${{ github.ref_name }}
+        run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes

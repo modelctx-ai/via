@@ -16,8 +16,7 @@
     "via": "dist/via.js"
   },
   "files": [
-    "dist",
-    "!dist/bin"
+    "dist"
   ],
   "engines": {
     "node": ">=20"
@@ -33,7 +32,6 @@
     "test:stateless": "VIA_TEST_PROTOCOL=modern vitest run test/cli test/daemon test/client test/bench",
     "test:conformance": "npm run build && npx -y @modelcontextprotocol/conformance@0.1.16 client --command \"node test/conformance/client.mjs\" --suite all --expected-failures test/conformance/expected-failures.yml",
     "typecheck": "tsc --noEmit",
-    "build:bin": "bun scripts/build-bin.ts",
     "eval:search": "tsup scripts/eval-search.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/eval-search.js",
     "bench:perf": "tsup scripts/bench-perf.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-perf.js",
     "bench:tokens": "tsup scripts/bench-tokens.ts --no-config --format esm --target node20 --platform node --out-dir .build/scripts --silent && node .build/scripts/bench-tokens.js",

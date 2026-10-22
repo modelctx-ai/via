@@ -36,7 +36,7 @@ via 向授权服务器表明身份的方式，按下列顺序取第一个可用�
 3. **动态客户端注册（RFC 7591）**：授权服务器不支持 CIMD（或 `clientMetadataUrl: false`）但有 `registration_endpoint` 时自动注册，客户端名为 `via`，公开客户端（`token_endpoint_auth_method: none`），回调地址只登记本次登录用的那一个。每次登录重新注册。
 4. 都不可用：必须配置 `clientId`，否则 `login` 退出码 2 并说明。
 
-CIMD 的文档地址是 via 所有安装共用的身份：改动文档的地址等于换一个客户端。文档里的 `redirect_uris` 必须与代码里的回调端口范围一致（测试核对）。授权服务器取不到文档（例如 GitHub Pages 尚未启用、服务器出不了网）时，浏览器里会看到授权服务器的错误页，`via auth login` 等到超时；改用 `clientMetadataUrl: false` 即可。登录时 stderr 会提示本次用的是 CIMD 以及怎样关掉。
+CIMD 的文档地址是 via 所有安装共用的身份：改动文档的地址等于换一个客户端。文档里的 `redirect_uris` 必须与代码里的回调端口范围一致（测试核对）。授权服务器取不到文档（例如服务器出不了网、文档地址暂时不可达）时，浏览器里会看到授权服务器的错误页，`via auth login` 等到超时；改用 `clientMetadataUrl: false` 即可。登录时 stderr 会提示本次用的是 CIMD 以及怎样关掉。
 
 ### 流程
 

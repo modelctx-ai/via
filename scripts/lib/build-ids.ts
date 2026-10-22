@@ -1,6 +1,5 @@
-// Identifiers the builds (tsup for the npm package, Bun for the single-file executable) bake into
-// the bundle with `define`, so a cache written by one build is never read by a build whose rules or
-// parser differ.
+// Identifiers the build (tsup) bakes into the bundle with `define`, so a cache written by one
+// build is never read by a build whose rules or parser differ.
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

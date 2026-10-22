@@ -1,25 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { importKeyring } from '../src/keyring';
-import { isCompiledBinary, selfCommand } from '../src/runtime';
+import { selfCommand } from '../src/runtime';
 
-describe('runtime detection', () => {
-  it('recognises the entry path of a Bun single-file executable', () => {
-    expect(isCompiledBinary('/$bunfs/root/via-linux-x64', '1.4.2')).toBe(true);
-    expect(isCompiledBinary('B:\\~BUN\\root\\via-windows-x64.exe', '1.4.2')).toBe(true);
-    expect(isCompiledBinary('B:/~BUN/root/via.exe', '1.4.2')).toBe(true);
-  });
-
-  it('does not mistake a script for it, under Node or under Bun', () => {
-    expect(isCompiledBinary('/usr/lib/node_modules/@modelctx-ai/via/dist/via.js', undefined)).toBe(false);
-    expect(isCompiledBinary('/home/me/via/dist/via.js', '1.4.2')).toBe(false);
-    expect(isCompiledBinary('/$bunfs/root/via', undefined)).toBe(false);
-    expect(isCompiledBinary(undefined, '1.4.2')).toBe(false);
-  });
-
-  it('starts the daemon as runtime + script, or as the executable alone', () => {
-    expect(selfCommand('/usr/bin/node', '/opt/via/dist/via.js', undefined)).toEqual({ command: '/usr/bin/node', args: ['/opt/via/dist/via.js'] });
-    expect(selfCommand('/usr/local/bin/bun', '/opt/via/dist/via.js', '1.4.2')).toEqual({ command: '/usr/local/bin/bun', args: ['/opt/via/dist/via.js'] });
-    expect(selfCommand('/usr/local/bin/via', '/$bunfs/root/via-linux-x64', '1.4.2')).toEqual({ command: '/usr/local/bin/via', args: [] });
+describe('selfCommand', () => {
+  it('starts the daemon as runtime + script', () => {
+    expect(selfCommand('/usr/bin/node', '/opt/via/dist/via.js')).toEqual({ command: '/usr/bin/node', args: ['/opt/via/dist/via.js'] });
   });
 });
 

@@ -9,7 +9,7 @@
 | [0001](0001-mcp-for-providers-cli-for-consumers.md) | MCP 做提供方协议，CLI 做消费方接口 | 已接受 |
 | [0002](0002-standalone-client-not-gateway.md) | via 是独立的 MCP client，不是网关 | 已接受 |
 | [0003](0003-read-only-framework-configs.md) | 只读引用框架配置，不接管、不写入 | 已接受 |
-| [0004](0004-typescript.md) | 使用 TypeScript 实现 | 已接受 |
+| [0004](0004-typescript.md) | 使用 TypeScript 实现 | 已接受（单文件可执行一项见 0023） |
 | [0005](0005-command-grammar-provider-resource-verb.md) | 命令形态为 `via <provider> <resource>:<verb>` | 已接受 |
 | [0006](0006-domain-is-a-view.md) | 域只是浏览视图，不进入命令路径和规范名 | 被 ADR-0014 取代 |
 | [0007](0007-no-gateway-specific-adaptation.md) | 不对任何网关做专门适配 | 已接受 |
@@ -28,6 +28,7 @@
 | [0020](0020-tasks-and-skills-commands.md) | tasks 与 Skills：两个内置子命令 `via tasks`、`via skills`，像 resources 与 prompts 一样按 provider 取用 | 已接受 |
 | [0021](0021-server-self-description-and-completion.md) | server 自述只在 `via <provider> -h` 里显示；补全用 `--complete` 显式查询 | 已接受 |
 | [0022](0022-per-server-logs-rotated-and-redacted.md) | 日志：按 server 分文件，按大小轮转，写盘前脱敏，不挡调用 | 已接受 |
+| [0023](0023-npm-is-the-only-distribution-channel.md) | npm 是唯一的分发渠道：不做 Homebrew、单文件可执行与签名公证 | 已接受 |
 
 ## 流程
 

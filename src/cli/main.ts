@@ -16,7 +16,7 @@ if (first === '--version' || first === '-V') {
 } else {
   try {
     // Node 22+: cache compiled code between runs. Bun exposes the function as a stub; it has its own
-    // transpiler cache, and the single-file executable ships bytecode, so there is nothing to cache.
+    // transpiler cache, so there is nothing to cache.
     if (process.versions.bun === undefined) (nodeModule as { enableCompileCache?: () => unknown }).enableCompileCache?.();
   } catch {
     // an unwritable cache directory must not stop the command

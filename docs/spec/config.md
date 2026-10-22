@@ -144,7 +144,7 @@ via 自己发出的 HTTP 请求——连接 HTTP 的 MCP server、OAuth（登录
 - **不可用的代理是错误，不是直连**：代理地址不是 URL，或协议不是 http / https（如 `socks5://`），用到它的请求失败（退出码 2，`next:` 提示修正或取消这个变量），不会悄悄绕过代理直接连出去。错误信息不含代理地址里的用户名和密码。
 - **daemon**：daemon 里的请求用 **daemon 自己的环境**（由第一个拉起它的 CLI 继承），与 `env:` 凭证的解析一致（[daemon.md](daemon.md#环境与工作目录)）；代理地址和它的密码不经过 socket。改了代理变量后 `via daemon stop`，让下一次调用拉起的 daemon 带上新值。进程内模式、`via auth`、`via find` 用 CLI 自己的环境。
 - **`via doctor`** 在 servers 之后用一节显示生效的代理：`proxy     none`，或每个代理一行（`https http://***@proxy.corp:3128 (HTTPS_PROXY)`，用户名和密码显示为 `***@`，不会出现原文）和 `no proxy for … (NO_PROXY)`；不可用的代理在行尾说明原因。显示的是 `via doctor` 进程的环境，与 daemon 的环境可能不同。
-- 实现与冷启动：没有设置代理变量时只是请求发出前扫描一遍环境；设置了才在第一个要走代理的请求时加载 undici 的 `ProxyAgent`（打进一个按需加载的分块，要求 Node.js 20.18.1 及以上；Bun 的单文件版本用 `fetch` 自带的 `proxy` 选项）。证书用 `NODE_EXTRA_CA_CERTS`（企业代理做 TLS 检查时），via 不提供关闭证书校验的选项。
+- 实现与冷启动：没有设置代理变量时只是请求发出前扫描一遍环境；设置了才在第一个要走代理的请求时加载 undici 的 `ProxyAgent`（打进一个按需加载的分块，要求 Node.js 20.18.1 及以上）。证书用 `NODE_EXTRA_CA_CERTS`（企业代理做 TLS 检查时），via 不提供关闭证书校验的选项。
 
 ### stdio 子进程的环境
 
@@ -210,7 +210,7 @@ via 自己的 `config.yaml` 每条命令都要读，而加载 YAML 库并解析�
 - 凭证引用可以出现在 `env`、`headers` 的值以及 `auth.bearer`、`auth.headers`、`auth.oauth.clientSecret`、`auth.oauth.privateKey` 中。
 - 不以上述前缀开头的值视为字面量；出现在用户或项目配置中的字面量凭证，`via doctor` 告警。`auth.bearer`、`auth.headers`、`auth.oauth.clientSecret`、`auth.oauth.privateKey` 中的字面量在加载时就告警。
 - `env:` 的变量未设置或为空、`file:` 的文件不存在或为空、`keychain:` 无此条目，都是凭证缺失（退出码 4），错误信息只说明缺哪一项，不含任何解析出的值。`file:` 的相对路径相对于当前目录。
-- 钥匙串模块是原生库，首次用到 `keychain:` 时才加载。加载失败（该平台没有预编译模块、单文件可执行里被替换成了不可用的文件、没有 Secret Service 的 Linux 服务器）与钥匙串本身读不出来一样，是凭证缺失（退出码 4）：`error: cannot read the system keychain: <原因>`，`next:` 提示改用 `env:` 或 `file:`。单文件可执行版本内嵌的是自己那个平台的模块；`NAPI_RS_NATIVE_LIBRARY_PATH` 指向某个 `.node` 文件时改为加载它（napi-rs 的通用约定）。OAuth 的存储在这种情况下退回文件（[auth.md](auth.md#存储)）。
+- 钥匙串模块是原生库，首次用到 `keychain:` 时才加载。加载失败（该平台没有预编译模块、没有 Secret Service 的 Linux 服务器）与钥匙串本身读不出来一样，是凭证缺失（退出码 4）：`error: cannot read the system keychain: <原因>`，`next:` 提示改用 `env:` 或 `file:`。`NAPI_RS_NATIVE_LIBRARY_PATH` 指向某个 `.node` 文件时改为加载它（napi-rs 的通用约定）。OAuth 的存储在这种情况下退回文件（[auth.md](auth.md#存储)）。
 - `cmd:` 出现在项目配置或项目级、框架级配置里时，加载阶段就拒绝：该 server 的定义整条被忽略并报错（`cmd-forbidden`，[security.md](security.md#项目级配置的信任)）。`via trust` 不能放行 `cmd:`。
 - `cmd:` 的执行方式（[security.md](security.md#cmd-凭证)）：
   - 命令行按空白分词，不经 shell。`'…'` 内按字面处理；`"…"` 内只有 `\"` 与 `\\` 是转义；引号外 `\` 转义下一个字符；不展开 `$VAR`、`~`、通配符，管道与重定向无效。命令为空或引号未闭合是无效引用（退出码 4）。**Windows 上**反斜杠是路径分隔符，分词改用 C 运行时规则（与 `CommandLineToArgvW` 相同）：反斜杠按字面处理，只有紧挨着双引号的一串反斜杠才有转义含义（`2n` 个换成 `n` 个，`2n+1` 个换成 `n` 个加一个字面双引号）；`'…'` 仍按字面。所以 `cmd:C:\Tools\op.exe read x` 和 `cmd:"C:\Program Files\1Password CLI\op.exe" read x` 都能直接写。

@@ -31,7 +31,7 @@ flowchart LR
   g2{{"门槛 2 ⏳"}}
   subgraph v03["0.3 扩展 ✅"]
     direction TB
-    c1["Bun 单文件可执行"]
+    c1["Bun 单文件可执行（已移除）"]
     c2["可选语义检索"]
     c3["resources、prompts 与 roots"]
     c4["Windows 支持"]
@@ -44,7 +44,7 @@ flowchart LR
     d1["发布 agent 评测结果"]
     d2["OAuth 实测记录"]
     d3["重新标定性能目标"]
-    d4["单文件分发：签名、公证、目标平台实测"]
+    d4["分发渠道：只在 npm（已决定）"]
     d5["拆分规则与截断预算的实测调整"]
     d6["next: 提示与示例命令的引号审计"]
     end
@@ -76,20 +76,20 @@ flowchart LR
 | --- | --- | --- |
 | a1–a7 | 已实现 | |
 | b1–b6 | 已实现 | |
-| c1 Bun 单文件可执行 | 已实现 | `npm run build:bin`，发布见 `.github/workflows/release.yml`。Linux x64 完整验证；Linux arm64 与 macOS arm64 在发布流程里跑冒烟；Intel macOS、Windows、musl 只构建，未在目标机器上验证（[实现说明](development/implementation.md#单文件可执行)） |
+| c1 Bun 单文件可执行 | 已实现，后已移除 | 0.3 实现并随 0.3.0 发布；之后决定只在 npm 分发，构建脚本、CI 任务与测试已删除（[ADR 0023](adr/0023-npm-is-the-only-distribution-channel.md)）。当时的实测见 [perf-0.3](../bench/results/perf-0.3.md) |
 | c2 可选语义检索 | 已实现 | 默认开启确定性的同义词扩展；embedding 检索由用户配置 `search.semantic` 开启，默认关闭（[ADR 0011](adr/0011-find-synonym-expansion-and-optional-embeddings.md)） |
 | c3 resources、prompts 与 roots | 已实现 | [ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) |
 | c4 Windows 支持 | 已实现 | daemon 走命名管道（[ADR 0012](adr/0012-windows-pipe-name-and-batch-files.md)），CI 在 Windows 上跑完整检查 |
 | c5 `via serve` | 已实现，未发布 | stdio MCP server，七个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[cli.md](spec/cli.md#via-serve)） |
 | d1 agent 评测 | 部分实现 | mcpc 对照列已加入 `bench:tokens` 与 `bench:eval`，token 结果见 [0.4-tokens](../bench/results/0.4-tokens.md)；agent 评测的成功率还没有发布（需要 `ANTHROPIC_API_KEY`） |
 | d2 OAuth 实测、d3 性能目标 | 计划中（0.4） | d2 需要在真实远程 server 上登录；d3 等维护者决定 |
-| d4 单文件分发 | 部分实现 | Homebrew formula 在发布时生成（`packaging/homebrew/`），放进 tap 仓库是手工步骤；签名、公证与目标平台实测未做 |
+| d4 单文件分发 | 已按决定结案 | 只在 npm 分发；签名、公证、Homebrew 与单文件不做（[ADR 0023](adr/0023-npm-is-the-only-distribution-channel.md)） |
 | d5 拆分规则与截断预算 | 部分实现 | `npm run split-stats` 与 [0.4-split](../bench/results/0.4-split.md)；动词表新增 7 个通用动词，`deny` 同时匹配叶子写法；截断预算等 d1 的评测 |
 | d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
 | e1 SDK v2、e2 2026-07-28 无状态协议、e3 协议版本可见与固定、e8 一致性测试 | 已实现，未发布 | `@modelcontextprotocol/client` 2.3.1；`server/discover` 探测并自动回退（[ADR 0017](adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](spec/daemon.md)）；`protocolVersion` 配置字段；CI 新增 `conformance` 与 `stateless` 任务，预期失败的场景列在 `test/conformance/expected-failures.yml` |
 | e4 tasks、e6 Skills、e9 completion 与 server 自述 | 已实现，未发布 | `via tasks`、`via skills`（[ADR 0020](adr/0020-tasks-and-skills-commands.md)），`--detach`；server 自述只在 `via <provider> -h`，`--complete` 显式补全（[ADR 0021](adr/0021-server-self-description-and-completion.md)）；`via serve` 暂不暴露这些命令 |
 | e5 elicitation | 已实现，未发布 | 终端里交互回答，其他情形拒绝并在调用结果里说明（退出码 5）；URL 模式只开 `http(s)`；daemon 经 `elicit` 事件与 `elicit-reply` 转给发起调用的 CLI（[ADR 0018](adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)、[output.md](spec/output.md)、[daemon.md](spec/daemon.md)） |
-| e7 授权规范对齐 | 已实现，未发布 | CIMD（`https://modelctx-ai.github.io/via/client-metadata.json`，需维护者在仓库设置里启用 Pages）、固定回调端口 29842–29851、预注册客户端的 secret、client credentials（secret 与私钥断言）、绑定授权服务器；企业托管授权（ID-JAG）有意不做；后续：配置里钉住授权服务器（[ADR 0019](adr/0019-oauth-client-identity-and-credentials.md)、[auth.md](spec/auth.md)） |
+| e7 授权规范对齐 | 已实现，未发布 | CIMD（`https://modelctx-ai.github.io/via/client-metadata.json`，GitHub Pages 已启用）、固定回调端口 29842–29851、预注册客户端的 secret、client credentials（secret 与私钥断言）、绑定授权服务器；企业托管授权（ID-JAG）有意不做；后续：配置里钉住授权服务器（[ADR 0019](adr/0019-oauth-client-identity-and-credentials.md)、[auth.md](spec/auth.md)） |
 | f1 schema 快照校验 | 已实现，未发布 | `--schema-snapshot <文件>`、`--schema-mode compatible\|strict`（[arguments.md](spec/arguments.md#schema-快照校验)） |
 | f2 出站代理 | 已实现，未发布 | MCP HTTP、OAuth 与 embedding 请求遵守 `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`，`via doctor` 显示生效的代理（[config.md](spec/config.md)、[security.md](spec/security.md)） |
 | f3 daemon 与 stdio server 日志 | 已实现，未发布 | `logs/` 下按 server 分文件的轮转日志与 daemon 自己的日志，`via daemon logs [<provider>] [-n] [--follow] [--since]`（[ADR 0022](adr/0022-per-server-logs-rotated-and-redacted.md)、[daemon.md](spec/daemon.md#日志)） |
@@ -113,7 +113,7 @@ flowchart LR
   - 对照组加入 [mcpc](https://github.com/apify/mcpc)，与 mcp2cli 一样是可选的一列（PATH 上有才运行并记录版本，说明文本取自 `mcpc help --skill`，`connect` 建会话的命令计入成本）。mcpc 与 via 的判断相同（agent 经 shell 用 MCP），但工具名原样、结果保持 MCP 的 JSON 形状，是检验 via 自己的设计（`resource:verb` 拆分、按 schema 生成的参数、紧凑渲染）最直接的对照（[愿景](overview/vision.md#与相近工具的区别)）。token 基准（`bench:tokens`）同样加这一列。**状态**：两个脚本里的 mcpc 一列已实现（`--mcpc` / `--no-mcpc`，缺失即跳过；说明文本 `bench/vendor/mcpc/`；`connect` 命令计入成本），token 基准的结果在 [0.4-tokens](../bench/results/0.4-tokens.md)（mcpc 合计约为 native 的 15%，与 mcp2cli 同一量级，约为 via 的四倍）；agent 评测的 mcpc 条件已用 `--fake-model` 验证流水线，成功率结果仍待有 `ANTHROPIC_API_KEY` 的环境运行。
 - **d2 OAuth 实测记录**：在 Linear、Notion 等主流远程 server 上走一遍 `via auth login`、调用、刷新、`via auth logout`，记录到 `bench/results/` 或对应的 [provider 指南](guides/providers/)，补齐门槛 2。
 - **d3 重新标定性能目标**：按 [perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md#目标重新标定的建议未改规范里的数字) 的建议，由维护者决定是否把冷启动改成相对 `node -e 0` 的增量、把 `find` 的库路径与整进程分开、daemon 内存改看匿名内存；决定后同步 [testing.md](development/testing.md#性能目标)。
-- **d4 单文件分发**：macOS 公证与 Windows 签名；交叉编译产物在 Intel macOS、Windows、musl 上的实测；决定单文件是否成为默认推荐的安装方式（[待定问题](open-questions.md)）；提供 Homebrew formula（macOS 与 Linux），装单文件可执行或自带 Node 的 npm 包，取决于前一项的结论。**状态**：formula 已写好（`packaging/homebrew/via.rb.in`），选的是 npm 包加 Homebrew 的 `node`（Homebrew 对 Node CLI 的惯例，一份覆盖四个平台组合，不依赖尚未做完的公证与「单文件是否默认」的结论，理由见 [implementation.md](development/implementation.md#homebrew)）；`release.yml` 在 npm 发布后渲染并把 `via.rb` 附到 Release，推送到 tap 仓库是手工的一步，tap 仓库本身还要建（`modelctx-ai/homebrew-tap`）；macOS 公证、Windows 签名、Intel macOS/Windows/musl 的实测与「单文件是否默认」仍待定。
+- **d4 分发渠道**：已按决定结案，不再是待办。via 只在 npm 分发（`@modelctx-ai/via`）；macOS 公证、Windows 签名、Homebrew formula、Release 里的单文件可执行都不做，也不再追踪「单文件是否成为默认安装方式」。理由与后果见 [ADR 0023](adr/0023-npm-is-the-only-distribution-channel.md)。
 - **d5 拆分规则与截断预算**：在真实 server 上统计拆分失败（退回叶子工具）的比例、调整动词表；用 d1 的评测确定截断预算的默认值（现在是 8 KB）。动词表的改动按 CHANGELOG 的约定写明影响哪些规范写法。
 - **d6 引号审计**：`next:` 提示、`-h` 的用法行和 `--dry-run` 回显里拼出的命令行含有来自 server 的文本（工具名、参数名、枚举值、默认值、URI）和用户输入。逐处核对：复制粘贴这些命令时不会触发 shell 展开或执行（POSIX shell 的 `$`、反引号、`\`，PowerShell 与 `cmd.exe` 各自的转义），不能安全引用的值不出现在可粘贴的命令里。mcpc 修过同类问题（[apify/mcpc#450](https://github.com/apify/mcpc/pull/450)，反斜杠转义缺失导致粘贴的提示可执行命令）。结论写进 [output.md](spec/output.md) 与 [security.md](spec/security.md)，补测试。
 
@@ -130,7 +130,7 @@ via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-1
 
 | 项 | 内容 | 涉及规范 |
 | --- | --- | --- |
-| e1 迁移到 SDK v2 | 换到 `@modelcontextprotocol/client` 2.x。重新测冷启动、daemon 内存与单文件体积，对照 [perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md)；via 自己用到的协议版本常量加单测，SDK 升级时发现漂移；OAuth 登录的探测请求不再写死版本 | [implementation.md](development/implementation.md)、[daemon.md](spec/daemon.md) |
+| e1 迁移到 SDK v2 | 换到 `@modelcontextprotocol/client` 2.x。重新测冷启动与 daemon 内存，对照 [perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md)；via 自己用到的协议版本常量加单测，SDK 升级时发现漂移；OAuth 登录的探测请求不再写死版本 | [implementation.md](development/implementation.md)、[daemon.md](spec/daemon.md) |
 | e2 2026-07-28 无状态协议 | 用 `server/discover` 探测，不支持时退回 `initialize` 握手（`2025-11-25` 至 `2024-11-05`）；无状态 server 在 daemon 里只保留连接与缓存，不做会话恢复，已存的会话 ID 丢弃；请求按新协议带 `Mcp-Method` 头，`serverInfo` 从响应的 `_meta` 读取；server 给出的 `ttlMs` 缓存提示与目录缓存的 24 小时取较短者；`list_changed` 改用新协议的订阅方式接入 daemon 的刷新（[daemon.md](spec/daemon.md) 现在依赖 `notifications/tools/list_changed`）；新协议去掉了 `logging/setLevel`，roots 在新协议下的形态需要核对（[ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md)） | [daemon.md](spec/daemon.md)、[discovery.md](spec/discovery.md)、[config.md](spec/config.md) |
 | e3 协议版本可见、可固定 | `via servers` 与 `via doctor` 显示每个 server 协商出的协议版本，以及连接是否有状态；配置字段 `protocolVersion` 固定版本，server 不支持时报错而不是退回 | [config.md](spec/config.md)、[cli.md](spec/cli.md) |
 | e4 tasks | 已实现，未发布。调用默认跟随任务到结果（受 `--timeout` 约束，超时不取消任务并给出 `next: via tasks <provider> <ID>`），`--detach` 立即返回带 provider 前缀的任务 ID，`via tasks <provider> [<ID>] [--status \| --cancel]` 列出、等待、取消；两代协议各有适配，2026 的扩展没有列表，via 记录自己建的任务（用户缓存目录）（[cli.md](spec/cli.md#任务via-tasks-与---detach)、[ADR 0020](adr/0020-tasks-and-skills-commands.md)） | [cli.md](spec/cli.md)、[output.md](spec/output.md)、[daemon.md](spec/daemon.md)、[ADR 0020](adr/0020-tasks-and-skills-commands.md) |
