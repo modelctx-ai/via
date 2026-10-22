@@ -16,7 +16,7 @@
 约束沿用 ADR 0016：每次调用就是一次 CLI 命令，不出现第二套语义；参数不能变成选项；`trust`、`auth` 等需要人的命令不暴露。另有两条：
 
 - **工具定义要小。** 每个工具的定义都在每一轮对话里（`tools/list` 约 2.9 KB 即 730 token）。
-- **elicitation 在 serve 下一律拒绝**（[ADR 0018](0018-elicitation-in-a-terminal-declined-elsewhere.md)）：任务进入 `input_required` 时 via 本来就不回答，不需要 serve 的特殊处理。
+- **elicitation 在 serve 下一律拒绝**（[ADR 0018](0018-elicitation-in-a-terminal-declined-elsewhere.md)）：任务进入 `input_required` 时与命令行没有终端时一样回答 `decline`，不需要 serve 的特殊处理。
 
 还有一个 MCP 的现实：不少 client 给一次工具调用的时限约 60 秒（官方 SDK 的请求默认值就是 60 秒），超时后 client 放弃，调用的结果（包括任务 ID）丢失。via 的缺省 `timeout` 也是 60 秒，所以「等到 server 的超时」在 serve 下可能恰好赶在 client 放弃的同一刻。
 
@@ -49,7 +49,7 @@
 - `via_call` 不传 `timeout` 时与 CLI 完全一致（server 的 `timeout`，缺省 60 秒）。传 `timeout`（秒）就是 `--timeout`：到点时任务**不被取消**，退出码 6，`next: via tasks <provider> <ID>` 对应 `via_tasks`；这个错误本身就是把任务 ID 交还给 agent 的方式。
 - `via_tasks` 的整个作用就是等，所以缺省值要保证它在 client 放弃之前返回：不传 `timeout` 且是「等结果」（没有 `action`）时，serve 追加 `--timeout 30`。agent 想等更久就传更大的 `timeout`，或者收到退出码 6 后再调一次。`status`、`cancel` 与列表是单次请求，不加缺省，仍按 server 的 `timeout`。
 - 这是 serve 唯一不同于 CLI 缺省的一处。它不改变命令的语义，只是 serve 帮调用方填了一个 CLI 用户在命令行里会自己写的 `--timeout`。
-- `input_required` 的任务照旧：via 不回答，停止等待，退出码 1，`next: via tasks <provider> <ID> --cancel`，对应 `via_tasks` 的 `action: "cancel"`。
+- `input_required` 的任务照命令行没有终端时的规则：elicitation 回答 `decline` 后继续等；等的不是 elicitation 时退出码 1，`next: via tasks <provider> <ID> --cancel`，对应 `via_tasks` 的 `action: "cancel"`。
 
 ## 备选方案
 
@@ -59,7 +59,7 @@
 - **把 skills 并入 `via_resources`**：技能的核对、`files:` 行、候选歧义都是 `via skills` 自己的行为，不是资源的读取；也会让一个工具的描述变成「资源、模板、补全或技能」。
 - **补全做成 `via_complete`**：见上。
 - **用 MCP 的进度通知把 `progress:` 行实时发给 client**：能让长调用看起来在动，但 serve 现在捕获输出、一次返回，改成流式是另一个方向的改动；退出码 6 加 `via_tasks` 已经能覆盖长任务。
-- **在 serve 里回答 `input_required`**：需要 elicitation 的往返，ADR 0018 已决定非交互一律拒绝。
+- **在 serve 里替用户回答 `input_required`**：需要 elicitation 的往返，ADR 0018 已决定非交互一律拒绝。
 
 ## 后果
 

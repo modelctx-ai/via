@@ -301,7 +301,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
   - `detach` 不是缺省：`--detach` 在 server 或工具不支持任务时是错误（退出码 2），绝大多数调用不是任务，所以只有 agent 显式传 `detach: true` 时才加。不满足时的错误与 `next: rerun without --detach` 与命令行相同。
   - `via_call` 不传 `timeout` 时等待与命令行一致（server 的 `timeout`，缺省 60 秒）；传了就是 `--timeout`。任务超时不被取消，退出码 6，`next: via tasks <provider> <ID>` 对应 `via_tasks`。
   - `via_tasks` 等结果（没有 `action`）且没有 `timeout` 时，serve 追加 `--timeout 30`，这是 serve 唯一不同于命令行缺省的一处：许多 client 给一次工具调用约 60 秒，缺省的 60 秒会赶在 client 放弃的同一刻，结果与任务 ID 都丢；到点时退出码 6、任务继续，再调一次即可。`status`、`cancel` 与列表是单次请求，不加缺省。
-  - `input_required` 的任务与 elicitation 一样不回答（[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）：退出码 1，`next: via tasks <provider> <ID> --cancel` 对应 `action: "cancel"`。
+  - 任务进入 `input_required` 时与命令行没有终端时相同（[任务](#任务via-tasks-与---detach)、[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）：elicitation 回答 `decline`，任务继续，结果里的 `next:` 请用户在终端里运行；等的不是 elicitation 时退出码 1，`next: via tasks <provider> <ID> --cancel` 对应 `action: "cancel"`。
 - **工具定义的大小**：九个工具的 `tools/list` 结果约 4.6 KB（约 1,150 token，按 4 字节一 token），`instructions` 约 0.7 KB；测试限制前者不超过 4.8 KB，并用快照钉住所有定义与 `instructions` 的文字（`test/cli/__snapshots__/serve-tools.txt`、`serve-instructions.txt`）。
 - **框架配置里的 `via serve`**：登记了 `via serve` 的框架配置会被 via 自己读到，这样的条目不进入目录（[config.md](config.md#校验与诊断)）。
 
