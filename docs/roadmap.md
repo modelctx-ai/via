@@ -81,7 +81,10 @@ flowchart LR
 | c3 resources、prompts 与 roots | 已实现 | [ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) |
 | c4 Windows 支持 | 已实现 | daemon 走命名管道（[ADR 0012](adr/0012-windows-pipe-name-and-batch-files.md)），CI 在 Windows 上跑完整检查 |
 | c5 `via serve` | 已实现，未发布 | stdio MCP server，七个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[cli.md](spec/cli.md#via-serve)） |
-| d1–d5 | 计划中（0.4） | 见[验证与打磨](#验证与打磨) |
+| d1 agent 评测 | 部分实现 | mcpc 对照列已加入 `bench:tokens` 与 `bench:eval`，token 结果见 [0.4-tokens](../bench/results/0.4-tokens.md)；agent 评测的成功率还没有发布（需要 `ANTHROPIC_API_KEY`） |
+| d2 OAuth 实测、d3 性能目标 | 计划中（0.4） | d2 需要在真实远程 server 上登录；d3 等维护者决定 |
+| d4 单文件分发 | 部分实现 | Homebrew formula 在发布时生成（`packaging/homebrew/`），放进 tap 仓库是手工步骤；签名、公证与目标平台实测未做 |
+| d5 拆分规则与截断预算 | 部分实现 | `npm run split-stats` 与 [0.4-split](../bench/results/0.4-split.md)；动词表新增 7 个通用动词，`deny` 同时匹配叶子写法；截断预算等 d1 的评测 |
 | d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
 | e1 SDK v2、e2 2026-07-28 无状态协议、e3 协议版本可见与固定、e8 一致性测试 | 已实现，未发布 | `@modelcontextprotocol/client` 2.3.1；`server/discover` 探测并自动回退（[ADR 0017](adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](spec/daemon.md)）；`protocolVersion` 配置字段；CI 新增 `conformance` 与 `stateless` 任务，预期失败的场景列在 `test/conformance/expected-failures.yml` |
 | e4–e7、e9 | 计划中（0.4），必须做 | 见 [MCP 协议对齐](#mcp-协议对齐) |
