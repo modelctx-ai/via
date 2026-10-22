@@ -33,6 +33,13 @@ mcp2cli:
   - run: mcp2cli @github get-file-contents --help
   - run: mcp2cli @github get-file-contents --owner acme --repo api --path src/middleware/rate_limiter.ts
 
+mcpc:
+  - run: mcpc connect ./mcp.json:github @github
+  - run: mcpc @github tools-get search_code
+  - run: mcpc @github tools-call search_code query:="RateLimiter repo:acme/api" perPage:=5
+  - run: mcpc @github tools-get get_file_contents
+  - run: mcpc @github tools-call get_file_contents owner:=acme repo:=api path:=src/middleware/rate_limiter.ts
+
 # Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
 success:
   require:

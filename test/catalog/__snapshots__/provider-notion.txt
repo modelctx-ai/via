@@ -1,6 +1,6 @@
 agent                    search
 async-task               get
-attachment               create
+attachment               create · download
 calendar                 list
 calendar-contact         list
 calendar-coworker-event  list
@@ -18,6 +18,6 @@ group                    get
 meeting-note             query
 memory                   search
 message-to-session       send
-… 14 more · via notion --all
-tools: search · fetch · set-comment-reaction · set-discussion-resolved · download-attachment · check-mcp-next-steps · convert-page-to-skill · download-skill · upload-skill · spawn-session · stop-session · wait-session · … 1 more · via notion --all
+… 15 more · via notion --all
+tools: search · fetch · set-comment-reaction · set-discussion-resolved · check-mcp-next-steps · convert-page-to-skill · spawn-session · stop-session · wait-session · show-advanced-analysis-next-steps
 → via notion <resource> for signatures

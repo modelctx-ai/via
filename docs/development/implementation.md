@@ -101,6 +101,43 @@ npm run build:bin -- --target darwin-arm64,linux-x64-musl
 - 发布（`.github/workflows/release.yml`）：只在 `v*` 标签或手动触发时运行。各平台在原生 runner 上构建，Linux x64/arm64 与 macOS arm64 跑冒烟测试；Intel macOS、Windows、musl 只构建。汇总后生成 `SHA256SUMS` 并上传到同名 Release。`v*` 标签另外把 `@modelctx-ai/via` 发到 npm：先跑 typecheck 和测试，核对 `package.json` 版本与标签一致（`v0.3.0` 对应 `0.3.0`），再 `npm publish`。登录用 GitHub Actions 的 OIDC trusted publisher（npm 上登记的工作流文件名是 `release.yml`，仓库 `modelctx-ai/via`），不存放长期 token；公开仓库会自动附带 provenance。`dist/` 不入库，`prepack` 在打包前构建。手动触发只重做单文件产物，不重复发 npm。
 - 没有做的：x64 的 `baseline` 构建（给没有 AVX2 的 CPU）、macOS 的签名与公证、Windows 签名、压缩分发（gzip 约 42 MiB）。需要时在 `bin-targets.ts` 里加一行。
 
+## Homebrew
+
+`packaging/homebrew/via.rb.in` 是 Homebrew formula 的模板，macOS（Apple 芯片与 Intel）和 Linux（x86_64、arm64）共用一份。
+
+### 为什么装 npm 包，而不是单文件可执行
+
+- **这是 Homebrew 对 Node CLI 的惯例。** formula 的 `url` 指向 npm registry 上的 tarball，`depends_on "node"`，`system "npm", "install", *std_npm_args`，再把 `libexec/bin` 链到 `bin`。一份 formula、一个校验和就覆盖四个平台组合；`std_npm_args` 与 `--build-from-source` 之类的约定由 Homebrew 维护。
+- **单文件可执行不适合做 Homebrew 的安装物。** 每个平台一个 URL 和校验和（Homebrew 用得到 darwin-arm64、darwin-x64、linux-x64、linux-arm64 四个，每个 65–95 MiB，npm tarball 只有 0.4 MiB）；产物是 Bun 把 JS 字节码追加在运行时尾部的文件，任何改写这个文件的后处理（strip、重签名）都会破坏它，而 Homebrew 在 macOS 上会对装进去的 Mach-O 做重定位和（Apple 芯片上的）临时签名，这条路径是否安全没有验证过；Homebrew 的核心仓库也不接受预编译二进制（要求从源码构建）。macOS 产物还没有公证（路线图 d4 的另一项），没有人在 Homebrew 的流程下验证过它。
+- **代价。** 依赖 Homebrew 的 `node`（多数装 Homebrew 的机器已经有），冷启动比单文件版慢：同一台机器上 `--version` 约 66 ms 对 20 ms，根视图约 124 ms 对 54 ms（Node 22、编译缓存热；[perf-0.3](../../bench/results/perf-0.3.md)，那之后 Node 一侧又优化过，[perf-0.3-cold-start](../../bench/results/perf-0.3-cold-start.md)）。冷启动是核心指标，所以这是选 npm 包时明确付出的代价，只为换 Homebrew 能接受的做法。不想装 Node 的环境继续用 Release 里的单文件。这个选择不依赖「单文件是否成为默认推荐的安装方式」（[待定问题](../open-questions.md)）：formula 只是 npm 包的一个分发渠道；那个问题有了结论、macOS 公证也做完之后，再加一份装单文件的 formula（或在同一份里按平台选择）。
+- **Node 版本。** formula 依赖不带版本的 `node`，即 Homebrew 当前的 Node；via 声明 `engines.node >=20`，CI 测 Node 22 与 24。如果 Homebrew 的 `node` 升到 via 还没测过的大版本并出现问题，改成 `depends_on "node@24"`（这类 keg-only 的版本化 formula 还要用 `Language::Node.detected_node_shebang` 重写入口脚本的 shebang）。
+- `@napi-rs/keyring` 的平台包是 npm 的可选依赖，`npm install` 只装与当前系统和 CPU 匹配的那一个（Linux 上区分 glibc 与 musl），所以不需要在 formula 里清理其他平台的文件；它没有通用（universal）的 macOS 构建，不需要 `deuniversalize_machos`。
+
+### 生成与发布
+
+1. 模板里只有两个占位符：`@VERSION@` 和 `@SHA256@`。`node scripts/render-homebrew.mjs --version 0.3.1 --out via.rb` 从 registry 取 `@modelctx-ai/via@0.3.1` 的元数据，下载 tarball，用元数据里的 `dist.integrity`（sha512）核对下载内容和 `dist.tarball` 正是 formula 里 `url` 的地址，再算出 Homebrew 要的 SHA-256 填进去；新发布的版本有时要几秒才出现，默认重试 12 次、间隔 10 秒。`--tarball <文件>` 用本地文件算校验和，`--sha256 <十六进制>` 直接给校验和，两者都不联网。脚本不依赖任何包，也不需要密钥。
+2. `release.yml` 的 `homebrew` 任务在 `npm`（`npm publish`）和 `publish`（建 Release、传单文件）都成功之后运行：渲染、`ruby -c` 检查语法，再把 `via.rb` 作为附件传到同一个 Release。它只写这个仓库的 Release，不推送到任何 tap，所以不需要额外的密钥。
+3. **手工的一步**：把 `via.rb` 放进 tap 仓库。tap 仓库需要先建好（仓库名必须以 `homebrew-` 开头，约定为 `modelctx-ai/homebrew-tap`），然后：
+
+   ```bash
+   gh release download v0.4.0 --repo modelctx-ai/via --pattern via.rb
+   cp via.rb path/to/homebrew-tap/Formula/via.rb      # 提交并推送 tap
+   brew install modelctx-ai/tap/via
+   ```
+
+   以后可以让 tap 仓库自己的工作流在新 Release 出现时拉取 `via.rb` 并提交，这需要一个对 tap 有写权限的令牌，所以没有放进这个仓库。
+4. 想在装有 Homebrew 的机器上验证 formula（**这个仓库的环境里没有 Homebrew，下面的命令没有被运行过**）：
+
+   ```bash
+   brew tap-new --no-git modelctx-ai/local
+   cp via.rb "$(brew --repository modelctx-ai/local)/Formula/via.rb"
+   brew install --build-from-source modelctx-ai/local/via && brew test modelctx-ai/local/via
+   brew audit --strict --online modelctx-ai/local/via
+   ```
+
+- 仓库里的测试（`test/packaging/homebrew.test.ts`）覆盖能离开 Homebrew 检查的部分：占位符、`url` 与 registry 上 tarball 的地址一致、`desc`/`license`/`depends_on`/`test do` 这些 `brew audit` 会看的字段、装了 Ruby 时的语法检查，以及渲染脚本对完整性不符、地址不符和 registry 延迟的处理（用假的 `fetch`，不联网）。formula 的 `install` 步骤等价于下面这条命令，已对 0.3.1 的 tarball 手工跑过：解包后 `npm pack --ignore-scripts`，再 `npm install -g --prefix=<libexec> --build-from-source ./modelctx-ai-via-0.3.1.tgz`，`<libexec>/bin/via --version` 输出 `0.3.1`，钥匙串的平台包 `keyring-linux-x64-gnu` 随之装好。
+- 没有做的：向 homebrew-core 提交（它有项目知名度的要求）、自动推送 tap、macOS 公证。
+
 ## 代码结构
 
 单个包、按模块分目录，薄封装不需要 monorepo：
@@ -124,7 +161,8 @@ via/
 │  ├─ noise.json    # 默认噪声字段表
 │  ├─ columns.json  # 表格选列规则
 │  └─ schema/       # 上述数据文件的 JSON Schema
-├─ scripts/         # 拆分结果差异检查（npm run split-diff）、token 基准（npm run bench:tokens）、检索质量评测（npm run eval:search）、agent 评测（npm run bench:eval）
+├─ packaging/       # homebrew/via.rb.in：Homebrew formula 模板（scripts/render-homebrew.mjs 在发布时渲染）
+├─ scripts/         # 拆分结果差异检查（npm run split-diff）、拆分统计（npm run split-stats）、token 基准（npm run bench:tokens）、检索质量评测（npm run eval:search）、agent 评测（npm run bench:eval）
 ├─ bench/           # token 基准：tasks/（任务）、recordings/（合成的返回值）、replay-server.mjs（回放 MCP server）、harness/、results/；eval/ 是 agent 评测的实现，复用任务与回放 server（见 bench/README.md）
 ├─ test/fixtures/   # tools/ 与 other/：tools/list 快照；splits/：拆分结果基线；`mcp/`：模拟 MCP server（stdio 与 Streamable HTTP）；`config/`：每个框架的配置样例与 via 用户/项目配置
 └─ docs/

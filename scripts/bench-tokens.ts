@@ -1,4 +1,4 @@
-// Token benchmark (testing.md, "token 基准"): native MCP injection vs `via` vs mcp2cli on the
+// Token benchmark (testing.md, "token 基准"): native MCP injection vs `via` vs mcp2cli and mcpc on the
 // scripted tasks in bench/. Runs the built CLI (`npm run build` first) against local replay
 // servers, offline. Run with `npm run bench:tokens`; see bench/README.md for the options.
 //
@@ -6,6 +6,8 @@
 //   --via <path>       the built CLI (default dist/via.js)
 //   --mcp2cli <path>   mcp2cli executable (default: `mcp2cli` on PATH)
 //   --no-mcp2cli       skip the mcp2cli column
+//   --mcpc <path>      mcpc executable (default: `mcpc` on PATH)
+//   --no-mcpc          skip the mcpc column
 //   --show             print every command and its output to stderr (for writing tasks)
 //   --out <base>       write <base>.md and <base>.json
 //   --release <label>  label in the markdown title (default: dev)
@@ -13,20 +15,21 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { loadSuite } from '../bench/harness/load';
 import { measureSuite } from '../bench/harness/measure';
-import { makeRunners, probeMcp2cli, viaVersion } from '../bench/harness/runners';
+import { makeRunners, probeMcp2cli, probeMcpc, viaVersion } from '../bench/harness/runners';
 import { formatConsole, formatJson, formatMarkdown, type ReportMeta } from '../bench/harness/report';
 
 interface Options {
   tasks: string[];
   via: string;
   mcp2cli: string | false;
+  mcpc: string | false;
   show: boolean;
   out?: string;
   release: string;
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { tasks: [], via: 'dist/via.js', mcp2cli: 'mcp2cli', show: false, release: 'dev' };
+  const options: Options = { tasks: [], via: 'dist/via.js', mcp2cli: 'mcp2cli', mcpc: 'mcpc', show: false, release: 'dev' };
   const value = (i: number): string => {
     const v = argv[i + 1];
     if (v === undefined) throw new Error(`${argv[i]} needs a value`);
@@ -38,6 +41,8 @@ function parseArgs(argv: string[]): Options {
     else if (arg === '--via') options.via = value(i++);
     else if (arg === '--mcp2cli') options.mcp2cli = value(i++);
     else if (arg === '--no-mcp2cli') options.mcp2cli = false;
+    else if (arg === '--mcpc') options.mcpc = value(i++);
+    else if (arg === '--no-mcpc') options.mcpc = false;
     else if (arg === '--show') options.show = true;
     else if (arg === '--out') options.out = value(i++);
     else if (arg === '--release') options.release = value(i++);
@@ -71,7 +76,23 @@ async function main(): Promise<number> {
     }
   }
 
-  const runners = makeRunners({ viaBin, ...(mcp2cli ? { mcp2cli } : {}) });
+  let mcpc: { bin: string; version: string } | undefined;
+  let mcpcSkipped: string | undefined;
+  if (options.mcpc === false) {
+    mcpcSkipped = 'disabled with --no-mcpc';
+  } else {
+    const probe = await probeMcpc(options.mcpc);
+    if ('version' in probe) {
+      mcpc = { bin: options.mcpc, version: probe.version };
+      if (probe.version !== loaded.suite.mcpc.version) {
+        process.stderr.write(`note: mcpc ${probe.version} is installed, the vendored skill is from ${loaded.suite.mcpc.version}\n`);
+      }
+    } else {
+      mcpcSkipped = probe.skipped;
+    }
+  }
+
+  const runners = makeRunners({ viaBin, ...(mcp2cli ? { mcp2cli } : {}), ...(mcpc ? { mcpc } : {}) });
 
   const measure = await measureSuite({ loaded, runners, log: (line) => process.stderr.write(`${line}\n`),
     ...(options.show
@@ -85,6 +106,7 @@ async function main(): Promise<number> {
     node: process.version,
     mounted: loaded.suite.mounted,
     ...(mcp2cliSkipped ? { mcp2cliSkipped } : {}),
+    ...(mcpcSkipped ? { mcpcSkipped } : {}),
   };
   process.stdout.write(formatConsole(measure, meta));
 

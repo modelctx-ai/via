@@ -54,6 +54,17 @@ describe('deny matching on a call', () => {
     expect(srv.state.calls).toHaveLength(0);
   });
 
+  it('a rule on the leaf spelling (the name without a resource:verb split) denies it too', async () => {
+    const { srv, sb } = await setup('deny: ["^gh/delete-file$"]\n');
+    expect((await sb.via(['gh'])).stdout).not.toContain('file:delete');
+    for (const argv of [[...FILE, '--yes'], ['gh', 'delete_file', '--yes'], ['call', 'gh/file:delete', '--yes', '--args', '{}']]) {
+      const r = await sb.via(argv);
+      expect(r.code, argv.join(' ')).toBe(5);
+      expect(r.stderr).toContain('is denied by the deny rule /^gh\\/delete-file$/');
+    }
+    expect(srv.state.calls).toHaveLength(0);
+  });
+
   it('a rule on the default spelling still denies the tool after the user renamed it', async () => {
     const { srv, sb } = await setup('    rename: { delete_file: "file:erase" }\ndeny: ["^gh/file:delete$"]\n');
     expect((await sb.via(['gh'])).stdout).not.toContain('file:erase');

@@ -39,6 +39,14 @@ mcp2cli:
   - run: >-
       mcp2cli @linear create-issue --title "Rate limiter fails closed when Redis is down" --team Platform --description "Every request returns 500 while Redis is unreachable. The limiter should fail open and log a warning." --priority 2 --assignee me --labels '["Bug"]'
 
+mcpc:
+  - run: mcpc connect ./mcp.json:linear @linear
+  - run: mcpc @linear tools-get list_teams
+  - run: mcpc @linear tools-call list_teams query:=Platform
+  - run: mcpc @linear tools-get create_issue
+  - run: >-
+      mcpc @linear tools-call create_issue title:="Rate limiter fails closed when Redis is down" team:=Platform description:="Every request returns 500 while Redis is unreachable. The limiter should fail open and log a warning." priority:=2 assignee:=me labels:='["Bug"]'
+
 # Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
 # Linear priorities: 1 urgent, 2 high; the fixture's tool schema does not say, so both count.
 success:

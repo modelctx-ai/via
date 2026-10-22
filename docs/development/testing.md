@@ -4,7 +4,7 @@
 
 | 层 | 内容 | 方式 |
 | --- | --- | --- |
-| 名称拆分 | 真实 server 的 `tools/list` 快照 → 规范写法 | 快照测试；规则变更时输出差异 |
+| 名称拆分 | 真实 server 的 `tools/list` 快照 → 规范写法 | 快照测试；规则变更时输出差异（`npm run split-diff`）；`npm run split-stats` 统计退回叶子工具的比例与原因（[bench/results/0.4-split.md](../../bench/results/0.4-split.md)），统计与快照基线的一致由 `test/catalog/split-stats.test.ts` 保证 |
 | 渲染 | 每种输出形状（表格、对象、文本、截断、媒体、错误） | vitest 快照，规则的任何变化在评审中显式可见 |
 | 检索质量 | `test/fixtures/search/` 里自然语言查询 → 期望规范名（调参集 `eval.json`、留出集 `heldout.json`），对 `test/fixtures/tools/` | recall@1、recall@5、MRR；`npm run eval:search` 打印词法基线与默认（同义词扩展）的对比，回归测试断言不低于基线并锁定实测下限；可选 embedding 检索用本机模拟端点（确定性假向量）测融合、缓存、超时退回与脱敏 |
 | 参数解析 | schema → 命令行参数的各条规则，含 anyOf 补齐、`@文件`、重名 | 单元测试 |
@@ -68,7 +68,7 @@ MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[AD
 - `windows-latest`（Node 22）上执行同样四步，再用空的用户目录运行 `dist/via.js`（`--version`、浏览、`doctor`、`daemon status`）；
 - `auto-merge.yml`：CI 在仓库所有者从本仓库分支开的 PR 上通过后，开启 squash 自动合并，合入后删除该 PR 的分支（合入后分支又有新提交，或它是其他打开的 PR 的基准时保留）。合并用的是 `GITHUB_TOKEN`，所以仓库的「自动删除分支」设置不会生效，删除由这个工作流完成；同样因为是 `GITHUB_TOKEN`，合入 `main` 的提交不会再触发 `main` 上的 CI。
 - 开发工具链（vitest、tsup）需要 Node 22.12+，而发布产物声明支持 Node 20：在 22 上打包后，换到 Node 20 用空的 HOME 运行 `dist/via.js`（`--version`、`via`、`via doctor`，覆盖懒加载的 chunk）。
-- 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，同时把 `@modelctx-ai/via` 发到 npm（发布前再跑一遍 typecheck 与测试）；不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。
+- 单文件可执行：Ubuntu 与 macOS 上安装固定版本的 Bun，`npm run build:bin` 构建本机版本，跑 `test/cli/bin.test.ts`（冒烟集：`--version`、`-h`、根视图与调用、stdio server、daemon 拉起、钥匙串可用与不可用、OAuth 回环、`.env` 不被读取、入口块不含库）；再把产物拷到仓库外、用空的 HOME 运行。CI 里 `VIA_REQUIRE_BUN=1`，缺少 Bun 是失败而不是跳过；本地没有 Bun 时这组测试自动跳过。`v*` 标签触发的 `release.yml` 构建全部目标并上传带 SHA-256 校验和的发布文件，同时把 `@modelctx-ai/via` 发到 npm（发布前再跑一遍 typecheck 与测试）；不在日常 CI 里运行（[实现说明](implementation.md#单文件可执行)）。npm 发布成功后 `homebrew` 任务用 registry 上的 tarball 渲染 Homebrew formula 并附到 Release（[实现说明](implementation.md#homebrew)）；`test/packaging/homebrew.test.ts` 在日常 CI 里检查模板与渲染脚本，Homebrew 本身（`brew audit`、`brew install`）不在 CI 里运行。
 
 ## token 基准
 
@@ -76,7 +76,8 @@ MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[AD
 
 - **原生注入成本**：框架挂载这些 server 时，每轮注入的工具定义（名称、描述、`inputSchema`，按 `mcp__<server>__<工具>` 的命名序列化）乘以任务需要的轮数，加上模型写出的调用和未渲染的原始结果；
 - **via 成本**：`via prompt` 说明（一次）加任务的命令序列：命令文本，以及它打印到 stdout 和 stderr 的全部内容；
-- **同类 CLI 成本**：用 [mcp2cli](https://github.com/knowsuchagency/mcp2cli) 的 skill（一次）加 `--list`/`--search`、`--help` 和调用完成同一组任务，作为平铺命名、不去噪输出的对照。
+- **同类 CLI 成本**：用 [mcp2cli](https://github.com/knowsuchagency/mcp2cli) 的 skill（一次）加 `--list`/`--search`、`--help` 和调用完成同一组任务，作为平铺命名、不去噪输出的对照；
+- **mcpc 成本**：用 [mcpc](https://github.com/apify/mcpc) 的 skill（`mcpc help --skill`，一次）加 `connect`、`tools-get` 和 `tools-call` 完成同一组任务。mcpc 与 via 的判断相同（agent 经 shell 用 MCP），但工具名原样、结果保持 MCP 的 JSON 形状，所以它是检验 via 自己的设计（`resource:verb` 拆分、按 schema 生成的参数、紧凑渲染）最直接的对照（[愿景](../overview/vision.md#与相近工具的区别)）。
 
 这是项目的核心指标，结果随版本记录。
 
@@ -85,28 +86,31 @@ MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[AD
 ```console
 $ npm run build
 $ npm run bench:tokens                                            # 打印表格
-$ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 markdown 与 JSON
+$ npm run bench:tokens -- --out bench/results/0.4-tokens --release 0.4   # 同时写 markdown 与 JSON
 ```
 
-全程离线、可复现：任务在 `bench/tasks/`，返回值是 `bench/recordings/` 里的合成数据，由回放 MCP server（`bench/replay-server.mjs`，Streamable HTTP）提供；via 与 mcp2cli 在临时 HOME 里运行，配置只含这些回放 server，不读开发者自己的框架配置。任务文件格式、回放 server 的接口和新增任务的方法见 [bench/README.md](../../bench/README.md)；回放 server 与任务文件也是下面 agent 评测的共用基础。
+全程离线、可复现：任务在 `bench/tasks/`，返回值是 `bench/recordings/` 里的合成数据，由回放 MCP server（`bench/replay-server.mjs`，Streamable HTTP）提供；via、mcp2cli 与 mcpc 在临时 HOME 里运行，配置只含这些回放 server，不读开发者自己的框架配置。任务文件格式、回放 server 的接口和新增任务的方法见 [bench/README.md](../../bench/README.md)；回放 server 与任务文件也是下面 agent 评测的共用基础。
 
 ### 方法
 
-- **via 一列是真实运行**：脚本跑的是打包后的 `dist/via.js`，命令序列是人按「合理的 agent 路径」写的（从 `via <provider>` 或 `via find` 开始，签名足够时不加 `-h`）。mcp2cli 同理，工具不超过 25 个的 server 用 `--list`，更大的用 `--search`，每条要用的命令先看 `--help`。
-- **做同样的事**：每个任务有一份原生调用序列和一份回放用的返回值。测量时核对回放 server 的调用日志，via 与 mcp2cli 发出的 `tools/call` 必须与原生的工具名、参数完全一致，否则报错。
+- **via 一列是真实运行**：脚本跑的是打包后的 `dist/via.js`，命令序列是人按「合理的 agent 路径」写的（从 `via <provider>` 或 `via find` 开始，签名足够时不加 `-h`）。mcp2cli 同理，工具不超过 25 个的 server 用 `--list`，更大的用 `--search`，每条要用的命令先看 `--help`。mcpc 的路径是 `connect`（打印该 server 的工具概览）→ 每个有参数的工具先 `tools-get` 一次 → `tools-call 工具 键:=值 …`，用默认的人类可读输出。
+- **做同样的事**：每个任务有一份原生调用序列和一份回放用的返回值。测量时核对回放 server 的调用日志，via、mcp2cli 与 mcpc 发出的 `tools/call` 必须与原生的工具名、参数完全一致，否则报错。
 - **原生一列也经过回放 server**：用官方 SDK 的 client 取 `tools/list` 和 `tools/call`，不手算。
 - **token 估算**：4 字节约 1 token，与 `via doctor` 用的是同一个常量（`BYTES_PER_TOKEN`）。可复现起见，元信息行的耗时、端口、沙箱路径归一为常量。可选的精确计数（调用 token 计数接口）0.1 没有做；agent 评测直接使用 API 返回的 `usage`。
 - **mcp2cli 是可选的一列**：PATH 上有 `mcp2cli` 才运行，并记录版本；没有就在输出里说明已跳过，不伪造数字。说明文本取自它自带的 skill（`bench/vendor/mcp2cli/`，MIT）。
+- **mcpc 也是可选的一列**：PATH 上有 `mcpc`（`npm install -g @apify/mcpc`，需要 Node.js 22.12+）才运行，并记录版本；没有就在输出里说明已跳过，不伪造数字。说明文本是 `mcpc help --skill` 的原文（`bench/vendor/mcpc/`，Apache-2.0）加一行告诉 agent 有哪些可连的 server。mcpc 没有一次性调用，调用前必须 `mcpc connect <server> @名字` 建会话，所以**每个任务的第一步就是 `connect`，这些命令和它们打印的工具概览计入成本**；沙箱里只预先写好 `mcp.json`（server 列表）。会话由一个后台进程维持，每个任务结束后关闭它建的会话，沙箱状态放在 `MCPC_HOME_DIR`，进程不会比运行活得更久。
 
 ### 结果随版本记录
 
-每个版本把结果写到 `bench/results/<版本>.md`（含逐任务、逐命令明细和文末的局限说明）和同名 `.json`。0.1 的结果见 [bench/results/0.1.md](../../bench/results/0.1.md)，摘要：
+每个版本把结果写到 `bench/results/<版本>.md`（含逐任务、逐命令明细和文末的局限说明）和同名 `.json`；0.4 起文件名带 `-tokens`，与同版本的拆分统计（`<版本>-split.md`）区分。0.1 的结果见 [bench/results/0.1.md](../../bench/results/0.1.md)（原生、via、mcp2cli 三列：382,379 / 14,210 / 59,834）；0.4 在同一批任务上加了 mcpc 一列，见 [bench/results/0.4-tokens.md](../../bench/results/0.4-tokens.md)，摘要：
 
-| | native | via | mcp2cli |
-| --- | ---: | ---: | ---: |
-| 九个任务合计（token，估算） | 382,379 | 14,210 | 59,834 |
-| 相对 native | 100% | 4% | 16% |
-| 去掉 native 的工具注入后 | 15,813 | 14,210 | 59,834 |
+| | native | via | mcp2cli | mcpc |
+| --- | ---: | ---: | ---: | ---: |
+| 九个任务合计（token，估算） | 382,379 | 14,731 | 59,834 | 57,691 |
+| 相对 native | 100% | 4% | 16% | 15% |
+| 去掉 native 的工具注入后 | 15,813 | 14,731 | 59,834 | 57,691 |
+
+via 比 0.1 的 14,210 多出的 521 token 主要来自说明块变长（`via prompt` 由约 157 增至约 216 token，[ADR 0013](../adr/0013-agent-instructions-are-a-marked-block.md)），九个任务各算一次。mcpc 的总量与 mcp2cli 同一量级（两者都平铺原始工具名、输出保持 JSON 形状），约为 via 的四倍；其中每个任务的 `connect` 就要付该 server 工具概览的成本（github 的 54 个工具约 1,040 token，linear 约 470）。
 
 读这些数字时要注意（完整说明在结果文件里）：
 
@@ -117,13 +121,13 @@ $ npm run bench:tokens -- --out bench/results/0.1 --release 0.1   # 同时写 ma
 
 ## agent 评测
 
-同一组任务分别让模型用原生 MCP、mcp2cli 和 via 完成，比较：
+同一组任务分别让模型用原生 MCP、mcp2cli、mcpc 和 via 完成，比较：
 
 - 任务成功率；
 - 总 token（取自 API 返回的 `usage`，输入含缓存读写）；
 - 模型轮数、工具调用数与错误调用次数。
 
-这是验证「MCP 做提供方、CLI 做消费方」这一判断的关键证据，也是 0.1 → 0.2 的门槛（[路线图](../roadmap.md)）。与 mcp2cli 的对比单独验证 via 自己的设计：`resource:verb` 拆分、逐级浏览和紧凑渲染相对于平铺的原始工具名和原样 JSON，是否减少了错误调用和发现轮数。拆分出错时模型可能更难找到工具，这一项要单独统计（逐任务的成功次数和未成功运行的检查明细就是为此保留的）。0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测以 HTTP 回放 server 为主，避免启动延迟干扰结论。
+这是验证「MCP 做提供方、CLI 做消费方」这一判断的关键证据，也是 0.1 → 0.2 的门槛（[路线图](../roadmap.md)）。与 mcp2cli、mcpc 的对比单独验证 via 自己的设计：`resource:verb` 拆分、逐级浏览和紧凑渲染相对于平铺的原始工具名和原样 JSON，是否减少了错误调用和发现轮数。拆分出错时模型可能更难找到工具，这一项要单独统计（逐任务的成功次数和未成功运行的检查明细就是为此保留的）。0.1 没有 daemon，stdio server 每次调用都会重新拉起，评测以 HTTP 回放 server 为主，避免启动延迟干扰结论。
 
 ### 怎么跑
 
@@ -134,19 +138,20 @@ $ npm run bench:eval -- --trials 10                 # 写 bench/results/eval-<�
 $ npm run bench:eval -- --fake-model                # 不需要密钥：只验证流水线，不衡量任何模型
 ```
 
-没有密钥时 `bench:eval` 给出说明并以退出码 2 结束。选项（`--trials`、`--task`、`--condition`、`--model`、`--max-turns`、`--concurrency`、`--out` 等）、三种条件的工具与系统提示、每次运行的记录项见 [bench/README.md](../../bench/README.md#agent-评测)。模型默认值在 `bench/eval/anthropic.ts`，用 `--model` 换；结论只对评测所用的模型成立，换模型要重跑。`@anthropic-ai/sdk` 是 devDependency，via 本身不依赖它。
+没有密钥时 `bench:eval` 给出说明并以退出码 2 结束。选项（`--trials`、`--task`、`--condition`、`--model`、`--max-turns`、`--concurrency`、`--out` 等）、四种条件的工具与系统提示、每次运行的记录项见 [bench/README.md](../../bench/README.md#agent-评测)。模型默认值在 `bench/eval/anthropic.ts`，用 `--model` 换；结论只对评测所用的模型成立，换模型要重跑。`@anthropic-ai/sdk` 是 devDependency，via 本身不依赖它。
 
 ### 对比什么
 
-三个条件使用同一批回放 server（与 token 基准相同的合成录制）、同一份任务描述和同一段系统提示骨架，只有各自的工具和说明文本不同：
+四个条件使用同一批回放 server（与 token 基准相同的合成录制）、同一份任务描述和同一段系统提示骨架，只有各自的工具和说明文本不同：
 
 | 条件 | 模型看到什么 | 模型能做什么 |
 | --- | --- | --- |
 | native | 全部挂载 server 的工具定义，原样（167 个工具） | 直接调用 MCP 工具，调用转发给回放 server |
 | via | `via prompt` 的输出 | 一个 `shell` 工具，只能运行 `via …`（不经真实 shell） |
 | mcp2cli | mcp2cli 自带 skill 原文加 server 别名 | 一个 `shell` 工具，只能运行 `mcp2cli …` |
+| mcpc | `mcpc help --skill` 原文加可连接的 server 名（`./mcp.json` 的条目） | 一个 `shell` 工具，只能运行 `mcpc …`；自己 `mcpc connect` 建会话，运行结束时会话被关闭 |
 
-mcp2cli 不在 PATH 上时这一条件跳过并在输出里说明，不伪造数字。
+mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不伪造数字。
 
 ### 怎么判定成功
 
@@ -174,12 +179,12 @@ mcp2cli 不在 PATH 上时这一条件跳过并在输出里说明，不伪造数
 
 ### 门槛 1 比较什么
 
-门槛 1 要求 via 的任务成功率**不低于**原生 MCP，**且不低于** mcp2cli。`bench:eval` 在汇总后打印这个判断：逐条件的成功次数 / 运行次数、点估计的比较，以及 95% Wilson 区间是否重叠。区间重叠时不要把差异当结论：增加 `--trials`，或看逐任务的成功次数和未成功运行的检查明细，判断是模型随机性还是 via 的某个设计（拆分、浏览、渲染）确实让模型找不到工具。mcp2cli 缺失时比较标为不完整，不算门槛通过。token、轮数与错误调用不是门槛条件，但随结果一起记录：token 基准说明「几乎不占上下文」，这里说明「省下的上下文有没有换来更多弯路」。
+门槛 1 要求 via 的任务成功率**不低于**原生 MCP，**且不低于** mcp2cli。`bench:eval` 在汇总后打印这个判断：逐条件的成功次数 / 运行次数、点估计的比较，以及 95% Wilson 区间是否重叠。区间重叠时不要把差异当结论：增加 `--trials`，或看逐任务的成功次数和未成功运行的检查明细，判断是模型随机性还是 via 的某个设计（拆分、浏览、渲染）确实让模型找不到工具。mcp2cli 缺失时比较标为不完整，不算门槛通过。via 与 mcpc 的比较（同样的成功率点估计与区间）单独列在「不属于门槛」一栏，不影响判定。token、轮数与错误调用不是门槛条件，但随结果一起记录：token 基准说明「几乎不占上下文」，这里说明「省下的上下文有没有换来更多弯路」。
 
 ### 局限
 
 - 返回值是合成的，且同一工具的返回值基本不随参数变化；它检验模型能否找到并正确调用工具，不检验真实 server 的行为差异。
-- 评测对象是「模型加说明文本加工具」整体，三个条件的说明文本篇幅和风格天然不同（native 没有文字说明，mcp2cli 是一份通用 skill，via 是一段为它写的短说明）；这正是被比较的东西，但意味着结论包含了提示的差异。
+- 评测对象是「模型加说明文本加工具」整体，四个条件的说明文本篇幅和风格天然不同（native 没有文字说明，mcp2cli 与 mcpc 各是一份通用 skill，via 是一段为它写的短说明）；这正是被比较的东西，但意味着结论包含了提示的差异。
 - 模型有随机性、API 会变；每份结果记录模型、日期、effort 和次数，只对那一次成立。
 - `--fake-model` 的输出不是结果（见 bench/README.md），不会写入 `bench/results/`。
 

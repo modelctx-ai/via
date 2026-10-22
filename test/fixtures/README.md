@@ -4,7 +4,7 @@
 | --- | --- |
 | `tools/` | 常见 server 的 `tools/list` 结果，文件名即 provider 别名 |
 | `other/` | 边缘样本：网关元工具（`aster`）与用来覆盖资源拆分的 `acme-*` |
-| `splits/` | 每个样本的拆分结果基线（`原始名 → 规范写法`），由快照测试维护；`npm run split-diff` 对照当前规则列出差异 |
+| `splits/` | 每个样本的拆分结果基线（`原始名 → 规范写法`），由快照测试维护；`npm run split-diff` 对照当前规则列出差异，`npm run split-stats` 统计退回叶子工具的比例与原因 |
 | `results.ts` | 渲染测试用的 `tools/call` 返回值 |
 | `mcp/` | 用官方 SDK server 端写的模拟 MCP server（`mock-server.mjs` 定义工具，`stdio-server.mjs` 经 stdio 运行；HTTP 版在 `test/helpers/client.ts`），供 `client/` 测试使用 |
 

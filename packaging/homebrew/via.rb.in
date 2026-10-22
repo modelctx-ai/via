@@ -1,0 +1,28 @@
+# Homebrew formula for via (docs/development/implementation.md, "Homebrew").
+#
+# Source: packaging/homebrew/via.rb.in. scripts/render-homebrew.mjs fills in the version and the
+# SHA-256 of the npm tarball that `npm publish` put on the registry; release.yml attaches the result
+# to the GitHub Release as `via.rb`, and a maintainer copies it into the tap
+# (modelctx-ai/homebrew-tap, Formula/via.rb). Nothing in this repository pushes to a tap.
+#
+# It installs the npm package with Homebrew's `node` instead of the single-file executables: that is
+# how Homebrew builds Node CLIs (one formula for macOS and Linux on both architectures, no prebuilt
+# runtime to relocate or re-sign), and the download is 0.4 MiB instead of 65-95 MiB.
+class Via < Formula
+  desc "Command-line MCP client for agents, with on-demand tool discovery"
+  homepage "https://github.com/modelctx-ai/via"
+  url "https://registry.npmjs.org/@modelctx-ai/via/-/via-@VERSION@.tgz"
+  sha256 "@SHA256@"
+  license "Apache-2.0"
+
+  depends_on "node"
+
+  def install
+    system "npm", "install", *std_npm_args
+    bin.install_symlink libexec.glob("bin/*")
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/via --version")
+  end
+end

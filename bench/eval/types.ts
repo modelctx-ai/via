@@ -1,7 +1,7 @@
 // Shapes shared by the agent-evaluation modules (bench/README.md, "agent 评测").
 import type { Verdict } from './judge';
 
-export const CONDITIONS = ['native', 'via', 'mcp2cli'] as const;
+export const CONDITIONS = ['native', 'via', 'mcp2cli', 'mcpc'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 
 /** A tool the model can call (the Messages API `tools` entry). */

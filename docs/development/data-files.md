@@ -8,13 +8,14 @@
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "verbs": [
     "get", "list", "create", "update", "delete", "search", "send", "run",
     "fetch", "read", "write", "add", "remove", "merge", "trigger", "query",
     "move", "duplicate", "restore", "cancel", "navigate", "click",
     "push", "call", "describe", "batch", "enable", "disable", "fork",
-    "resolve", "unresolve"
+    "resolve", "unresolve", "edit", "modify", "append", "download", "upload",
+    "install", "close"
   ],
   "conjunctions": ["or", "and"],
   "singularExceptions": ["data", "news", "series", "status", "analytics"],
@@ -24,6 +25,7 @@
 
 - `version` 每次改动加一；改动必须写进 `CHANGELOG.md`，并列出受影响的规范写法。
 - `singularExceptions`：原样保留的词；`singularIrregular`：通用单数化规则处理不了的「复数 → 单数」。
+- 动词表的取舍：收入**通用的动作词**（几乎不作名词用、不特属于某类 server），并要求在全部夹具（`tools/` 与 `other/`）上逐词试过，只让原来的叶子变成 `资源:动作`、不改变任何已有的规范名、新拆出的资源里没有 `to`、`for` 之类的连接词；既是常用名词又是动词的词（`post`、`type`、`check`、`request`）会把「名词_动作」错拆，没有反例样本前不收。`npm run split-stats` 统计夹具上退回叶子工具的比例与原因（[bench/results/0.4-split.md](../../bench/results/0.4-split.md)），给取舍提供依据。
 - 动词表的改动用 `npm run split-diff` 离线检查：用当前规则重新拆分 `test/fixtures/` 里的真实 `tools/list` 快照，与 `test/fixtures/splits/` 中入库的基线对比，列出规范写法的变化；确认后加 `--update` 更新基线。
 
 ## stopwords.json

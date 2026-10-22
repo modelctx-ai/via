@@ -59,6 +59,13 @@ export interface CatalogTool {
    * `deny` rules match it as well (config.md, "deny").
    */
   defaultSingleRef: string;
+  /**
+   * The leaf spelling `provider/name`: what the tool is called when it is not split into
+   * `resource:verb` (naming.md rule 5: the raw name's words minus the provider's, joined by `-`).
+   * It does not depend on the verb list, so `deny` rules written against it keep matching however
+   * the split rules change (config.md, "deny").
+   */
+  leafSingleRef: string;
   description: string;
   params: ParamInfo[];
   readOnly: boolean;

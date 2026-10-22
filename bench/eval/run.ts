@@ -21,7 +21,7 @@ export interface EvalRunOptions {
   maxTurns: number;
   maxTokens: number;
   concurrency: number;
-  /** How `via` and `mcp2cli` are run inside a sandbox. */
+  /** How `via`, `mcp2cli` and `mcpc` are run inside a sandbox. */
   runners: RunnerFactory;
   model: ModelFactory;
   /** One line per finished run. */
@@ -77,7 +77,7 @@ function failedRun(job: Job, error: unknown, wallMs: number): RunRecord {
   };
 }
 
-async function runJob(options: EvalRunOptions, job: Job, mcp2cliSkill: string | undefined): Promise<RunRecord> {
+async function runJob(options: EvalRunOptions, job: Job, skills: { mcp2cli?: string; mcpc?: string }): Promise<RunRecord> {
   const started = Date.now();
   const { loaded } = options;
   let env: Awaited<ReturnType<typeof createEnv>> | undefined;
@@ -92,13 +92,16 @@ async function runJob(options: EvalRunOptions, job: Job, mcp2cliSkill: string | 
       if (prompt.code !== 0) throw new Error(`via prompt exited ${prompt.code}: ${prompt.stderr}`);
       viaPrompt = normalizeOutput(prompt.stdout, env.sandbox!.root);
       tools = cliTools('via', env.runners!.via, env);
-    } else {
+    } else if (job.condition === 'mcp2cli') {
       tools = cliTools('mcp2cli', env.runners!.mcp2cli!.exec, env);
+    } else {
+      tools = cliTools('mcpc', env.runners!.mcpc!.exec, env);
     }
     const system = buildSystemPrompt(job.condition, {
       mounted: loaded.suite.mounted,
       ...(viaPrompt !== undefined ? { viaPrompt } : {}),
-      ...(mcp2cliSkill !== undefined ? { mcp2cliSkill } : {}),
+      ...(skills.mcp2cli !== undefined ? { mcp2cliSkill: skills.mcp2cli } : {}),
+      ...(skills.mcpc !== undefined ? { mcpcSkill: skills.mcpc } : {}),
     });
     return await runAgent({
       task: job.task,
@@ -122,10 +125,13 @@ async function runJob(options: EvalRunOptions, job: Job, mcp2cliSkill: string | 
 export async function runEval(options: EvalRunOptions): Promise<RunRecord[]> {
   const { loaded } = options;
   const jobs = planJobs(loaded.tasks, options.conditions, options.trials);
-  const mcp2cliSkill = options.conditions.includes('mcp2cli') ? readFileSync(join(loaded.root, loaded.suite.mcp2cli.skill), 'utf8') : undefined;
+  const skills = {
+    ...(options.conditions.includes('mcp2cli') ? { mcp2cli: readFileSync(join(loaded.root, loaded.suite.mcp2cli.skill), 'utf8') } : {}),
+    ...(options.conditions.includes('mcpc') ? { mcpc: readFileSync(join(loaded.root, loaded.suite.mcpc.skill), 'utf8') } : {}),
+  };
   let finished = 0;
   const records = await mapLimit(jobs, options.concurrency, async (job) => {
-    const record = await runJob(options, job, mcp2cliSkill);
+    const record = await runJob(options, job, skills);
     finished += 1;
     options.log?.(
       `[${finished}/${jobs.length}] ${job.condition.padEnd(7)} ${job.task.id} #${job.trial}: ${record.success ? 'success' : `FAIL (${record.status})`}` +

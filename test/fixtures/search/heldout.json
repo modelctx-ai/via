@@ -4,7 +4,7 @@
     { "q": "get the details of a pull request", "group": "synonym", "expect": ["github pull-request:read"] },
     { "q": "see a ticket", "group": "synonym", "expect": ["linear issue:get", "github issue:read"] },
     { "q": "new repository", "group": "synonym", "expect": ["github repository:create"] },
-    { "q": "close the browser", "group": "direct", "expect": ["playwright browser-close"] },
+    { "q": "close the browser", "group": "direct", "expect": ["playwright browser:close"] },
     { "q": "destroy a database", "group": "synonym", "expect": ["notion database:delete"] },
     { "q": "enumerate branches", "group": "synonym", "expect": ["github branch:list"] },
     { "q": "update a project", "group": "direct", "expect": ["linear project:update"] },

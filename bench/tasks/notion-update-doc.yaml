@@ -46,6 +46,16 @@ mcp2cli:
   - run: >-
       mcp2cli @notion notion-update-page --page-id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 --command insert_content_after --old-str "- Who owns the on-call runbook for the new queue?" --new-str "- Decision: per-tenant limits will be exposed in the public API docs."
 
+mcpc:
+  - run: mcpc connect ./mcp.json:notion @notion
+  - run: mcpc @notion tools-get notion-search
+  - run: mcpc @notion tools-call notion-search query:="Q3 roadmap" page_size:=5
+  - run: mcpc @notion tools-get notion-fetch
+  - run: mcpc @notion tools-call notion-fetch id:=2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701
+  - run: mcpc @notion tools-get notion-update-page
+  - run: >-
+      mcpc @notion tools-call notion-update-page page_id:=2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 command:=insert_content_after old_str:="- Who owns the on-call runbook for the new queue?" new_str:="- Decision: per-tenant limits will be exposed in the public API docs."
+
 # Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
 success:
   require:

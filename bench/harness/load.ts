@@ -1,6 +1,7 @@
 // Loading and validating the suite: JSON Schema for the shape, then the cross-file rules the
 // schema cannot express (servers mounted, tools exist, native arguments fit the tool's schema,
-// referenced files exist, commands start with the right program).
+// referenced files exist, commands start with the right program, every mcpc session is connected
+// before it is used).
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Ajv from 'ajv';
@@ -66,7 +67,9 @@ export function loadSuite(root: string, only?: readonly string[]): LoadedSuite {
 
   const loaded: LoadedSuite = { root, benchDir, suite, tasks, tools };
   for (const task of tasks) problems.push(...checkTask(loaded, task));
-  if (!existsSync(join(root, suite.mcp2cli.skill))) problems.push(`suite.yaml: mcp2cli.skill not found: ${suite.mcp2cli.skill}`);
+  for (const column of ['mcp2cli', 'mcpc'] as const) {
+    if (!existsSync(join(root, suite[column].skill))) problems.push(`suite.yaml: ${column}.skill not found: ${suite[column].skill}`);
+  }
   if (problems.length > 0) throw new Error(problems.join('\n'));
   return loaded;
 }
@@ -111,7 +114,7 @@ export function checkTask(loaded: LoadedSuite, task: Task): string[] {
     if (!task.calls.some((c) => c.server === call.server && c.tool === call.tool)) at('native', `${call.server}/${call.tool} has no entry in calls`);
   }
 
-  const checkSteps = (key: 'via' | 'mcp2cli', program: string): void => {
+  const checkSteps = (key: 'via' | 'mcp2cli' | 'mcpc', program: string): void => {
     (task[key] ?? []).forEach((step, i) => {
       const where = `${key}[${i}]`;
       try {
@@ -124,6 +127,25 @@ export function checkTask(loaded: LoadedSuite, task: Task): string[] {
   };
   checkSteps('via', 'via');
   checkSteps('mcp2cli', 'mcp2cli');
+  checkSteps('mcpc', 'mcpc');
+
+  // mcpc has no one-shot mode: `mcpc connect <server> @name` first, then `mcpc @name <command>`.
+  const connected = new Set<string>();
+  (task.mcpc ?? []).forEach((step, i) => {
+    let words: string[];
+    try {
+      words = splitCommand(step.run);
+    } catch {
+      return; // reported by checkSteps
+    }
+    if (words[1] === 'connect') {
+      const session = words.slice(2).find((w) => w.startsWith('@'));
+      if (session === undefined) at(`mcpc[${i}]`, `connect needs a session name (@name): ${step.run}`);
+      else connected.add(session);
+    } else if (words[1]?.startsWith('@') && !connected.has(words[1])) {
+      at(`mcpc[${i}]`, `session ${words[1]} is used before \`mcpc connect\`: ${step.run}`);
+    }
+  });
 
   // Success criteria (agent evaluation) name real tools of servers the task uses.
   for (const kind of ['require', 'forbid'] as const) {

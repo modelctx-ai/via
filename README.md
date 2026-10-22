@@ -16,7 +16,7 @@ so tool schemas stay out of the context window.
 [![npm downloads](https://img.shields.io/npm/dm/@modelctx-ai/via?color=f76b15)](https://www.npmjs.com/package/@modelctx-ai/via)
 [![GitHub stars](https://img.shields.io/github/stars/modelctx-ai/via?style=flat&logo=github&color=yellow)](https://github.com/modelctx-ai/via/stargazers)
 
-[Quick look](#a-quick-look) · [Install](#install) · [Getting started](#getting-started) · [Docs](docs/README.md) · [Benchmark](bench/results/0.1.md) · [Roadmap](docs/roadmap.md)
+[Quick look](#a-quick-look) · [Install](#install) · [Getting started](#getting-started) · [Docs](docs/README.md) · [Benchmark](bench/results/0.4-tokens.md) · [Roadmap](docs/roadmap.md)
 
 English | [简体中文](README.zh-CN.md)
 
@@ -39,7 +39,7 @@ via is a standalone MCP client. It reads the MCP configuration your frameworks a
 
 ![How via works: the agent runs via in the shell and gets compact output back; the via CLI hands the call to a local daemon, which reads framework MCP configs and credentials and talks MCP to the servers over stdio or HTTP](docs/assets/how-it-works.svg)
 
-On the 9 tasks of the [token benchmark](bench/results/0.1.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), **via used about 4% of the tokens that native MCP injection used**. The figure is estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading. Success rates from the live-model evaluation (`npm run bench:eval`) have not been published yet.
+On the 9 tasks of the [token benchmark](bench/results/0.4-tokens.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), **via used about 4% of the tokens that native MCP injection used**; the other shell-based MCP clients measured with it, mcp2cli and mcpc, used about 16% and 15%. The figures are estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading. Success rates from the live-model evaluation (`npm run bench:eval`) have not been published yet.
 
 ## Highlights
 
@@ -99,6 +99,8 @@ Requires Node.js 20 or later (22 recommended).
 npm install -g @modelctx-ai/via
 via --version
 ```
+
+On macOS and Linux, Homebrew installs the same npm package (and Homebrew's `node`): `brew install modelctx-ai/tap/via`. The formula is generated for every release; it reaches the tap by hand, so it can trail npm by a few days.
 
 Single-file executables that do not need Node.js are attached to the [GitHub Release](https://github.com/modelctx-ai/via/releases/latest). Platform notes, including Windows and those builds, are in the [getting-started guide](docs/guides/getting-started.md#1-安装).
 

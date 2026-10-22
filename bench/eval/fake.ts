@@ -1,5 +1,5 @@
 // The scripted stand-in for a model (`--fake-model`). It plays each task's scripted steps through
-// the real loop: the native rounds as parallel tool calls, the `via` / `mcp2cli` steps as shell
+// the real loop: the native rounds as parallel tool calls, the `via` / `mcp2cli` / `mcpc` steps as shell
 // calls, then a final answer that states the facts the task's `answer` checks look for. It exists
 // to prove that servers, tool execution, judging, token accounting, aggregation and the report
 // work end to end without an API key. It says nothing about any model: its token counts are
@@ -46,7 +46,7 @@ export function fakeModelFactory(loaded: LoadedSuite): ModelFactory {
             content.push({ type: 'tool_use', id: `toolu_fake_${turn}_${i}`, name: nativeToolName(call.server, call.tool), input: call.args }),
           );
         } else {
-          const step = (condition === 'via' ? task.via : task.mcp2cli ?? [])[turn];
+          const step = (condition === 'via' ? task.via : condition === 'mcpc' ? task.mcpc ?? [] : task.mcp2cli ?? [])[turn];
           if (step) {
             const cursor = CURSOR.exec(lastToolOutput(request.messages))?.[1];
             const command = cursor === undefined ? step.run : step.run.replaceAll('{cursor}', cursor);

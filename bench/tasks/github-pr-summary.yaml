@@ -31,6 +31,13 @@ mcp2cli:
   - run: mcp2cli @github pull-request-read --method get_files --owner acme --repo api --pull-number 482
   - run: mcp2cli @github pull-request-read --method get_reviews --owner acme --repo api --pull-number 482
 
+mcpc:
+  - run: mcpc connect ./mcp.json:github @github
+  - run: mcpc @github tools-get pull_request_read
+  - run: mcpc @github tools-call pull_request_read method:=get owner:=acme repo:=api pullNumber:=482
+  - run: mcpc @github tools-call pull_request_read method:=get_files owner:=acme repo:=api pullNumber:=482
+  - run: mcpc @github tools-call pull_request_read method:=get_reviews owner:=acme repo:=api pullNumber:=482
+
 # Agent evaluation: the run succeeded when the replay server saw these calls (bench/README.md).
 success:
   require:

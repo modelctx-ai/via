@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "bench/suite.yaml",
   "type": "object",
-  "required": ["version", "fixtures", "mounted", "tasks", "mcp2cli"],
+  "required": ["version", "fixtures", "mounted", "tasks", "mcp2cli", "mcpc"],
   "additionalProperties": false,
   "properties": {
     "version": { "type": "integer", "minimum": 1 },
@@ -19,7 +19,11 @@
       "uniqueItems": true,
       "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" }
     },
-    "mcp2cli": {
+    "mcp2cli": { "$ref": "#/definitions/control" },
+    "mcpc": { "$ref": "#/definitions/control" }
+  },
+  "definitions": {
+    "control": {
       "type": "object",
       "required": ["skill", "version"],
       "additionalProperties": false,

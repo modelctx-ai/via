@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -7,6 +10,9 @@ import type { Exec } from '../../bench/harness/exec';
 import { checkTask, loadSuite, type LoadedSuite } from '../../bench/harness/load';
 import { measureSuite, runSession, type RunnerFactory } from '../../bench/harness/measure';
 import { formatConsole, formatJson, formatMarkdown } from '../../bench/harness/report';
+import { serversLine } from '../../bench/harness/instructions';
+import { MCPC_CONFIG, makeRunners, probeMcpc } from '../../bench/harness/runners';
+import { createSandbox, type Sandbox } from '../../bench/harness/sandbox';
 import { splitCommand } from '../../bench/harness/shell';
 import { estimateTokens } from '../../bench/harness/tokens';
 import type { Task } from '../../bench/harness/types';
@@ -17,6 +23,24 @@ import type { Task } from '../../bench/harness/types';
 // is needed; `npm run bench:tokens` runs the built binary.
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
+
+/** In-process `run`, isolated by the sandbox's environment exactly like the spawned binary. */
+const inProcessVia =
+  (sandbox: Sandbox): Exec =>
+  async (argv) => {
+    let stdout = '';
+    let stderr = '';
+    const code = await run(argv, {
+      env: sandbox.env,
+      cwd: sandbox.project,
+      home: sandbox.home,
+      platform: 'linux',
+      stdout: { write: (s: string) => void (stdout += s) },
+      stderr: { write: (s: string) => void (stderr += s) },
+      readStdin: async () => '',
+    });
+    return { code, stdout, stderr };
+  };
 
 describe('splitCommand', () => {
   it('splits like a POSIX shell without running one', () => {
@@ -39,6 +63,9 @@ describe('suite files', () => {
     for (const task of loaded.tasks) {
       expect(task.via.length, task.id).toBeGreaterThan(0);
       expect(task.mcp2cli?.length, task.id).toBeGreaterThan(0);
+      expect(task.mcpc?.length, task.id).toBeGreaterThan(0);
+      // mcpc has no one-shot mode: the first step of every task connects a session
+      expect(task.mcpc![0]!.run, task.id).toMatch(/^mcpc connect \.\/mcp\.json:\w+ @\w+$/);
     }
   });
 
@@ -56,6 +83,10 @@ describe('suite files', () => {
     expect(mutate((t) => void delete t.native.rounds[1]![0]!.args.method)).toEqual(expect.arrayContaining([expect.stringContaining("must have required property 'method'")]));
     expect(mutate((t) => void (t.calls = t.calls.slice(1)))).toEqual(expect.arrayContaining([expect.stringContaining('has no entry in calls')]));
     expect(mutate((t) => void (t.via[0]!.run = 'mcp2cli @github --list'))).toEqual(expect.arrayContaining([expect.stringContaining('must start with `via`')]));
+    expect(mutate((t) => void (t.mcpc![0]!.run = 'via github'))).toEqual(expect.arrayContaining([expect.stringContaining('must start with `mcpc`')]));
+    // a session must be connected before it is used, and `connect` names it
+    expect(mutate((t) => void t.mcpc!.shift())).toEqual(expect.arrayContaining([expect.stringContaining('is used before `mcpc connect`')]));
+    expect(mutate((t) => void (t.mcpc![0]!.run = 'mcpc connect ./mcp.json:github'))).toEqual(expect.arrayContaining([expect.stringContaining('connect needs a session name')]));
     expect(mutate((t) => void (t.servers = ['linear']))).toEqual(expect.arrayContaining([expect.stringContaining('not listed in servers')]));
     expect(mutate((t) => void (t.calls[0]!.resultFile = 'recordings/missing.json'))).toEqual(expect.arrayContaining([expect.stringContaining('not found')]));
   });
@@ -153,23 +184,7 @@ describe('runSession', () => {
 describe('the scripted tasks against the real CLI code', () => {
   it('every via command resolves, exits as scripted and makes the same tool calls as native', { timeout: 120_000 }, async () => {
     const loaded = loadSuite(root);
-    // In-process `run`, isolated by the sandbox's environment exactly like the spawned binary.
-    const runners: RunnerFactory = (sandbox) => ({
-      via: async (argv) => {
-        let stdout = '';
-        let stderr = '';
-        const code = await run(argv, {
-          env: sandbox.env,
-          cwd: sandbox.project,
-          home: sandbox.home,
-          platform: 'linux',
-          stdout: { write: (s: string) => void (stdout += s) },
-          stderr: { write: (s: string) => void (stderr += s) },
-          readStdin: async () => '',
-        });
-        return { code, stdout, stderr };
-      },
-    });
+    const runners: RunnerFactory = (sandbox) => ({ via: inProcessVia(sandbox) });
     const measure = await measureSuite({ loaded, runners });
 
     expect(measure.tasks.map((t) => t.id)).toEqual(loaded.suite.tasks);
@@ -191,5 +206,70 @@ describe('the scripted tasks against the real CLI code', () => {
       for (const t of loaded.tasks) expect(text).toContain(t.id);
     }
     expect(JSON.parse(outputs[2]!).totals.native).toBe(measure.tasks.reduce((n, t) => n + estimateTokens(t.native.totalBytes), 0));
+  });
+});
+
+const found = await probeMcpc('mcpc');
+
+describe('the mcpc column', () => {
+  it('says what the agent is told about the servers', () => {
+    expect(serversLine('mcp2cli', ['github', 'linear'])).toBe('Servers: @github @linear');
+    expect(serversLine('mcpc', ['github', 'linear'])).toBe('Servers (entries of ./mcp.json, not connected yet): github linear');
+  });
+
+  it('is skipped with an install hint when mcpc is not on PATH', async () => {
+    const probe = await probeMcpc('mcpc-that-does-not-exist');
+    expect(probe).toMatchObject({ skipped: expect.stringContaining('npm install -g @apify/mcpc') });
+  });
+
+  // A stand-in `mcpc` (a shebang script, so POSIX only) that logs its arguments and lists two
+  // sessions: the runner must write the server list, give mcpc a home inside the sandbox, and close
+  // every session when the run ends, without a real mcpc or any bridge process.
+  it.skipIf(process.platform === 'win32')('prepares the server list in the sandbox and closes every session on cleanup', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'via-fake-mcpc-'));
+    const sandbox = createSandbox({ github: 'http://127.0.0.1:1/mcp', linear: 'http://127.0.0.1:2/mcp' });
+    try {
+      const bin = join(dir, 'mcpc');
+      const log = join(dir, 'log.txt');
+      writeFileSync(
+        bin,
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args: process.argv.slice(2), home: process.env.MCPC_HOME_DIR }) + '\\n');
+if (process.argv[2] === '--json') console.log(JSON.stringify({ sessions: [{ name: '@github', pid: 999999999 }, { name: '@linear', pid: 999999999 }] }));
+`,
+      );
+      chmodSync(bin, 0o755);
+      const mcpc = makeRunners({ viaBin: 'unused', mcpc: { bin, version: '0.0.0' } })(sandbox);
+      const runner = (await mcpc).mcpc!;
+      await runner.prepare({ github: 'http://127.0.0.1:1/mcp', linear: 'http://127.0.0.1:2/mcp' });
+      expect(JSON.parse(readFileSync(join(sandbox.project, MCPC_CONFIG), 'utf8'))).toEqual({
+        mcpServers: { github: { url: 'http://127.0.0.1:1/mcp' }, linear: { url: 'http://127.0.0.1:2/mcp' } },
+      });
+      await runner.cleanup();
+      const calls = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { args: string[]; home: string });
+      expect(calls.map((c) => c.args)).toEqual([['--json'], ['close', '@github'], ['close', '@linear']]);
+      // mcpc's state lives inside the sandbox, never in the real home directory
+      for (const c of calls) expect(c.home).toBe(join(sandbox.home, '.mcpc'));
+    } finally {
+      sandbox.cleanup();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // With a real mcpc: its tools/call must equal the native ones (measureSuite verifies), and the
+  // `connect` commands are part of the counted session.
+  it.skipIf(!('version' in found))('measures the mcpc column against the replay servers, connect commands included', { timeout: 120_000 }, async () => {
+    const loaded = loadSuite(root, ['find-code', 'issue-to-pr']);
+    const spawned = makeRunners({ viaBin: 'unused', mcpc: { bin: 'mcpc', version: 'version' in found ? found.version : '0' } });
+    const runners: RunnerFactory = async (sandbox) => ({ via: inProcessVia(sandbox), mcpc: (await spawned(sandbox)).mcpc! });
+    const measure = await measureSuite({ loaded, runners });
+    expect(measure.mcpc?.fixedBytes).toBeGreaterThan(10_000);
+    for (const t of measure.tasks) {
+      const task = loaded.tasks.find((x) => x.id === t.id)!;
+      expect(t.mcpc!.steps.map((s) => s.command), t.id).toEqual(task.mcpc!.map((s) => s.run));
+      expect(t.mcpc!.steps[0]!.command).toMatch(/^mcpc connect /);
+      expect(t.mcpc!.steps[0]!.stdoutBytes + t.mcpc!.steps[0]!.stderrBytes, 'connect prints the tool overview').toBeGreaterThan(500);
+    }
   });
 });

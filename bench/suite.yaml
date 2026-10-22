@@ -24,3 +24,9 @@ tasks:
 mcp2cli:
   skill: bench/vendor/mcp2cli/SKILL.md
   version: 3.8.0
+
+# The second control column, mcpc (Apache-2.0). `skill` is `mcpc help --skill` of the version named
+# here. A session must exist before a call, so every task's steps start with `mcpc connect`.
+mcpc:
+  skill: bench/vendor/mcpc/SKILL.md
+  version: 0.7.0
