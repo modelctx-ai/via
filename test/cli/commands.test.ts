@@ -93,7 +93,8 @@ describe('via doctor', () => {
 
   it('says where the logs are, and how much they take once there are some', async () => {
     const sb = makeSandbox();
-    expect((await sb.via(['doctor'])).stdout).toContain('\nlogs      ~/.cache/via/logs (none yet)\n');
+    const shown = join('~', '.cache', 'via', 'logs'); // the platform's separator, as doctor prints it
+    expect((await sb.via(['doctor'])).stdout).toContain(`\nlogs      ${shown} (none yet)\n`);
     const dir = join(sb.cacheDir, 'logs');
     mkdirSync(join(dir, 'servers'), { recursive: true });
     writeFileSync(join(dir, 'daemon.log'), 'x'.repeat(2048));
@@ -102,7 +103,7 @@ describe('via doctor', () => {
     writeFileSync(join(dir, 'servers', 'notes.txt'), 'not a log'); // only logs are counted
     const r = await sb.via(['doctor']);
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain('\nlogs      ~/.cache/via/logs (3 files, 1.5 MiB)\n');
+    expect(r.stdout).toContain(`\nlogs      ${shown} (3 files, 1.5 MiB)\n`);
   });
 
   it('prints config errors instead of stopping, with exit 2', async () => {
