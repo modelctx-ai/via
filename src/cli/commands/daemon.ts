@@ -7,7 +7,6 @@ import type { DaemonStatus } from '../../protocol';
 import type { DaemonClient, DaemonConnection } from '../../daemon/client';
 import type { DaemonProcess } from '../../daemon/records';
 import type { App } from '../app';
-import { daemonDisabled } from '../app';
 import { fail, usageFailure } from '../failure';
 import { parseLocal } from '../options';
 
@@ -103,7 +102,7 @@ async function find(app: App): Promise<{ client: DaemonClient; conn?: DaemonConn
 
 async function status(app: App): Promise<number> {
   const json = app.options.format === 'json';
-  if (daemonDisabled(app.io)) {
+  if (app.daemonOff) {
     app.out(json ? `${JSON.stringify({ running: false, disabled: true })}\n` : 'daemon: disabled (VIA_NO_DAEMON)\n');
     return ExitCode.Ok;
   }
@@ -152,7 +151,7 @@ async function exited(pid: number, ms: number, running: (pid: number) => boolean
  */
 async function stop(app: App): Promise<number> {
   const json = app.options.format === 'json';
-  if (daemonDisabled(app.io)) {
+  if (app.daemonOff) {
     app.out(json ? `${JSON.stringify({ running: false, disabled: true })}\n` : 'daemon: disabled (VIA_NO_DAEMON)\n');
     return ExitCode.Ok;
   }

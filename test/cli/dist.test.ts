@@ -282,6 +282,39 @@ describe('built dist/via.js', () => {
       }
     });
 
+    // A browse of a cached catalog reads files and prints a table. What a tool call (argument
+    // parsing, validation, the render pipeline), a failure (the error constructors), a credential
+    // reference (the resolver and its `cmd:` code) or a cursor file needs is imported where it is
+    // used, not at the top of the modules every browse loads: each chunk is a file to resolve, read
+    // and link, tens of kilobytes to parse (implementation.md, "启动速度").
+    it('a cached browse loads no module that only a call, a failure, a credential reference or a cursor needs', async () => {
+      const srv = await startFixtureServer();
+      try {
+        // No credential reference: with one, the resolver is rightly loaded.
+        writeUserConfig(`sources: false\nservers:\n  gh:\n    url: ${srv.url}\n`);
+        expect((await viaAsync(['sync'])).code).toBe(0);
+      } finally {
+        await srv.close();
+      }
+      try {
+        const dir = dirname(bin);
+        const modules = ['commands/tool', 'args/', 'render/pipeline', 'render/media', 'client/errors', 'client/elicit', 'config/credentials', 'platform/command', 'render/cursor-file'];
+        const marker = (m: string): RegExp => new RegExp(`^// src/(cli/)?${m.replaceAll('/', '\\/')}`, 'm');
+        // The markers must match the bundle, or the check below passes vacuously.
+        const bundle = readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, f), 'utf8'));
+        for (const m of modules) expect(bundle.some((text) => marker(m).test(text)), m).toBe(true);
+        for (const args of [[], ['find', 'issue'], ['gh'], ['gh', 'issue']]) {
+          const { files } = loads(args);
+          const texts = files.map((f) => readFileSync(join(dir, f), 'utf8'));
+          expect(modules.filter((m) => texts.some((text) => marker(m).test(text))), `via ${args.join(' ')}`).toEqual([]);
+        }
+      } finally {
+        rmSync(join(home, '.config'), { recursive: true, force: true });
+        rmSync(join(home, '.cache'), { recursive: true, force: true });
+        rmSync(join(home, '.local'), { recursive: true, force: true });
+      }
+    });
+
     // The browse commands name what they need in one module (src/cli/browse-deps.ts) so it is one
     // import, not six in a row; a command that never lists tools must not load any of it.
     it('`via daemon status` loads neither the catalog, the configuration nor the backends', () => {
@@ -297,6 +330,12 @@ describe('built dist/via.js', () => {
     // Making a `require` costs URL parsing and package.json lookups. Only chunks that mention
     // `require` (the esbuild runtime shim, CommonJS dependencies) get one; the rest do not
     // (scripts/lib/strip-require.ts).
+    // Without it, every chunk's module-type lookup first fails to open dist/package.json (about 200
+    // failed opens per browse, 2 to 3 ms: scripts/lib/dist-manifest.ts).
+    it('has a package.json of its own next to the chunks, marking them as ES modules', () => {
+      expect(JSON.parse(readFileSync(join(dirname(bin), 'package.json'), 'utf8'))).toEqual({ type: 'module' });
+    });
+
     it('creates a require only in chunks that use one', () => {
       const all = readdirSync(dirname(bin)).filter((f) => f.endsWith('.js'));
       const withBanner = all.filter((f) => readFileSync(join(dirname(bin), f), 'utf8').includes('__viaCreateRequire'));

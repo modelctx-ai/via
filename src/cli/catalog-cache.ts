@@ -5,10 +5,10 @@
 // The key is a hash of the server's transport definition: command, args, cwd, URL, the *names* of
 // env variables and headers, and the credential *references* (never resolved values). A literal
 // credential only ever enters the hash, which is one-way.
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
-import { parseCredentialRef } from '../config/credentials';
+import { parseCredentialRef } from '../config/credential-ref';
 import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
 import { validSelf } from '../client/server-info';
@@ -218,6 +218,14 @@ export class CatalogCache {
   clear(server: ServerConfig): void {
     rmSync(this.file(server), { force: true });
     rmSync(this.infoFile(server), { force: true });
-    rmSync(join(this.dir, `${cacheKey(server)}.view.json`), { force: true });
+    // The prebuilt catalogs derived from it: one per provider name that uses this server (view-cache.ts).
+    const prefix = `${cacheKey(server)}.`;
+    let names: string[] = [];
+    try {
+      names = readdirSync(this.dir);
+    } catch {
+      // no cache directory, nothing to remove
+    }
+    for (const name of names) if (name.startsWith(prefix) && name.endsWith('.view.json')) rmSync(join(this.dir, name), { force: true });
   }
 }

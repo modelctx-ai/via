@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildProviderCatalog, SearchIndex, type CatalogTool, type DocTerms, type McpTool, type ProviderCatalog, type ProviderInput, type RestoredTerms } from '../../src/catalog';
 import { CatalogCache, cacheKey } from '../../src/cli/catalog-cache';
+import { stringHash } from '../../src/hash';
+import type { ServerConfig } from '../../src/config/types';
 import { inputsHash, ViewCache } from '../../src/cli/view-cache';
 import { httpServer } from '../helpers/client';
 import { fixtureNames, loadTools } from '../helpers/fixtures';
@@ -25,6 +27,11 @@ function scratch(): string {
   const dir = mkdtempSync(join(tmpdir(), 'via-view-'));
   dirs.push(dir);
   return join(dir, 'catalog');
+}
+
+/** Where the build of `provider` on `server` is kept: one file per server and provider name. */
+function viewFile(dir: string, server: ServerConfig, provider: string): string {
+  return join(dir, `${cacheKey(server)}.${stringHash(provider).slice(0, 8)}.view.json`);
 }
 
 function input(provider: string, tools: McpTool[], extra: Partial<ProviderInput> = {}): ProviderInput {
@@ -74,7 +81,7 @@ describe('ViewCache round trip', () => {
     for (let i = 0; i < 2; i += 1) {
       const dir = scratch();
       new ViewCache(dir, 'fp-1').write(server, inp, { tools, fetchedAt: FETCHED_AT }, buildProviderCatalog(inp));
-      files.push(readFileSync(join(dir, `${cacheKey(server)}.view.json`), 'utf8'));
+      files.push(readFileSync(viewFile(dir, server, 'gh'), 'utf8'));
     }
     expect(files[0]).toBe(files[1]);
   });
@@ -179,7 +186,7 @@ describe('ViewCache invalidation', () => {
     const { dir } = primed();
     // A fresh instance per check: one instance reads each file once per run.
     const cache = (): ViewCache => new ViewCache(dir, 'fp-1');
-    const file = join(dir, `${cacheKey(server)}.view.json`);
+    const file = viewFile(dir, server, 'gh');
     const good = readFileSync(file, 'utf8');
     for (const bad of ['{not json', '[]', 'null', JSON.stringify({ ...JSON.parse(good), v: 99 }), JSON.stringify({ ...JSON.parse(good), head: { n: tools.length } }), JSON.stringify({ ...JSON.parse(good), head: null }), JSON.stringify({ ...JSON.parse(good), body: 7 })]) {
       writeFileSync(file, bad);
@@ -194,6 +201,45 @@ describe('ViewCache invalidation', () => {
     new CatalogCache(dir).write(server, tools, { fetchedAt: FETCHED_AT });
     new CatalogCache(dir).clear(server);
     expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('keeps a build per provider name when two names share one server', () => {
+    const dir = scratch();
+    const other = { ...server, name: 'gh-again', provider: 'gh-again' };
+    expect(cacheKey(other)).toBe(cacheKey(server));
+    const a = input('gh', tools);
+    const b = input('gh-again', tools);
+    const cache = new ViewCache(dir, 'fp-1');
+    cache.write(server, a, listing, buildProviderCatalog(a));
+    cache.write(other, b, listing, buildProviderCatalog(b));
+    expect(readdirSync(dir).filter((n) => n.endsWith('.view.json'))).toHaveLength(2);
+    // A later run finds both: neither provider rebuilds because the other wrote last.
+    const later = new ViewCache(dir, 'fp-1');
+    expect(later.read(server, a, listing)?.catalog.provider).toBe('gh');
+    expect(later.read(other, b, listing)?.catalog.provider).toBe('gh-again');
+  });
+
+  it('clears every provider name of the server with its raw list', () => {
+    const dir = scratch();
+    const other = { ...server, name: 'gh-again', provider: 'gh-again' };
+    const raw = new CatalogCache(dir);
+    raw.write(server, tools, { fetchedAt: FETCHED_AT });
+    for (const [s, name] of [[server, 'gh'], [other, 'gh-again']] as const) {
+      const inp = input(name, tools);
+      new ViewCache(dir, 'fp-1').write(s, inp, listing, buildProviderCatalog(inp));
+    }
+    expect(readdirSync(dir).filter((n) => n.endsWith('.view.json'))).toHaveLength(2);
+    raw.clear(server);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('removes the file name an earlier version wrote, which nothing reads any more', () => {
+    const dir = scratch();
+    mkdirSync(dir, { recursive: true });
+    const legacy = join(dir, `${cacheKey(server)}.view.json`);
+    writeFileSync(legacy, '{}');
+    new ViewCache(dir, 'fp-1').write(server, base, listing, buildProviderCatalog(base));
+    expect(readdirSync(dir).filter((n) => n.endsWith('.view.json'))).toEqual([expect.stringMatching(/^[0-9a-f]{32}\.[0-9a-f]{8}\.view\.json$/)]);
   });
 
   it('survives a directory that cannot be written', () => {

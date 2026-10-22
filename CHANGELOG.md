@@ -66,7 +66,13 @@
   - `find` 的 1,000 个工具目标明确为库路径（新进程、命中预构建缓存的还原 + 索引 + 首次查询）< 30 ms；整进程（50 个 provider）单列，比 `node -e 0` 多不超过 80 ms。
   - daemon 常驻内存改为匿名内存 RssAnon < 55 MiB（原来是 RSS < 80 MB，其中约 45–49 MiB 是共享的 node 二进制页）；没有 `/proc` 的平台退回 RSS < 105 MiB 并标明。阈值是实测定的：建议里的 40 MiB 在当前代码上过不去（RssAnon 34–49.5 MiB，0.3 复测时 27–30 MiB）。
   - `npm run bench:perf` 按新口径测量与判定：每一行冷启动与 `node -e 0` 交替运行并给出差值，daemon 内存读 `/proc/<pid>/status` 的 RssAnon，开头与结尾打印平均负载。时间仍只报告、不断言。
-  - 0.4 的复测（[perf-0.4](bench/results/perf-0.4.md)）里有几项没有达到新目标：浏览类命令比裸 node 多 49–56 ms，经热 daemon 的 `via find`、带框架配置的两条命令、整进程 `find` 超出 2–16 ms；比 0.3 的复测高，回归没有二分过。
+  - 0.4 的第一次复测里有几项没有达到新目标，回归的原因、修复和修复后的结果见下一条与 [perf-0.4](bench/results/perf-0.4.md)。
+- 修复浏览类命令的冷启动回归（路线图 d3 的复测发现；[perf-0.4](bench/results/perf-0.4.md)、[implementation.md](docs/development/implementation.md#04-的冷启动回归与修复)）。回归是真的、不是负载：`via`、`via <provider>`、`via find` 比 v0.3.1 慢 3–5 ms，是 0.4 的各个功能提交各带一点「顺手 import」累积的；另有两个更早就有的问题在这次被测出来。不改任何命令的输出与行为，缓存目录里的文件名有一处变化（第二条）：
+  - 浏览路径不再加载只有失败、调用、凭证引用或游标才用的代码：错误构造与映射（`client/errors.ts`，`ClientError` 拆到 `client/client-error.ts`）、凭证解析器（`config/credentials.ts`，经 `config/lazy-resolver.ts` 在第一次解析引用时才加载，引用的语法拆到 `config/credential-ref.ts`）、游标文件（`render/cursor-file.ts`），`via <provider>` 与 `via <provider> <resource>` 也不再加载整个调用流水线（`commands/tool.ts`、参数解析与校验、渲染流水线）。浏览命令加载的分块：`via` 42 → 33（265 → 221 KiB），`via github` 48 → 35（381 → 229 KiB），`via find` 42 → 33。
+  - 预构建缓存按 provider 名分文件：`catalog/<哈希>.<名字哈希>.view.json`（原来是 `catalog/<哈希>.view.json`，同一个 server 配成两个名字时两份互相覆盖，每次运行都有一份未命中并重建，带框架配置的命令因此慢约 20 ms）。[discovery.md](docs/spec/discovery.md#预构建缓存)已改；旧文件名不再读取，写新文件时顺手删除，缓存内容与有效性判断不变。
+  - 构建在 `dist/` 里写一个 `{"type":"module"}` 的 `package.json`（`scripts/lib/dist-manifest.ts`）：没有它时，每个分块的模块类型查找都先失败地打开 `dist/package.json`，一次 `via find` 有约 200 次失败的 `openat`，2–3 ms。
+  - `npm run bench:perf` 加 `--keep-sandbox`（保留沙盒并打印路径，用来对同一份缓存手工跟踪一条命令）。
+  - 结果（同一台机器、逐轮交替运行，ms，比 `node -e 0` 多，v0.3.1 / 修复前 / 修复后）：`via` 48.5 / 51.7 / 43.3，`via github` 54.4 / 57.2 / 46.9，`via find` 57.6 / 58.7 / 51.4，带框架配置的 `via` / `via find` 修复前 84.5 / 99.8、修复后 57.8 / 72.9。**仍未达到的目标**：`via find` 比裸 node 多 49–58 ms（目标不超过 50）、经热 daemon 的 `via find`（+75–89，目标 < 70；热 daemon 的 `via` +68–75 在线上）、一千个工具的整进程 `find`（+85–104，目标不超过 80）；热 daemon 的两项在这台机器上 v0.3.1 也是 +68 与 +80。目标没有改。
 - 迁移到官方 TypeScript SDK v2（路线图 e1）：client 端换成 `@modelcontextprotocol/client` 2.3.1，`via serve` 换成 `@modelcontextprotocol/server` 2.3.1，1.x 的 `@modelcontextprotocol/sdk` 降为开发依赖（只给测试用的模拟 server）。v2 是唯一支持 `2026-07-28` 无状态协议的官方实现，这一步先不改变协商行为（仍是 `initialize` 握手），为 e2 铺路。输出、退出码、命名与 `next:` 提示不变，没有动词表或单数化规则的改动，规范写法不受影响。
   - 结果仍由 via 自己宽松地处理：不经 SDK 的类型化方法校验，一个畸形的工具条目不会让整次 `tools/list` 失败（`src/client/session.ts` 的 `RAW`）。
   - 行为差异：v2 的 HTTP 传输默认只跟随同源重定向（1.x 会跟随到任何地方并带上自定义请求头）；重定向到别处时报错并带目标地址。错误映射改为识别 v2 的 `SdkError`/`SdkHttpError`/`ProtocolError`（退出码不变）。OAuth 错误码从 `errorCode` 改读 `code`。

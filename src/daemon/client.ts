@@ -4,7 +4,10 @@
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, truncateSync } from 'node:fs';
 import { createConnection, type Socket } from 'node:net';
 import type { Event, Hello, HelloAck, RequestBody, Response, Stale } from '../protocol';
-import { endpointOf, unsafeReason, type DaemonPaths } from './paths';
+import { daemonPaths, endpointOf, unsafeReason, type DaemonPaths } from './paths';
+
+// Re-exported so that a caller needs one import for the client and the paths it is made with.
+export { daemonPaths };
 import { encode, LineDecoder, parseMessage } from './wire';
 
 /**

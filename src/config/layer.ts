@@ -4,7 +4,7 @@
 
 import type { ConfigDiagnostic, DiagnosticCode, DiagnosticLevel } from './diagnostics';
 import { isPlainObject, ownEntries, type ServerDef } from './model';
-import { parseCredentialRef } from './credentials';
+import { parseCredentialRef } from './credential-ref';
 import { isProtocolVersion, PROTOCOL_VERSIONS } from '../protocol-versions';
 import type { AuthConfig, SemanticSearchConfig } from './types';
 

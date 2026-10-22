@@ -1,32 +1,16 @@
 // Credential references (config.md, "凭证引用"; auth.md). Resolved in memory only, right before a
 // connection is made. Nothing here writes a resolved value anywhere, and no error message contains one.
 
-import { readFile } from 'node:fs/promises';
 import { basename, isAbsolute, resolve } from 'node:path';
-import { CredentialError, type ConfigOrigin, type CredentialRef, type CredentialResolver } from './types';
+import { MIN_REDACTED_LITERAL_LENGTH, parseCredentialRef } from './credential-ref';
+import { CredentialError, type ConfigOrigin, type CredentialResolver } from './types';
 import { importKeyring } from '../keyring';
-import { planSpawn } from '../platform/command';
 import { decodeText } from '../platform/text';
 import { expandPath, getEnv, pathContext, userConfigHint, type Env, type PathContext } from './paths';
 
-export type CredentialKind = 'env' | 'file' | 'keychain' | 'cmd' | 'literal';
-
-const PREFIXES = ['env', 'file', 'keychain', 'cmd'] as const;
-
-/** Literals shorter than this are not added to the redaction list: replacing `1` or `on` everywhere would wreck output. */
-export const MIN_REDACTED_LITERAL_LENGTH = 8;
-
-/** Split a value into its reference kind and argument. Anything without a known prefix is a literal. */
-export function parseCredentialRef(value: CredentialRef): { kind: CredentialKind; arg: string } {
-  for (const kind of PREFIXES) {
-    if (value.startsWith(`${kind}:`)) return { kind, arg: value.slice(kind.length + 1) };
-  }
-  return { kind: 'literal', arg: value };
-}
-
-export function isCredentialRef(value: CredentialRef): boolean {
-  return parseCredentialRef(value).kind !== 'literal';
-}
+// The reference grammar lives in credential-ref.ts: config loading needs it on every run, this module
+// (the resolver itself) only when a reference is actually resolved.
+export { isCredentialRef, MIN_REDACTED_LITERAL_LENGTH, parseCredentialRef, type CredentialKind } from './credential-ref';
 
 /** How long a `cmd:` credential command may run before it is killed (config.md, "凭证引用"). */
 export const CMD_TIMEOUT_MS = 30_000;
@@ -163,7 +147,8 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
     const path = isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
     let text: string;
     try {
-      text = decodeText(await readFile(path));
+      // `fs/promises` is loaded here, not at the top: a run that only reads env: references never needs it.
+      text = decodeText(await (await import('node:fs/promises')).readFile(path));
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
@@ -216,7 +201,7 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
     }
     const [program, ...args] = argv as [string, ...string[]];
     const name = JSON.stringify(basename(program));
-    const { spawn } = await import('node:child_process');
+    const [{ spawn }, { planSpawn }] = await Promise.all([import('node:child_process'), import('../platform/command')]);
     return new Promise<string>((resolvePromise, reject) => {
       const fail = (message: string, next: string): void => reject(new CredentialError(`${message}${where(origin)}`, ref, next));
       const env: Record<string, string> = {};

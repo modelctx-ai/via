@@ -1,5 +1,6 @@
 import { defineConfig } from 'tsup';
 import { parseId, rulesId } from './scripts/lib/build-ids';
+import { writeDistManifest } from './scripts/lib/dist-manifest';
 import { lazyBuiltins } from './scripts/lib/lazy-builtins';
 import { stripUnusedRequire } from './scripts/lib/strip-require';
 
@@ -37,5 +38,6 @@ export default defineConfig((flags) => ({
   },
   onSuccess: async () => {
     stripUnusedRequire(flags.outDir ?? 'dist');
+    writeDistManifest(flags.outDir ?? 'dist');
   },
 }));

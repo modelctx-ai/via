@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { Catalog, CatalogTool, DocTerms, McpTool, ProviderCatalog, ProviderStatus } from '../catalog';
 import type { McpClient } from '../client';
 import type { OAuthStore } from '../client/oauth/store';
-import type { SchemaCompiler, ToolArgsError } from './args';
+import type { SchemaCompiler } from './args';
 import { pathContext, userCacheDir } from '../config/paths';
 import type { CredentialResolver, LoadedConfig, ServerConfig } from '../config';
 import { lazyRedactor, redactValue, type Redactor } from '../render/redact';
@@ -17,7 +17,8 @@ import type { ProviderEntry, ProviderTable } from './directory';
 import type { ViewCache } from './view-cache';
 import type { TaskRecords } from './task-record';
 import type { CliEnv } from './env';
-import { CliFailure, fail } from './failure';
+import { fail } from './failure';
+import { VERSION } from './help';
 import type { GlobalOptions } from './options';
 
 /** Per-server ceiling when listing many servers at once, so one slow server cannot stall `via`. */
@@ -30,7 +31,7 @@ export type { Listing };
  * to anything but empty/`0`/`false` (daemon.md, "无 daemon 模式"). The injected environment wins;
  * the real one is consulted too so a test run can switch the daemon off for every sandbox at once.
  */
-export function daemonDisabled(io: Pick<CliEnv, 'env' | 'platform'>): boolean {
+function daemonDisabled(io: Pick<CliEnv, 'env' | 'platform'>): boolean {
   const value = io.env.VIA_NO_DAEMON ?? process.env.VIA_NO_DAEMON;
   return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false';
 }
@@ -113,11 +114,16 @@ export class App {
   async resolver(): Promise<CredentialResolver> {
     // One resolver per run, even when several servers ask at once (doctor, sync): two instances would
     // each cache and run `cmd:` separately, and redaction only knows the values of the one it holds.
-    this.resolverLoading ??= this.deps().then(({ createCredentialResolver }) => {
-      this.resolverInstance = createCredentialResolver({ home: this.io.home, env: this.io.env, platform: this.io.platform, cwd: this.io.cwd });
+    this.resolverLoading ??= this.deps().then(({ createLazyCredentialResolver }) => {
+      this.resolverInstance = createLazyCredentialResolver({ home: this.io.home, env: this.io.env, platform: this.io.platform, cwd: this.io.cwd });
       return this.resolverInstance;
     });
     return this.resolverLoading;
+  }
+
+  /** Whether servers are reached from this process instead of through the daemon (`VIA_NO_DAEMON`). */
+  get daemonOff(): boolean {
+    return daemonDisabled(this.io);
   }
 
   /** Every credential value resolved in this process (none when the daemon holds them). */
@@ -157,7 +163,7 @@ export class App {
       });
     };
     if (daemonDisabled(this.io)) return inProcess();
-    const [{ DaemonBackend }, { FallbackBackend }, { FileCursorStore }] = await Promise.all([import('../daemon/backend'), this.deps(), import('../render/cursor-file')]);
+    const [{ DaemonBackend }, { FallbackBackend, fileCursors }] = await Promise.all([import('../daemon/backend'), this.deps()]);
     const client = await this.daemonClient(config.daemon.idleTimeout);
     const primary = new DaemonBackend({
       client,
@@ -168,7 +174,7 @@ export class App {
       cache: await this.cache(),
       onWarning,
     });
-    return new FallbackBackend(primary, inProcess, (message) => this.err(message), () => new FileCursorStore(join(this.cacheDir, 'cursors'), { now: this.io.now }));
+    return new FallbackBackend(primary, inProcess, (message) => this.err(message), () => fileCursors(join(this.cacheDir, 'cursors'), this.io.now));
   }
 
   /**
@@ -189,7 +195,7 @@ export class App {
    */
   async daemonClient(idleTimeoutSec = 0): Promise<import('../daemon/client').DaemonClient> {
     if (!this.socketClient) {
-      const [{ DaemonClient }, { daemonPaths }, { VERSION }] = await Promise.all([import('../daemon/client'), import('../daemon/paths'), import('./help')]);
+      const { DaemonClient, daemonPaths } = await import('../daemon/client');
       this.socketClient = new DaemonClient({
         paths: daemonPaths(pathContext({ home: this.io.home, env: this.io.env, platform: this.io.platform })),
         version: VERSION,
@@ -361,45 +367,10 @@ export class App {
 
   /** Print the failure and return its exit code. */
   async report(error: unknown): Promise<number> {
+    // Only a failure needs this module.
+    const { toErrorInfo } = await import('./error-info');
     const info = await toErrorInfo(error);
     this.err(await this.redactText(formatError(info, this.options.format, this.redact)));
     return info.code;
   }
-}
-
-/** Anything thrown while running a command, as a printable error. */
-export async function toErrorInfo(error: unknown): Promise<ErrorInfo> {
-  if (error instanceof CliFailure) return error.info;
-  if (isToolArgsError(error)) return argsErrorInfo(error);
-  if (error instanceof Error && error.name === 'ClientError') {
-    const e = error as Error & Pick<ErrorInfo, 'next'> & { exitCode: ErrorInfo['code']; candidates?: string[] };
-    const info: ErrorInfo = { code: e.exitCode, message: e.message };
-    if (e.candidates && e.candidates.length > 0) info.lines = [`did you mean: ${e.candidates.join(' · ')}`];
-    if (e.next) info.next = e.next;
-    return info;
-  }
-  if (error instanceof Error && error.name === 'CredentialError') {
-    const info: ErrorInfo = { code: ExitCode.Auth, message: error.message };
-    const next = (error as Error & { next?: string }).next;
-    if (next) info.next = next;
-    return info;
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  return { code: ExitCode.Internal, message: `internal error: ${message.split('\n')[0]}`, next: 'via doctor' };
-}
-
-function isToolArgsError(error: unknown): error is ToolArgsError {
-  return error instanceof Error && error.name === 'ToolArgsError';
-}
-
-/**
- * Usage and validation failures (arguments.md, "报错"): the headline, the aligned argument lines
- * and the usage block come from the argument parser; `next:` only when it gives one.
- */
-async function argsErrorInfo(error: ToolArgsError): Promise<ErrorInfo> {
-  const { argsErrorLines } = await import('./args');
-  const info: ErrorInfo = { code: ExitCode.Usage, message: error.message, lines: argsErrorLines(error) };
-  if (error.next) info.next = error.next;
-  if (error.details.length > 0) info.details = [...error.details];
-  return info;
 }

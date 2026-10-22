@@ -6,8 +6,10 @@
 // chunk of their own, loaded once. Commands that never browse (`via more`, `via daemon …`) do not
 // import this module and so do not pay for any of it.
 export { buildCatalog, rulesFingerprint } from '../catalog';
-export { createCredentialResolver, formatDiagnostic, hasErrors, loadConfig } from '../config';
-export { FallbackBackend, InProcessBackend } from './backend';
+export { formatDiagnostic, hasErrors } from '../config/diagnostics';
+export { loadConfig } from '../config/load';
+export { createLazyCredentialResolver } from '../config/lazy-resolver';
+export { fileCursors, FallbackBackend, InProcessBackend } from './backend';
 export { CatalogCache } from './catalog-cache';
 export { buildProvider, buildProviderTable, providerInput, statusOf } from './directory';
 export { ViewCache } from './view-cache';

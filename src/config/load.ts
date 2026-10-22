@@ -16,7 +16,7 @@ import { parseConfigText, resolvePointer, ParseFailure } from './parse';
 import { ParseCache } from './parse-cache';
 import { decodeText } from '../platform/text';
 import { expandPath, pathContext, pathIdentity, resolveAgainst, userConfigPath, userDataDir, type Env, type PathContext } from './paths';
-import { parseCredentialRef } from './credentials';
+import { parseCredentialRef } from './credential-ref';
 import { sha256Hex } from '../sha256';
 import { readTrustStore, trustStatus, type TrustStore } from './trust';
 import type { ConfigOrigin, ConfigScope, SemanticSearchConfig, ServerConfig, Transport } from './types';

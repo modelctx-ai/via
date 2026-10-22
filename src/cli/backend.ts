@@ -7,7 +7,6 @@ import type { McpTool } from '../catalog/types';
 import type { CallOptions, McpClient } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
 import type { CompletionRef, CompletionResult, ProtocolInfo, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
-import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor, redactValue } from '../render/redact';
 import type { CursorRecord, CursorStore } from '../render/cursor';
@@ -122,7 +121,7 @@ export class InProcessBackend implements Backend {
   }
 
   async listing(server: ServerConfig, { timeoutMs, refresh }: ListingOptions): Promise<Listing> {
-    const [{ resolveConnection }, { mapError }] = await Promise.all([import('../client/credentials'), import('../client/errors')]);
+    const { resolveConnection } = await import('../client/credentials');
     const { resolver, cache, env, now } = this.options;
     // Resolve the credentials first: a missing one fails before any network call, and redaction
     // knows the values even when the tool list comes from the cache (discovery.md, "缓存").
@@ -134,6 +133,8 @@ export class InProcessBackend implements Backend {
         await createCallProvider(server, this.options.oauthStore, { track: (value) => resolver.track?.(value), resolveCredential: (ref) => resolver.resolve(ref, server.origin), now }).requireLogin();
       }
     } catch (error) {
+      // The error module is big and only a failure needs it: a browse that resolves its credentials never loads it.
+      const { mapError } = await import('../client/errors');
       throw mapError(error, { server, phase: 'connect', timeoutMs, redact: (text) => createRedactor(resolver.resolvedValues())(text) });
     }
     if (!refresh) {
@@ -203,7 +204,7 @@ export class InProcessBackend implements Backend {
   }
 
   cursors(): CursorStore {
-    return new FileCursorStore(join(this.options.cacheDir, 'cursors'), { now: this.options.now });
+    return fileCursors(join(this.options.cacheDir, 'cursors'), this.options.now);
   }
 
   async redact(text: string): Promise<string> {
@@ -225,6 +226,19 @@ export class InProcessBackend implements Backend {
 }
 
 // Fallback ------------------------------------------------------------------------------
+
+/**
+ * The cursor files of `dir`, opened on first use. Only a tool call that truncates its output (or
+ * `via more`) touches them, so a browse never loads the file store and `fs/promises` behind it.
+ */
+export function fileCursors(dir: string, now?: () => number): CursorStore {
+  let opened: Promise<CursorStore> | undefined;
+  const open = (): Promise<CursorStore> => (opened ??= import('../render/cursor-file').then(({ FileCursorStore }) => new FileCursorStore(dir, now ? { now } : {})));
+  return {
+    put: async (record) => (await open()).put(record),
+    get: async (id) => (await open()).get(id),
+  };
+}
 
 /**
  * Daemon first; when the daemon cannot be used (it will not start, refuses the handshake, the

@@ -11,6 +11,7 @@
 //   --compare <dir> a second build (say, from the previous commit) to run next to --dist/dist in the
 //                   scenarios section, alternating runs so both see the same machine load
 //   --dist <dir>   measure this build instead of dist/ (relative to the repository root)
+//   --keep-sandbox leave the sandboxes (warm-catalog, and the framework and 1,000-tool scenarios: HOME, config, catalog cache; servers stopped) on disk and print their paths, for tracing a command by hand
 //   --plain-daemon start the section-5 daemon without the V8 and malloc settings of daemonRuntime (for a --dist build older than them)
 import { spawn, type SpawnOptions } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -487,8 +488,11 @@ async function benchScenarios(base: Sandbox): Promise<void> {
       if (sc.sb === base) await stopDaemon(base).catch(() => undefined);
     }
   } finally {
-    rmSync(framework.sb.root, { recursive: true, force: true });
-    rmSync(scale.sb.root, { recursive: true, force: true });
+    if (argv.includes('--keep-sandbox')) console.log(`sandboxes kept: framework ${framework.sb.root}, scale ${scale.sb.root}`);
+    else {
+      rmSync(framework.sb.root, { recursive: true, force: true });
+      rmSync(scale.sb.root, { recursive: true, force: true });
+    }
   }
   printTable(['scenario', 'command', 'build', 'median ms', 'p95 ms', 'min ms', 'node -e 0 (paired) ms', 'over node -e 0 ms', 'target (over node -e 0)'], rows);
   console.log(
@@ -1101,7 +1105,8 @@ async function main(): Promise<void> {
     console.log(`load average at the end (1 / 5 / 15 min): ${loadavg().map((x) => x.toFixed(2)).join(' / ')}`);
     console.log('reference rows without a target (no prebuilt cache, resident index, via github through the daemon, via <provider> over 1,000 tools) are in their sections. Timings are reported against the targets, never asserted.\n');
   } finally {
-    rmSync(sb.root, { recursive: true, force: true });
+    if (argv.includes('--keep-sandbox')) console.log(`sandbox kept: ${sb.root}`);
+    else rmSync(sb.root, { recursive: true, force: true });
   }
   process.exitCode = healthy ? 0 : 1;
 }

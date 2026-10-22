@@ -13,7 +13,7 @@
 // Anything else (a different file layout, a corrupt file, a snapshot that does not fit the raw list)
 // is a miss and the catalog is built as before. Nothing credential-bearing is stored: the file holds
 // names, parameter names, descriptions and search terms of the tool list, like the raw cache.
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { restoreProvider, snapshotProvider, type RestoredTerms, type SnapshotHead } from '../catalog/snapshot';
 import type { ProviderInput } from '../catalog/provider';
@@ -94,15 +94,19 @@ export class ViewCache {
     private readonly fingerprint: string,
   ) {}
 
-  private file(server: ServerConfig): string {
-    return join(this.dir, `${cacheKey(server)}.view.json`);
+  /**
+   * One file per server and provider name: the same server configured under two names (say, in two
+   * agent frameworks) must not overwrite each other's build on every run.
+   */
+  private file(server: ServerConfig, input: ProviderInput): string {
+    return join(this.dir, `${cacheKey(server)}.${stringHash(input.provider).slice(0, 8)}.view.json`);
   }
 
   /** Files already read in this run, so `peek` and `read` of one provider parse its file once. */
   private readonly loaded = new Map<string, { inputs: string; data: ViewFile | undefined }>();
 
   private load(server: ServerConfig, input: ProviderInput): ViewFile | undefined {
-    const file = this.file(server);
+    const file = this.file(server, input);
     const inputs = inputsHash(input);
     const known = this.loaded.get(file);
     if (known && known.inputs === inputs) return known.data;
@@ -157,7 +161,7 @@ export class ViewCache {
       } catch {
         // best effort (no-op on Windows)
       }
-      const file = this.file(server);
+      const file = this.file(server, input);
       const tmp = `${file}.${process.pid}.tmp`;
       const content: ViewFile = {
         v: VIEW_VERSION,
@@ -170,6 +174,8 @@ export class ViewCache {
       };
       writeFileSync(tmp, JSON.stringify(content), { mode: 0o600 });
       renameSync(tmp, file);
+      // The earlier file name (one per server, whichever provider wrote last): nothing reads it any more.
+      rmSync(join(this.dir, `${cacheKey(server)}.view.json`), { force: true });
       this.loaded.delete(file);
     } catch {
       // ignore
