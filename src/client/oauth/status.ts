@@ -78,3 +78,13 @@ export function summarizeLogin(status: LoginStatus, now: number): string {
       return status.expiresAt === undefined ? 'logged in' : `logged in, expires in ${formatDuration(status.expiresAt - now)}`;
   }
 }
+
+/**
+ * The state of a machine-grant (client credentials) server as one phrase: there is no login to be missing, a token
+ * is requested whenever none is usable.
+ */
+export function summarizeMachineLogin(status: LoginStatus, now: number): string {
+  if (status.state === 'logged-in') return status.expiresAt === undefined ? 'client credentials, token held' : `client credentials, token expires in ${formatDuration(status.expiresAt - now)}`;
+  if (status.state === 'not-logged-in') return 'client credentials, token requested on use';
+  return 'client credentials, token expired (requested again on use)';
+}

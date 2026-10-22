@@ -3,10 +3,9 @@
 // (showing the URL, opening a browser, reading a pasted URL) goes through `LoginIO`, so the flow
 // is the same for the terminal, for tests and for anything else that wants to log in.
 import { randomBytes } from 'node:crypto';
-import pkg from '../../../package.json';
-import { MODERN_PROTOCOL_VERSIONS } from '../../protocol-versions';
-import { LoginFailedError, oauthErrorCode } from './errors';
+import { AuthorizationServerChangedError, ClientCredentialsRejectedError, LoginFailedError, TokenRefreshError, oauthErrorCode } from './errors';
 import type { OpenResult } from './opener';
+import { probeChallenge } from './probe';
 import { ViaOAuthProvider } from './provider';
 import { CALLBACK_PORTS, CallbackPortsBusyError, callbackUrl, parseRedirect, startLoopback, type AuthorizationResponse, type Loopback } from './redirect';
 import type { OAuthRecord, OAuthStore, SetResult } from './store';
@@ -31,6 +30,12 @@ export interface LoginTarget {
   clientId?: string;
   /** Client ID Metadata Document URL (CIMD) to offer as `client_id`; absent: dynamic registration only. */
   clientMetadataUrl?: string;
+  /** `client_credentials`: the machine grant, no browser (auth.md, "OAuth client credentials"). */
+  grant?: 'client_credentials';
+  /** Credential references (unresolved) for a pre-registered secret or the machine grant. */
+  clientSecret?: string;
+  privateKey?: string;
+  keyAlgorithm?: string;
 }
 
 export interface LoginOptions {
@@ -43,6 +48,8 @@ export interface LoginOptions {
   io: LoginIO;
   /** Loopback ports to try, in order; default: the fixed range of the client metadata document. */
   callbackPorts?: readonly number[];
+  /** Resolves a credential reference (`clientSecret`, `privateKey`) to its value. */
+  credentials?: (ref: string) => Promise<string>;
   track?: (value: string) => void;
   now?: () => number;
   fetch?: FetchLike;
@@ -55,46 +62,10 @@ export interface LoginResult {
 
 const MANUAL_ATTEMPTS = 3;
 
-/** What an unauthenticated request to the server says about how to authorize (RFC 9728 / 6750). */
-async function probeChallenge(url: string, fetchFn: FetchLike | undefined): Promise<{ resourceMetadataUrl?: URL; scope?: string }> {
-  try {
-    const sdk = await import('@modelcontextprotocol/client');
-    const send = fetchFn ?? ((u, init) => fetch(u, init));
-    const clientInfo = { name: 'via', version: pkg.version };
-    // One request per protocol generation, newest first: a server answers either with the challenge
-    // (an unauthenticated request is refused before it is understood) or with "not for me", and the
-    // second try covers a server that only understands the other generation. The versions are the
-    // SDK's and via's own list (protocol-versions.ts), never a literal here.
-    const modern = MODERN_PROTOCOL_VERSIONS[0]!;
-    const probes: Array<{ headers: Record<string, string>; body: unknown }> = [
-      {
-        headers: { 'mcp-protocol-version': modern, 'mcp-method': 'server/discover' },
-        body: {
-          jsonrpc: '2.0',
-          id: 0,
-          method: 'server/discover',
-          params: { _meta: { [sdk.PROTOCOL_VERSION_META_KEY]: modern, [sdk.CLIENT_INFO_META_KEY]: clientInfo, [sdk.CLIENT_CAPABILITIES_META_KEY]: {} } },
-        },
-      },
-      {
-        headers: {},
-        body: { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: sdk.LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo } },
-      },
-    ];
-    for (const probe of probes) {
-      const response = await send(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...probe.headers },
-        body: JSON.stringify(probe.body),
-        signal: AbortSignal.timeout(10_000),
-      });
-      await response.body?.cancel().catch(() => undefined);
-      if (response.status === 401 || response.status === 403) return sdk.extractWWWAuthenticateParams(response);
-    }
-    return {};
-  } catch {
-    return {}; // discovery by well-known paths still works without it
-  }
+/** Text that came from a server, on one line and without control characters, for an error message. */
+function printable(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '?').slice(0, 200);
 }
 
 function describeOAuthError(error: Error): string {
@@ -105,6 +76,20 @@ function describeOAuthError(error: Error): string {
 /** Map what the SDK throws during login to a failure with an exit code. */
 function loginFailure(error: unknown, target: LoginTarget): LoginFailedError {
   if (error instanceof LoginFailedError) return error;
+  if (error instanceof AuthorizationServerChangedError) {
+    return new LoginFailedError(
+      `${target.provider}: its authorization server changed from ${printable(error.recorded)} to ${printable(error.current)}; the saved client credentials belong to the first and were not sent to the second`,
+      4,
+      `via auth logout ${target.provider}`,
+    );
+  }
+  if (error instanceof ClientCredentialsRejectedError) {
+    return new LoginFailedError(`${target.provider}: the authorization server refused the client credentials (${printable(error.code)})`, 4, `check auth.oauth of ${target.provider} in your via config`);
+  }
+  if (error instanceof TokenRefreshError) {
+    const text = error.message.split('\n')[0] ?? 'unknown error';
+    return new LoginFailedError(`${target.provider}: ${text}`, 6, 'via doctor');
+  }
   const message = error instanceof Error ? error.message : String(error);
   if (/dynamic client registration/i.test(message)) {
     return new LoginFailedError(
@@ -156,6 +141,7 @@ async function readManual(io: LoginIO, provider: string): Promise<AuthorizationR
  * stored unless the whole flow succeeds.
  */
 export async function performLogin(options: LoginOptions): Promise<LoginResult> {
+  if (options.target.grant === 'client_credentials') return performMachineLogin(options);
   const { target, io } = options;
   const sdk = await import('@modelcontextprotocol/client');
   const state = randomBytes(24).toString('base64url');
@@ -176,6 +162,8 @@ export async function performLogin(options: LoginOptions): Promise<LoginResult> 
     ...(target.scopes ? { scopes: target.scopes } : {}),
     ...(target.clientId ? { clientId: target.clientId } : {}),
     ...(target.clientMetadataUrl ? { clientMetadataUrl: target.clientMetadataUrl } : {}),
+    ...(target.clientSecret ? { clientSecret: target.clientSecret } : {}),
+    ...(options.credentials ? { resolveCredential: options.credentials } : {}),
     store: options.store,
     ...(options.track ? { track: options.track } : {}),
     ...(options.now ? { now: options.now } : {}),
@@ -190,6 +178,7 @@ export async function performLogin(options: LoginOptions): Promise<LoginResult> 
   });
 
   try {
+    await provider.loadPrior();
     const challenge = await probeChallenge(target.url, options.fetch);
     const configuredScope = target.scopes && target.scopes.length > 0 ? target.scopes.join(' ') : undefined;
     const scope = configuredScope ?? challenge.scope;
@@ -251,4 +240,35 @@ export async function performLogin(options: LoginOptions): Promise<LoginResult> 
   } finally {
     await loopback?.close();
   }
+}
+
+/**
+ * The machine grant (extension `io.modelcontextprotocol/oauth-client-credentials`): no browser, no listener. One token
+ * request validates the credentials against the authorization server found through the protected resource metadata,
+ * and the result is stored together with that server's identity, which the credentials are bound to from now on.
+ */
+async function performMachineLogin(options: LoginOptions): Promise<LoginResult> {
+  const { target } = options;
+  const provider = new ViaOAuthProvider({
+    serverUrl: target.url,
+    ...(target.scopes ? { scopes: target.scopes } : {}),
+    ...(target.clientId ? { clientId: target.clientId } : {}),
+    grant: 'client_credentials',
+    ...(target.clientSecret ? { clientSecret: target.clientSecret } : {}),
+    ...(target.privateKey ? { privateKey: target.privateKey } : {}),
+    ...(target.keyAlgorithm ? { keyAlgorithm: target.keyAlgorithm } : {}),
+    ...(options.credentials ? { resolveCredential: options.credentials } : {}),
+    store: options.store,
+    ...(options.track ? { track: options.track } : {}),
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+  });
+  try {
+    await provider.acquire(await provider.load(true), { strict: true, fresh: true });
+  } catch (error) {
+    throw loginFailure(error, target);
+  }
+  const record = await provider.load(true);
+  if (!record?.tokens || !provider.lastSet) throw new LoginFailedError(`${target.provider}: the login was not saved`, 6, 'via doctor');
+  return { record, set: provider.lastSet };
 }

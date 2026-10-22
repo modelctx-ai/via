@@ -14,6 +14,7 @@ function credentialRefs(server: ServerConfig): string[] {
   const refs: string[] = Object.values(transport.type === 'stdio' ? transport.env : transport.headers);
   if (auth.type === 'bearer') refs.push(auth.bearer);
   if (auth.type === 'headers') refs.push(...Object.values(auth.headers));
+  if (auth.type === 'oauth') refs.push(...[auth.clientSecret, auth.privateKey].filter((ref): ref is string => ref !== undefined));
   return refs;
 }
 
@@ -56,7 +57,14 @@ export function effectiveServer(server: ServerConfig, cwd: string, home: string 
       transport.type === 'stdio'
         ? { ...transport, env: map(transport.env), cwd: transport.cwd === undefined ? cwd : resolve(cwd, transport.cwd) }
         : { ...transport, headers: map(transport.headers) },
-    auth: auth.type === 'bearer' ? { ...auth, bearer: absolute(auth.bearer) } : auth.type === 'headers' ? { ...auth, headers: map(auth.headers) } : auth,
+    auth:
+      auth.type === 'bearer'
+        ? { ...auth, bearer: absolute(auth.bearer) }
+        : auth.type === 'headers'
+          ? { ...auth, headers: map(auth.headers) }
+          : auth.type === 'oauth'
+            ? { ...auth, ...(auth.clientSecret !== undefined ? { clientSecret: absolute(auth.clientSecret) } : {}), ...(auth.privateKey !== undefined ? { privateKey: absolute(auth.privateKey) } : {}) }
+            : auth,
   };
   if (server.roots !== undefined && server.roots.length > 0) next.roots = server.roots.map((entry) => rootUri(entry, { cwd, home }));
   return next;

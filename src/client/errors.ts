@@ -152,6 +152,21 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
       next: loginNext,
     });
   }
+  if (err instanceof Error && err.name === 'AuthorizationServerChangedError') {
+    const { recorded, current } = err as Error & { recorded: string; current: string };
+    return new ClientError({
+      exitCode: ExitCode.Auth,
+      message: `${provider}: its authorization server changed from ${clean(recorded, ctx)} to ${clean(current, ctx)}; the saved client credentials belong to the first and were not sent to the second`,
+      next: `via auth logout ${provider}`,
+    });
+  }
+  if (err instanceof Error && err.name === 'ClientCredentialsRejectedError') {
+    return new ClientError({
+      exitCode: ExitCode.Auth,
+      message: `${provider}: the authorization server refused the client credentials (${clean((err as Error & { code: string }).code, ctx)})`,
+      next: `check auth.oauth of ${provider} in your via config`,
+    });
+  }
   if (err instanceof Error && err.name === 'TokenRefreshError') {
     return new ClientError({ exitCode: ExitCode.Upstream, message: `${provider}: ${clean(err.message, ctx)}`, next: 'via doctor' }, true);
   }

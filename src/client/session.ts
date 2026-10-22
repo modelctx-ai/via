@@ -585,6 +585,7 @@ export class McpSession {
       const track = (value: string): void => this.resolver.track?.(value);
       this.oauth = createCallProvider(this.server, this.options.oauthStore ?? createOAuthStore(), {
         track,
+        resolveCredential: (ref) => this.resolver.resolve(ref, this.server.origin),
         ...(this.proxied() ? { fetch: this.proxied()! } : {}),
         ...(this.options.now ? { now: this.options.now } : {}),
         onSaveFailed: (reason) => {

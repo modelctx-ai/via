@@ -39,6 +39,14 @@ export interface OAuthRecord {
   version: 1;
   /** The MCP endpoint this login is for. */
   serverUrl: string;
+  /**
+   * The authorization server (its issuer identifier) this record's client registration, refresh token and
+   * validated credentials belong to. They are sent there and nowhere else (auth.md, "绑定授权服务器").
+   * Absent in records written before binding existed; the next save adds it.
+   */
+  issuer?: string;
+  /** `client_credentials` for the machine grant; absent for the authorization code flow. */
+  grant?: 'client_credentials';
   /** The client registered with the authorization server (dynamic registration), if any. */
   clientInformation?: OAuthClientInformationMixed;
   /** Absent once a refresh was rejected: the login is gone, the client registration stays. */
@@ -82,12 +90,14 @@ export interface OAuthIdentity {
   url: string;
   clientId?: string;
   scopes?: readonly string[];
+  /** The machine grant keeps its own record: same endpoint and client id, different login. */
+  grant?: 'client_credentials';
 }
 
 /**
  * Storage key of a server: a hash of the definition that decides which login is valid (endpoint,
- * client id, scopes). Two names for the same definition share one login; changing any of the three
- * means logging in again.
+ * client id, scopes, and the grant when it is not the authorization code flow). Two names for the same definition
+ * share one login; changing any of them means logging in again.
  */
 export function oauthKey(identity: OAuthIdentity): string {
   let url = identity.url;
@@ -96,7 +106,8 @@ export function oauthKey(identity: OAuthIdentity): string {
   } catch {
     // keep the text as written
   }
-  const material = JSON.stringify([url, identity.clientId ?? null, [...(identity.scopes ?? [])].sort()]);
+  // The grant is only added for the machine grant, so the keys of existing logins do not change.
+  const material = JSON.stringify([url, identity.clientId ?? null, [...(identity.scopes ?? [])].sort(), ...(identity.grant ? [identity.grant] : [])]);
   return `oauth:${createHash('sha256').update(material).digest('hex').slice(0, 32)}`;
 }
 

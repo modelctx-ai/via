@@ -445,6 +445,18 @@ describe('sessions', () => {
   });
 });
 
+describe('OAuth credential references across the socket', () => {
+  it('the client secret and private key follow the caller: relative file: paths become absolute, env: variables go into the stamp', () => {
+    const server = httpServer('http://x/mcp', { auth: { type: 'oauth', grant: 'client_credentials', clientId: 'c', clientSecret: 'env:CI_SECRET', privateKey: 'file:keys/ci.pem', keyAlgorithm: 'ES256' } });
+    const work = resolve('/work/project');
+    expect(effectiveServer(server, work).auth).toMatchObject({ clientSecret: 'env:CI_SECRET', privateKey: `file:${join(work, 'keys/ci.pem')}`, keyAlgorithm: 'ES256' });
+    const a = envStamp(server, { CI_SECRET: 'secret-value-one' });
+    expect(a).not.toBe('');
+    expect(a).not.toContain('secret-value-one');
+    expect(a).not.toBe(envStamp(server, { CI_SECRET: 'secret-value-two' }));
+  });
+});
+
 describe('env stamp', () => {
   it('differs when a referenced variable differs and never contains the value', () => {
     const server = httpServer('http://x/mcp', { auth: { type: 'bearer', bearer: 'env:TOKEN' } });

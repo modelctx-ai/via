@@ -172,11 +172,48 @@ function auth(r: Reporter, path: string, v: unknown, server?: string): AuthConfi
               else r.invalid(field, 'https URL with a path (no credentials, no fragment), or false', server);
             }
           }
+        } else if (k === 'grant') {
+          if (val === 'client_credentials') result.grant = 'client_credentials';
+          else if (val !== 'authorization_code') r.invalid(`${path}.oauth.grant`, '"authorization_code" or "client_credentials"', server);
+        } else if (k === 'clientSecret' || k === 'privateKey') {
+          const ref = str(r, `${path}.oauth.${k}`, val, server);
+          if (ref === undefined) continue;
+          if (parseCredentialRef(ref).kind === 'literal') {
+            r.add('warning', 'plaintext-credential', `${path}.oauth.${k}`, 'is a literal value; use env:, file: or keychain:', server);
+          }
+          result[k] = ref;
+        } else if (k === 'keyAlgorithm') {
+          if (typeof val === 'string' && KEY_ALGORITHMS.includes(val)) result.keyAlgorithm = val;
+          else r.invalid(`${path}.oauth.keyAlgorithm`, `one of ${KEY_ALGORITHMS.join(', ')}`, server);
         } else r.add('warning', 'unknown-field', `${path}.oauth.${k}`, 'unknown field', server);
       }
-      return result;
+      return oauthShape(r, `${path}.oauth`, result, server);
     }
   }
+}
+
+/** JWS algorithms for the client assertion that the SDK can sign with a PEM key. */
+const KEY_ALGORITHMS = ['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512'];
+
+/**
+ * Cross-field rules of `auth.oauth` (auth.md, "OAuth client credentials"): the client-credentials grant needs a
+ * client id and exactly one way to authenticate; a secret belongs to a client id; a key only to that grant.
+ * Returns undefined (and reports) when the combination cannot work.
+ */
+function oauthShape(r: Reporter, path: string, oauth: AuthConfig & { type: 'oauth' }, server: string | undefined): AuthConfig | undefined {
+  let problem: [field: string, expected: string] | undefined;
+  if (oauth.grant === 'client_credentials') {
+    if (oauth.clientId === undefined) problem = ['clientId', 'a client id (required with grant: client_credentials)'];
+    else if ((oauth.clientSecret === undefined) === (oauth.privateKey === undefined)) problem = ['', 'exactly one of clientSecret and privateKey with grant: client_credentials'];
+  } else if (oauth.privateKey !== undefined) {
+    problem = ['privateKey', 'grant: client_credentials (a private key signs the client assertion of that grant only)'];
+  } else if (oauth.clientSecret !== undefined && oauth.clientId === undefined) {
+    problem = ['clientSecret', 'a clientId next to it'];
+  }
+  if (!problem && oauth.keyAlgorithm !== undefined && oauth.privateKey === undefined) problem = ['keyAlgorithm', 'a privateKey next to it'];
+  if (!problem) return oauth;
+  r.invalid(problem[0] === '' ? path : `${path}.${problem[0]}`, problem[1], server);
+  return undefined;
 }
 
 /** A CIMD `client_id` (draft-ietf-oauth-client-id-metadata-document): https, a path, no userinfo, no fragment. */

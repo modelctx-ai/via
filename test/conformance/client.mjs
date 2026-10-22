@@ -40,6 +40,18 @@ mkdirSync(join(home, '.config', 'via'), { recursive: true });
 const oauthFields = [];
 if (context.client_id) oauthFields.push(`clientId: ${JSON.stringify(context.client_id)}`);
 if (scenario === 'auth/basic-cimd') oauthFields.push('clientMetadataUrl: "https://conformance-test.local/client-metadata.json"');
+// Secrets reach via the way a person would hand them over, as `env:` references (never in the config file).
+const secrets = {};
+const machine = scenario.startsWith('auth/client-credentials-');
+if (machine) oauthFields.push('grant: client_credentials');
+if (context.client_secret) {
+  oauthFields.push('clientSecret: "env:VIA_CONF_CLIENT_SECRET"');
+  secrets.VIA_CONF_CLIENT_SECRET = context.client_secret;
+}
+if (context.private_key_pem) {
+  oauthFields.push('privateKey: "env:VIA_CONF_PRIVATE_KEY"', `keyAlgorithm: ${JSON.stringify(context.signing_algorithm ?? 'RS256')}`);
+  secrets.VIA_CONF_PRIVATE_KEY = context.private_key_pem;
+}
 const auth = oauth ? `    auth: { oauth: { ${oauthFields.join(', ')} } }\n` : '';
 writeFileSync(join(home, '.config', 'via', 'config.yaml'), `sources: false\nservers:\n  conf:\n    url: ${serverUrl}\n    timeout: 30\n${auth}`);
 const env = {
@@ -50,6 +62,7 @@ const env = {
   XDG_DATA_HOME: join(home, 'data'),
   VIA_NO_DAEMON: '1',
   VIA_OAUTH_STORE: 'file',
+  ...secrets,
 };
 
 /** Run the CLI; resolves with its exit code, output goes to the suite's log. */
@@ -114,6 +127,12 @@ try {
       await runVia(['conf', 'test_reconnection', '--timeout', '20']);
       break;
     default:
+      if (machine) {
+        // The machine grant: no browser, no redirect; `login` makes the token request and `conf` uses the token.
+        await expectOk(['auth', 'login', 'conf']);
+        await expectOk(['conf']);
+        break;
+      }
       if (oauth) {
         // Authorization scenarios: log in (discovery, registration, PKCE), then use the token.
         await login();

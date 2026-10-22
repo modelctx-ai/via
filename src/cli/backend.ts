@@ -128,7 +128,7 @@ export class InProcessBackend implements Backend {
       if (server.auth.type === 'oauth' && this.options.oauthStore) {
         // A saved login must exist (no network); its tokens join the redaction list.
         const { createCallProvider } = await import('../client/oauth');
-        await createCallProvider(server, this.options.oauthStore, { track: (value) => resolver.track?.(value), now }).requireLogin();
+        await createCallProvider(server, this.options.oauthStore, { track: (value) => resolver.track?.(value), resolveCredential: (ref) => resolver.resolve(ref, server.origin), now }).requireLogin();
       }
     } catch (error) {
       throw mapError(error, { server, phase: 'connect', timeoutMs, redact: (text) => createRedactor(resolver.resolvedValues())(text) });

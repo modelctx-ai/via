@@ -87,7 +87,8 @@ flowchart LR
 | d5 拆分规则与截断预算 | 部分实现 | `npm run split-stats` 与 [0.4-split](../bench/results/0.4-split.md)；动词表新增 7 个通用动词，`deny` 同时匹配叶子写法；截断预算等 d1 的评测 |
 | d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
 | e1 SDK v2、e2 2026-07-28 无状态协议、e3 协议版本可见与固定、e8 一致性测试 | 已实现，未发布 | `@modelcontextprotocol/client` 2.3.1；`server/discover` 探测并自动回退（[ADR 0017](adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](spec/daemon.md)）；`protocolVersion` 配置字段；CI 新增 `conformance` 与 `stateless` 任务，预期失败的场景列在 `test/conformance/expected-failures.yml` |
-| e4–e7、e9 | 计划中（0.4），必须做 | 见 [MCP 协议对齐](#mcp-协议对齐) |
+| e4–e6、e9 | 计划中（0.4），必须做 | 见 [MCP 协议对齐](#mcp-协议对齐) |
+| e7 授权规范对齐 | 已实现，未发布 | CIMD（`https://modelctx-ai.github.io/via/client-metadata.json`，需维护者在仓库设置里启用 Pages）、固定回调端口 29842–29851、预注册客户端的 secret、client credentials（secret 与私钥断言）、绑定授权服务器；企业托管授权（ID-JAG）有意不做；后续：配置里钉住授权服务器（[ADR 0020](adr/0020-oauth-client-identity-and-credentials.md)、[auth.md](spec/auth.md)） |
 | f1 schema 快照校验 | 已实现，未发布 | `--schema-snapshot <文件>`、`--schema-mode compatible\|strict`（[arguments.md](spec/arguments.md#schema-快照校验)） |
 | f2 出站代理 | 已实现，未发布 | MCP HTTP、OAuth 与 embedding 请求遵守 `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`，`via doctor` 显示生效的代理（[config.md](spec/config.md)、[security.md](spec/security.md)） |
 | f3 | 计划中（0.4） | 见[借鉴与补齐](#借鉴与补齐) |
@@ -134,7 +135,7 @@ via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-1
 | e4 tasks | `2025-11-25` 核心协议里的 tasks 与 `2026-07-28` 的 `io.modelcontextprotocol/tasks` 扩展。默认跟随到结果（受 `--timeout` 约束，超时时给出任务 ID 和续取命令）；`--detach` 立即返回任务 ID；另需查看、取结果、取消任务的命令。新扩展没有 server 端的任务列表，via 只能列出自己创建的任务。命令形态和保留字要先写一篇 ADR（[待定问题](open-questions.md)） | [cli.md](spec/cli.md)、[output.md](spec/output.md)、[daemon.md](spec/daemon.md)、新 ADR |
 | e5 elicitation | server 在调用中途向用户要输入（表单模式与 URL 模式）。终端里交互填写；非交互（agent 经 shell、`via serve`、`via batch`）时拒绝，退出码与 `next:` 提示按 [output.md](spec/output.md)，说明需要用户在终端运行；URL 模式只打开 `http(s)`，规则与 OAuth 回调相同。sampling 不声明：via 不调用模型（[ADR 0011](adr/0011-find-synonym-expansion-and-optional-embeddings.md) 的原则） | [output.md](spec/output.md)、[security.md](spec/security.md)、新 ADR |
 | e6 MCP Skills 扩展 | `skills/list`、`skills/get` 与技能的附属文件，输出前按 server 发布的清单校验大小和摘要，不符的拒绝显示。与 resources、prompts 一样不进工具语法，命令形态与 e4 一起定 | [cli.md](spec/cli.md)、[ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) 的补充或新 ADR |
-| e7 授权规范对齐 | CIMD（Client ID Metadata Document，`2025-11-25` 授权规范推荐的客户端注册方式）：托管一份 https 的客户端元数据文档，回调从随机端口改为固定的回环端口范围（文档里要列出回调地址），授权服务器不支持时退回动态注册；OAuth client credentials 扩展（无浏览器，用于 CI 与 headless）；保存的客户端凭证绑定到验证时的授权服务器，换了授权服务器的 server 拿不到它。企业托管授权（ID-JAG）排在最后，有需求再做。文档托管位置见[待定问题](open-questions.md) | [auth.md](spec/auth.md)、[security.md](spec/security.md) |
+| e7 授权规范对齐 | CIMD（Client ID Metadata Document，`2025-11-25` 授权规范推荐的客户端注册方式）：托管一份 https 的客户端元数据文档，回调从随机端口改为固定的回环端口范围（文档里要列出回调地址），授权服务器不支持时退回动态注册；OAuth client credentials 扩展（无浏览器，用于 CI 与 headless）；保存的客户端凭证绑定到验证时的授权服务器，换了授权服务器的 server 拿不到它。企业托管授权（ID-JAG）排在最后，有需求再做（现状：不实现）。决定与取舍见 [ADR 0020](adr/0020-oauth-client-identity-and-credentials.md) | [auth.md](spec/auth.md)、[security.md](spec/security.md) |
 | e8 一致性测试 | 把官方 `@modelcontextprotocol/conformance` 的 client 场景接进 CI；回放 server 增加 `2026-07-28` 模式，e2e 测试对新旧两代 server 各跑一遍 | [testing.md](development/testing.md) |
 | e9 completion 与 server 自述字段 | `completion/complete` 用于 prompt 参数和资源模板参数的取值提示；`serverInfo` 的 `description`、`websiteUrl` 和 `initialize` 的 `instructions` 是否进入 provider 视图或 `find` 的检索，要在 token 预算内权衡（[待定问题](open-questions.md)） | [discovery.md](spec/discovery.md)、[output.md](spec/output.md) |
 

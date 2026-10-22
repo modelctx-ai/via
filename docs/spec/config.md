@@ -102,7 +102,7 @@ search:
 | --- | --- | --- |
 | `command`、`args`、`env`、`cwd` | stdio | 进程启动参数；`env` 的值可以是凭证引用 |
 | `url`、`headers` | HTTP | Streamable HTTP 端点；`headers` 的值可以是凭证引用 |
-| `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md)；`oauth` 只适用于 HTTP，可写成 `{ oauth: { scopes: [...], clientId: …, clientMetadataUrl: … } }` |
+| `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md)；`oauth` 只适用于 HTTP，可写成 `{ oauth: { scopes: […], clientId: …, clientSecret: …, clientMetadataUrl: … } }`，机器对机器的 `grant: client_credentials` 另见 [auth.md](auth.md#oauth-client-credentials) |
 | `alias` | 全部 | provider 名；默认取 server 名 |
 | `rename` | 全部 | 单个工具的规范写法覆盖，如 `{ list_my_issues: "issue:list-mine" }` |
 | `disabled` | 全部 | `true` 时对 via 隐藏这个 server（不影响框架） |
@@ -207,8 +207,8 @@ via 自己的 `config.yaml` 每条命令都要读，而加载 YAML 库并解析�
 | `keychain:service/account` | 读取系统钥匙串（macOS Keychain、Linux Secret Service、Windows Credential Manager） |
 | `cmd:op read op://dev/exa/key` | 执行命令，取去掉首尾空白的 stdout；只允许出现在用户配置中，详见下文 |
 
-- 凭证引用可以出现在 `env`、`headers` 的值以及 `auth.bearer` 中。
-- 不以上述前缀开头的值视为字面量；出现在用户或项目配置中的字面量凭证，`via doctor` 告警。`auth.bearer`、`auth.headers` 中的字面量在加载时就告警。
+- 凭证引用可以出现在 `env`、`headers` 的值以及 `auth.bearer`、`auth.headers`、`auth.oauth.clientSecret`、`auth.oauth.privateKey` 中。
+- 不以上述前缀开头的值视为字面量；出现在用户或项目配置中的字面量凭证，`via doctor` 告警。`auth.bearer`、`auth.headers`、`auth.oauth.clientSecret`、`auth.oauth.privateKey` 中的字面量在加载时就告警。
 - `env:` 的变量未设置或为空、`file:` 的文件不存在或为空、`keychain:` 无此条目，都是凭证缺失（退出码 4），错误信息只说明缺哪一项，不含任何解析出的值。`file:` 的相对路径相对于当前目录。
 - 钥匙串模块是原生库，首次用到 `keychain:` 时才加载。加载失败（该平台没有预编译模块、单文件可执行里被替换成了不可用的文件、没有 Secret Service 的 Linux 服务器）与钥匙串本身读不出来一样，是凭证缺失（退出码 4）：`error: cannot read the system keychain: <原因>`，`next:` 提示改用 `env:` 或 `file:`。单文件可执行版本内嵌的是自己那个平台的模块；`NAPI_RS_NATIVE_LIBRARY_PATH` 指向某个 `.node` 文件时改为加载它（napi-rs 的通用约定）。OAuth 的存储在这种情况下退回文件（[auth.md](auth.md#存储)）。
 - `cmd:` 出现在项目配置或项目级、框架级配置里时，加载阶段就拒绝：该 server 的定义整条被忽略并报错（`cmd-forbidden`，[security.md](security.md#项目级配置的信任)）。`via trust` 不能放行 `cmd:`。

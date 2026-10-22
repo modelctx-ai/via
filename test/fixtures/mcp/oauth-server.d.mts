@@ -14,12 +14,22 @@ export interface OAuthServerOptions {
   idToken?: boolean;
   /** Issue refresh tokens at all (default true). */
   refreshTokens?: boolean;
+  /** Client metadata document URL -> the document it serves; the server advertises `client_id_metadata_document_supported`. */
+  cimd?: Record<string, object>;
+  /** The client-credentials grant for one client: a secret (basic or post) or a public key (`private_key_jwt`, verified with jose). */
+  machine?: { clientId: string; clientSecret?: string; publicKey?: unknown };
+  /** A confidential client for the authorization code flow: any loopback redirect URI, the secret required at the token endpoint. */
+  preRegistered?: { clientId: string; clientSecret: string };
 }
 
 export interface OAuthServerState {
   registrations: Array<Record<string, unknown> & { client_id: string; redirect_uris: string[] }>;
   authorizeRequests: Array<Record<string, string>>;
   tokenRequests: Array<Record<string, string>>;
+  /** One entry per token request: grant, client id as presented, and how the client authenticated. */
+  tokenAuth: Array<{ grantType: string | null; clientId: string; method: 'basic' | 'post' | 'jwt' | 'none' }>;
+  /** When set, the protected resource metadata names these authorization servers instead of the server's own. */
+  authorizationServers: string[] | undefined;
   revocations: Array<Record<string, string>>;
   mcp: Array<{ valid: boolean; authorization: string }>;
   cli: CliState;

@@ -16,9 +16,35 @@ export class LoginRequiredError extends Error {
 
 /** Refreshing failed for a reason that does not invalidate the login: network, server error (exit 6). */
 export class TokenRefreshError extends Error {
-  constructor(detail: string) {
-    super(`could not refresh the saved login: ${detail}`);
+  constructor(detail: string, what = 'refresh the saved login') {
+    super(`could not ${what}: ${detail}`);
     this.name = 'TokenRefreshError';
+  }
+}
+
+/**
+ * The server now points at another authorization server than the one the saved login (client registration,
+ * refresh token, validated client credentials) belongs to. Nothing was sent to the new one (exit 4, auth.md,
+ * "绑定授权服务器").
+ */
+export class AuthorizationServerChangedError extends Error {
+  constructor(
+    readonly recorded: string,
+    readonly current: string,
+  ) {
+    super('the authorization server changed');
+    this.name = 'AuthorizationServerChangedError';
+  }
+}
+
+/** The authorization server refused the client credentials (client secret or key assertion) of the machine grant (exit 4). */
+export class ClientCredentialsRejectedError extends Error {
+  constructor(
+    /** The OAuth error code (`invalid_client`, `unauthorized_client`, `invalid_scope`, …). */
+    readonly code: string,
+  ) {
+    super(`the authorization server refused the client credentials (${code})`);
+    this.name = 'ClientCredentialsRejectedError';
   }
 }
 

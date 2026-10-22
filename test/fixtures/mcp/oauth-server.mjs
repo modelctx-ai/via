@@ -37,15 +37,22 @@ function listen(server) {
  *   scopes?: string[], idToken?: boolean, refreshTokens?: boolean, cimd?: Record<string, object>
  * }} [options]
  *
+ * `machine` enables the client-credentials grant for one client: `{ clientId, clientSecret }` (client_secret_basic or
+ * client_secret_post) and/or `{ clientId, publicKey }` (private_key_jwt: the assertion is verified with `jose`).
+ * `preRegistered` is a confidential client for the authorization code flow: `{ clientId, clientSecret }`, any loopback
+ * redirect URI, the secret required at the token endpoint (Basic or in the body).
+ * `state.authorizationServers` replaces the authorization servers the protected resource metadata names.
+ *
  * `cimd` maps a client metadata document URL to the document it serves: the server advertises
  * `client_id_metadata_document_supported` and accepts these URLs as `client_id` (without fetching them),
  * checking the redirect URI against the document's `redirect_uris`.
  */
 export async function startOAuthServer(options = {}) {
-  const { accessTokenTtl = 3600, dcr = true, revocation = true, rotateRefresh = true, scopes = ['read', 'write'], idToken = false, refreshTokens = true, cimd } = options;
+  const { accessTokenTtl = 3600, dcr = true, revocation = true, rotateRefresh = true, scopes = ['read', 'write'], idToken = false, refreshTokens = true, cimd, machine, preRegistered } = options;
   const lookupClient = (id) => clients.get(id) ?? (cimd && Object.hasOwn(cimd, id) ? cimd[id] : undefined);
 
   const clients = new Map(); // client_id -> registered metadata
+  if (preRegistered) clients.set(preRegistered.clientId, { client_id: preRegistered.clientId, client_secret: preRegistered.clientSecret, redirect_uris: [], anyLoopback: true });
   const codes = new Map(); // code -> grant
   const accessTokens = new Map(); // access token -> { expiresAt, scope, clientId }
   const refreshGrants = new Map(); // refresh token -> { clientId, scope, active }
@@ -54,10 +61,14 @@ export async function startOAuthServer(options = {}) {
     registrations: [],
     authorizeRequests: [],
     tokenRequests: [],
+    /** One entry per token request: grant, client id as presented, and how the client authenticated (basic, post, jwt, none). */
+    tokenAuth: [],
     revocations: [],
     /** One entry per request that reached the MCP endpoint: whether it carried a valid token. */
     mcp: [],
     cli: createCliState(),
+    /** When set, the protected resource metadata names these authorization servers instead of this one. */
+    authorizationServers: undefined,
     /** Deny the next authorization (answers with `error=access_denied`). */
     denyNext: false,
     /** When set, the token endpoint answers every request with this HTTP status. */
@@ -84,9 +95,10 @@ export async function startOAuthServer(options = {}) {
           ...(dcr ? { registration_endpoint: `${asOrigin}/register` } : {}),
           ...(revocation ? { revocation_endpoint: `${asOrigin}/revoke` } : {}),
           response_types_supported: ['code'],
-          grant_types_supported: ['authorization_code', 'refresh_token'],
+          grant_types_supported: [...(machine ? ['client_credentials'] : []), 'authorization_code', 'refresh_token'],
           code_challenge_methods_supported: ['S256'],
-          token_endpoint_auth_methods_supported: ['none'],
+          token_endpoint_auth_methods_supported: machine || preRegistered ? ['none', 'client_secret_basic', 'client_secret_post', ...(machine?.publicKey ? ['private_key_jwt'] : [])] : ['none'],
+          ...(machine?.publicKey ? { token_endpoint_auth_signing_alg_values_supported: ['ES256'] } : {}),
           scopes_supported: scopes,
         });
       }
@@ -109,7 +121,8 @@ export async function startOAuthServer(options = {}) {
         state.authorizeRequests.push(Object.fromEntries(q));
         const client = lookupClient(q.get('client_id') ?? '');
         const redirect = q.get('redirect_uri');
-        if (!client || !redirect || !client.redirect_uris.includes(redirect)) {
+        const loopback = client?.anyLoopback && /^http:\/\/127\.0\.0\.1:\d+\//.test(redirect ?? '');
+        if (!client || !redirect || !(loopback || client.redirect_uris.includes(redirect))) {
           return json(res, 400, { error: 'invalid_request', error_description: 'unknown client or redirect_uri' });
         }
         const target = new URL(redirect);
@@ -140,8 +153,41 @@ export async function startOAuthServer(options = {}) {
         state.tokenRequests.push(Object.fromEntries(form));
         if (state.tokenFailure) return json(res, state.tokenFailure, { error: 'server_error' });
         const grantType = form.get('grant_type');
-        const clientId = form.get('client_id') ?? '';
+        let clientId = form.get('client_id') ?? '';
+        const basic = /^Basic (.+)$/.exec(req.headers.authorization ?? '');
+        let presentedSecret = form.get('client_secret') ?? undefined;
+        if (basic) {
+          const [id, secret] = Buffer.from(basic[1], 'base64').toString('utf8').split(':').map(decodeURIComponent);
+          clientId = id ?? clientId;
+          presentedSecret = secret;
+        }
+        state.tokenAuth.push({ grantType, clientId, method: basic ? 'basic' : presentedSecret !== undefined ? 'post' : form.get('client_assertion') ? 'jwt' : 'none' });
+
+        if (grantType === 'client_credentials') {
+          const invalid = (why) => json(res, 401, { error: 'invalid_client', error_description: why });
+          if (!machine) return json(res, 400, { error: 'unsupported_grant_type' });
+          const assertion = form.get('client_assertion');
+          if (assertion) {
+            if (!machine.publicKey) return invalid('assertions are not accepted');
+            try {
+              const { jwtVerify } = await import('jose');
+              const { payload } = await jwtVerify(assertion, machine.publicKey, { audience: [asOrigin, `${asOrigin}/`, `${asOrigin}/token`] });
+              if (payload.iss !== machine.clientId || payload.sub !== machine.clientId) return invalid('wrong iss or sub');
+            } catch (error) {
+              return invalid(`assertion rejected: ${error.message}`);
+            }
+          } else if (clientId !== machine.clientId || machine.clientSecret === undefined || presentedSecret !== machine.clientSecret) {
+            return invalid('unknown client or wrong secret');
+          }
+          const access = token('cc');
+          const granted = form.get('scope') ?? scopes.join(' ');
+          accessTokens.set(access, { expiresAt: Date.now() + accessTokenTtl * 1000, scope: granted, clientId });
+          return json(res, 200, { access_token: access, token_type: 'Bearer', expires_in: accessTokenTtl, scope: granted });
+        }
+
         if (!lookupClient(clientId)) return json(res, 401, { error: 'invalid_client' });
+        const known = clients.get(clientId);
+        if (known?.client_secret !== undefined && presentedSecret !== known.client_secret) return json(res, 401, { error: 'invalid_client', error_description: 'wrong secret' });
 
         let scope;
         if (grantType === 'authorization_code') {
@@ -205,7 +251,7 @@ export async function startOAuthServer(options = {}) {
     void (async () => {
       const url = new URL(req.url ?? '/', resourceOrigin || 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname.startsWith('/.well-known/oauth-protected-resource')) {
-        return json(res, 200, { resource: `${resourceOrigin}${mcpPath}`, authorization_servers: [asOrigin], scopes_supported: scopes });
+        return json(res, 200, { resource: `${resourceOrigin}${mcpPath}`, authorization_servers: state.authorizationServers ?? [asOrigin], scopes_supported: scopes });
       }
       if (url.pathname !== mcpPath) {
         res.writeHead(404).end();

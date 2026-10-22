@@ -241,6 +241,19 @@ describe('cmd: references', () => {
     ]);
   });
 
+  it('are rejected in the client secret and private key of auth.oauth, too', async () => {
+    const tree = makeTree({
+      'project/.via.yaml':
+        'servers:\n  a:\n    url: https://a.invalid\n    auth: { oauth: { grant: client_credentials, clientId: c, clientSecret: "cmd:op read op://v/i/f" } }\n  b:\n    url: https://b.invalid\n    auth: { oauth: { grant: client_credentials, clientId: c, privateKey: "cmd:op read op://v/i/k" } }\n',
+    });
+    const config = await tree.load();
+    expect(config.servers).toEqual([]);
+    expect(config.diagnostics.filter((d) => d.code === 'cmd-forbidden').map((d) => d.message)).toEqual([
+      'servers.a.auth.oauth.clientSecret: cmd: credential references are only allowed in the user config; this server definition was ignored',
+      'servers.b.auth.oauth.privateKey: cmd: credential references are only allowed in the user config; this server definition was ignored',
+    ]);
+  });
+
   it('are rejected in project-scoped framework configs', async () => {
     const tree = makeTree({
       'project/.mcp.json': JSON.stringify({ mcpServers: { a: { command: 'x', env: { K: 'cmd:echo hi' } } } }),

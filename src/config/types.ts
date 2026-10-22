@@ -28,6 +28,17 @@ export type AuthConfig =
       clientId?: string;
       /** Client ID Metadata Document URL used as `client_id` where supported; `false` turns CIMD off (auth.md). */
       clientMetadataUrl?: string | false;
+      /**
+       * `client_credentials`: the machine-to-machine grant (extension `io.modelcontextprotocol/oauth-client-credentials`),
+       * no browser. Needs `clientId` and exactly one of `clientSecret` and `privateKey`. Default: the authorization code flow.
+       */
+      grant?: "client_credentials";
+      /** Credential reference to the client secret: a pre-registered confidential client, or the client-credentials secret. */
+      clientSecret?: CredentialRef;
+      /** Credential reference to the PEM private key that signs the client assertion (`private_key_jwt`, client credentials only). */
+      privateKey?: CredentialRef;
+      /** JWS algorithm of the assertion; default `RS256`. */
+      keyAlgorithm?: string;
     };
 
 /**

@@ -2,9 +2,6 @@
 # "官方一致性测试"). CI fails on a scenario that fails and is not listed here (a regression), and on one that passes and
 # is still listed (remove the entry). Each entry is a gap with an owner in docs/roadmap.md, not a decision.
 client:
-  # e7: a pre-registered client is public (`clientId` only); there is nowhere to configure its secret yet, and
-  # the scenario expects HTTP Basic client authentication.
-  - auth/pre-registration
   # e7: step-up authorization (a 403 `insufficient_scope` on a call asks for a new login with more scope) is not
   # implemented; via reports the 403 and tells the person to log in again.
   - auth/scope-step-up
@@ -13,7 +10,6 @@ client:
   - auth/2025-03-26-oauth-metadata-backcompat
   # e5: via does not implement elicitation (and never samples: it does not call a model).
   - elicitation-sep1034-client-defaults
-  # e7: the OAuth client-credentials extension and cross-app access (headless / enterprise grants).
-  - auth/client-credentials-jwt
-  - auth/client-credentials-basic
+  # e7: cross-app access (enterprise-managed authorization, ID-JAG) is deliberately not implemented: lowest priority in
+  # the roadmap until someone needs it (docs/spec/auth.md, "企业托管授权").
   - auth/cross-app-access-complete-flow

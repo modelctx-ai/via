@@ -101,6 +101,11 @@ function describeServer(server: ServerConfig): string[] {
   if (server.roots !== undefined && server.roots.length > 0) lines.push(`      roots: ${server.roots.map(rootWord).join(', ')}`);
   if (auth.type === 'bearer') lines.push(`      auth.bearer: ${describeRef(auth.bearer)}`);
   if (auth.type === 'headers') lines.push(`      auth.headers: ${describeEntries(auth.headers)}`);
+  if (auth.type === 'oauth') {
+    if (auth.grant) lines.push(`      auth.oauth.grant: ${auth.grant}`);
+    if (auth.clientSecret !== undefined) lines.push(`      auth.oauth.clientSecret: ${describeRef(auth.clientSecret)}`);
+    if (auth.privateKey !== undefined) lines.push(`      auth.oauth.privateKey: ${describeRef(auth.privateKey)}`);
+  }
   return lines;
 }
 

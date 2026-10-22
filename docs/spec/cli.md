@@ -46,7 +46,7 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 | `via more <游标>` | 续读被截断的结果 |
 | `via batch [--concurrency <n>]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出（[见下](#via-batch)） |
 | `via servers` | 列出 server、来源文件、传输方式、鉴权状态与备注 |
-| `via auth login <provider> [--manual]`<br>`via auth status [<provider>]`<br>`via auth logout <provider>` | OAuth 登录、状态、登出；`login --manual` 用于无头环境（[auth.md](auth.md)） |
+| `via auth login <provider> [--manual]`<br>`via auth status [<provider>]`<br>`via auth logout <provider>` | OAuth 登录、状态、登出；`login --manual` 用于无头环境；`grant: client_credentials` 的 server 不需要登录，`login` 只验证凭据（[auth.md](auth.md)） |
 | `via trust [路径] [--dry-run]`、`via trust <路径> --yes` | 显示并信任项目级配置文件；`--list` 列出记录，`--revoke <路径>` 撤销（[security.md](security.md#via-trust)） |
 | `via sync [provider]` | 强制刷新工具目录缓存 |
 | `via doctor` | 检查连接与鉴权，检测各框架挂载的 MCP 并输出关闭提示 |

@@ -100,7 +100,7 @@ function computeKey(server: ServerConfig): string {
       : auth.type === 'headers'
         ? { type: 'headers', refs: sortedKeys(auth.headers).map((k) => [k, auth.headers[k]]) }
         : auth.type === 'oauth'
-          ? { type: 'oauth', scopes: auth.scopes ?? [], clientId: auth.clientId ?? null }
+          ? { type: 'oauth', scopes: auth.scopes ?? [], clientId: auth.clientId ?? null, ...(auth.grant ? { grant: auth.grant } : {}) }
           : { type: 'none' };
   // The pin belongs to the key: a list fetched under another protocol version says nothing about this one. Added only when set, so existing keys stay.
   const pin = server.protocolVersion === undefined ? {} : { pin: server.protocolVersion };

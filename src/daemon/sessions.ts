@@ -281,7 +281,7 @@ export class SessionManager {
         // A saved login must exist (no network); its tokens join the redaction list.
         const { createCallProvider } = await import('../client/oauth');
         const { resolver } = this.options;
-        await createCallProvider(server, this.oauthStore, { track: (value) => resolver.track?.(value), now: this.options.now }).requireLogin();
+        await createCallProvider(server, this.oauthStore, { track: (value) => resolver.track?.(value), resolveCredential: (ref) => resolver.resolve(ref, server.origin), now: this.options.now }).requireLogin();
       }
     } catch (error) {
       throw mapError(error, { server, phase: 'connect', timeoutMs, redact: this.redact });
