@@ -236,6 +236,37 @@ next: via doctor
 
 因为无效的 `deny` 规则意味着本应隐藏的工具会可见，这里宁可停下，也不带着缺失的规则继续运行（[config.md](config.md#校验与诊断)）。
 
+### server 向用户提问
+
+工具调用中途，server 可以向用户要输入（elicitation，[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）。没有终端时一律拒绝并在调用的结果里说明（退出码与 `next:` 见 [output.md](output.md#server-向用户提问elicitation)）；这里是有终端时的交互。终端 = stdin 与 stderr 都是 TTY，且不是 `via serve`、`via batch`、`--args -` 读走了 stdin 的调用。提示写 stderr，答案读 stdin：
+
+```console
+$ via ask elicit-form
+? ask asks for your input (3 fields; an empty answer takes the default shown in brackets). The text below comes from the server, not from via. You have 58s (the --timeout of this call).
+  | Tell me about yourself
+1/3 Name (name) - text, 2 to 12 characters, required: Ann
+2/3 Count (count) - integer, 1 to 10 [3]: 11
+  ! at most 10
+2/3 Count (count) - integer, 1 to 10 [3]:
+    1) red (Red)
+    2) green (Green)
+3/3 Color (color) - one of the choices [green]: 1
+
+answers for ask:
+  name: Ann
+  count: 3
+  color: red
+Send these answers to ask? [y]es / [n]o (decline) / [c]ancel: y
+form answered: accept {"name":"Ann","count":3,"color":"red"}
+```
+
+- **表单**：按 schema 的顺序逐字段提问，支持字符串（`minLength`、`maxLength`、`format` 的 `email`、`uri`、`date`、`date-time`）、`number`、`integer`（`minimum`、`maximum`）、`boolean`（`y/yes/true/1`，`n/no/false/0`）、单选枚举（`enum`+`enumNames`，或 `oneOf`/`anyOf` 的 `const`+`title`；按序号、值或标题选）和多选（`array` 的 `items` 是枚举，逗号分隔，`minItems`/`maxItems`）。空行取 `default`；没有默认值的可选字段留空就是不回答；必填字段不接受空行。校验不过就说明原因并重问，同一问题最多 4 次，之后按 `cancel`。包含对象、嵌套数组或超过 50 个字段的 schema 无法逐字段提问，整个请求按 `decline`，并说明原因。
+- **最后一问没有默认值**：`y` 发送答案，`n` 拒绝（`decline`），`c` 取消（`cancel`）。空行或输入结束不会被当成同意。输入结束（`Ctrl-D`）时各字段取默认值或留空，最后一问连续 4 次没有有效回答、重试用尽，都按 `cancel`；`Ctrl-C` 照常结束整条命令。
+- **URL 模式**：先显示 server 的话、完整 URL 和主机名（IDN 以 punycode 显示），再问是否打开。只打开 `http` 与 `https`；其他 scheme、带用户名密码的 URL 不询问，直接 `decline` 并说明。同意后用平台的打开命令（与 `via auth login` 相同，Windows 用 `rundll32`，不经 `cmd.exe`；SSH 会话、无显示器时不尝试，只提示用户自己打开地址）打开，`accept` 只表示用户同意去做，via 不检查他是否做完。`2025-11-25` 的 `URLElicitationRequired` 错误（server 不等、要求用户先完成再重试）同样处理，用户在页面上完成后按回车，via 把调用再发一次。
+- **时间**：用户作答的时间计入调用的 `--timeout`，提示里显示剩余秒数，到点按 `cancel`。
+- **粘贴与提前输入**：一次粘贴多行时，后面的行留给后面的问题。
+- 终端里输入的答案只发给提问的 server，不写盘、不进日志、不进 `next:`。
+
 ### via serve
 
 `via serve` 在 stdin/stdout 上运行一个 MCP server（只有 stdio 传输，不监听端口），供没有 shell 的 agent 在框架里当作普通 stdio server 登记，例如 `{"command": "via", "args": ["serve"]}`。stdin 关闭时退出；不接受参数，带参数时报用法错误（退出码 2）。设计理由见 [ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)。

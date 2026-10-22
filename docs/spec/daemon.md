@@ -68,11 +68,12 @@ type Request =
   | { id; type: "status" }
   | ({ id; type: "list"; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   | ({ id; type: "call"; rawName: string; args: object; timeoutMs?: number; retry?: boolean; progress?: boolean;
-        detach?: boolean; taskSupport?: string; tasks?: boolean } & ServerTarget)
+        detach?: boolean; taskSupport?: string; tasks?: boolean; elicit?: "interactive" | "decline" } & ServerTarget)
   | ({ id; type: "task"; action: "get" | "wait" | "cancel" | "list"; taskId?: string; timeoutMs: number } & ServerTarget)
   | ({ id; type: "skills-list"; timeoutMs: number } & ServerTarget)
   | ({ id; type: "skill-read"; skill: string; file?: string; timeoutMs: number } & ServerTarget)
   | ({ id; type: "complete"; ref: object; argument: { name: string; value: string }; context?: object; timeoutMs: number } & ServerTarget)
+  | { id; type: "elicit-reply"; call: string; key: string; answer: ElicitAnswer }
   | ({ id; type: "resources-list"; timeoutMs: number } & ServerTarget)
   | ({ id; type: "resource-read"; uri: string; timeoutMs: number } & ServerTarget)
   | ({ id; type: "prompts-list"; timeoutMs: number } & ServerTarget)
@@ -89,7 +90,8 @@ type Request =
 应答：
 
 ```ts
-type Event = { id; type: "event"; event: "progress" | "log"; data: unknown };   // 零到多次
+type Event = { id; type: "event"; event: "progress" | "log" | "task" | "elicit"; data: unknown };   // 零到多次
+// elicit 事件的 data 是 { key: string, question: ElicitQuestion }：server 在这次调用中途向用户提的问题（已脱敏），见下「elicitation」
 // log 事件的 data 是 { level: "warning", message: string }：发给触发它的那个请求（list 或 call），CLI 把 message 打印为 stderr 的 `warning: …`；message 已脱敏。目前只有「刷新后的 OAuth 登录存不下来」这一种（auth.md）
 type Response =
   | { id; type: "result"; ok: true; result: unknown; meta: { elapsedMs: number } }
@@ -108,7 +110,8 @@ type ErrorInfo = {
 | 请求 | 行为 |
 | --- | --- |
 | `list` | 返回 `{ tools, fetchedAt, fromCache, features?, protocol? }`，`features` 是 `{ resources, prompts }`（server 是否声明了这两种能力，缓存里没有记录时省略），`protocol` 是 `{ version, stateful }`（最近一次连接协商出的协议版本与连接是否有状态，同样记在缓存里，没有记录时省略）。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5。`have` 是 CLI 手里已有预构建目录的那份列表的 `fetchedAt`：daemon 的列表恰好是这一份时，应答为 `{ unchanged: true, fetchedAt, fromCache: true, features?, protocol? }`，不带 `tools`（凭证与信任检查照常先做；带 `refresh` 时忽略 `have`）。CLI 只在磁盘缓存里的列表也是这一份时才带 `have`，收到 `unchanged` 后需要工具时从那个缓存文件读，所以浏览类命令不必让 daemon 把整份列表再传一遍 |
-| `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样。调用变成任务时（[cli.md](cli.md#任务via-tasks-与---detach)）daemon 的会话就地跟随到结束，结果与同步调用一样；`tasks: true` 时任务一创建就推送一个 `task` 事件（任务的 `{id, status, …}`），CLI 据此写记录、打印 `progress: task …`；`taskSupport` 是工具声明的 `execution.taskSupport`（决定 2025 要不要带 `task`）。`detach: true` 时任务创建后立即返回 `{ task }`，server 没建任务则返回 `{ result }`。超时、`input_required` 与已创建任务后的失败不重试 |
+| `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样。调用变成任务时（[cli.md](cli.md#任务via-tasks-与---detach)）daemon 的会话就地跟随到结束，结果与同步调用一样；`tasks: true` 时任务一创建就推送一个 `task` 事件（任务的 `{id, status, …}`），CLI 据此写记录、打印 `progress: task …`；`taskSupport` 是工具声明的 `execution.taskSupport`（决定 2025 要不要带 `task`）。`detach: true` 时任务创建后立即返回 `{ task }`，server 没建任务则返回 `{ result }`。超时、`input_required` 与已创建任务后的失败不重试 |
+| `elicit-reply` | 回答一个 `elicit` 事件：`call` 是发出事件的 `call` 请求的 id，`key` 是事件里的 `key`。返回 `{ delivered: boolean }`：问题还在等这个答案（同一连接、同一 `call`、`key` 对得上）才是 `true`，答过的、已被取消的、别人的都是 `false`，不报错 |
 | `task` | `action`：`get` 返回 `{id, status, message?, …}`（`tasks/get`）；`wait` 等到任务结束或 `timeoutMs`，返回 `{ task, result? }`（`result` 在 `completed` 时是工具结果，`failed`/`cancelled` 时是 `isError` 结果，`input_required` 时没有）；`cancel` 发 `tasks/cancel`（2026 的扩展再取一次状态）并返回取消后的任务；`list` 返回 `{ tasks? }`，没有任务列表的 server（2026 的扩展，或 2025 没有声明 `tasks.list`）不带 `tasks`。server 没有声明 tasks 时退出码 3，不发请求；不认识的任务退出码 3；等待超时退出码 6，`next: via tasks <provider> <ID>`。任务由 server 持有，daemon 不保存任务：via 自己的记录在 CLI 一侧（[cli.md](cli.md#任务via-tasks-与---detach)） |
 | `skills-list` | 返回技能条目数组（`skills/list` 分页拉全，附清单）。不缓存。协议不是 `2026-07-28` 或没有声明 `io.modelcontextprotocol/skills` 时退出码 3，不发请求。不合格的条目（缺 URI、`name`、`description` 或清单）丢弃并推送一条 `log` 警告 |
 | `skill-read` | 读技能的一个文件：`skills/get` 取最新条目、`resources/read` 取文件，在 daemon 的会话里按清单核对字节数与 `sha256`，通过才返回 `{ skill, file, verified }`（再脱敏）；不符退出码 6，不返回内容。核对发生在脱敏之前 |
@@ -145,6 +148,16 @@ MCP 的 `2026-07-28` 把协议改成无状态：没有 `initialize` 握手，没
 - **日志级别。** 新协议去掉了 `logging/setLevel`。via 在任何版本上都不发它（daemon 不转发 server 的日志，stdio 的 stderr 另有处理），所以没有要改的。
 - **结果的处理。** 列表、资源和 prompt 的结果仍由 via 宽松地取用（一个畸形条目不让整次操作失败）。新协议的 `tools/call` 走 SDK 的 `callTool()`：它按工具声明的 `x-mcp-header` 把参数镜像进 `Mcp-Param-*` 请求头（缺了头的调用会被 server 拒绝），SDK 的输出校验被关掉，结果仍按 server 给的样子显示。
 - **固定版本。** `protocolVersion`（[config.md](config.md#serversname)）固定一个版本：server 不支持就报错（退出码 6），不回退。
+
+## elicitation
+
+server 在一次调用中途向用户要输入（表单或 URL；旧协议里是 server 发给 client 的 `elicitation/create` 请求，`2026-07-28` 里是调用结果的 `input_required`，SDK 把两者交给同一个处理器；[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）。via 声明 `elicitation`（表单与 URL 两种模式，`applyDefaults`），**不**声明 `sampling`。能力是会话级的，所以所有会话都声明，按调用决定怎么处理：
+
+1. 会话把提问交给**正在运行的某个 `call`**：协议没有说明一个提问属于哪个调用（旧协议里提问是同一连接上的独立请求），所以按顺序选——最早的、`elicit: "interactive"` 的调用；没有这样的就选最早的调用（它会拒绝并留下记录）；一个调用都没有（列目录、读资源时 server 提问）就直接拒绝，并给当前操作一条 `log` 警告（`<provider> asked for user input outside of a tool call; it was declined`）。daemon 里同一会话被多个 CLI 同时使用时，提问因此可能出现在不是它引出的那条命令的终端上；提示里总是写明提问的 provider 与 server 的原文，用户据此判断。
+2. 提问先在会话里脱敏（所有字符串值，键不动），再由 daemon 作为 `elicit` 事件发到那次 `call` 的连接上。CLI 在自己的进程里处理（终端提示，或拒绝并记下，[output.md](output.md#server-向用户提问elicitation)、[cli.md](cli.md#server-向用户提问)），用 `elicit-reply` 把答案送回；daemon 按严格的形状校验答案（`accept` 的 `content` 只允许字符串、有限数字、布尔和字符串数组，其他一律按 `cancel`，不转发畸形内容）再交给 server。daemon 不弹窗、不读自己的 stdin。
+3. 等待中的问题在这些情形按 `cancel` 结束：该 `call` 结束、CLI 的连接断开、答案形状不对。`timeLeftMs`（问题里带的，调用剩余的预算）到时 CLI 自己按 `cancel` 处理；SDK 的请求超时无法暂停，所以用户作答的时间计入调用的 `--timeout`。
+4. 内容不落盘：问题与答案不进日志（[安全](security.md#elicitation)）。`elicit-reply` 里的答案是用户键入的，只经 socket 到 server，不经任何缓存。
+5. 进程内模式（无 daemon、daemon 回退）里没有 socket：同一个 `ElicitSink` 直接是 CLI 的终端提示或拒绝，其余相同。daemon 连接在作答途中断开时，按「连接中断」处理（`call` 非只读，退出码 6，可能已执行）。
 
 ## 校验
 

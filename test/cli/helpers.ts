@@ -62,7 +62,7 @@ export interface FixtureServer {
 
 /** Streamable HTTP fixture; requests need `Authorization: Bearer <token>` when `token` is set. */
 export async function startFixtureServer(
-  options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots' | 'completions' | 'skills' | 'tasks' | 'tasks-nolist'>; protocol?: Generation; ttlMs?: number; fixture?: FixtureExtras } = {},
+  options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots' | 'elicit' | 'completions' | 'skills' | 'tasks' | 'tasks-nolist'>; protocol?: Generation; ttlMs?: number; fixture?: FixtureExtras } = {},
 ): Promise<FixtureServer> {
   const state = createCliState();
   const generation = options.protocol ?? defaultGeneration();
@@ -138,6 +138,8 @@ export interface RunOptions {
   stdin?: string;
   /** Pretend a person sits at a terminal and types this at the next question (`via trust`); the questions are collected in `CliResult.asked`. */
   answer?: string;
+  /** Like `answer` but a different one for each question, in order (a form asks several); an exhausted list answers with an empty line. */
+  answers?: string[];
   now?: number;
   /** Answers the prompt of a manual OAuth login; sees what has been printed so far. Default: the first line of `stdin`. */
   readLine?: (printed: { stdout: string; stderr: string }) => Promise<string | undefined>;
@@ -245,10 +247,11 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
       const asked: string[] = [];
       let combined = '';
       const code = await run(argv, {
-        interactive: options.answer !== undefined || options.readLine !== undefined,
+        interactive: options.answer !== undefined || options.answers !== undefined || options.readLine !== undefined,
         ask: async (question) => {
           asked.push(question);
           if (options.readLine) return (await options.readLine({ stdout, stderr })) ?? '';
+          if (options.answers) return options.answers.shift() ?? '';
           return options.answer ?? options.stdin?.split('\n')[0] ?? '';
         },
         // OAuth logins go to files in the sandbox, never to the real keychain.

@@ -14,6 +14,7 @@
 | **任务（task）** | server 端一次可以事后查询的长调用（`2025-11-25` 的 tasks，`2026-07-28` 的 `io.modelcontextprotocol/tasks` 扩展）。调用默认跟随到结果，`--detach` 返回带 provider 前缀的任务 ID（`gh/job/1`），`via tasks` 查询、等待、取消（[cli.md](../spec/cli.md#任务via-tasks-与---detach)）。 |
 | **技能（skill）** | server 通过 Skills 扩展（`2026-07-28`）发布的一个目录：`SKILL.md`（带 frontmatter）加附属文件，附清单（每个文件的 URI、`sha256:` 摘要、字节数）。用 `via skills` 读取，输出前按清单核对（[cli.md](../spec/cli.md#技能via-skills)）。 |
 | **roots** | client 声明给 server 的目录列表（MCP 的 `roots` 能力）。via 默认不声明，按 server 用配置的 `roots` 字段开启。 |
+| **elicitation** | server 在一次调用中途向用户要输入（表单或打开网页），MCP 的 `elicitation` 能力。via 在交互终端里让用户回答，其他情形拒绝并在调用的结果里说明（[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）。 |
 | **协议版本（protocol version）** | 一次 MCP 连接协商出的协议修订，形如 `2026-07-28`、`2025-11-25`。`2026-07-28` 起协议无状态（没有 `initialize` 握手和 server 端会话），via 默认新版本优先、自动回退，`protocolVersion` 可以固定；「有状态」的含义见 [daemon.md](../spec/daemon.md#协议版本与无状态连接)。 |
 | **动作（verb）** | 从原始名拆出的动词部分，如 `create`、`create-or-update`。 |
 | **工具引用** | 定位一个工具的写法。命令行形式 `linear issue:create`，单字符串形式 `linear/issue:create`。 |

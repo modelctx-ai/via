@@ -25,6 +25,7 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 | CIMD 文档被替换或地址被改 | via 的 `client_id` 是托管文档的 https 地址：谁控制这个地址，谁决定授权页上显示的客户端名和允许的回调地址。授权请求里的 `redirect_uri` 由 via 自己选定（回环地址），授权服务器只会把授权码送到文档里同样列着的那个地址，所以文档被换也不会把授权码送到别处；`clientMetadataUrl` 可以设成别的地址或关闭（`false`），它和 `clientId` 一样可以写在项目级配置里，影响只限于授权页上显示的客户端名，所以不要求 `via trust`。文档与代码里的端口范围由测试核对，改文档地址等于换客户端，须同时发新版本 |
 | 授权被发往仓库指定的地址 | `via auth login` 对未信任的项目级 server 退出码 5 |
 | 本机目录被告知 server（roots） | 默认不声明 `roots` 能力，server 看不到任何本机目录；只有用户在配置里写下 `roots` 才声明。项目级配置设置非空 `roots` 需要 `via trust`，`via trust` 会列出；`[]` 只会收窄，不需要。给 HTTP server 配 `roots` 时告警（本地路径发往远端）。via 不会因为 server 的请求改变 roots，会话的 roots 在其生命周期内固定 |
+| server 借 elicitation 向用户套取输入，或把用户引到恶意网页 | via 声明 elicitation，但只有交互终端上的人能回答；agent 经 shell、`via serve`、`via batch` 一律收到 `decline`，调用的结果里写明并给出 `next: ask the user to run this in a terminal`（退出码 5）。提示先写明提问的 provider 和「这段文字来自 server」，server 的文字脱敏后以可见的转义显示控制字符。URL 模式只打开 `http(s)`，先显示完整 URL 与主机名并等用户确认，从不自动打开；带用户名密码的 URL、其他 scheme 直接拒绝；打开命令与 OAuth 相同（Windows 不经 `cmd.exe`）。via 不声明 sampling。答案不进日志与缓存（[elicitation](#elicitation)） |
 | 代理密码出现在输出里，或请求绕过代理直连 | `HTTPS_PROXY` / `HTTP_PROXY` 里的用户名和密码计入脱敏名单；`via doctor` 把 userinfo 显示为 `***@`；网络层错误信息在抛出前先抹掉 `user:pass@` 与已知的密码；代理地址不可用时请求失败（退出码 2），不退回直连；代理变量只来自环境，项目级配置无法设置，代理密码不经过 daemon 的 socket（[config.md](config.md#代理)） |
 | 工具描述与查询被发往第三方 embedding 端点 | `search.semantic` 默认关闭，只在用户配置里生效（项目与框架配置里的被忽略并告警）；见下文[embedding 检索的数据外流](#embedding-检索的数据外流) |
 
@@ -36,6 +37,17 @@ via 打印的 `next:` 提示、`-h` 的用法与示例、`via trust` 的命令�
 - 防线是单点引用（[output.md](output.md#可粘贴的命令行)）：所有外部文字经 `shellQuote`/`shellArg`/`shellWords`，不能安全引用的写成占位符而不是勉强引用，回显在消息里的文字转义换行与控制字符。工具名、资源名、动作名在拆分时已被规范成小写的字母、数字与 `-`（naming.md），所以通常本身就是安全的词；这层引用是纵深防御，也覆盖原始名（`alias:` 行）、prompt 名、归一化后同名而保留的原参数名、用户输入与路径。
 - 测试：`test/render/shell.test.ts` 用真实的 `sh`/`bash`/`dash`（有则 `zsh`）粘贴引用结果，核对读回的参数与「没有任何命令被执行」；`test/cli/quoting.test.ts` 用名为 `$(touch PWNED)`、带反引号、引号、换行的工具、参数与 prompt 走完整个命令行。
 - 不保证：csh、tcsh；终端对粘贴内容的预处理；从一个平台复制到另一个平台。via 只按它运行的平台引用。
+
+## elicitation
+
+server 在调用中途向用户提问（[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)、[output.md](output.md#server-向用户提问elicitation)）。边界：
+
+- **谁回答**：只有终端前的人（stdin 与 stderr 都是 TTY）。agent 的 shell 调用、`via serve`、`via batch` 没有这个人，via 不替用户回答——确认类的问题由 agent 自答等于绕过确认。要预填答案属于以后的、显式开启的功能，不是默认。
+- **server 的文字是不可信数据**：消息、字段标题与描述、选项、URL 都先脱敏（任何长度的凭证），再把控制字符与转义序列显示为 `\uXXXX`；提示总是写明是哪个 provider 在问、文字来自 server。表单里的 `default` 只作为预填，发送前有一步汇总确认，且没有默认的「同意」。
+- **表单不是收集秘密的地方**：协议规定 server 不得用表单模式要密码、API key；via 不对字段名做猜测，但答案只发给提问的 server，不写日志、不缓存、不进 `next:`。
+- **URL**：只打开 `http`/`https`，先完整显示 URL 与主机名，用户确认才打开；带用户名密码的 URL 一律拒绝；打开命令不经 shell（macOS `open`、Linux `xdg-open`、Windows `rundll32.exe` 完整路径，与 OAuth 回调共用 `openBrowser`）；不预取、不跟随。`accept` 只表示用户同意去做这件事。
+- **daemon 不是终端**：daemon 把提问转给发起调用的 CLI，答案经 socket 回来，按严格的形状校验后才交给 server；连接断开、调用结束都按 `cancel`（[daemon.md](daemon.md#elicitation)）。同一会话上并发的调用无法由协议区分，提问可能出现在另一个有终端的 CLI 上，所以提示里总是写明 provider 与原文。
+- **不声明 sampling**：via 不调用模型；server 的 `sampling/createMessage` 是未声明的能力。
 
 ## 项目级配置的信任
 

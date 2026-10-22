@@ -138,6 +138,20 @@ next: via auth login linear
 
 `-h` 加 `-o json` 输出工具详情（`tool`、`rawName`、`description`、`readOnly`、`destructive`、`inputSchema`、`outputSchema`），格式与用途见 [arguments.md](arguments.md#schema-快照校验)；它是 `--schema-snapshot` 读取的快照文件。
 
+## server 向用户提问（elicitation）
+
+调用中途，server 可以向用户要输入（MCP 的 elicitation：表单模式按一个扁平 schema 填字段，URL 模式请用户去一个网页；[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）。via 声明这个能力，处理取决于当时有没有人可问：
+
+- **有人**：stdin 与 stderr 都是终端，且不是 `via serve`、`via batch`。提示写 stderr，答案读 stdin；提问的 provider 和「这段文字来自 server，不是 via 写的」总是先写明，server 的文字（消息、字段标题与描述、选项、URL）脱敏后显示，控制字符与转义序列按[回显规则](#可粘贴的命令行)写成可见的 `\uXXXX`。交互细节见 [cli.md](cli.md#server-向用户提问)。回答 `decline` 或 `cancel` 不是 via 的失败：调用的结果由 server 决定，退出码照常（server 因此返回 `isError` 就是退出码 1）。
+- **没有人**：一律回答 `decline`，调用继续，并在调用的结果里说明 server 问过用户：
+  - 调用仍然成功：退出码 0，元信息行之前多两行，`warning: <provider> asked for user input ("<server 的话>") and it was declined: no terminal is attached` 和 `next: ask the user to run this in a terminal: <原命令行>`。
+  - 调用以 server 的错误结束（`isError`，或 server 在协议层拒绝，即原本的退出码 1）：退出码改为 **5**。第一行 `error: <provider> asked for user input ("…") and no terminal was available to answer`，接着一行 `the server then said: <server 的错误，折成一行>`，最后是同样的 `next:`。5 是「被拒绝」，与危险操作缺少 `--yes`、`via trust` 没有终端同一类：这一步需要一个人的明确同意，而现在没有。没有新增退出码。
+  - 因其他原因失败（超时、传输错误）：原来的错误与退出码不变，错误前多上面的 `warning:` 与 `next:` 两行。
+  - `-o json`：退出码 5 的错误照常是 `{"error": {"code": 5, "message": …, "next": …}}`；成功时的两行仍是文本。
+  - `next:` 里的命令行由[引用函数](#可粘贴的命令行)拼出，参数来自 stdin（`-`）时不写命令，只写 `ask the user to run this in a terminal`；`via batch` 的行写成 `via call <工具> --args '<json>'`（参数超过 500 字符时省略命令）。
+- server 的文字用 `"…"` 引起来、折成一行并限长 120 字符；它不能制造一行 `next:` 或移动光标。
+- 答案与问题的内容不进日志、不进游标（[security.md](security.md#elicitation)）。
+
 ## 可粘贴的命令行
 
 via 打印的命令行是给人和 agent 复制粘贴的：`next:` 提示（含元信息行里的 `next:`）、浏览视图末尾的 `→ via …` 提示、`did you mean:` 与 `candidates:` 列表、`usage:` 行和 `-h` 的调用示例、`alias:` 行，以及 `via trust` 显示的 stdio 命令行。这些命令行里夹着不是 via 写的文字：server 提供的名字（原始工具名、prompt 名、参数名）、枚举值、默认值、URI，和用户输入（拼错的名字、文件路径）。任何一处没有引用，粘贴就可能展开变量、执行命令或多出一行（[apify/mcpc#450](https://github.com/apify/mcpc/pull/450) 修的就是这类问题：工具名里缺少反斜杠转义，粘贴提示的命令会被执行）。
@@ -169,6 +183,6 @@ via 打印的命令行是给人和 agent 复制粘贴的：`next:` 提示（含�
 | 2 | 参数或用法错误；`--schema-snapshot` 比较出不兼容的变化（不发调用，[arguments.md](arguments.md#schema-快照校验)） |
 | 3 | 工具或 server 不存在 |
 | 4 | 需要鉴权或鉴权失败 |
-| 5 | 被拒绝：deny 规则命中，危险操作缺少 `--yes`，或项目级配置未经 `via trust` 确认（`via trust` 本身没有得到确认时同样是 5） |
+| 5 | 被拒绝：deny 规则命中，危险操作缺少 `--yes`，项目级配置未经 `via trust` 确认（`via trust` 本身没有得到确认时同样是 5），或 server 向用户提问而没有终端可答、调用因此失败（[elicitation](#server-向用户提问elicitation)） |
 | 6 | 上游、传输错误或超时 |
 | 7 | via 内部错误 |

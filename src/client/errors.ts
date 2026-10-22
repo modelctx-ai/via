@@ -6,6 +6,7 @@ import type { ErrorInfo } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { shellWord, shellWords } from '../render/shell';
 import { sanitizeText } from '../render/sanitize';
+import { urlElicitationsOf } from './elicit';
 
 export class ClientError extends Error implements ErrorInfo {
   readonly exitCode: ErrorInfo['exitCode'];
@@ -278,6 +279,13 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
   if (mcpCode(err) === INVALID_PARAMS) {
     const detail = clean(errorMessage(err).replace(/^MCP error -32602:\s*/, ''), ctx);
     return new ClientError({ exitCode: ExitCode.ToolError, message: detail || `${provider} rejected the arguments`, next: 'check the arguments with -h' });
+  }
+
+  // `URLElicitationRequired` the person did not (or could not) act on: a refusal of the call, not a transport failure.
+  const pages = urlElicitationsOf(err);
+  if (pages) {
+    const why = clean(pages[0]!.message, ctx);
+    return new ClientError({ exitCode: ExitCode.ToolError, message: `${provider} needs you to open a web page before this call can run${why ? ` (${why})` : ''}`, next: 'rerun the command in a terminal and accept the request to open the page' });
   }
 
   if (status !== undefined) {

@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import type { JsonSchema } from '../catalog/types';
 import { compileSchema, type CompileResult } from '../cli/args/validate';
 import { ClientError } from '../client';
+import { parseAnswer, type ElicitAnswer, type ElicitQuestion, type ElicitSink } from '../client/elicit';
 import type { OAuthStore } from '../client/oauth';
 import { createCredentialResolver } from '../config/credentials';
 import { pathContext, userCacheDir } from '../config/paths';
@@ -65,6 +66,8 @@ interface Connection {
   greeted: boolean;
   /** Requests of this connection that have not been answered yet. */
   inflight: number;
+  /** Questions a server asked the person behind a `call` of this connection, waiting for the CLI's `elicit-reply`. */
+  elicits: Map<string, { call: string; resolve(answer: ElicitAnswer): void }>;
 }
 
 /** Longest a start waits for another starting daemon to finish binding. */
@@ -84,6 +87,7 @@ export class DaemonServer {
   private readonly connections = new Set<Connection>();
   private inflight = 0;
   private requests = 0;
+  private elicitSeq = 0;
   private startedAt = 0;
   private idleTimer?: NodeJS.Timeout;
   private idleDeadline?: number;
@@ -320,7 +324,7 @@ export class DaemonServer {
       socket.destroy();
       return;
     }
-    const conn: Connection = { socket, greeted: false, inflight: 0 };
+    const conn: Connection = { socket, greeted: false, inflight: 0, elicits: new Map() };
     this.connections.add(conn);
     this.updateIdle();
     const decoder = new LineDecoder();
@@ -336,6 +340,7 @@ export class DaemonServer {
     });
     socket.on('error', () => undefined);
     socket.on('close', () => {
+      this.cancelElicits(conn);
       this.connections.delete(conn);
       this.updateIdle();
       this.maybeFinishDrain();
@@ -436,15 +441,33 @@ export class DaemonServer {
               this.send(conn, { id: request.id, type: 'event', event: 'task', data: redactProtocol(task, this.sessions.redact) } satisfies Event);
             }
           : undefined;
+        // The server may ask the person behind this call something; the CLI that made it answers (ADR 0018).
+        const elicit: ElicitSink | undefined =
+          request.elicit === 'interactive' || request.elicit === 'decline'
+            ? { interactive: request.elicit === 'interactive', ask: (question) => this.askCli(conn, request.id, question) }
+            : undefined;
         const callOptions = {
           ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
           ...(typeof request.taskSupport === 'string' ? { taskSupport: request.taskSupport } : {}),
           ...(onProgress ? { onProgress } : {}),
           ...(onTask ? { onTask } : {}),
+          ...(elicit ? { elicit } : {}),
           onWarning: (message: string): void => this.sendWarning(conn, request.id, message),
         };
-        if (request.detach === true) return this.sessions.detach(request, request.rawName, request.args ?? {}, callOptions);
-        return this.sessions.call(request, request.rawName, request.args ?? {}, { ...callOptions, ...(request.retry ? { retry: true } : {}) });
+        try {
+          if (request.detach === true) return await this.sessions.detach(request, request.rawName, request.args ?? {}, callOptions);
+          return await this.sessions.call(request, request.rawName, request.args ?? {}, { ...callOptions, ...(request.retry ? { retry: true } : {}) });
+        } finally {
+          this.cancelElicits(conn, request.id);
+        }
+      }
+      case 'elicit-reply': {
+        const key = String(request.key);
+        const waiting = conn.elicits.get(key);
+        if (!waiting || waiting.call !== request.call) return { delivered: false };
+        conn.elicits.delete(key);
+        waiting.resolve(parseAnswer(request.answer));
+        return { delivered: true };
       }
       case 'resources-list':
         if (this.stale(request)) return STALE;
@@ -492,6 +515,25 @@ export class DaemonServer {
         throw new ClientError({ exitCode: ExitCode.Internal, message: `the daemon does not handle "${request.type}" requests yet`, next: 'via doctor' });
       default:
         throw new ClientError({ exitCode: ExitCode.Internal, message: `unknown message type: ${String((request as { type: unknown }).type).slice(0, 40)}` });
+    }
+  }
+
+  /** Put a server's question to the CLI that made call `call` and wait for its `elicit-reply`. */
+  private askCli(conn: Connection, call: string, question: ElicitQuestion): Promise<ElicitAnswer> {
+    if (conn.socket.destroyed || !conn.socket.writable) return Promise.resolve({ action: 'cancel' });
+    return new Promise((resolve) => {
+      const key = String(++this.elicitSeq);
+      conn.elicits.set(key, { call, resolve });
+      this.send(conn, { id: call, type: 'event', event: 'elicit', data: { key, question } } satisfies Event);
+    });
+  }
+
+  /** Nobody is left to answer (the call ended, or the CLI went away): what is still asked counts as cancelled. */
+  private cancelElicits(conn: Connection, call?: string): void {
+    for (const [key, waiting] of conn.elicits) {
+      if (call !== undefined && waiting.call !== call) continue;
+      conn.elicits.delete(key);
+      waiting.resolve({ action: 'cancel' });
     }
   }
 

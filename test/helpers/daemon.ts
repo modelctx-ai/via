@@ -89,7 +89,7 @@ export interface DaemonSandbox {
   /** The text it prints when no daemon runs. */
   idleSocketText: string;
   /** Run `via` with the daemon enabled and the bundled CLI as the program to start it. */
-  via(argv: string[], options?: { env?: Record<string, string | undefined>; cwd?: string; stdin?: string; daemonCommand?: { command: string; args: string[] }; openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }> }): Promise<CliResult>;
+  via(argv: string[], options?: { env?: Record<string, string | undefined>; cwd?: string; stdin?: string; daemonCommand?: { command: string; args: string[] }; openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }>; answers?: string[] }): Promise<CliResult>;
   /** `via daemon status -o json`, or undefined when no daemon runs. */
   status(): Promise<DaemonStatus | undefined>;
   /** Stop the daemon and wait until its process is gone. */
@@ -144,7 +144,10 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
     let stdout = '';
     let stderr = '';
     let combined = '';
+    const asked: string[] = [];
     const code = await run(argv, {
+      // A person at a terminal who types these answers, one per question (a server's question during a call).
+      ...(options.answers ? { interactive: true, ask: async (question: string) => (asked.push(question), options.answers!.shift() ?? '') } : {}),
       env: { ...sandboxEnv, ...options.env },
       cwd: options.cwd ?? sb.project,
       home: sb.home,
@@ -155,7 +158,7 @@ export async function daemonSandbox(config: string, env: Record<string, string> 
       daemonCommand: options.daemonCommand ?? { command: process.execPath, args: ['--import', recordPid, entry] },
       ...(options.openUrl ? { openUrl: options.openUrl } : {}),
     });
-    return { code, stdout, stderr, asked: [], combined };
+    return { code, stdout, stderr, asked, combined };
   };
 
   // Every daemon and server process this sandbox has seen. A test may kill the daemon on purpose;

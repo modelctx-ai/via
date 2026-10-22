@@ -76,6 +76,29 @@ function runVia(args, { stdin } = {}) {
 }
 
 /**
+ * Run the CLI with a terminal on stdin and stderr, as a person has it, and type `answers` (one line each) as
+ * soon as it has said anything: the lines wait in the terminal and are read by the questions as they come, which
+ * is what typing ahead does. The terminal is a pseudo-terminal from util-linux `script` (the suite runs on
+ * Linux); what the CLI prints goes to the suite's log. Resolves with the CLI's exit code.
+ */
+function runViaOnTerminal(args, answers) {
+  return new Promise((resolveRun, reject) => {
+    const quote = (word) => `'${word.replace(/'/g, `'\\''`)}'`;
+    const command = [process.execPath, via, ...args].map(quote).join(' ');
+    const child = spawn('script', ['-qec', command, '/dev/null'], { env, stdio: ['pipe', 'pipe', 'inherit'] });
+    let typed = false;
+    child.stdout.on('data', (chunk) => {
+      process.stderr.write(chunk);
+      if (typed) return;
+      typed = true;
+      child.stdin.write(answers.map((line) => `${line}\n`).join(''));
+    });
+    child.once('error', reject);
+    child.once('exit', (code) => resolveRun(code ?? 1));
+  });
+}
+
+/**
  * `via auth login conf --manual` without a browser: the suite's authorization endpoint approves by redirecting,
  * so this script fetches the URL via prints, takes the redirect target and hands it to via on stdin, which
  * is what a person does by pasting the page the browser ended up on.
@@ -125,6 +148,13 @@ try {
       // within the retry time it announced. Only the reconnect matters here, so the call is cut short.
       await expectOk(['conf']);
       await runVia(['conf', 'test_reconnection', '--timeout', '20']);
+      break;
+    case 'elicitation-sep1034-client-defaults':
+      // The server asks the person, mid-call, for five fields that all have defaults, and checks that the answer
+      // carries every one of them. A person takes the defaults with the Enter key (five empty lines), then says
+      // yes to sending them.
+      await expectOk(['conf']);
+      if ((await runViaOnTerminal(['conf', 'test-client-elicitation-defaults'], ['', '', '', '', '', 'y'])) !== 0) throw new Error('via conf test-client-elicitation-defaults did not succeed');
       break;
     default:
       if (machine) {

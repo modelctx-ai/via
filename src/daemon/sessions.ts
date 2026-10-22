@@ -171,7 +171,7 @@ export class SessionManager {
     target: ServerTarget,
     rawName: string,
     args: Record<string, unknown>,
-    options: { timeoutMs?: number; retry?: boolean; taskSupport?: string; onProgress?: CallOptions['onProgress']; onTask?: CallOptions['onTask']; onWarning?: (message: string) => void },
+    options: { timeoutMs?: number; retry?: boolean; taskSupport?: string; onProgress?: CallOptions['onProgress']; onTask?: CallOptions['onTask']; onWarning?: (message: string) => void; elicit?: CallOptions['elicit'] },
   ): Promise<ToolCallResult> {
     const server = await this.admit(target);
     const entry = this.entryFor(target, server);
@@ -184,6 +184,7 @@ export class SessionManager {
         ...(options.onProgress ? { onProgress: options.onProgress } : {}),
         ...(options.onTask ? { onTask: options.onTask } : {}),
         ...(options.onWarning ? { onWarning: options.onWarning } : {}),
+        ...(options.elicit ? { elicit: options.elicit } : {}),
       });
       entry.calls += 1;
       return redactProtocol(result, this.redact) as ToolCallResult;
@@ -197,7 +198,7 @@ export class SessionManager {
     target: ServerTarget,
     rawName: string,
     args: Record<string, unknown>,
-    options: { timeoutMs?: number; taskSupport?: string; onProgress?: CallOptions['onProgress']; onTask?: CallOptions['onTask']; onWarning?: (message: string) => void },
+    options: { timeoutMs?: number; taskSupport?: string; onProgress?: CallOptions['onProgress']; onTask?: CallOptions['onTask']; onWarning?: (message: string) => void; elicit?: CallOptions['elicit'] },
   ): Promise<DetachedCall> {
     const server = await this.admit(target);
     const entry = this.entryFor(target, server);
@@ -209,6 +210,7 @@ export class SessionManager {
         ...(options.onProgress ? { onProgress: options.onProgress } : {}),
         ...(options.onTask ? { onTask: options.onTask } : {}),
         ...(options.onWarning ? { onWarning: options.onWarning } : {}),
+        ...(options.elicit ? { elicit: options.elicit } : {}),
       });
       entry.calls += 1;
       return redactProtocol(done, this.redact) as DetachedCall;

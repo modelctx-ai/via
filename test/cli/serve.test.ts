@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { makeEnv } from '../../src/cli/env';
 import { run } from '../../src/cli/run';
 import { commandLine, createServeServer, SERVE_TOOLS } from '../../src/cli/serve';
-import { FAKE_TOKEN, ghConfig, makeSandbox, startFixtureServer, SYSTEM_ENV, useCleanup, type Sandbox } from './helpers';
+import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, makeSandbox, startFixtureServer, SYSTEM_ENV, useCleanup, type Sandbox } from './helpers';
 
 const NOW = 1_800_000_000_000;
 
@@ -208,5 +208,19 @@ describe('a framework entry that starts via serve', () => {
     expect(servers.stdout).toContain('servers.via: runs via serve, which is via itself; left out of the catalog');
     expect(servers.stdout).toContain('servers.via-local: runs via serve');
     expect(servers.stdout).not.toContain('servers.other: runs via serve');
+  });
+});
+
+describe('via serve and a server that asks the user something', () => {
+  it('declines the question and tells the agent to have the user run the command in a terminal', async () => {
+    const sb = makeSandbox();
+    sb.userConfig(
+      `sources: false\nservers:\n  ask:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(CLI_STDIO_SERVER)}]\n    env: { CLI_FIXTURE_FEATURES: "elicit" }\n`,
+    );
+    const client = await connect(sb);
+    const r = await call(client, 'via_call', { tool: 'ask/elicit-confirm', args: {} });
+    expect(r).toMatchObject({ isError: true, exitCode: 5 });
+    expect(r.texts.join('')).toContain('error: ask asked for user input ("Really proceed?") and no terminal was available to answer');
+    expect(r.texts.join('')).toContain("next: ask the user to run this in a terminal: via ask elicit-confirm --args '{}'");
   });
 });

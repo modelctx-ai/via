@@ -16,11 +16,12 @@ import type { ToolResult } from '../../render/types';
 import { formatToolHelp, parseToolArgs, validateOutput, type ParsedToolArgs, type ToolArgsContext, type ToolArgsIO } from '../args';
 import { toErrorInfo, type App, type Listing } from '../app';
 import { matchingDeny, type ProviderEntry } from '../directory';
-import { shellWords, visibleText } from '../../render/shell';
+import { shellArg, shellWords, visibleText } from '../../render/shell';
 import type { TaskInfo } from '../../protocol';
 import { alignRows } from '../../render/width';
 import { CliFailure, fail, usageFailure } from '../failure';
 import { compareSnapshot, readSnapshot, toolDetail, type SchemaChange } from '../args/snapshot';
+import { Elicitation } from '../elicit';
 
 /** A cached schema older than this is refreshed once when validation fails (arguments.md, "schema 不可靠时"). */
 export const SCHEMA_STALE_MS = 5 * 60 * 1000;
@@ -147,6 +148,7 @@ export async function callTool(app: App, initial: ToolTarget, argv: readonly str
       target,
       parseArgs: (tool) =>
         parseToolArgs(argv, tool.def, argsContext(tool), { io: argsIo(app), validate: !app.options.noValidate, redact: app.redact, compile: app.compile }),
+      rerun: rerunCommand(app, target.tool.ref, argv),
     },
     { progress: (text) => app.err(text), warning: (text) => app.err(text) },
   );
@@ -171,6 +173,10 @@ export interface CallRequest {
   confirmNext?: string;
   /** Re-fetches a provider's tool list after a failed validation; undefined when that is not possible. */
   refreshListing?: (entry: ProviderEntry) => Promise<Listing | undefined>;
+  /** Whether a server's question can be put to a person; default: this process has a terminal (`via batch` says no). */
+  interactive?: boolean;
+  /** The command a person could run in a terminal to answer a server's question, for `next:`; absent when there is none to give. */
+  rerun?: string;
 }
 
 /** Where output that happens during the call goes, as it happens (whole stderr lines, newline included). */
@@ -200,15 +206,24 @@ export interface CallOutcome {
  */
 export async function executeCall(app: App, request: CallRequest, sink: CallSink): Promise<CallOutcome> {
   const warnings: string[] = [];
+  // A server may ask the person for input in the middle of the call; with nobody to ask, the outcome says so (ADR 0018).
+  const elicitation = new Elicitation(app, { interactive: request.interactive ?? app.io.interactive, ...(request.rerun !== undefined ? { rerun: request.rerun } : {}) });
   try {
-    return await attemptCall(app, request, sink, warnings);
+    return await elicitation.apply(await attemptCall(app, request, sink, warnings, elicitation));
   } catch (error) {
     const info = await toErrorInfo(error);
-    return { exitCode: info.code, stdout: '', stderr: await app.redactText(formatError(info, app.options.format, app.redact)), warnings, error: info };
+    return elicitation.apply({ exitCode: info.code, stdout: '', stderr: await app.redactText(formatError(info, app.options.format, app.redact)), warnings, error: info });
   }
 }
 
-async function attemptCall(app: App, request: CallRequest, sink: CallSink, warnings: string[]): Promise<CallOutcome> {
+/** `via <ref> <arguments>` as a person would paste it, or undefined when the arguments cannot be given again (read from stdin). */
+function rerunCommand(app: App, ref: string, argv: readonly string[]): string | undefined {
+  if (argv.includes('-')) return undefined;
+  const words = argv.map((word) => shellArg(word, { placeholder: 'value' }));
+  return ['via', shellWords(ref), ...words, ...(app.options.yes ? ['--yes'] : [])].join(' ');
+}
+
+async function attemptCall(app: App, request: CallRequest, sink: CallSink, warnings: string[], elicitation: Elicitation): Promise<CallOutcome> {
   const { options } = app;
   const config = await app.config();
   const { entry } = request.target;
@@ -258,6 +273,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   const callOptions = {
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     retry: tool.readOnly,
+    elicit: elicitation.sink,
     taskSupport: typeof tool.def.execution?.taskSupport === 'string' ? tool.def.execution.taskSupport : 'forbidden',
     onProgress: (p: { progress: number; total?: number; message?: string }) =>
       sink.progress(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${app.redact(sanitizeText(p.message))}` : ''}\n`),

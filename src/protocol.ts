@@ -3,6 +3,7 @@
 // in any of these messages: servers travel as definitions that hold credential *references*.
 import type { McpTool } from './catalog/types';
 import type { ServerConfig } from './config/types';
+import type { ElicitAnswer } from './client/elicit';
 import type { CursorRecord } from './render/cursor';
 import type { ExitCode } from './render/exit-codes';
 import type { ContentBlock, ToolResult } from './render/types';
@@ -59,7 +60,11 @@ export type Request =
    * list is that one it answers without the tools (`unchanged`). Ignored with `refresh`.
    */
   | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
-  /** `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. */
+  /**
+   * `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. `elicit` says
+   * the CLI can answer the server's questions to the person (`elicit` events, answered with `elicit-reply`):
+   * `interactive` when it has a terminal, `decline` when it only wants to be told that they were declined.
+   */
   | ({
       id: string;
       type: 'call';
@@ -74,7 +79,10 @@ export type Request =
       taskSupport?: string;
       /** Send a `task` event when the call became a task. */
       tasks?: boolean;
+      elicit?: 'interactive' | 'decline';
     } & ServerTarget)
+  /** The answer to an `elicit` event of the `call` request `call`; the result says whether somebody was still waiting for it. */
+  | { id: string; type: 'elicit-reply'; call: string; key: string; answer: ElicitAnswer }
   /** A task by id: its state, waiting for its end (and result), cancelling it, or the server's task list. */
   | ({ id: string; type: 'task'; action: 'get' | 'wait' | 'cancel' | 'list'; taskId?: string; timeoutMs: number } & ServerTarget)
   /** `resources/list` plus `resources/templates/list` of one server. Never cached. */
@@ -114,8 +122,11 @@ export type RequestBody = Request extends infer R ? (R extends unknown ? Omit<R,
 
 // Responses -----------------------------------------------------------------------
 
-/** Intermediate message (progress, log); zero or more per request. */
-export type Event = { id: string; type: 'event'; event: 'progress' | 'log' | 'task'; data: unknown };
+/**
+ * Intermediate message (progress, log, task, elicit); zero or more per request. An `elicit` event is a server's
+ * question to the person, `data` being `{ key, question }` (redacted); it is answered with `elicit-reply`.
+ */
+export type Event = { id: string; type: 'event'; event: 'progress' | 'log' | 'task' | 'elicit'; data: unknown };
 
 export type ResultMeta = {
   /** Canonical form of the tool. */

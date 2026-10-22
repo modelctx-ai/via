@@ -9,9 +9,12 @@
 //   h.notify(notification)     send a notification related to this request
 //   h.clientCapabilities()     what the client declared
 //   h.listRoots()              ask the client for its roots (a result `{ roots }`, or undefined when not declared)
+//   h.elicit(key, params)      ask the client's user for input (form or URL mode): a result `{ action, content? }`,
+//                              or undefined when the client did not declare `elicitation`. `key` names the question
+//                              on the stateless protocol, where the handler runs again with the answers.
 //   h.toolsChanged()           tell listeners the tool list changed
 //   h.header(name)             an HTTP request header (stateless protocol over HTTP only; undefined otherwise)
-//   h.fail(code, message)      answer with a JSON-RPC error
+//   h.fail(code, message, data) answer with a JSON-RPC error
 import { Server as LegacyServer } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
@@ -53,6 +56,14 @@ const EXTENSION_METHODS = new Set(['skills/list', 'skills/get', 'tasks/get', 'ta
 
 /** Thrown by `h.listRoots()` on a stateless connection: the handler is asked again with the answer. */
 class NeedRoots extends Error {}
+/** Thrown by `h.listRoots()` and `h.elicit()` on a stateless connection: the handler is asked again with the answers. */
+class NeedInput extends Error {
+  /** @param {Record<string, unknown>} requests */
+  constructor(requests) {
+    super('input required');
+    this.requests = requests;
+  }
+}
 
 /**
  * @param {'legacy' | 'modern'} flavor
@@ -73,10 +84,11 @@ export function buildServer(flavor, info, capabilities, table, options = {}) {
           notify: (notification) => extra.sendNotification(notification),
           clientCapabilities: () => server.getClientCapabilities(),
           listRoots: async () => (server.getClientCapabilities()?.roots ? server.listRoots() : undefined),
+          elicit: async (_key, params) => (server.getClientCapabilities()?.elicitation ? server.elicitInput(params) : undefined),
           toolsChanged: () => server.sendToolListChanged(),
           header: () => undefined,
-          fail: (code, message) => {
-            throw new McpError(code, message);
+          fail: (code, message, data) => {
+            throw new McpError(code, message, data);
           },
         }),
       );
@@ -96,18 +108,24 @@ export function buildServer(flavor, info, capabilities, table, options = {}) {
           if (!envelope[CLIENT_CAPABILITIES_META_KEY]?.roots) return undefined;
           const answered = ctx.mcpReq.inputResponses?.roots;
           if (answered) return answered;
-          throw new NeedRoots();
+          throw new NeedInput({ roots: inputRequired.listRoots() });
+        },
+        elicit: async (key, params) => {
+          if (!envelope[CLIENT_CAPABILITIES_META_KEY]?.elicitation) return undefined;
+          const answered = ctx.mcpReq.inputResponses?.[key];
+          if (answered) return answered;
+          throw new NeedInput({ [key]: params.mode === 'url' ? inputRequired.elicitUrl({ message: params.message, url: params.url }) : inputRequired.elicit(params) });
         },
         header: (name) => ctx.http?.req?.headers.get(name) ?? undefined,
         toolsChanged: () => (options.notifier ? options.notifier.toolsChanged() : server.sendToolListChanged()),
-        fail: (code, message) => {
-          throw new ProtocolError(code, message);
+        fail: (code, message, data) => {
+          throw new ProtocolError(code, message, data);
         },
       };
       try {
         return await handler(request.params ?? {}, h);
       } catch (error) {
-        if (error instanceof NeedRoots) return inputRequired({ inputRequests: { roots: inputRequired.listRoots() } });
+        if (error instanceof NeedInput) return inputRequired({ inputRequests: error.requests });
         throw error;
       }
     });
