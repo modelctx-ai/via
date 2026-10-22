@@ -8,7 +8,7 @@
 
 ### Added
 
-- OAuth client credentials、预注册客户端的 secret、绑定授权服务器（路线图 e7，[ADR 0020](docs/adr/0020-oauth-client-identity-and-credentials.md)、[auth.md](docs/spec/auth.md#oauth-client-credentials)、[security.md](docs/spec/security.md)）：
+- OAuth client credentials、预注册客户端的 secret、绑定授权服务器（路线图 e7，[ADR 0019](docs/adr/0019-oauth-client-identity-and-credentials.md)、[auth.md](docs/spec/auth.md#oauth-client-credentials)、[security.md](docs/spec/security.md)）：
   - `auth.oauth.clientSecret`（凭证引用）让预注册的机密客户端登录与刷新时带上 secret；值不写进存储的记录，`cmd:` 只允许出现在用户配置里（项目与框架配置里的 `auth.oauth.clientSecret`、`privateKey` 在加载阶段拒绝，`cmd-forbidden`）。
   - `auth.oauth.grant: client_credentials`（MCP 扩展 `io.modelcontextprotocol/oauth-client-credentials`）：没有浏览器、没有终端交互，用于 CI 与 headless。配 `clientId` 与 `clientSecret`（`client_secret_basic`/`post`）或 `privateKey` + `keyAlgorithm`（PEM 私钥签名的 `private_key_jwt`，默认 `RS256`）之一；经受保护资源元数据（RFC 9728）发现授权服务器。不需要先登录：没有可用令牌时调用自己申请，令牌存入与授权码登录分开的记录；`via auth login <provider>` 变成可选的验证，`logout` 删除令牌与绑定（不撤销）。`via servers`、`via auth status` 的描述为 `client credentials, token expires in 54m` 之类。授权服务器拒绝凭据是退出码 4（`the authorization server refused the client credentials (invalid_client)`），网络错误和 5xx 是退出码 6。新增依赖：开发依赖 `jose`（模拟授权服务器验证断言）；运行时只在用私钥断言时由 SDK 按需加载 `jose`。
   - 客户端凭据与 refresh token 绑定到验证时的授权服务器（SEP-2352）：记录里存 `issuer`，刷新、机器授权的令牌请求和带配置 secret 的再次登录发现授权服务器变了就拒绝（退出码 4，`error: <provider>: its authorization server changed from <旧> to <新>; the saved client credentials belong to the first and were not sent to the second`，`next: via auth logout <provider>`），不向新的授权服务器发任何凭据。早于这次改动的记录采用遇到的第一个授权服务器。

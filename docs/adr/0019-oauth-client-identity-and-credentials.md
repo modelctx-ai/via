@@ -1,4 +1,4 @@
-# 0020. OAuth 客户端身份与凭据：CIMD、固定回调端口、client credentials、绑定授权服务器
+# 0019. OAuth 客户端身份与凭据：CIMD、固定回调端口、client credentials、绑定授权服务器
 
 - 状态：已接受
 - 日期：2026-10-21

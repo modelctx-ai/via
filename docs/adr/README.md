@@ -23,7 +23,7 @@
 | [0015](0015-npm-scope-modelctx-ai.md) | npm 包名为 `@modelctx-ai/via` | 已接受 |
 | [0016](0016-via-serve-meta-tools-over-stdio.md) | `via serve`：以 stdio MCP server 暴露七个元工具，每次调用就是一次 CLI 命令 | 已接受 |
 | [0017](0017-protocol-versions-newest-first-with-fallback.md) | MCP 协议版本：新版本优先，自动回退，可以固定 | 已接受 |
-| [0020](0020-oauth-client-identity-and-credentials.md) | OAuth 客户端身份与凭据：CIMD、固定回调端口、client credentials、绑定授权服务器 | 已接受 |
+| [0019](0019-oauth-client-identity-and-credentials.md) | OAuth 客户端身份与凭据：CIMD、固定回调端口、client credentials、绑定授权服务器 | 已接受 |
 
 ## 流程
 
