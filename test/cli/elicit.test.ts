@@ -3,6 +3,7 @@
 // fixture asks through `elicitation/create` on the old protocol and through `input_required` on the
 // stateless one, and `-32042` for the URL-required tool.
 import { describe, expect, it } from 'vitest';
+import { shellQuote } from '../../src/render/shell';
 import { defaultGeneration } from '../helpers/generation';
 import { CLI_STDIO_SERVER, FAKE_TOKEN, makeSandbox, normalize, type Sandbox } from './helpers';
 
@@ -47,7 +48,7 @@ describe('no terminal: the question is declined and the call says so', () => {
       [
         'error: ask asked for user input ("Really delete it?") and no terminal was available to answer',
         'the server then said: not confirmed (decline)',
-        "next: ask the user to run this in a terminal: via ask elicit-confirm --what 'delete it'",
+        `next: ask the user to run this in a terminal: via ask elicit-confirm --what ${shellQuote('delete it')}`,
         '',
       ].join('\n'),
     );
@@ -86,7 +87,7 @@ describe('no terminal: the question is declined and the call says so', () => {
     expect(r.asked).toEqual([]);
     expect(r.code).toBe(5);
     expect(r.stderr).toContain('error: line 1: ask asked for user input');
-    expect(r.stderr).toContain('next: ask the user to run this in a terminal: via call ask elicit-confirm --args \'{}\'');
+    expect(r.stderr).toContain(`next: ask the user to run this in a terminal: via call ask elicit-confirm --args ${shellQuote('{}')}`);
   });
 
   it('shows the server\'s text with control characters visible and credentials redacted', async () => {

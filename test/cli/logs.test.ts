@@ -25,7 +25,7 @@ describe('an in-process run writes the server\'s log', () => {
     expect(log).not.toContain(FAKE_TOKEN);
     expect(log).toMatch(/stderr listening with \*\*\*\n/);
     expect(log).toMatch(/stderr second line without end\n/);
-    expect(log).toMatch(/event  starting node; protocol: newest first/);
+    expect(log).toMatch(/event  starting node(\.exe)?; protocol: newest first/);
     expect(log).toMatch(/event  connected in \d+ms; protocol \S+, \w+/);
     expect(log).toMatch(/event  call echo_text ok in \d+ms\n/);
     expect(log).not.toContain('argument-value-0123');
