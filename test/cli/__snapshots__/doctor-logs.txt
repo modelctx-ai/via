@@ -1,0 +1,8 @@
+servers   1 ok
+
+proxy     none
+logs      ~/.cache/via/logs (5 files, 1.2 MiB)
+
+frameworks: no MCP servers found in framework configs
+
+secrets: no plaintext credentials found

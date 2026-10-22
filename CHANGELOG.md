@@ -8,6 +8,7 @@
 
 ### Added
 
+- `via doctor` 显示日志位置（路线图 f3 的后续，[ADR 0022](docs/adr/0022-per-server-logs-rotated-and-redacted.md)、[cli.md](docs/spec/cli.md)、[agent-integration.md](docs/guides/agent-integration.md#via-doctor检测与关闭提示)）：`proxy` 一节之后多一行 `logs      ~/.cache/via/logs (7 files, 1.2 MiB)`，写日志目录和现有日志（含轮转出的副本）的个数与总大小；目录还不存在时写 `(none yet)`。只报告位置与大小，不改变退出码，也不读日志内容（`via daemon logs` 看内容）。**`via doctor` 的输出多了一行 `logs`**，逐行解析它的脚本需要跟着改。
 - 在配置里钉住授权服务器（路线图 e7 的后续，[ADR 0025](docs/adr/0025-pin-the-authorization-server-in-config.md)、[auth.md](docs/spec/auth.md#钉住授权服务器)、[security.md](docs/spec/security.md)）：新增 `servers.<name>.auth.oauth.issuer`，写明期望的授权服务器 issuer（RFC 8414：https 地址，无查询串与片段；`http` 只接受回环主机，否则 `invalid-field`）。发现到别的授权服务器就拒绝，在动态注册、授权请求、令牌请求和任何凭据发出之前（授权码登录、`client_credentials` 登录与令牌请求、刷新都检查；保存的登录属于别的授权服务器时也不再使用）：退出码 4，`error: <provider>: its authorization server is <发现到的>, not <钉住的> as pinned by auth.oauth.issuer; nothing was sent to it`，`next: check auth.oauth.issuer of <provider> in your via config`（保存的登录不符时 `next: via auth logout <provider>`）。比较与绑定一致：忽略末尾的 `/`，其余逐字节相等。弥补绑定在全新的 CI 机器上不起作用（存储里没有记录）的缺口，与绑定同时生效。项目级配置可以写它、不需要 `via trust`（它只会让 via 拒绝）；但用户配置里的钉住不能被项目级配置改掉或去掉。
 - OAuth client credentials、预注册客户端的 secret、绑定授权服务器（路线图 e7，[ADR 0019](docs/adr/0019-oauth-client-identity-and-credentials.md)、[auth.md](docs/spec/auth.md#oauth-client-credentials)、[security.md](docs/spec/security.md)）：
   - `auth.oauth.clientSecret`（凭证引用）让预注册的机密客户端登录与刷新时带上 secret；值不写进存储的记录，`cmd:` 只允许出现在用户配置里（项目与框架配置里的 `auth.oauth.clientSecret`、`privateKey` 在加载阶段拒绝，`cmd-forbidden`）。

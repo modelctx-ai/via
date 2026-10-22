@@ -17,6 +17,7 @@ servers   9 ok · 1 needs auth (linear)
     next: via auth login linear
 
 proxy     none
+logs      ~/.cache/via/logs (7 files, 1.2 MiB)
 
 frameworks still injecting MCP schemas:
   claude-code   6 servers · ~41k tokens/turn
@@ -29,10 +30,10 @@ secrets:
     next: set servers.exa.env.EXA_API_KEY to an env:, file: or keychain: reference in your via config
 ```
 
-输出分五节，节间空一行：
+输出分五节（`proxy` 与 `logs` 两行同属一节），节间空一行：
 
 - **servers**：按状态计数（`ok`、`needs auth`、`failed`、`untrusted`、`disabled`），非 ok 的状态列出 provider 名；探测成功的 server 各占一行写出协商出的 MCP 协议版本和连接是否有状态（`  github: MCP 2026-07-28 stateless`；`protocolVersion` 固定了版本的加 `(pinned)`，[config.md](../spec/config.md#protocolversion)）；需要鉴权、连接失败、未信任的 server 各占一行并附 `next:`（OAuth server 为 `via auth login <provider>`，未信任的项目级文件为 `via trust <路径>`，凭证缺失时用凭证解析给出的提示）。
-- **proxy**：via 自己的 HTTP 请求（MCP server、OAuth、embedding）生效的代理：`proxy     none`，或每个代理一行，用户名和密码显示为 `***@`，后面是 `NO_PROXY` 的清单（[config.md](../spec/config.md#代理)）。
+- **proxy**：via 自己的 HTTP 请求（MCP server、OAuth、embedding）生效的代理：`proxy     none`，或每个代理一行，用户名和密码显示为 `***@`，后面是 `NO_PROXY` 的清单（[config.md](../spec/config.md#代理)）。同一节的下一行 `logs` 写日志目录（用户缓存目录下的 `logs/`，在用户目录之下时缩写为 `~/…`）和现有的日志数与总大小（含轮转出的 `.1`–`.3`）：`logs      ~/.cache/via/logs (7 files, 1.2 MiB)`；目录还不存在（没有记录过任何日志）时写 `(none yet)`。大小用 `B`、`KiB`、`MiB`。这一行只报告位置和大小，不改变退出码；查看内容用 `via daemon logs`（[daemon.md](../spec/daemon.md#日志)）。`via doctor` 只输出文本，`-o json` 对它没有影响。
 - **frameworks still injecting MCP schemas**：按框架归并，数据来自 server 定义所在的框架配置（`origin.framework`），以及 `conflicts` 里被忽略的其他框架定义（同名 server 在多个框架里各被注入一次）。框架里可能已经关掉的 server 无从得知，所以按「仍在注入」估算。每个框架一行：server 数与 token 估算，下一行是 `data/frameworks/` 中的 `disableHint`。
 - **secrets**：明文凭证告警，见下。
 - **config**：配置诊断（`error`、`warning`，不含 `info`；明文凭证的告警并入 secrets，不重复）和目录告警（与内置子命令重名、重复的 provider），仅在有内容时出现。项目配置里的 `cmd:`（`cmd-forbidden`）附 `next:` 说明改在用户配置里定义；信任记录损坏附 `next:` 说明删除后重新 `via trust`。

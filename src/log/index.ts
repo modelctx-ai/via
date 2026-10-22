@@ -208,6 +208,37 @@ export async function pruneLogs(dir: string, now: number = Date.now()): Promise<
   }
 }
 
+/** How much the logs in `dir` take: `undefined` when the directory does not exist (nothing was logged yet). */
+export async function logsSummary(dir: string): Promise<{ files: number; bytes: number } | undefined> {
+  try {
+    await stat(dir);
+  } catch {
+    return undefined;
+  }
+  let files = 0;
+  let bytes = 0;
+  for (const sub of [dir, join(dir, 'servers')]) {
+    let names: string[];
+    try {
+      names = await readdir(sub);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!/\.log(\.\d+)?$/.test(name)) continue;
+      try {
+        const info = await stat(join(sub, name));
+        if (!info.isFile()) continue;
+        files += 1;
+        bytes += info.size;
+      } catch {
+        // removed while counting
+      }
+    }
+  }
+  return { files, bytes };
+}
+
 // What the daemon and the sessions write ---------------------------------------------------------
 
 /**

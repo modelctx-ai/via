@@ -48,6 +48,19 @@ describe('renderDoctor', () => {
     await expect(`${out.text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-healthy.txt');
   });
 
+  it('reports where the logs are after the proxy, with their size, "none yet" before there are any, and nothing when not asked', async () => {
+    const base = { config: config([server('github')]), frameworks: BUNDLED_FRAMEWORKS, probes: [probe('github')], home: '/home/u' };
+    const out = renderDoctor({ ...base, proxy: [], logs: { dir: '/home/u/.cache/via/logs', files: 5, bytes: 1_258_291 } });
+    expect(out.exitCode).toBe(0);
+    await expect(`${out.text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-logs.txt');
+    const line = (logs: NonNullable<Parameters<typeof renderDoctor>[0]['logs']>) => renderDoctor({ ...base, logs }).text.split('\n').find((l) => l.startsWith('logs'));
+    expect(line({ dir: '/home/u/.cache/via/logs' })).toBe('logs      ~/.cache/via/logs (none yet)');
+    expect(line({ dir: '/home/u/.cache/via/logs', files: 1, bytes: 700 })).toBe('logs      ~/.cache/via/logs (1 file, 700 B)');
+    expect(line({ dir: '/home/u/.cache/via/logs', files: 2, bytes: 49_152 })).toBe('logs      ~/.cache/via/logs (2 files, 48 KiB)');
+    expect(line({ dir: '/elsewhere/logs', files: 0, bytes: 0 })).toBe('logs      /elsewhere/logs (0 files, 0 B)');
+    expect(renderDoctor(base).text).not.toContain('logs ');
+  });
+
   it('shows the protocol each healthy server negotiated, and which versions are pinned', () => {
     const out = renderDoctor({
       config: config([server('github'), server('legacy', { protocolVersion: '2025-06-18' }), server('quiet'), server('down')]),
