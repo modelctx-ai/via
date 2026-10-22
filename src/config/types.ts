@@ -29,6 +29,11 @@ export type AuthConfig =
       /** Client ID Metadata Document URL used as `client_id` where supported; `false` turns CIMD off (auth.md). */
       clientMetadataUrl?: string | false;
       /**
+       * Pinned authorization server (`issuer`, RFC 8414): discovery that names another one is refused before
+       * anything is sent to it (auth.md, "钉住授权服务器"). Absent: the server's metadata decides, bound at first use.
+       */
+      issuer?: string;
+      /**
        * `client_credentials`: the machine-to-machine grant (extension `io.modelcontextprotocol/oauth-client-credentials`),
        * no browser. Needs `clientId` and exactly one of `clientSecret` and `privateKey`. Default: the authorization code flow.
        */

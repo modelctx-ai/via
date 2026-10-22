@@ -151,7 +151,7 @@ function auth(r: Reporter, path: string, v: unknown, server?: string): AuthConfi
       const o = v.oauth;
       if (o === null || o === true || o === undefined) return { type: 'oauth' };
       if (!isPlainObject(o)) {
-        r.invalid(`${path}.oauth`, 'map with scopes, clientId and clientMetadataUrl', server);
+        r.invalid(`${path}.oauth`, 'map with scopes, clientId, clientMetadataUrl and issuer', server);
         return undefined;
       }
       const result: AuthConfig & { type: 'oauth' } = { type: 'oauth' };
@@ -171,6 +171,13 @@ function auth(r: Reporter, path: string, v: unknown, server?: string): AuthConfi
               if (isClientMetadataUrl(url)) result.clientMetadataUrl = url;
               else r.invalid(field, 'https URL with a path (no credentials, no fragment), or false', server);
             }
+          }
+        } else if (k === 'issuer') {
+          const field = `${path}.oauth.issuer`;
+          const issuer = str(r, field, val, server);
+          if (issuer !== undefined) {
+            if (isIssuerIdentifier(issuer)) result.issuer = issuer;
+            else r.invalid(field, 'issuer URL: https (http only for a loopback host), no query, no fragment, no credentials', server);
           }
         } else if (k === 'grant') {
           if (val === 'client_credentials') result.grant = 'client_credentials';
@@ -221,6 +228,20 @@ function isClientMetadataUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === 'https:' && url.pathname !== '/' && url.username === '' && url.password === '' && url.hash === '' && !value.includes('#');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An authorization server issuer identifier (RFC 8414, section 2): an https URL without query or fragment. `http` is
+ * accepted for a loopback host only (a local test or development server), as for `search.semantic.url`.
+ */
+function isIssuerIdentifier(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.username !== '' || url.password !== '' || url.search !== '' || value.includes('?') || url.hash !== '' || value.includes('#')) return false;
+    return url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname));
   } catch {
     return false;
   }

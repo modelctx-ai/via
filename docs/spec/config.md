@@ -102,7 +102,7 @@ search:
 | --- | --- | --- |
 | `command`、`args`、`env`、`cwd` | stdio | 进程启动参数；`env` 的值可以是凭证引用 |
 | `url`、`headers` | HTTP | Streamable HTTP 端点；`headers` 的值可以是凭证引用 |
-| `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md)；`oauth` 只适用于 HTTP，可写成 `{ oauth: { scopes: […], clientId: …, clientSecret: …, clientMetadataUrl: … } }`，机器对机器的 `grant: client_credentials` 另见 [auth.md](auth.md#oauth-client-credentials) |
+| `auth` | 全部 | 鉴权方式，见 [auth.md](auth.md)；`oauth` 只适用于 HTTP，可写成 `{ oauth: { scopes: […], clientId: …, clientSecret: …, clientMetadataUrl: …, issuer: … } }`（`issuer` 钉住授权服务器，见 [auth.md](auth.md#钉住授权服务器)；项目级配置可以写，但改不掉用户配置里的钉住），机器对机器的 `grant: client_credentials` 另见 [auth.md](auth.md#oauth-client-credentials) |
 | `alias` | 全部 | provider 名；默认取 server 名 |
 | `rename` | 全部 | 单个工具的规范写法覆盖，如 `{ list_my_issues: "issue:list-mine" }` |
 | `disabled` | 全部 | `true` 时对 via 隐藏这个 server（不影响框架） |

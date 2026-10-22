@@ -37,6 +37,24 @@ export class AuthorizationServerChangedError extends Error {
   }
 }
 
+/**
+ * Discovery (or the saved login) names another authorization server than the one `auth.oauth.issuer` pins. Nothing was
+ * sent to it (exit 4, auth.md, "钉住授权服务器").
+ */
+export class PinnedIssuerMismatchError extends Error {
+  constructor(
+    /** The pinned issuer, as configured. */
+    readonly pinned: string,
+    /** The issuer discovery found, or the one the saved login belongs to. */
+    readonly actual: string,
+    /** The mismatch is with a saved login (no discovery was needed to see it). */
+    readonly savedLogin = false,
+  ) {
+    super('the authorization server is not the pinned one');
+    this.name = 'PinnedIssuerMismatchError';
+  }
+}
+
 /** The authorization server refused the client credentials (client secret or key assertion) of the machine grant (exit 4). */
 export class ClientCredentialsRejectedError extends Error {
   constructor(

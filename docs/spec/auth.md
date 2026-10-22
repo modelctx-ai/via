@@ -26,6 +26,7 @@
 | `grant` | `authorization_code`（默认）或 `client_credentials`（见[OAuth client credentials](#oauth-client-credentials)） |
 | `privateKey`、`keyAlgorithm` | 只与 `grant: client_credentials` 一起用：用私钥签名的客户端断言（`private_key_jwt`），`privateKey` 是 PEM 私钥的凭证引用，`keyAlgorithm` 取 `RS256`（默认）、`RS384`、`RS512`、`PS256`、`PS384`、`PS512`、`ES256`、`ES384`、`ES512` |
 | `clientMetadataUrl` | CIMD 的客户端元数据文档地址，缺省为 via 托管的那份（见[客户端标识](#客户端标识)）；写 `false` 关闭 CIMD、直接动态注册。必须是 https、有路径、不含用户信息与片段，否则是 `invalid-field` 错误 |
+| `issuer` | 钉住授权服务器：期望的 issuer 标识（RFC 8414），发现到别的授权服务器就拒绝（见[钉住授权服务器](#钉住授权服务器)）。https 地址，没有查询串、片段与用户信息；`http` 只接受回环主机；否则是 `invalid-field` 错误。授权码与 `client_credentials` 都适用 |
 
 ### 客户端标识
 
@@ -87,7 +88,31 @@ servers:
 - **再次登录**：`via auth login` 总是重新发现。配置了 `clientSecret` 或机器授权的凭据时，发现到的授权服务器与已有记录的 `issuer` 不同就拒绝，在发出授权请求或令牌请求之前；没有配置 secret 的登录（DCR、CIMD、公开客户端）没有秘密可泄露，照常进行，用新的授权服务器重新注册，覆盖旧记录。
 - 拒绝的表现：退出码 4，`error: <provider>: its authorization server changed from <旧> to <新>; the saved client credentials belong to the first and were not sent to the second`，`next: via auth logout <provider>`。`logout` 删除记录（包括绑定）后再登录，凭据才会被验证到新的授权服务器——这是用户在确认「这个变更是合法的」之后才做的事。
 - 早于绑定功能的记录没有 `issuer` 字段：取 DCR 客户端信息或令牌上的标记；都没有就采用遇到的第一个授权服务器，并在下一次保存时写入。
-- 边界：第一次登录没有可比较的东西，凭据会发往受保护资源元数据当时指向的授权服务器（首次使用即信任）。配置里不能钉住授权服务器；每次 CI 运行都是全新机器时，存储里没有记录，绑定不起作用，这时的保护只来自配置的 `url` 本身需要可信。存储不可写时机器授权的令牌与绑定只存在于本次进程，不报警告（令牌可以重新申请）。
+- 边界：第一次登录没有可比较的东西，凭据会发往受保护资源元数据当时指向的授权服务器（首次使用即信任）。要消除这个边界，在配置里钉住授权服务器（[下节](#钉住授权服务器)）；没有钉住时，每次 CI 运行都是全新机器，存储里没有记录，绑定不起作用，这时的保护只来自配置的 `url` 本身需要可信。存储不可写时机器授权的令牌与绑定只存在于本次进程，不报警告（令牌可以重新申请）。
+
+### 钉住授权服务器
+
+`auth.oauth.issuer` 写明期望的授权服务器（[ADR 0025](../adr/0025-pin-the-authorization-server-in-config.md)）。绑定靠存储里的记录，全新的机器上没有记录可比；钉住来自配置，第一次使用就生效。
+
+```yaml
+servers:
+  ci-tools:
+    url: https://mcp.example.com/mcp
+    auth:
+      oauth:
+        issuer: https://auth.example.com    # 授权服务器元数据里的 issuer
+        grant: client_credentials
+        clientId: ci-bot
+        clientSecret: env:CI_TOOLS_SECRET
+```
+
+- **比较**：发现到的授权服务器的 issuer（元数据里的 `issuer`，没有元数据则为授权服务器的地址，与绑定取的是同一个值）与配置的 `issuer` 相比，忽略末尾的 `/`，其余逐字节相等，不做大小写与端口等规范化——与[绑定](#绑定授权服务器)用同一个比较，要照授权服务器元数据里的写法写。
+- **检查点，都在向授权服务器发出注册、授权请求、令牌请求或任何凭据之前**：登录（授权码流程在发现之后、动态注册与授权请求之前；`client_credentials` 在令牌请求之前）；刷新；机器授权的令牌请求（用保存的发现结果时同样比对，所以后加上的钉住对已保存的发现结果也有效）。
+- **日常调用**：保存的登录所属的 `issuer`（没有则取保存的发现结果）与钉住的不同时，这条登录不再使用，连有效的 access token 也不用。
+- **拒绝的表现**：退出码 4，`error: <provider>: its authorization server is <发现到的>, not <钉住的> as pinned by auth.oauth.issuer; nothing was sent to it`，`next: check auth.oauth.issuer of <provider> in your via config`；保存的登录与钉住的不符时 `next: via auth logout <provider>`（删除这条登录后重新登录）。输出不含凭据。
+- **与绑定的关系**：两者都要满足。钉住与记录绑定的授权服务器不同时，仍按上节拒绝；授权服务器与钉住的不同时先报钉住的错误。钉住不在存储键里，加上或改掉它不产生新记录。
+- **项目级配置**：可以写 `auth.oauth.issuer`，不需要 `via trust`——它只会让 via 拒绝，不会让凭据发往原本不会去的地方。但用户配置（含用户级框架配置与命令行覆盖）里的钉住不能被项目级配置改掉或去掉：项目层的 `auth.oauth` 合并时沿用用户层的 `issuer`，项目层写的值被忽略。用户配置没有钉住时，项目层的钉住生效（见 [security.md](security.md)）。
+- 授权服务器换了地址时：改 `issuer`，并 `via auth logout <provider>`。
 
 ### 存储
 

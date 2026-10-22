@@ -32,6 +32,7 @@
 | **CIMD（Client ID Metadata Document）** | 客户端用一个 https 地址作 `client_id`，授权服务器去取那个地址上的元数据文档（名字、回调地址、认证方式）。`2025-11-25` 授权规范推荐，取代大部分动态注册。via 的文档托管在 `https://modelctx-ai.github.io/via/client-metadata.json`（[auth.md](../spec/auth.md#客户端标识)）。 |
 | **机器授权（client credentials）** | 没有人参与的 OAuth `client_credentials` 授权（MCP 扩展 `io.modelcontextprotocol/oauth-client-credentials`），用于 CI 与 headless；凭据是凭证引用，配置 `auth.oauth.grant: client_credentials`（[auth.md](../spec/auth.md#oauth-client-credentials)）。 |
 | **绑定授权服务器** | 客户端凭据与 refresh token 只发给验证它们时所在的授权服务器，换了就拒绝（[auth.md](../spec/auth.md#绑定授权服务器)）。 |
+| **钉住授权服务器** | 配置里 `auth.oauth.issuer` 写明期望的授权服务器，发现到别的就拒绝，第一次使用就生效（[auth.md](../spec/auth.md#钉住授权服务器)）。 |
 | **凭证引用** | 配置中对凭证的间接写法，如 `env:NAME`、`keychain:service/account`，不写明文。 |
 | **daemon** | 按需拉起、空闲退出的 per-user 后台进程，持有 MCP 会话、目录和凭证。 |
 | **日志（log）** | daemon 与各 server 的运行记录（stdio 子进程的 stderr、连接与协议事件、每次调用一行），在用户缓存目录的 `logs/` 下，按大小轮转、写盘前脱敏，`via daemon logs` 查看（[daemon.md](../spec/daemon.md#日志)）。 |

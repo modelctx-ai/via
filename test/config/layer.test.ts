@@ -65,6 +65,30 @@ describe('validateLayer', () => {
     expect(ok(true).diagnostics.map((d) => d.message)).toEqual(['servers.o.auth.oauth.clientMetadataUrl: expected non-empty string']);
   });
 
+  it('accepts auth.oauth.issuer as an issuer identifier (https, or http on loopback; no query, fragment or credentials); rejects anything else', () => {
+    const ok = (value: unknown) => validateLayer({ servers: { o: { url: 'https://o.invalid', auth: { oauth: { issuer: value } } } } }, undefined);
+    for (const good of ['https://auth.example.com', 'https://auth.example.com/', 'https://auth.example.com/tenant/1', 'http://127.0.0.1:8080', 'http://localhost/as', 'http://[::1]:9000']) {
+      const { data, diagnostics } = ok(good);
+      expect(diagnostics, good).toEqual([]);
+      expect(data.servers.get('o')?.auth, good).toEqual({ type: 'oauth', issuer: good });
+    }
+    for (const bad of ['http://auth.example.com', 'https://auth.example.com/?x=1', 'https://auth.example.com?', 'https://auth.example.com/#x', 'https://u:p@auth.example.com', 'ftp://auth.example.com', 'auth.example.com', 'not a url']) {
+      const { data, diagnostics } = ok(bad);
+      expect(diagnostics.map((d) => d.message), bad).toEqual(['servers.o.auth.oauth.issuer: expected issuer URL: https (http only for a loopback host), no query, no fragment, no credentials']);
+      expect(data.servers.get('o')?.auth, bad).toEqual({ type: 'oauth' });
+    }
+    expect(ok(5).diagnostics.map((d) => d.message)).toEqual(['servers.o.auth.oauth.issuer: expected non-empty string']);
+  });
+
+  it('auth.oauth.issuer goes with any grant, next to the other oauth fields', () => {
+    const { data, diagnostics } = validateLayer(
+      { servers: { ci: { url: 'https://o.invalid', auth: { oauth: { grant: 'client_credentials', clientId: 'ci', clientSecret: 'env:S', issuer: 'https://auth.example.com' } } } } },
+      undefined,
+    );
+    expect(diagnostics).toEqual([]);
+    expect(data.servers.get('ci')?.auth).toEqual({ type: 'oauth', grant: 'client_credentials', clientId: 'ci', clientSecret: 'env:S', issuer: 'https://auth.example.com' });
+  });
+
   describe('auth.oauth client secret, client credentials and key assertion', () => {
     const check = (oauth: unknown) => validateLayer({ servers: { o: { url: 'https://o.invalid', auth: { oauth } } } }, undefined);
     const messages = (oauth: unknown) => check(oauth).diagnostics.map((d) => `${d.level}: ${d.message}`);

@@ -194,6 +194,27 @@ describe('trust (security.md)', () => {
     });
   });
 
+  it('a project file may pin the authorization server where the user has not, but cannot change or drop the user\'s pin', async () => {
+    const tree = makeTree({
+      'home/.config/via/config.yaml':
+        'servers:\n  pinned:\n    url: https://p.invalid/mcp\n    auth: { oauth: { issuer: "https://auth.example.com" } }\n  open:\n    url: https://o.invalid/mcp\n    auth: oauth\n',
+      'project/.via.yaml':
+        'servers:\n  pinned:\n    auth: { oauth: { issuer: "https://attacker.example.invalid" } }\n  open:\n    auth: { oauth: { issuer: "https://auth.example.org" } }\n',
+    });
+    const config = await tree.load();
+    expect(server(config, 'pinned').auth).toEqual({ type: 'oauth', issuer: 'https://auth.example.com' });
+    expect(server(config, 'open').auth).toEqual({ type: 'oauth', issuer: 'https://auth.example.org' });
+    // Pinning is not a launch setting: it needs no trust.
+    expect(server(config, 'pinned').trusted).toBe(true);
+    expect(server(config, 'open').trusted).toBe(true);
+
+    const dropped = await makeTree({
+      'home/.config/via/config.yaml': 'servers:\n  pinned:\n    url: https://p.invalid/mcp\n    auth: { oauth: { issuer: "https://auth.example.com" } }\n',
+      'project/.via.yaml': 'servers:\n  pinned:\n    auth: { oauth: { scopes: [read] } }\n',
+    }).load();
+    expect(server(dropped, 'pinned').auth).toEqual({ type: 'oauth', scopes: ['read'], issuer: 'https://auth.example.com' });
+  });
+
   it('a project override that only changes non-launch settings does not need trust', async () => {
     const tree = makeTree({
       'home/.cursor/mcp.json': JSON.stringify({ mcpServers: { tool: { command: 'tool' } } }),

@@ -14,6 +14,8 @@ export interface Accumulator {
    * env, cwd) or where HTTP requests go and what they carry (url, headers).
    */
   launch: Map<string, ConfigOrigin>;
+  /** `auth.oauth.issuer` set by a non-project layer (user config, user-level framework config, CLI); project layers cannot override it. */
+  userIssuerPin?: string;
 }
 
 export function newAccumulator(): Accumulator {
@@ -62,7 +64,17 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
   if (def.rename !== undefined) d.rename = mergeRecord(d.rename, def.rename);
   if (def.noise !== undefined) d.noise = [...new Set([...(d.noise ?? []), ...def.noise])];
   if (def.roots !== undefined) d.roots = [...def.roots];
-  if (def.auth !== undefined) d.auth = def.auth as AuthConfig;
+  if (def.auth !== undefined) {
+    let auth = def.auth as AuthConfig;
+    if (isProject(origin)) {
+      // A pin from the user's own config (or the CLI) stays: a project file may add one where there is none, but
+      // not change or drop the user's (security.md, "钉住授权服务器"). It cannot make a pin looser, only the user can.
+      if (auth.type === 'oauth' && acc.userIssuerPin !== undefined) auth = { ...auth, issuer: acc.userIssuerPin };
+    } else {
+      acc.userIssuerPin = auth.type === 'oauth' ? auth.issuer : undefined;
+    }
+    d.auth = auth;
+  }
   for (const key of ['alias', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'protocolVersion'] as const) {
     if (def[key] !== undefined) (d as Record<string, unknown>)[key] = def[key];
   }
