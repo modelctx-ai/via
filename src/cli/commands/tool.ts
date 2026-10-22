@@ -14,7 +14,8 @@ import { renderOptions, renderToolResult, sanitizeText } from '../../render/pipe
 import { defaultNoise } from '../../render/rules';
 import type { ToolResult } from '../../render/types';
 import { formatToolHelp, parseToolArgs, validateOutput, type ParsedToolArgs, type ToolArgsContext, type ToolArgsIO } from '../args';
-import { toErrorInfo, type App, type Listing } from '../app';
+import type { App, Listing } from '../app';
+import { toErrorInfo } from '../error-info';
 import { matchingDeny, type ProviderEntry } from '../directory';
 import { shellArg, shellWords, visibleText } from '../../render/shell';
 import type { TaskInfo } from '../../protocol';

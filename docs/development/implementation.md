@@ -37,11 +37,24 @@
 
 - **不经 ESM 门面加载 Node 内置模块。** `import { readFileSync } from 'node:fs'` 会让 Node 为整个 `fs` 生成 ES 模块门面，读遍它的属性，包括惰性的 `fs.promises`，于是加载 `internal/fs/promises`、streams、`readline`，约 12 ms。`scripts/lib/lazy-builtins.ts`（tsup 的 esbuild 插件）把打包产物里对 `fs`、`fs/promises` 的导入改成 `process.getBuiltinModule` 取到的同一模块，名字按当前 Node 在构建时枚举；源码、类型和测试仍照常写 `node:fs`。`node:process`、`node:tty`、`node:crypto`、`node:net` 同样各要 6 到 12 ms，所以：stdout/stderr 用 `fs.writeSync` 写（`src/cli/stdio.ts`，处理 `EAGAIN`；Windows 上只有控制台（字符设备）保留真正的流，管道与文件同样直接写），终端检测按需（`src/builtin.ts`），代码里用全局 `process`。构建后 `scripts/lib/strip-require.ts` 去掉不需要 `require` 的分块里 tsup 加的 `require` 垫片。`test/cli/dist.test.ts` 断言浏览命令不初始化这些模块。
 - **哈希不走 `node:crypto`。** `src/sha256.ts`：64 KiB 以内用纯 JS 的 SHA-256（`test/sha256.test.ts` 与 `node:crypto` 逐例对照），更大的输入才加载 `node:crypto`。配置文件的信任哈希、缓存键、媒体文件名都用它；信任语义不变，仍是文件字节的 SHA-256，且只在真有 stdio 命令要启动时才计算。
-- **预构建目录**（[discovery.md](../spec/discovery.md#预构建缓存)）：把拆分与检索词存成 `catalog/<哈希>.view.json`，浏览命令只读头或体，不解析 schema。规则指纹由构建时的 `define`（`__VIA_RULES_ID__`）注入。
+- **预构建目录**（[discovery.md](../spec/discovery.md#预构建缓存)）：把拆分与检索词存成 `catalog/<哈希>.<名字哈希>.view.json`（每个 server 与 provider 名一份），浏览命令只读头或体，不解析 schema。规则指纹由构建时的 `define`（`__VIA_RULES_ID__`）注入。
 - **配置解析缓存**（[config.md](../spec/config.md#解析缓存)）：YAML 只存结构与偏移，不复制字符串，凭证不会进缓存；合法 JSON 用原生 `JSON.parse`，不加载 `jsonc-parser`。
 - **一次 `import()` 取齐浏览命令要用的模块**（`src/cli/browse-deps.ts`），而不是按命令逐个串行 `import()`；渲染流水线与 MCP 客户端不进浏览命令的加载路径。
 - **分词、签名、索引**：ASCII 快路径（不用正则）、字符串只 kebab 一次、倒排表用扁平数组并能直接使用预算好的词频。分词在一千个工具上约 4–6 ms 降到约 2.3 ms；一千个工具、新进程里的目录构建加索引加首次查询约 80 ms，命中预构建缓存时约 21 ms。
 - **daemon**：不在内存里保存解析后的工具列表（磁盘缓存就是副本），`list` 带 `have` 时不重传（[daemon.md](../spec/daemon.md)）；Node 运行时下拉起时加 `--max-semi-space-size=2` 与（Linux）`MALLOC_ARENA_MAX=2`（`daemonRuntime`），建立会话后的常驻内存少 5 到 10 MiB；SDK 与 ajv 仍是按需加载。
+
+### 0.4 的冷启动回归与修复
+
+0.4 的第一次复测（[bench/results/perf-0.4.md](../../bench/results/perf-0.4.md)）发现浏览类命令比 v0.3.1 慢 3–5 ms。原因不是哪一次提交：每个功能提交往浏览路径上多带了一点只有失败、调用或凭证引用才要的代码，另有两个早就存在的问题。修复和以后写代码要遵守的几条：
+
+- **浏览路径（缓存命中的 `via`、`via <provider>`、`via find`）只加载浏览要用的模块。** 判断标准是 `test/cli/dist.test.ts` 的「缓存命中的浏览命令不加载只有调用、失败、凭证引用或游标才需要的模块」：`commands/tool`、`args/`、`render/pipeline`、`render/media`、`client/errors`、`client/elicit`、`config/credentials`、`platform/command`、`render/cursor-file` 不得出现在这些命令加载的分块里。新增的错误类型、调用相关的渲染、凭证来源的实现放在这些模块里，或者在用到的地方 `import()`，不要从浏览路径上的模块静态引用。需要「只抛、不构造」的地方用小模块：`ClientError` 在 `client/client-error.ts`（`errors.ts` 的构造函数与 `mapError` 很大，只有失败才用），引用的语法在 `config/credential-ref.ts`（配置加载每次都要，解析器 `config/credentials.ts` 经 `config/lazy-resolver.ts` 在第一次 `resolve()` 时才加载）。
+- **按文件 import，不从聚合入口重新导出。** `browse-deps.ts` 直接从 `config/load`、`config/diagnostics` 取东西，不经 `config/index`：打包后 `config/index` 的重新导出会把它引用的每个模块（包括凭证解析器）连成静态依赖，即使用不到。
+- **模块只被一个动态入口引用时，打包器把它放在入口分块里；同时被别的静态引用时多出一个只有几百字节的转发分块。** `App` 只被 `run` 动态 import（`toErrorInfo` 在 `cli/error-info.ts`，`daemonDisabled` 在 `app.ts` 内部），`commands/provider.ts` 只被 `run` 动态 import（`openProvider` 等在 `cli/open-provider.ts`），每省一个分块省约 0.4 ms。
+- **预构建缓存每个 server 与 provider 名一份**：`catalog/<哈希>.<名字哈希>.view.json`。同一个 server 配成两个名字时（两个 agent 框架的配置里各一份）原来共用一个文件，每次运行都有一份未命中、重建、写回（框架配置场景里约 20 ms）。
+- **`dist/` 里有自己的 `package.json`**（`{"type":"module"}`，`scripts/lib/dist-manifest.ts`，构建后写入）。Node 为每个 `.js` 分块找最近的 `package.json`，没有的话每个分块先失败地打开 `dist/package.json`：一次 `via find` 约 200 次失败的 `openat`，2–3 ms。`test/cli/dist.test.ts` 断言它存在。
+- **剖析一条命令的办法**（这次用到的）：`node .build/scripts/bench-perf.js --only none --keep-sandbox`（`--only` 给一个不存在的节名，只建沙盒；先 `npm run bench:perf` 构建过脚本）留下一份有缓存的沙盒；`tsup --metafile` 看每个分块由哪些源文件组成；`--import scripts/lib/load-trace.mjs`（设 `VIA_TRACE_FILE`）看加载了哪些分块；`strace -f -c` 数系统调用；在构建产物的副本里插 `performance.now()` 标记看各阶段；`node --cpu-prof` 看热点。比较两个构建要逐轮交替运行（`bench:perf --compare`），这台机器的噪声比目标的余量还大。
+
+评估后**没有**保留的做法：把几个命令并成一个入口来减少分块数（esbuild 按「被哪些入口引用」划分分块，共享的小模块仍被切开，分块数没有变少）；不分块的单文件（要解析 4.4 MB，`via find` 慢约 190 ms）；`config/parse.ts` 用只导出 `parse` 的小包装模块导入 `jsonc-parser` 与 `smol-toml`（能少加载一半的解析器代码，但单文件的库打包里这两个包变成静态导入，`test/bundle.test.ts` 的约束不再成立）；快照还原里用对象字面量的 getter 代替 `Object.defineProperty`、词典编码检索词、V8 参数、结束时直接 `process.exit()`（都在噪声内或更慢，数字在 perf-0.4）。估计有收益但没做的：合并 `run` 静态链上的小分块的构建后处理、热 daemon 路径提前建立连接、只读原始缓存文件的头部（理由和估计见 perf-0.4）。
 
 ### MCP SDK（v2）
 

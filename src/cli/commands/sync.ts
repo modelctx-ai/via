@@ -2,7 +2,7 @@
 import { ExitCode } from '../../render/exit-codes';
 import { alignRows } from '../../render/width';
 import type { App } from '../app';
-import { toErrorInfo } from '../app';
+import { toErrorInfo } from '../error-info';
 import { statusOf } from '../directory';
 import { usageFailure } from '../failure';
 import { resolveEntry } from '../target';

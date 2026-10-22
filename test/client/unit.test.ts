@@ -120,6 +120,15 @@ describe('mapError', () => {
     expect(mapError(original, ctx)).toBe(original);
   });
 
+  // The daemon backend throws it without loading the error constructors (client-error.ts): a
+  // second class would make `instanceof` and the pass-through above fail for those errors.
+  it('is one class whether it comes from client-error.ts or errors.ts', async () => {
+    const small = (await import('../../src/client/client-error')).ClientError;
+    const big = (await import('../../src/client/errors')).ClientError;
+    expect(small).toBe(big);
+    expect(small).toBe(ClientError);
+  });
+
   it('maps CredentialError to exit 4 with its own next, or auth login', () => {
     expect(mapError(new CredentialError('missing', 'env:X', 'export X=…'), ctx)).toMatchObject({ exitCode: 4, next: 'export X=…' });
     expect(mapError(new CredentialError('missing', 'env:X'), ctx)).toMatchObject({ exitCode: 4, next: 'via auth login acme' });

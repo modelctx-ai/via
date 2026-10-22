@@ -6,37 +6,10 @@ import type { ErrorInfo } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { shellWord, shellWords } from '../render/shell';
 import { sanitizeText } from '../render/sanitize';
+import { ClientError } from './client-error';
 import { urlElicitationsOf } from './elicit';
 
-export class ClientError extends Error implements ErrorInfo {
-  readonly exitCode: ErrorInfo['exitCode'];
-  readonly next?: string;
-  readonly candidates?: string[];
-  /**
-   * True for timeouts and lost connections, the cases where a read-only call may be retried once
-   * (arguments.md, "调用过程"). Not part of `ErrorInfo`.
-   */
-  readonly retryable: boolean;
-  /** `task` for the errors that stop following a task (the call may be continued with `via tasks`): not an argument problem. */
-  kind?: 'task';
-
-  constructor(info: ErrorInfo, retryable = false) {
-    super(info.message);
-    this.retryable = retryable;
-    this.name = 'ClientError';
-    this.exitCode = info.exitCode;
-    if (info.next !== undefined) this.next = info.next;
-    if (info.candidates !== undefined) this.candidates = info.candidates;
-  }
-
-  /** Plain, serializable form (what a daemon response carries). */
-  get info(): ErrorInfo {
-    const info: ErrorInfo = { exitCode: this.exitCode, message: this.message };
-    if (this.next !== undefined) info.next = this.next;
-    if (this.candidates !== undefined) info.candidates = this.candidates;
-    return info;
-  }
-}
+export { ClientError };
 
 /** Where in the lifecycle an error happened; decides the wording of generic failures. */
 export type Phase = 'connect' | 'request';

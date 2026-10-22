@@ -2,7 +2,6 @@
 // "鉴权方式"). Results live in memory only; nothing here logs or persists them.
 import type { CredentialResolver, ServerConfig } from '../config/types';
 import { baseEnvironment } from './env';
-import { oauthNeedsHttp } from './errors';
 
 export interface ResolvedStdio {
   type: 'stdio';
@@ -34,7 +33,8 @@ export async function resolveConnection(
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<ResolvedConnection> {
   const { auth, transport, origin } = server;
-  if (auth.type === 'oauth' && transport.type === 'stdio') throw oauthNeedsHttp(server);
+  // The error constructors are a big module that only a failure needs, and this runs on every browse.
+  if (auth.type === 'oauth' && transport.type === 'stdio') throw (await import('./errors')).oauthNeedsHttp(server);
 
   const resolveAll = async (refs: Record<string, string>): Promise<Record<string, string>> => {
     const out: Record<string, string> = {};

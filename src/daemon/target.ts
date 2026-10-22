@@ -4,7 +4,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { rootUri } from '../client/roots';
-import { parseCredentialRef } from '../config/credentials';
+import { parseCredentialRef } from '../config/credential-ref';
 import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
 

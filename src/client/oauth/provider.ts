@@ -11,7 +11,7 @@
 //
 // The SDK is loaded on demand; importing this module costs nothing at CLI start.
 import type { FetchLike, OAuthClientInformationContext, OAuthClientInformationMixed, OAuthClientMetadata, OAuthClientProvider, OAuthDiscoveryState, OAuthTokens } from '@modelcontextprotocol/client';
-import { MIN_REDACTED_LITERAL_LENGTH } from '../../config/credentials';
+import { MIN_REDACTED_LITERAL_LENGTH } from '../../config/credential-ref';
 import { AuthorizationServerChangedError, ClientCredentialsRejectedError, LoginRequiredError, oauthErrorCode, PinnedIssuerMismatchError, TokenRefreshError } from './errors';
 import { probeChallenge } from './probe';
 import { oauthKey, secretsOf, type OAuthRecord, type OAuthStore, type SetResult } from './store';

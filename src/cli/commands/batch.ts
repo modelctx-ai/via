@@ -6,7 +6,8 @@ import { errorEnvelope, formatError, type ErrorInfo } from '../../render/errors'
 import { ExitCode } from '../../render/exit-codes';
 import { formatElapsed } from '../../render/meta';
 import type { CatalogTool } from '../../catalog';
-import { toErrorInfo, type App, type Listing } from '../app';
+import type { App, Listing } from '../app';
+import { toErrorInfo } from '../error-info';
 import { parseToolArgs, type ParsedToolArgs } from '../args';
 import { parseJson } from '../args/json';
 import type { ProviderEntry } from '../directory';
@@ -14,7 +15,7 @@ import { fail, usageFailure } from '../failure';
 import { COMMAND_USAGE } from '../help';
 import { parseLocal } from '../options';
 import { resolveEntry } from '../target';
-import { resolveToolRef, splitToolRef, type OpenProvider } from './provider';
+import { resolveToolRef, splitToolRef, type OpenProvider } from '../open-provider';
 import { argsContext, executeCall, type CallOutcome, type ToolTarget } from './tool';
 import { shellArg, shellWords } from '../../render/shell';
 

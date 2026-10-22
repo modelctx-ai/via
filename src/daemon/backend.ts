@@ -4,7 +4,7 @@
 import type { Backend, Listing, ListingOptions } from '../cli/backend';
 import type { Compiled, CompileResult, SchemaCompiler } from '../cli/args/validate';
 import type { McpTool } from '../catalog/types';
-import { ClientError } from '../client/errors';
+import { ClientError } from '../client/client-error';
 import type { ElicitAnswer, ElicitQuestion } from '../client/elicit';
 import type { CallOptions, ListOptions } from '../client/session';
 import type { ServerConfig } from '../config/types';

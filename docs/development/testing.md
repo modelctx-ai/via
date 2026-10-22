@@ -211,7 +211,7 @@ mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不�
 - **daemon 内存看匿名内存。** RSS 里约 45–49 MiB 是 node 可执行文件映射进来的页，与别的 node 进程共享，不随 via 的改动变化；RssAnon（Linux 的 `/proc/<pid>/status`）才反映 daemon 自己占用的内存。55 MiB 是 0.4 的实测定的：同样的操作在当前代码上 RssAnon 是 34–49.5 MiB（0.3 复测时 27–30 MiB，之后的 SDK v2 迁移等改动抬高了它），55 MiB 比测到的最高值高约 11%。没有 `/proc` 的平台（macOS）退回 RSS，标明是 RSS，阈值为 105 MiB（RssAnon 的阈值加约 49 MiB 的文件页）。
 - 目标是报告，不是门禁：时间不进 vitest 断言（见下），`npm run bench:perf` 逐项打印是否达到，未达到的项不会让脚本失败。改目标要在同一个 PR 里更新这一节与结果文件。
 
-0.4 的复测（[bench/results/perf-0.4.md](../../bench/results/perf-0.4.md)，Linux，Node 22，4 核虚拟机，负载 1–3，四次运行）：达到的有库路径 `find`（22.6 ms）、热 daemon 的额外开销（4.8–7.9 ms）、daemon 的 RssAnon（最高 37.7–48.0 MiB）、经热 daemon 的 `via`（62.6–71.7 ms）。没有达到的：`via`、`via <provider>`、`via find` 比裸 node 多 49–56 ms（目标不超过 50），经热 daemon 的 `via find`（74–81 ms，目标 < 70），带框架配置的 `via`（78–82 ms，在线上）与 `via find`（85–96 ms，目标 < 80），整进程 `find`（82–87 ms，目标不超过 80）。这些比 0.3 的复测（44–51 ms，热 daemon 的 `via` 约 51 ms）高，回归没有二分过。
+0.4 的复测与修复（[bench/results/perf-0.4.md](../../bench/results/perf-0.4.md)，Linux，Node 22，4 核虚拟机，平均负载约 1，修复前后各六次运行）：第一次复测发现浏览类命令比 v0.3.1 慢 3–5 ms，原因（浏览路径上多加载了只有失败、调用、凭证引用、游标才用的代码；预构建缓存在同一 server 两个名字时互相覆盖；`dist/` 没有 `package.json`）和修复见 [implementation.md](implementation.md#04-的冷启动回归与修复)。修复后：达到的有 `via`（中位数 +45.6 ms）、带框架配置的 `via`（+60.8）、库路径 `find`（22.9–27.5 ms）、热 daemon 的额外开销（5.6–7.2 ms）、daemon 的 RssAnon（最高 37.4–44.2 MiB）；在线上的有 `via github`（+50.6）、带框架配置的 `via find`（+78.7）、经热 daemon 的 `via`（+68–75）。**没有达到**：`via find`（无 daemon，+49–58 ms，中位数 +56.9，目标不超过 50）、经热 daemon 的 `via find`（+75–89 ms，目标 < 70）、一千个工具的整进程 `find`（+85–104 ms，目标不超过 80）；热 daemon 的两项在这台机器上 v0.3.1 也是 +68 与 +80（逐轮交替测得），目标没有改。这台共享的虚拟机上同一个构建同一条命令在多次运行里能差 9–24 ms，所以判定看多次运行的分布，比较改动前后只看同一次运行里交替的数字。
 
 历史：0.2 的实测（Linux，Node 22，一个 stdio server）热 daemon 上一次请求的往返约 0.3 ms（`status`、`validate`）到 1 ms（`list`、`call`），连接加握手约 2–6 ms；daemon 空闲时约 58 MB，建立一个会话并加载 MCP SDK 与 ajv 后约 79–86 MB。0.3 的冷启动工作（同一次交替运行里与改动前比较）让浏览类命令比裸 `node -e 0` 少 28–51 ms（`via` 71.8 变 44.3，`via <provider>` 82.2 变 47.9，`via find` 102.1 变 50.7），一千个工具上 `find` 的库路径从 81 ms 变 21 ms，daemon 建立两个会话后从 89–92 MiB 变 76–79 MiB（RSS）。
 
@@ -221,6 +221,7 @@ mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不�
 npm run build        # 基准测量的是 dist/，先打包
 npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调整次数，--dist <目录> 测另一份构建（用来对比改动前后）
                      # --only cold,scenarios,find,call,loads,daemon 只跑某几节；--compare <目录> 在场景一节里与另一份构建交替运行；--plain-daemon 让第 5 节的 daemon 不带 V8 与 malloc 设置（测更早的构建时用）
+                     # --keep-sandbox 不删除沙盒（HOME、配置、目录缓存；场景一节的两个场景也是）并打印路径，用来对同一份缓存手工跟踪、剖析一条命令
 ```
 
 `scripts/bench-perf.ts` 在隔离的 HOME 与 TMPDIR 里运行（不读取任何真实的框架配置）；除热 daemon 一节外都设 `VIA_NO_DAEMON=1`，保证各项可比。每项预热后取多次的中位数、p95 与最小值，并对照上表（冷启动与场景类的行同时给出与 `node -e 0` 的差值）：
@@ -239,8 +240,9 @@ npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调�
 
 几层只为加速而存在的缓存都有不依赖时间的测试，共同要求是：命中与未命中的输出完全相同，且不会把凭证值写到磁盘。
 
-- **预构建目录**（`test/cli/view-cache.test.ts`、`test/catalog/search.test.ts`）：还原出的目录与现算的逐项相等，用它建的索引对一组查询给出同样的命中、层级与分数；原始列表（`fetchedAt`、文件长度）、规则指纹（数据文件、版本）、各构建输入（别名、`rename`、`deny`）任一变化都使旧文件作废；损坏、被改写或版本不符的文件等同于未命中；缓存文件里不含字面量凭证。
+- **预构建目录**（`test/cli/view-cache.test.ts`、`test/catalog/search.test.ts`）：还原出的目录与现算的逐项相等，用它建的索引对一组查询给出同样的命中、层级与分数；同一个 server 的两个 provider 名各有一份、清除 server 的缓存时一并删除、早先的文件名被清理；原始列表（`fetchedAt`、文件长度）、规则指纹（数据文件、版本）、各构建输入（别名、`rename`、`deny`）任一变化都使旧文件作废；损坏、被改写或版本不符的文件等同于未命中；缓存文件里不含字面量凭证。
 - **配置解析缓存**（`test/config/parse-cache.test.ts`、`test/config/parse.test.ts`）：命中与直接解析的结果相等；文件改一个字节就换键；别名、转义、多行标量等表达不了的文档不写入；缓存目录里的文件不含配置里的任何字符串（用字面量令牌检查）；信任哈希仍取文件字节。
 - **cache 文件与 daemon**（`test/daemon/backend.test.ts`、`test/daemon/protocol.test.ts`）：`list` 带 `have` 时的 `unchanged` 应答、`have` 不符时照常发送、daemon 内存里不留解析后的列表，磁盘写不进去时才留。
+- **凭证解析器的延迟包装**（`test/config/lazy-resolver.test.ts`）：与真正的解析器结果一致，解析器加载之前 `track` 的秘密保留，错误原样传出。
 - **哈希**（`test/sha256.test.ts`）：纯 JS 实现与 `node:crypto` 逐例对照（空串、边界长度、多字节字符、64 KiB 前后）。
-- **打包产物**（`test/cli/dist.test.ts`）：`--version` 与浏览命令不加载被禁的内置模块和库，`require` 垫片只出现在用到它的分块里。
+- **打包产物**（`test/cli/dist.test.ts`）：`--version` 与浏览命令不加载被禁的内置模块和库，缓存命中的浏览命令不加载只有调用、失败、凭证引用或游标才需要的模块（`commands/tool`、参数解析、渲染流水线、`client/errors`、凭证解析器、游标文件），`require` 垫片只出现在用到它的分块里，`dist/` 有自己的 `package.json`。
