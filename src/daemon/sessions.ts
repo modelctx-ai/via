@@ -7,7 +7,7 @@ import type { McpTool } from '../catalog/types';
 import { CATALOG_TTL_MS, CatalogCache, effectiveTtl } from '../cli/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { SkillEntry, SkillRead, CompletionRef, CompletionResult, GetPromptResult, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
+import type { DetachedCall, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, CompletionRef, CompletionResult, GetPromptResult, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
@@ -171,7 +171,7 @@ export class SessionManager {
     target: ServerTarget,
     rawName: string,
     args: Record<string, unknown>,
-    options: { timeoutMs?: number; retry?: boolean; onProgress?: CallOptions['onProgress']; onWarning?: (message: string) => void },
+    options: { timeoutMs?: number; retry?: boolean; taskSupport?: string; onProgress?: CallOptions['onProgress']; onTask?: CallOptions['onTask']; onWarning?: (message: string) => void },
   ): Promise<ToolCallResult> {
     const server = await this.admit(target);
     const entry = this.entryFor(target, server);
@@ -180,7 +180,9 @@ export class SessionManager {
       const result = await entry.session.callTool(rawName, args, {
         timeoutMs: options.timeoutMs ?? server.timeout * 1000,
         ...(options.retry ? { retry: true } : {}),
+        ...(options.taskSupport !== undefined ? { taskSupport: options.taskSupport } : {}),
         ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+        ...(options.onTask ? { onTask: options.onTask } : {}),
         ...(options.onWarning ? { onWarning: options.onWarning } : {}),
       });
       entry.calls += 1;
@@ -188,6 +190,48 @@ export class SessionManager {
     } finally {
       this.end(entry);
     }
+  }
+
+  /** `tools/call` that returns once a task exists (`--detach`). */
+  async detach(
+    target: ServerTarget,
+    rawName: string,
+    args: Record<string, unknown>,
+    options: { timeoutMs?: number; taskSupport?: string; onProgress?: CallOptions['onProgress']; onTask?: CallOptions['onTask']; onWarning?: (message: string) => void },
+  ): Promise<DetachedCall> {
+    const server = await this.admit(target);
+    const entry = this.entryFor(target, server);
+    this.begin(entry);
+    try {
+      const done = await entry.session.detachTool(rawName, args, {
+        timeoutMs: options.timeoutMs ?? server.timeout * 1000,
+        ...(options.taskSupport !== undefined ? { taskSupport: options.taskSupport } : {}),
+        ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+        ...(options.onTask ? { onTask: options.onTask } : {}),
+        ...(options.onWarning ? { onWarning: options.onWarning } : {}),
+      });
+      entry.calls += 1;
+      return redactProtocol(done, this.redact) as DetachedCall;
+    } finally {
+      this.end(entry);
+    }
+  }
+
+  /** Task requests: the state of one, waiting for its end, cancelling it, or the server's listing. */
+  task(target: ServerTarget, action: 'get' | 'wait' | 'cancel' | 'list', taskId: string | undefined, options: { timeoutMs: number }): Promise<TaskInfo | TaskOutcome | TaskList> {
+    return this.ask<TaskInfo | TaskOutcome | TaskList>(target, (session) => {
+      const id = String(taskId ?? '');
+      switch (action) {
+        case 'get':
+          return session.getTask(id, options);
+        case 'wait':
+          return session.waitForTask(id, options);
+        case 'cancel':
+          return session.cancelTask(id, options);
+        default:
+          return session.listTasks(options);
+      }
+    });
   }
 
   /** `resources/list` and `resources/templates/list`, redacted. */

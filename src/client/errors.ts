@@ -4,7 +4,7 @@
 import { CredentialError, type ServerConfig } from '../config/types';
 import type { ErrorInfo } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
-import { shellWord } from '../render/shell';
+import { shellWord, shellWords } from '../render/shell';
 import { sanitizeText } from '../render/sanitize';
 
 export class ClientError extends Error implements ErrorInfo {
@@ -16,6 +16,8 @@ export class ClientError extends Error implements ErrorInfo {
    * (arguments.md, "调用过程"). Not part of `ErrorInfo`.
    */
   readonly retryable: boolean;
+  /** `task` for the errors that stop following a task (the call may be continued with `via tasks`): not an argument problem. */
+  kind?: 'task';
 
   constructor(info: ErrorInfo, retryable = false) {
     super(info.message);
@@ -157,6 +159,45 @@ export function skillRefused(server: ServerConfig, uri: string, problem: string,
     message: `refused ${oneLine(redact, uri)}: ${oneLine(redact, problem)}; nothing was printed`,
     next: `via skills ${server.provider}`,
   });
+}
+
+// Tasks (ADR 0020) -------------------------------------------------------------------------------
+
+/** The `<provider>/<task id>` spelling of a task (cli.md, "任务"). */
+export function taskRef(provider: string, id: string): string {
+  return `${provider}/${id}`;
+}
+
+const taskNext = (server: ServerConfig, id: string, flag = ''): string => `${shellWords(['via', 'tasks', server.provider, id])}${flag}`;
+
+/** `--timeout` ran out while following a task. The task was not cancelled; the same task id continues it (exit code 6). */
+export function taskStillRunning(server: ServerConfig, id: string, seconds: string, redact: (text: string) => string): ClientError {
+  const err = new ClientError({ exitCode: ExitCode.Upstream, message: `still running as task ${oneLine(redact, taskRef(server.provider, id))} after ${seconds}s; it was not cancelled`, next: taskNext(server, id) }, false);
+  err.kind = 'task';
+  return err;
+}
+
+/** A task that waits for input via cannot give (exit code 1; `--cancel` ends it). */
+export function taskNeedsInput(server: ServerConfig, id: string, methods: readonly string[], redact: (text: string) => string): ClientError {
+  const what = methods.length > 0 ? ` (${methods.map((m) => oneLine(redact, m)).join(', ')})` : '';
+  const err = new ClientError({ exitCode: ExitCode.ToolError, message: `task ${oneLine(redact, taskRef(server.provider, id))} is waiting for input${what}, which via cannot give`, next: taskNext(server, id, ' --cancel') });
+  err.kind = 'task';
+  return err;
+}
+
+/** The server does not know the task (never had it, or it expired): exit code 3. */
+export function taskNotFound(server: ServerConfig, id: string, redact: (text: string) => string): ClientError {
+  return new ClientError({ exitCode: ExitCode.NotFound, message: `no such task: ${oneLine(redact, id)} (it may have expired)`, next: `via tasks ${server.provider}` });
+}
+
+/** `via tasks` on a server without tasks (exit code 3, nothing was sent). */
+export function noTasks(server: ServerConfig, why: string): ClientError {
+  return new ClientError({ exitCode: ExitCode.NotFound, message: `${server.provider} does not offer MCP tasks: ${why}`, next: `via ${server.provider}` });
+}
+
+/** `--detach` that cannot be honored: the server or the tool cannot run as a task (exit code 2, nothing was sent). */
+export function cannotDetach(server: ServerConfig, why: string): ClientError {
+  return new ClientError({ exitCode: ExitCode.Usage, message: `cannot detach: ${why}`, next: 'rerun without --detach' });
 }
 
 export function internal(message: string): ClientError {

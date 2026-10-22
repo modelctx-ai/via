@@ -15,7 +15,11 @@
 import { Server as LegacyServer } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
+  CancelTaskRequestSchema,
   CompleteRequestSchema,
+  GetTaskPayloadRequestSchema,
+  GetTaskRequestSchema,
+  ListTasksRequestSchema,
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
   ListResourceTemplatesRequestSchema,
@@ -27,6 +31,10 @@ import {
 import { CLIENT_CAPABILITIES_META_KEY, inputRequired, ProtocolError, Server as ModernServer } from '@modelcontextprotocol/server';
 
 const LEGACY_SCHEMAS = {
+  'tasks/get': GetTaskRequestSchema,
+  'tasks/result': GetTaskPayloadRequestSchema,
+  'tasks/list': ListTasksRequestSchema,
+  'tasks/cancel': CancelTaskRequestSchema,
   'completion/complete': CompleteRequestSchema,
   'tools/list': ListToolsRequestSchema,
   'tools/call': CallToolRequestSchema,
@@ -41,7 +49,7 @@ const LEGACY_SCHEMAS = {
 const ANY = { '~standard': { version: 1, vendor: 'fixture', validate: (value) => ({ value }) } };
 
 /** Methods the stateless server registers with explicit schemas: not in the core spec. */
-const EXTENSION_METHODS = new Set(['skills/list', 'skills/get']);
+const EXTENSION_METHODS = new Set(['skills/list', 'skills/get', 'tasks/get', 'tasks/cancel']);
 
 /** Thrown by `h.listRoots()` on a stateless connection: the handler is asked again with the answer. */
 class NeedRoots extends Error {}

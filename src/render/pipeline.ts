@@ -63,6 +63,8 @@ export interface RenderContext {
   flags?: string[];
   /** Warnings to print before the meta line (e.g. `outputSchema` mismatch). */
   warnings?: string[];
+  /** The command the meta line suggests next when the output has no cursor (a detached task: `via tasks gh <id>`). */
+  next?: string;
 }
 
 export interface RenderOutput {
@@ -257,7 +259,7 @@ export async function renderToolResult(
   if (options.format === 'raw') {
     const text = withNewline(scan(rawText(result, ctx.media, redact)));
     const bytes = Buffer.byteLength(text, 'utf8');
-    const meta: MetaInfo = { ref: ctx.ref, elapsedMs: ctx.elapsedMs, bytes: { shown: bytes, total: bytes }, flags: ctx.flags };
+    const meta: MetaInfo = { ref: ctx.ref, elapsedMs: ctx.elapsedMs, bytes: { shown: bytes, total: bytes }, flags: ctx.flags, ...(ctx.next ? { next: ctx.next } : {}) };
     return { stdout: text, stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok, meta };
   }
 
@@ -276,6 +278,7 @@ export async function renderToolResult(
     hiddenColumns: options.format === 'text' ? body.hiddenColumns : 0,
     flags: ctx.flags,
     bytes: { shown: 0, total: 0 },
+    ...(ctx.next ? { next: ctx.next } : {}),
   };
 
   const totalBytes = linesBytes(all);

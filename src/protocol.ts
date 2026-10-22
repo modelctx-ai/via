@@ -60,7 +60,23 @@ export type Request =
    */
   | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   /** `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. */
-  | ({ id: string; type: 'call'; rawName: string; args: Record<string, unknown>; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
+  | ({
+      id: string;
+      type: 'call';
+      rawName: string;
+      args: Record<string, unknown>;
+      timeoutMs?: number;
+      retry?: boolean;
+      progress?: boolean;
+      /** `--detach`: return as soon as the server made a task; the result is a `DetachedCall`. */
+      detach?: boolean;
+      /** The tool's declared `execution.taskSupport` (2025-11-25), which decides whether a task is asked for. */
+      taskSupport?: string;
+      /** Send a `task` event when the call became a task. */
+      tasks?: boolean;
+    } & ServerTarget)
+  /** A task by id: its state, waiting for its end (and result), cancelling it, or the server's task list. */
+  | ({ id: string; type: 'task'; action: 'get' | 'wait' | 'cancel' | 'list'; taskId?: string; timeoutMs: number } & ServerTarget)
   /** `resources/list` plus `resources/templates/list` of one server. Never cached. */
   | ({ id: string; type: 'resources-list'; timeoutMs: number } & ServerTarget)
   /** `resources/read`. */
@@ -99,7 +115,7 @@ export type RequestBody = Request extends infer R ? (R extends unknown ? Omit<R,
 // Responses -----------------------------------------------------------------------
 
 /** Intermediate message (progress, log); zero or more per request. */
-export type Event = { id: string; type: 'event'; event: 'progress' | 'log'; data: unknown };
+export type Event = { id: string; type: 'event'; event: 'progress' | 'log' | 'task'; data: unknown };
 
 export type ResultMeta = {
   /** Canonical form of the tool. */
@@ -234,6 +250,35 @@ export type CompletionRef = { type: 'ref/prompt'; name: string } | { type: 'ref/
 
 /** `result` of `complete`: the server's suggestions in its own order. */
 export type CompletionResult = { values: string[]; total?: number; hasMore?: boolean };
+
+// Tasks (both generations; ADR 0020) ------------------------------------------------------
+
+/** A task as either generation describes it (client/tasks.ts `readTask`). Times are milliseconds, timestamps are the server's strings. */
+export type TaskInfo = {
+  id: string;
+  /** `working`, `input_required`, `completed`, `failed` or `cancelled`. */
+  status: string;
+  /** `statusMessage`. */
+  message?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  ttlMs?: number;
+  /** The server's suggested polling interval. */
+  pollMs?: number;
+  /** The message of `error` on a failed task (2026-07-28). */
+  error?: string;
+  /** The methods of the requests an `input_required` task waits for an answer to. */
+  inputMethods?: string[];
+};
+
+/** `result` of a `call` with `detach`: the task the server made, or, when it made none, the result. */
+export type DetachedCall = { task: TaskInfo } | { result: ToolCallResult };
+
+/** `result` of `task` with `wait`: the task and, once it completed, its result (a failed or cancelled task has an error result; `input_required` has none). */
+export type TaskOutcome = { task: TaskInfo; result?: ToolCallResult };
+
+/** `result` of `task` with `list`: undefined tasks when the server has no listing (the 2026-07-28 extension has none). */
+export type TaskList = { tasks?: TaskInfo[] };
 
 // Skills (the `io.modelcontextprotocol/skills` extension) ----------------------------
 

@@ -15,6 +15,8 @@ via resources <provider>                  列出该 server 的 MCP 资源与资�
 via read <provider> <uri>                 读取一个 MCP 资源
 via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时取该 prompt
 via skills <provider> [<名称> [<文件>]]   列出 MCP 技能；带名称时读 SKILL.md，再带文件时读该附属文件
+via tasks <provider> [<任务ID>]           列出任务；带任务 ID 时等它结束并输出结果（`--status`、`--cancel`）
+via <provider> <工具> … --detach          调用工具，任务一创建就返回任务 ID
 via <provider> -h                         provider 视图，前面加上 server 的自述（instructions、description）
 ```
 
@@ -56,13 +58,14 @@ via <provider> -h                         provider 视图，前面加上 server 
 | `via resources <provider>` | 列出 MCP 资源与资源模板（[见下](#mcp-资源与-prompt-命令)） |
 | `via read <provider> <uri>` | 读取一个 MCP 资源 |
 | `via prompts <provider> [<名称> [参数]]` | 列出 MCP prompt；带名称时取该 prompt，参数写法同工具 |
-| `via skills <provider> [<名称> [<文件>]]` | 列出 MCP 技能（`2026-07-28` 的 Skills 扩展）；带名称时读 `SKILL.md`，再带文件时读该附属文件，内容按 server 发布的清单核对后才输出（[见下](#技能-via-skills)） |
+| `via skills <provider> [<名称> [<文件>]]` | 列出 MCP 技能（`2026-07-28` 的 Skills 扩展）；带名称时读 `SKILL.md`，再带文件时读该附属文件，内容按 server 发布的清单核对后才输出（[见下](#技能via-skills)） |
+| `via tasks <provider> [<任务ID>] [--status \| --cancel]` | 列出任务；带任务 ID 时等它结束并像工具调用一样输出结果，`--status` 只看状态，`--cancel` 取消（[见下](#任务via-tasks-与---detach)） |
 | `via daemon status\|stop\|run` | 管理后台进程；`run` 供内部拉起使用（[daemon.md](daemon.md)） |
 | `via serve` | 以 stdio MCP server 运行，向没有 shell 的 agent 暴露元工具（[见下](#via-serve)） |
 
 内置子命令名是保留字，大小写不敏感，不接受前缀。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警，该 server 在改名前不出现在任何视图里。
 
-0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用，`serve`、`skills` 自 0.4 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
+0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用，`serve`、`skills`、`tasks` 自 0.4 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
 
 各命令的细节：
 
@@ -166,6 +169,60 @@ files: references/FORMS.md · assets/pixel.png  (via skills gh refunds <file>)
 - **核对**：每次读取先 `skills/get` 取最新的条目，再 `resources/read` 取文件，比较字节数与 `sha256:`（文本按 UTF-8，`blob` 按解码后的字节）。大小或摘要不符、文件不在清单里、server 没有返回内容：**拒绝**，不输出任何内容，退出码 6，`error: refused skill://x/SKILL.md: its sha256 differs from the manifest's (…); nothing was printed`，`next: via skills <provider>`（重新取清单）。清单是 `"dynamic"` 时没有可核对的东西，照常输出并在 stderr 警告 `could not be checked`，`-o json` 里 `verified` 为 false。核对在会话层（daemon 里的会话也一样）对 server 发来的原字节进行，之后才脱敏和渲染，所以内容里恰好有凭证值时是被替换，不是被拒绝。**不核对** `SKILL.md` 自己的 frontmatter 与条目是否一致（需要 YAML 解析）。
 - **没有技能**：server 的协议版本不是 `2026-07-28`，或它没有声明 `io.modelcontextprotocol/skills`，不发 `skills/*` 请求，退出码 3：`error: gh does not offer MCP skills: it speaks MCP 2025-11-25; skills need 2026-07-28 and the io.modelcontextprotocol/skills extension`（或 `…: it did not declare the io.modelcontextprotocol/skills extension`），`next: via gh`。server 声明扩展时，provider 视图的 `also:` 行多一项 `via skills <provider>`（[discovery.md](discovery.md#via-provider)）。
 - 技能内容与工具输出一样是不可信的数据，via 不解释它们、不把它们写进任何框架的技能目录（[ADR 0003](../adr/0003-read-only-framework-configs.md)）；要保存就 `via skills gh refunds > SKILL.md`。
+
+### 任务（`via tasks` 与 `--detach`）
+
+MCP 的 tasks 让一次 `tools/call` 变成一个可以事后查询的长任务。两代协议各有一种：`2025-11-25` 的核心协议（实验性，client 用 `task` 参数要求建任务）和 `2026-07-28` 的 `io.modelcontextprotocol/tasks` 扩展（server 自己决定，没有任务列表）。via 把它们收成同一套用法；设计理由、两代协议的对照见 [ADR 0020](../adr/0020-tasks-and-skills-commands.md)。
+
+**调用默认跟随到结果。** 不需要任何选项：
+
+```console
+$ via gh report:generate --ms 3000
+progress: task gh/job/1 working
+report ready after 3000ms
+· gh report:generate · 3.1s · 25 bytes
+```
+
+- 什么时候有任务：`2026-07-28` 由 server 决定（via 在每个请求里声明扩展）；`2025-11-25` 只有工具声明 `execution.taskSupport: required` 且 server 声明了 `tasks.requests.tools.call` 时 via 才带 `task` 去要，`optional` 的工具照旧同步调用。任务一出现，via 把它记下来并在 stderr 写一行 `progress: task <provider>/<任务ID> <状态>`，然后按 server 建议的间隔（100 毫秒到 5 秒，缺省 1 秒）轮询，结束后输出与同步调用完全一致：`completed` 时是工具结果（2025 用 `tasks/result`，2026 取 `tasks/get` 里内联的 `result`），`failed` 与 `cancelled` 像 `isError` 的工具结果一样输出（退出码 1，`next:` 指向该工具的 `-h`）。`--dry-run`、`--yes`、`deny`、本地校验不受影响。
+- **受 `--timeout` 约束**（缺省为 server 的 `timeout`，整次调用的预算）。超时**不取消任务**，退出码 6：`error: still running as task gh/job/1 after 30s; it was not cancelled`，`next: via tasks gh job/1`。同一个命令继续等；之后可以再加 `--timeout`。
+- 任务进入 `input_required`（server 要 client 回答问题）：via 不回答，停止等待，退出码 1：`error: task gh/job/1 is waiting for input (elicitation/create), which via cannot give`，`next: via tasks gh job/1 --cancel`。
+- 读只读工具超时的自动重试（[arguments.md](arguments.md#调用过程)）在任务创建之后不再发生：重发会把任务跑两遍。
+
+**`--detach`**（全局选项）：任务创建后立即返回。
+
+```console
+$ via gh --detach report:generate --ms 3000
+task: gh/job/1
+status: working
+progress: task gh/job/1 working        （stderr）
+· gh report:generate · 40ms · 32 bytes · next: via tasks gh job/1
+```
+
+- `task:` 是**带 provider 前缀**的任务 ID，`<provider>/<server 给的 ID>`（ID 可能自带 `/`，所以只在第一个 `/` 处拆）；`-o json` 是 `{"task", "status", "message"?}`。`next:` 用两词写法，ID 按[引号规则](output.md#可粘贴的命令行)引用。
+- `2026-07-28` 的 server 可以不建任务而直接回结果（任务太短，或不想建）：这时输出结果本身，元信息行多一个标记 `no task`，退出码 0。
+- 不能满足时不发请求，退出码 2，`next: rerun without --detach`：`2025-11-25` 的 server 没有声明 `tasks.requests.tools.call`（`cannot detach: gh did not declare support for tasks on tool calls`），或工具的 `execution.taskSupport` 不是 `optional`/`required`（缺省是 `forbidden`）；`2026-07-28` 的 server 没有声明扩展（`cannot detach: gh did not declare the io.modelcontextprotocol/tasks extension`）。它不会悄悄改成同步调用：`--detach` 的意图就是不阻塞。
+- `--detach` 用在没有工具调用的命令上（浏览视图、`find`、`tasks` 等）退出码 2。`via batch --detach` 对每一行生效。工具有一个叫 `detach` 的参数时写 `--p.detach`。
+
+**`via tasks`**（只作用于已存在的任务，没有 `--yes`/`--dry-run`，`deny` 不适用；元信息行的名称是 `tasks <provider>`，不含任务 ID）：
+
+```console
+$ via tasks gh
+gh/job/1  working    gh report:generate  2026-10-22T03:14:00.000Z
+gh/job/2  completed  gh report:generate  2026-10-22T03:12:10.000Z
+(this server keeps no task list; these are the tasks via started)
+$ via tasks gh job/1                       等任务结束，输出工具结果（同一行也可写成 gh/job/1）
+$ via tasks gh job/1 --status              不等待：task、status、message、error、created、updated 逐行输出
+$ via tasks gh job/1 --cancel              请求取消，输出取消后的状态
+```
+
+- **提供者与任务 ID**：`via tasks <provider> <任务ID>` 或 `via tasks <provider>/<任务ID>`（只有一个参数且含 `/` 时，第一个 `/` 之前是 provider）。第二个参数以 `-` 开头是未知选项；`--status` 与 `--cancel` 互斥，都需要任务 ID（退出码 2）。
+- **列表**：server 保留任务列表（`2025-11-25` 且声明了 `tasks.list`）时取自 server，并按 ID 补上 via 记录里的工具名；否则取自 via 自己的记录（下），对最近的 20 个各问一次 server 要当前状态。server 已不认识的标 `expired`，并从记录里删掉；暂时问不到的在最近一次已知状态后加 `?`。每行：带前缀的任务 ID、状态、工具（不知道写 `-`）、创建时间。没有任务时输出 `(no tasks)`；取自记录时最后一行说明 `this server keeps no task list; these are the tasks via started`。`-o json` 输出 `{"source": "server"|"record", "tasks": [{"id", "ref", "status", "tool"?, "created"?, "message"?}]}`。
+- **等待**（缺省）：等到 `completed`、`failed`、`cancelled` 或 `--timeout`，输出与调用相同（规则同上，超时同样不取消）。任务在 `input_required`：退出码 1，同上。
+- **取消**：2025 的 `tasks/cancel` 返回任务；2026 的扩展只回执，取消是协作式的，via 取消后再取一次状态。状态是 `cancelled` 时输出它；仍是 `working` 时同样输出，并多一行 `note: cancellation requested; the server still reports the task as running`（退出码 0，之后用 `--status` 再看）；任务已经 `completed` 或 `failed` 时退出码 1：`gh/job/2 was not cancelled: it already completed`。
+- **未知任务**（server 没有、已过期）：退出码 3，`error: no such task: job/1 (it may have expired)`，`next: via tasks gh`。server 没有声明 tasks（2025 的 `tasks` 能力，2026 的扩展）：退出码 3，不发请求，`gh does not offer MCP tasks: …`，`next: via gh`。
+- **via 的记录**：用户缓存目录下 `tasks/<server 哈希>/<ID 的哈希>.json`（权限 0600，目录 0700；哈希同[目录缓存键](discovery.md#缓存)，所以记录绑定 server 的定义，改别名不丢）。内容是 `{version, id, tool（规范写法的工具引用）, createdAt, status}`，**不含参数与结果**。任务一创建就由 CLI 写入（daemon 通过 `task` 事件告知，进程内模式直接得到），所以被中断的跟随也找得回；状态在 `via tasks` 与调用结束时更新。每个 server 最多 50 个、最长 30 天，写入时清理。它是缓存：删掉只失去列表，已知 ID 的命令照常工作；任务 ID 在扩展里相当于访问任务的凭据，记录因此与其他缓存同样按用户私有数据对待（[security.md](security.md)）。
+
+任务 ID 与任务里的文字（`statusMessage`、`error`）是 server 的数据：脱敏、控制字符写成可见转义，规则同其他输出。`via serve` 没有任务的元工具：经 `via_call` 的调用照常跟随到结果，`--detach` 与任务管理需要 shell（[ADR 0020](../adr/0020-tasks-and-skills-commands.md)）。
 
 ### 配置错误
 
@@ -300,6 +357,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `--timeout <秒>` | 覆盖本次调用的超时 |
 | `--schema-snapshot <文件>` | 调用工具或查看其用法之前，把工具当前的 `inputSchema`/`outputSchema` 与保存的快照比较；不兼容时不发调用，退出码 2（[arguments.md](arguments.md#schema-快照校验)） |
 | `--schema-mode compatible\|strict` | 快照比较的松紧，默认 `compatible` |
+| `--detach` | 工具调用在 server 建出任务后立即返回任务 ID，不等结果（[任务](#任务via-tasks-与---detach)）；只用于工具调用（含 `via call`、`via batch`） |
 | `--complete <参数>` | 向 server 要这个 prompt 或资源模板参数的取值建议（[补全](#补全)），只用于 `via prompts <provider> <名称>` 与 `via resources <provider> <模板>` |
 | `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)） |
 

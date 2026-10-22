@@ -23,13 +23,14 @@ import type {
   Message,
   Request,
   ServerTarget,
+  TaskInfo,
   Stale,
   ValidateResult,
 } from '../protocol';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { sanitizeText } from '../render/sanitize';
-import { redactValue } from '../render/redact';
+import { redactProtocol, redactValue } from '../render/redact';
 import { endpointOf, type DaemonPaths } from './paths';
 import { ProcessRecord, RECORD_TOUCH_MS } from './records';
 import { CREDENTIAL_TTL_MS, ExpiringResolver, SessionManager } from './sessions';
@@ -430,12 +431,20 @@ export class DaemonServer {
               this.send(conn, { id: request.id, type: 'event', event: 'progress', data } satisfies Event);
             }
           : undefined;
-        return this.sessions.call(request, request.rawName, request.args ?? {}, {
+        const onTask = request.tasks
+          ? (task: TaskInfo): void => {
+              this.send(conn, { id: request.id, type: 'event', event: 'task', data: redactProtocol(task, this.sessions.redact) } satisfies Event);
+            }
+          : undefined;
+        const callOptions = {
           ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
-          ...(request.retry ? { retry: true } : {}),
+          ...(typeof request.taskSupport === 'string' ? { taskSupport: request.taskSupport } : {}),
           ...(onProgress ? { onProgress } : {}),
+          ...(onTask ? { onTask } : {}),
           onWarning: (message: string): void => this.sendWarning(conn, request.id, message),
-        });
+        };
+        if (request.detach === true) return this.sessions.detach(request, request.rawName, request.args ?? {}, callOptions);
+        return this.sessions.call(request, request.rawName, request.args ?? {}, { ...callOptions, ...(request.retry ? { retry: true } : {}) });
       }
       case 'resources-list':
         if (this.stale(request)) return STALE;
@@ -449,6 +458,9 @@ export class DaemonServer {
       case 'prompt-get':
         if (this.stale(request)) return STALE;
         return this.sessions.getPrompt(request, String(request.name), promptArgs(request.args), { timeoutMs: request.timeoutMs });
+      case 'task':
+        if (this.stale(request)) return STALE;
+        return this.sessions.task(request, request.action, typeof request.taskId === 'string' ? request.taskId : undefined, { timeoutMs: request.timeoutMs });
       case 'skills-list':
         if (this.stale(request)) return STALE;
         return this.sessions.skills(request, { timeoutMs: request.timeoutMs, onWarning: (message: string): void => this.sendWarning(conn, request.id, message) });

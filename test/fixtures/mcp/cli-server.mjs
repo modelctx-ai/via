@@ -93,6 +93,21 @@ const PROMPTS = [
   { name: 'summarize', description: 'A prompt with several messages' },
 ];
 
+// Tasks ---------------------------------------------------------------------------------------------------------
+// `report_job` takes `ms` (how long the job runs) and `mode`: `ok`, `fail`, `input` (waits for input for ever) or `stubborn`
+// (does not stop when cancelled). The old generation (2025-11-25) makes a task when the client asks for one (`params.task`);
+// the stateless generation (2026-07-28, the `io.modelcontextprotocol/tasks` extension) makes one when the client declared
+// the extension and the job takes 100 ms or more. A task's status follows the clock.
+
+const TASK_TOOLS = [
+  { name: 'report_job', description: 'Builds a report (a long job)', execution: { taskSupport: 'optional' }, inputSchema: object({ ms: { type: 'number' }, mode: { type: 'string', enum: ['ok', 'fail', 'input', 'stubborn'] } }) },
+  { name: 'must_task', description: 'Only runs as a task', execution: { taskSupport: 'required' }, inputSchema: object({ ms: { type: 'number' } }) },
+];
+const TASKS_EXTENSION = 'io.modelcontextprotocol/tasks';
+const taskStatus = (t, now = Date.now()) => (t.cancelled ? 'cancelled' : t.mode === 'input' ? 'input_required' : now - t.createdAt < t.ms ? 'working' : t.mode === 'fail' ? 'failed' : 'completed');
+const taskResult = (t) => ({ content: [{ type: 'text', text: `report ready after ${t.ms}ms` }] });
+const iso = (ms) => new Date(ms).toISOString();
+
 // Skills (the extension is part of the stateless protocol: only the `modern` flavor serves them) ---------------------
 
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
@@ -124,11 +139,11 @@ function skillEntries() {
 
 /** Shared, inspectable state: one Server is built per HTTP request, so it lives outside. */
 export function createCliState() {
-  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined, completions: [], skillRequests: [] };
+  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined, completions: [], skillRequests: [], tasks: new Map(), taskRequests: [] };
 }
 
 /**
- * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots' | 'completions' | 'skills'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number, about?: { description?: string, websiteUrl?: string, instructions?: string } }} options
+ * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots' | 'completions' | 'skills' | 'tasks' | 'tasks-nolist'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number, about?: { description?: string, websiteUrl?: string, instructions?: string } }} options
  *   `flavor` picks the protocol generation (flavors.mjs); `notifier` is the stateless handler's change publisher;
  *   `about` is what the server says about itself (`serverInfo.description`, `websiteUrl`, `instructions`).
  */
@@ -138,9 +153,16 @@ export function createCliServer({ state, authorization, features = [], flavor = 
     ...(features.includes('resources') ? { resources: {} } : {}),
     ...(features.includes('prompts') ? { prompts: {} } : {}),
     ...(features.includes('completions') ? { completions: {} } : {}),
+    ...(features.includes('tasks') || features.includes('tasks-nolist') ? (flavor === 'modern' ? {} : { tasks: { ...(features.includes('tasks') ? { list: {} } : {}), cancel: {}, requests: { tools: { call: {} } } } }) : {}),
     // The skills extension belongs to the stateless protocol; a server of the old generation has nothing to declare.
-    ...(features.includes('skills') && flavor === 'modern' ? { resources: {}, extensions: { 'io.modelcontextprotocol/skills': {} } } : {}),
+    ...(features.includes('skills') && flavor === 'modern' ? { resources: {} } : {}),
   };
+  // Extensions exist on the stateless generation only (skills, tasks).
+  const extensions = {
+    ...(features.includes('skills') && flavor === 'modern' ? { 'io.modelcontextprotocol/skills': {} } : {}),
+    ...((features.includes('tasks') || features.includes('tasks-nolist')) && flavor === 'modern' ? { [TASKS_EXTENSION]: {} } : {}),
+  };
+  if (Object.keys(extensions).length > 0) capabilities.extensions = extensions;
   const table = {};
   const secret = authorization ?? process.env.FIXTURE_SECRET ?? '<none>';
 
@@ -201,6 +223,66 @@ export function createCliServer({ state, authorization, features = [], flavor = 
     };
   }
 
+  const withTasks = features.includes('tasks') || features.includes('tasks-nolist');
+  const unknownTask = (h, id) => h.fail(INVALID_PARAMS, `Failed to retrieve task: Task not found (${String(id).slice(0, 40)})`);
+  const startTask = (name, args, wire) => {
+    const t = { id: `job/${state.tasks.size + 1}`, tool: name, ms: Number(args.ms ?? 300), mode: args.mode ?? 'ok', createdAt: Date.now(), cancelled: false };
+    state.tasks.set(t.id, t);
+    state.taskRequests.push(`create ${t.id} ${wire}`);
+    return t;
+  };
+  if (withTasks && flavor === 'legacy') {
+    const wire = (t) => ({ taskId: t.id, status: taskStatus(t), createdAt: iso(t.createdAt), lastUpdatedAt: iso(Date.now()), ttl: 60000, pollInterval: 50, ...(taskStatus(t) === 'failed' ? { statusMessage: 'job failed' } : {}) });
+    table['tasks/get'] = async (params, h) => {
+      state.taskRequests.push(`get ${params.taskId}`);
+      const t = state.tasks.get(params.taskId);
+      return t ? wire(t) : unknownTask(h, params.taskId);
+    };
+    table['tasks/result'] = async (params, h) => {
+      state.taskRequests.push(`result ${params.taskId}`);
+      const t = state.tasks.get(params.taskId);
+      if (!t) return unknownTask(h, params.taskId);
+      for (let i = 0; i < 100 && taskStatus(t) === 'working'; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+      const status = taskStatus(t);
+      if (status === 'completed') return { ...taskResult(t), _meta: { 'io.modelcontextprotocol/related-task': { taskId: t.id } } };
+      return h.fail(-32603, status === 'failed' ? 'job failed' : `task is ${status}`);
+    };
+    table['tasks/list'] = async () => {
+      state.taskRequests.push('list');
+      return { tasks: [...state.tasks.values()].map(wire) };
+    };
+    table['tasks/cancel'] = async (params, h) => {
+      state.taskRequests.push(`cancel ${params.taskId}`);
+      const t = state.tasks.get(params.taskId);
+      if (!t) return unknownTask(h, params.taskId);
+      if (['completed', 'failed', 'cancelled'].includes(taskStatus(t))) return h.fail(INVALID_PARAMS, `Cannot cancel task: already ${taskStatus(t)}`);
+      if (t.mode !== 'stubborn') t.cancelled = true;
+      return wire(t);
+    };
+  }
+  if (withTasks && flavor === 'modern') {
+    const base = (t) => ({ taskId: t.id, status: taskStatus(t), createdAt: iso(t.createdAt), lastUpdatedAt: iso(Date.now()), ttlMs: 60000, pollIntervalMs: 50 });
+    table['tasks/get'] = async (params, h) => {
+      state.taskRequests.push(`get ${params.taskId}`);
+      const t = state.tasks.get(params.taskId);
+      if (!t) return unknownTask(h, params.taskId);
+      const status = taskStatus(t);
+      return {
+        ...base(t),
+        ...(status === 'completed' ? { result: taskResult(t) } : {}),
+        ...(status === 'failed' ? { error: { code: -32603, message: 'job failed' }, statusMessage: 'job failed' } : {}),
+        ...(status === 'input_required' ? { inputRequests: { ask: { method: 'elicitation/create', params: { message: 'Which region?', mode: 'form', requestedSchema: { type: 'object', properties: {} } } } } } : {}),
+      };
+    };
+    table['tasks/cancel'] = async (params, h) => {
+      state.taskRequests.push(`cancel ${params.taskId}`);
+      const t = state.tasks.get(params.taskId);
+      if (!t) return unknownTask(h, params.taskId);
+      if (t.mode !== 'stubborn' && ['working', 'input_required'].includes(taskStatus(t))) t.cancelled = true;
+      return {};
+    };
+  }
+
   if (features.includes('skills') && flavor === 'modern') {
     // The credential the server saw is part of this skill's text; the manifest digests that text, redaction comes after the check.
     SKILL_FILES['skill://echo/SKILL.md'] = { mimeType: 'text/markdown', text: `---\nname: echo\ndescription: Its text contains the credential the server saw.\n---\nauthorization: ${secret}\n` };
@@ -247,12 +329,32 @@ export function createCliServer({ state, authorization, features = [], flavor = 
   table['tools/list'] = async () => {
     state.listCalls += 1;
     // `ttlMs`: the freshness hint a stateless server sends with its tool list.
-    return { tools: features.includes('roots') ? [...state.tools, ROOTS_TOOL] : state.tools, ...(flavor === 'modern' && ttlMs !== undefined ? { ttlMs } : {}) };
+    const listed = [...state.tools, ...(features.includes('roots') ? [ROOTS_TOOL] : []), ...(withTasks ? TASK_TOOLS : [])];
+    return { tools: listed, ...(flavor === 'modern' && ttlMs !== undefined ? { ttlMs } : {}) };
   };
 
   table['tools/call'] = async (params, h) => {
     const { name, arguments: args = {} } = params;
     state.calls.push({ name, args });
+    if (withTasks && (name === 'report_job' || name === 'must_task')) {
+      const ms = Number(args.ms ?? 300);
+      if (flavor === 'legacy') {
+        if (params.task) {
+          const t = startTask(name, args, 'task-augmented');
+          return { task: { taskId: t.id, status: 'working', createdAt: iso(t.createdAt), lastUpdatedAt: iso(t.createdAt), ttl: 60000, pollInterval: 50 } };
+        }
+        if (name === 'must_task') return h.fail(-32601, 'Task augmentation is required for this tool');
+        await new Promise((resolve) => setTimeout(resolve, ms));
+        return taskResult({ ms });
+      }
+      if (h.clientCapabilities()?.extensions?.[TASKS_EXTENSION] && ms >= 100) {
+        const t = startTask(name, args, 'extension');
+        return { resultType: 'task', taskId: t.id, status: 'working', createdAt: iso(t.createdAt), lastUpdatedAt: iso(t.createdAt), ttlMs: 60000, pollIntervalMs: 50 };
+      }
+      state.taskRequests.push(`sync ${name}`);
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return taskResult({ ms });
+    }
     switch (name) {
       case 'issue_read':
         return { content: [{ type: 'text', text: JSON.stringify({ number: args.issue_number, title: 'Support OAuth DCR', state: 'open' }) }], structuredContent: { number: args.issue_number, title: 'Support OAuth DCR', state: 'open' } };

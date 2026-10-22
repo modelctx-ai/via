@@ -170,6 +170,14 @@ export class InProcessBackend implements Backend {
   listPrompts: McpClient['listPrompts'] = async (server, options) => (await this.client()).listPrompts(server, options);
   getPrompt: McpClient['getPrompt'] = async (server, name, args, options) => (await this.client()).getPrompt(server, name, args, options);
 
+  async detachTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): ReturnType<McpClient['detachTool']> {
+    return (await this.client()).detachTool(server, rawName, args, options);
+  }
+
+  getTask: McpClient['getTask'] = async (server, id, options) => (await this.client()).getTask(server, id, options);
+  waitForTask: McpClient['waitForTask'] = async (server, id, options) => (await this.client()).waitForTask(server, id, options);
+  cancelTask: McpClient['cancelTask'] = async (server, id, options) => (await this.client()).cancelTask(server, id, options);
+  listTasks: McpClient['listTasks'] = async (server, options) => (await this.client()).listTasks(server, options);
   listSkills: McpClient['listSkills'] = async (server, options) => (await this.client()).listSkills(server, options);
   readSkill: McpClient['readSkill'] = async (server, skill, file, options) => (await this.client()).readSkill(server, skill, file, options);
   complete: McpClient['complete'] = async (server, ref, argument, context, options) => (await this.client()).complete(server, ref, argument, context, options);
@@ -325,6 +333,17 @@ export class FallbackBackend implements Backend {
 
   getPrompt: McpClient['getPrompt'] = (server, name, args, options) =>
     this.run((b) => b.getPrompt(server, name, args, options), { idempotent: true, what: `getting a prompt of ${server}` });
+
+  // Detaching starts a job on the server: if the request may have reached the daemon it is not sent again.
+  detachTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): ReturnType<McpClient['detachTool']> {
+    return this.run((b) => b.detachTool(server, rawName, args, options), { idempotent: false, what: `calling ${rawName}` });
+  }
+
+  // Asking about a task, waiting for it, listing, and cancelling (cancelling twice is harmless) change nothing a repeat could break.
+  getTask: McpClient['getTask'] = (server, id, options) => this.run((b) => b.getTask(server, id, options), { idempotent: true, what: `asking ${server} about a task` });
+  waitForTask: McpClient['waitForTask'] = (server, id, options) => this.run((b) => b.waitForTask(server, id, options), { idempotent: true, what: `waiting for a task of ${server}` });
+  cancelTask: McpClient['cancelTask'] = (server, id, options) => this.run((b) => b.cancelTask(server, id, options), { idempotent: true, what: `cancelling a task of ${server}` });
+  listTasks: McpClient['listTasks'] = (server, options) => this.run((b) => b.listTasks(server, options), { idempotent: true, what: `listing the tasks of ${server}` });
 
   // A skill is read and checked; nothing on the server changes, so a request that may have reached the daemon is repeated.
   listSkills: McpClient['listSkills'] = (server, options) =>

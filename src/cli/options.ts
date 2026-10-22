@@ -12,6 +12,8 @@ export interface GlobalOptions {
   yes: boolean;
   dryRun: boolean;
   noValidate: boolean;
+  /** `--detach`: a tool call returns as soon as the server made a task (cli.md, "任务"). */
+  detach: boolean;
   /** `--timeout`, converted to milliseconds. */
   timeoutMs?: number;
   help: boolean;
@@ -24,15 +26,16 @@ export interface GlobalOptions {
 }
 
 export function defaultOptions(): GlobalOptions {
-  return { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, help: false, schemaMode: 'compatible' };
+  return { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, detach: false, help: false, schemaMode: 'compatible' };
 }
 
-const FLAGS: Record<string, keyof Pick<GlobalOptions, 'full' | 'all' | 'yes' | 'dryRun' | 'noValidate' | 'help'>> = {
+const FLAGS: Record<string, keyof Pick<GlobalOptions, 'full' | 'all' | 'yes' | 'dryRun' | 'noValidate' | 'detach' | 'help'>> = {
   '--full': 'full',
   '--all': 'all',
   '--yes': 'yes',
   '--dry-run': 'dryRun',
   '--no-validate': 'noValidate',
+  '--detach': 'detach',
   '-h': 'help',
   '--help': 'help',
 };

@@ -62,7 +62,7 @@ export interface FixtureServer {
 
 /** Streamable HTTP fixture; requests need `Authorization: Bearer <token>` when `token` is set. */
 export async function startFixtureServer(
-  options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots' | 'completions' | 'skills'>; protocol?: Generation; ttlMs?: number; fixture?: FixtureExtras } = {},
+  options: { token?: string; features?: Array<'resources' | 'prompts' | 'roots' | 'completions' | 'skills' | 'tasks' | 'tasks-nolist'>; protocol?: Generation; ttlMs?: number; fixture?: FixtureExtras } = {},
 ): Promise<FixtureServer> {
   const state = createCliState();
   const generation = options.protocol ?? defaultGeneration();

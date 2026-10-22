@@ -7,14 +7,14 @@ import { extractGlobals, parseLocal } from '../../src/cli/options';
 describe('extractGlobals', () => {
   it('defaults', () => {
     expect(extractGlobals([])).toEqual({
-      options: { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, help: false, schemaMode: 'compatible' },
+      options: { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, detach: false, help: false, schemaMode: 'compatible' },
       rest: [],
     });
   });
 
   it('takes every global option from any position and keeps the rest in order', () => {
-    const { options, rest } = extractGlobals(['gh', '--yes', 'issue:list', '-o', 'json', '--owner', 'a', '--timeout', '2.5', '--full', '--all', '--dry-run', '--no-validate', '-h']);
-    expect(options).toEqual({ format: 'json', full: true, all: true, yes: true, dryRun: true, noValidate: true, timeoutMs: 2500, help: true, schemaMode: 'compatible' });
+    const { options, rest } = extractGlobals(['gh', '--yes', 'issue:list', '-o', 'json', '--owner', 'a', '--timeout', '2.5', '--full', '--all', '--dry-run', '--no-validate', '--detach', '-h']);
+    expect(options).toEqual({ format: 'json', full: true, all: true, yes: true, dryRun: true, noValidate: true, detach: true, timeoutMs: 2500, help: true, schemaMode: 'compatible' });
     expect(rest).toEqual(['gh', 'issue:list', '--owner', 'a']);
   });
 

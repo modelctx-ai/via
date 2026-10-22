@@ -15,6 +15,7 @@ import type { Backend, Listing } from './backend';
 import type { CatalogCache } from './catalog-cache';
 import type { ProviderEntry, ProviderTable } from './directory';
 import type { ViewCache } from './view-cache';
+import type { TaskRecords } from './task-record';
 import type { CliEnv } from './env';
 import { CliFailure, fail } from './failure';
 import type { GlobalOptions } from './options';
@@ -55,6 +56,7 @@ export class App {
   private cacheInstance?: CatalogCache;
   private viewCacheInstance?: ViewCache;
   private oauthStoreInstance?: OAuthStore;
+  private taskRecordsInstance?: TaskRecords;
 
   constructor(
     readonly io: CliEnv,
@@ -229,6 +231,15 @@ export class App {
       this.oauthStoreInstance = createOAuthStore({ home: this.io.home, env: this.io.env, platform: this.io.platform });
     }
     return this.oauthStoreInstance;
+  }
+
+  /** The tasks via started, per server (task-record.ts). */
+  async taskRecords(): Promise<TaskRecords> {
+    if (!this.taskRecordsInstance) {
+      const { TaskRecords } = await import('./task-record');
+      this.taskRecordsInstance = new TaskRecords(join(this.cacheDir, 'tasks'), this.io.now);
+    }
+    return this.taskRecordsInstance;
   }
 
   async cache(): Promise<CatalogCache> {

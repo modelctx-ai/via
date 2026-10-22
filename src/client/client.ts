@@ -1,6 +1,6 @@
 import type { McpTool } from '../catalog/types';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { CompletionRef, CompletionResult, GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, SkillEntry, SkillRead, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, DetachedCall, GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, ToolCallResult } from '../protocol';
 import { notFoundServer } from './errors';
 import { McpSession, type CallOptions, type ListOptions, type SessionOptions } from './session';
 
@@ -12,6 +12,16 @@ import { McpSession, type CallOptions, type ListOptions, type SessionOptions } f
 export interface McpClient {
   listTools(server: string, options?: ListOptions): Promise<McpTool[]>;
   callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult>;
+  /** `tools/call` that returns once the server made a task (`--detach`), or the result when it made none (ADR 0020). */
+  detachTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<DetachedCall>;
+  /** `tasks/get`. */
+  getTask(server: string, taskId: string, options?: ListOptions): Promise<TaskInfo>;
+  /** Wait for a task to end (within `timeoutMs`) and return it with its result. */
+  waitForTask(server: string, taskId: string, options?: ListOptions): Promise<TaskOutcome>;
+  /** `tasks/cancel`, and the state afterwards. */
+  cancelTask(server: string, taskId: string, options?: ListOptions): Promise<TaskInfo>;
+  /** `tasks/list`; no `tasks` when the server has no listing. */
+  listTasks(server: string, options?: ListOptions): Promise<TaskList>;
   /** `resources/list` and `resources/templates/list` (ADR 0010). */
   listResources(server: string, options?: ListOptions): Promise<ResourceListing>;
   readResource(server: string, uri: string, options?: ListOptions): Promise<ReadResourceResult>;
@@ -53,6 +63,26 @@ export class InProcessClient implements McpClient {
 
   async callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult> {
     return this.session(server).callTool(rawName, args, options);
+  }
+
+  async detachTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<DetachedCall> {
+    return this.session(server).detachTool(rawName, args, options);
+  }
+
+  async getTask(server: string, taskId: string, options?: ListOptions): Promise<TaskInfo> {
+    return this.session(server).getTask(taskId, options);
+  }
+
+  async waitForTask(server: string, taskId: string, options?: ListOptions): Promise<TaskOutcome> {
+    return this.session(server).waitForTask(taskId, options);
+  }
+
+  async cancelTask(server: string, taskId: string, options?: ListOptions): Promise<TaskInfo> {
+    return this.session(server).cancelTask(taskId, options);
+  }
+
+  async listTasks(server: string, options?: ListOptions): Promise<TaskList> {
+    return this.session(server).listTasks(options);
   }
 
   async listResources(server: string, options?: ListOptions): Promise<ResourceListing> {
