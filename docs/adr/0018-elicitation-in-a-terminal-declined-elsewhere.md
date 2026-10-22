@@ -51,4 +51,4 @@ via 的调用是一次性的 CLI 命令，调用方常常是 agent，没有人�
 - 每个 server 会看到 via 声明了 `elicitation`；只在非交互里行为是「被拒绝」。`via serve` 的调用方拿到的是带 `next:` 的 `isError` 结果，由 agent 转告用户。
 - 新增 daemon 协议项：`call.elicit`、事件 `elicit`、请求 `elicit-reply`（[daemon.md](../spec/daemon.md)）。版本握手保证两端一致，不需要兼容层。
 - 一致性测试的 `elicitation-sep1034-client-defaults` 场景由适配器在伪终端里回车接受默认值来驱动，不是靠一个绕过终端的开关，所以实现与用户看到的一致；它从 `expected-failures.yml` 中移除。
-- 不实现：`notifications/elicitation/complete`（URL 模式完成通知；via 不等待，用户回来后 server 自己继续）、任务相关的 elicitation（随 tasks，路线图 e4）。
+- 不实现：`notifications/elicitation/complete`（URL 模式完成通知；via 不等待，用户回来后 server 自己继续）。任务里的 elicitation（任务进入 `input_required`）初版没有做，现已补上：处理方式与调用中途的提问相同，两代协议的做法见 [ADR 0020](0020-tasks-and-skills-commands.md)。

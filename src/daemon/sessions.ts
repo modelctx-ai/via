@@ -225,7 +225,7 @@ export class SessionManager {
   }
 
   /** Task requests: the state of one, waiting for its end, cancelling it, or the server's listing. */
-  task(target: ServerTarget, action: 'get' | 'wait' | 'cancel' | 'list', taskId: string | undefined, options: { timeoutMs: number }): Promise<TaskInfo | TaskOutcome | TaskList> {
+  task(target: ServerTarget, action: 'get' | 'wait' | 'cancel' | 'list', taskId: string | undefined, options: { timeoutMs: number; elicit?: CallOptions['elicit'] }): Promise<TaskInfo | TaskOutcome | TaskList> {
     return this.ask<TaskInfo | TaskOutcome | TaskList>(target, (session) => {
       const id = String(taskId ?? '');
       switch (action) {

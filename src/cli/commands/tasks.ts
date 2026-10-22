@@ -4,11 +4,13 @@
 // and cancels it. It shares the provider resolution and the render pipeline with `via resources`.
 import { ClientError, taskRef } from '../../client/errors';
 import type { TaskInfo } from '../../protocol';
+import { formatError } from '../../render/errors';
 import { ExitCode } from '../../render/exit-codes';
 import { shellWords, visibleText } from '../../render/shell';
 import type { ToolResult } from '../../render/types';
 import { alignRows } from '../../render/width';
-import type { App } from '../app';
+import { toErrorInfo, type App } from '../app';
+import { Elicitation } from '../elicit';
 import { CliFailure, usageFailure } from '../failure';
 import { noteCanonical, resolveEntry } from '../target';
 import type { TaskRecords } from '../task-record';
@@ -48,7 +50,10 @@ export async function tasksCommand(app: App, argv: readonly string[]): Promise<n
   const ref = `tasks ${entry.name}`;
   const refWords = ['tasks', entry.name];
 
-  if (id === undefined) return print(app, entry, ref, started, await listing(app, entry, records, timeoutMs), refWords);
+  if (id === undefined) {
+    const listed = await listing(app, entry, records, timeoutMs);
+    return print(app, entry, ref, started, listed.result, refWords, listed.waiting ? { next: nextCommand(entry, listed.waiting) } : {});
+  }
 
   if (cancel) {
     const task = await backend.cancelTask(entry.server.name, id, { timeoutMs });
@@ -62,22 +67,38 @@ export async function tasksCommand(app: App, argv: readonly string[]): Promise<n
   if (status) {
     const task = await backend.getTask(entry.server.name, id, { timeoutMs });
     remember(records, entry, task);
-    return print(app, entry, ref, started, stateResult(entry, safe(app, task)), refWords);
+    // A task that waits for the person is not asked about here: the state says so and `next:` is the command that asks.
+    const waiting = task.status === 'input_required';
+    return print(app, entry, ref, started, stateResult(entry, safe(app, task), waiting ? ANSWER_NOTE : undefined), refWords, waiting ? { next: nextCommand(entry, id) } : {});
   }
 
-  // Wait for the end and print the result as the call itself would have.
-  const outcome = await backend.waitForTask(entry.server.name, id, { timeoutMs });
-  remember(records, entry, outcome.task, outcome.result ? (outcome.result.isError ? 'failed' : 'completed') : undefined);
-  if (outcome.result === undefined) {
-    const methods = outcome.task.inputMethods ?? [];
-    throw new CliFailure({
-      code: ExitCode.ToolError,
-      message: `${visibleText(taskRef(entry.name, id))} is waiting for input${methods.length > 0 ? ` (${methods.map((m) => visibleText(m)).join(', ')})` : ''}, which via cannot give`,
-      next: `${nextCommand(entry, id)} --cancel`,
-    });
+  // Wait for the end and print the result as the call itself would have. A task that needs the person's input asks
+  // at the terminal, or is declined where there is none, as a call's questions are (ADR 0018, output.md "elicitation").
+  const elicitation = new Elicitation(app, { interactive: () => app.io.interactive });
+  try {
+    const outcome = await backend.waitForTask(entry.server.name, id, { timeoutMs, elicit: elicitation.sink });
+    remember(records, entry, outcome.task, outcome.result ? (outcome.result.isError ? 'failed' : 'completed') : undefined);
+    if (outcome.result === undefined) {
+      const methods = outcome.task.inputMethods ?? [];
+      throw new CliFailure({
+        code: ExitCode.ToolError,
+        message: `${visibleText(taskRef(entry.name, id))} is waiting for input${methods.length > 0 ? ` (${methods.map((m) => visibleText(m)).join(', ')})` : ''}, which via cannot give`,
+        next: `${nextCommand(entry, id)} --cancel`,
+      });
+    }
+    return await print(app, entry, ref, started, safe(app, outcome.result), refWords, { elicitation });
+  } catch (error) {
+    if (!elicitation.declined) throw error;
+    // The failure keeps its code, with the declined question in front of it (or, for the server's own failure, as exit code 5).
+    const info = await toErrorInfo(error);
+    const reported = await elicitation.apply({ exitCode: info.code, stderr: await app.redactText(formatError(info, app.options.format, app.redact)), error: info });
+    app.err(reported.stderr);
+    return reported.exitCode;
   }
-  return print(app, entry, ref, started, safe(app, outcome.result), refWords);
 }
+
+/** On `--status` of a task that waits for the person (`input_required`): what it is and, in `next:`, the command that answers. */
+const ANSWER_NOTE = 'the server is waiting for the user to answer a question; the command in next: asks it in a terminal';
 
 const nextCommand = (entry: ProviderEntry, id: string): string => `via ${shellWords(['tasks', entry.name, id])}`;
 
@@ -108,7 +129,7 @@ function stateResult(entry: ProviderEntry, task: TaskInfo, note?: string): ToolR
  * The listing: the server's own when it keeps one (2025-11-25 with `tasks.list`), else the tasks via recorded, each asked
  * about once (the most recent {@link LISTED}); a task the server no longer knows is marked `expired` and dropped from the record.
  */
-async function listing(app: App, entry: ProviderEntry, records: TaskRecords, timeoutMs: number): Promise<ToolResult> {
+async function listing(app: App, entry: ProviderEntry, records: TaskRecords, timeoutMs: number): Promise<{ result: ToolResult; waiting?: string }> {
   const backend = await app.backend();
   const recorded = records.list(entry.server);
   const toolOf = new Map(recorded.map((r) => [r.id, r.tool]));
@@ -139,13 +160,16 @@ async function listing(app: App, entry: ProviderEntry, records: TaskRecords, tim
     );
   }
   const shown = safe(app, rows);
+  // A task that waits for the person is not asked about here: its id goes to `next:`, the command that asks.
+  const waiting = rows.find((r) => r.status === 'input_required')?.id;
+  const found = (result: ToolResult): { result: ToolResult; waiting?: string } => ({ result, ...(waiting !== undefined ? { waiting } : {}) });
   if (app.options.format === 'json') {
-    return { content: [], structuredContent: { source, tasks: shown.map((r) => ({ ...r, ref: taskRef(entry.name, r.id) })) } };
+    return found({ content: [], structuredContent: { source, tasks: shown.map((r) => ({ ...r, ref: taskRef(entry.name, r.id) })) } });
   }
   if (shown.length === 0) {
-    return { content: [{ type: 'text', text: source === 'record' ? '(no tasks)\n(this server keeps no task list; via lists the tasks it started)' : '(no tasks)' }] };
+    return found({ content: [{ type: 'text', text: source === 'record' ? '(no tasks)\n(this server keeps no task list; via lists the tasks it started)' : '(no tasks)' }] });
   }
   const lines = alignRows(shown.map((r) => [visibleText(taskRef(entry.name, r.id)), visibleText(r.status), visibleText(r.tool ?? '-'), visibleText(r.created ?? '-')]));
   lines.push(source === 'record' ? '(this server keeps no task list; these are the tasks via started)' : `→ via tasks ${shellWords(entry.name)} <task-id> waits for a task and prints its result`);
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  return found({ content: [{ type: 'text', text: lines.join('\n') }] });
 }

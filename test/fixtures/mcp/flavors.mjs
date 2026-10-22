@@ -12,6 +12,8 @@
 //   h.elicit(key, params)      ask the client's user for input (form or URL mode): a result `{ action, content? }`,
 //                              or undefined when the client did not declare `elicitation`. `key` names the question
 //                              on the stateless protocol, where the handler runs again with the answers.
+//   h.inputResponses()         the answers a retried request (or `tasks/update`) carries, keyed like the requests (stateless protocol; the SDK lifts
+//                              them out of `params`); undefined on the old protocol
 //   h.toolsChanged()           tell listeners the tool list changed
 //   h.header(name)             an HTTP request header (stateless protocol over HTTP only; undefined otherwise)
 //   h.fail(code, message, data) answer with a JSON-RPC error
@@ -52,7 +54,7 @@ const LEGACY_SCHEMAS = {
 const ANY = { '~standard': { version: 1, vendor: 'fixture', validate: (value) => ({ value }) } };
 
 /** Methods the stateless server registers with explicit schemas: not in the core spec. */
-const EXTENSION_METHODS = new Set(['skills/list', 'skills/get', 'tasks/get', 'tasks/cancel']);
+const EXTENSION_METHODS = new Set(['skills/list', 'skills/get', 'tasks/get', 'tasks/update', 'tasks/cancel']);
 
 /** Thrown by `h.listRoots()` on a stateless connection: the handler is asked again with the answer. */
 class NeedRoots extends Error {}
@@ -86,6 +88,7 @@ export function buildServer(flavor, info, capabilities, table, options = {}) {
           listRoots: async () => (server.getClientCapabilities()?.roots ? server.listRoots() : undefined),
           elicit: async (_key, params) => (server.getClientCapabilities()?.elicitation ? server.elicitInput(params) : undefined),
           toolsChanged: () => server.sendToolListChanged(),
+          inputResponses: () => undefined,
           header: () => undefined,
           fail: (code, message, data) => {
             throw new McpError(code, message, data);
@@ -116,6 +119,7 @@ export function buildServer(flavor, info, capabilities, table, options = {}) {
           if (answered) return answered;
           throw new NeedInput({ [key]: params.mode === 'url' ? inputRequired.elicitUrl({ message: params.message, url: params.url }) : inputRequired.elicit(params) });
         },
+        inputResponses: () => ctx.mcpReq.inputResponses,
         header: (name) => ctx.http?.req?.headers.get(name) ?? undefined,
         toolsChanged: () => (options.notifier ? options.notifier.toolsChanged() : server.sendToolListChanged()),
         fail: (code, message, data) => {

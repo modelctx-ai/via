@@ -186,7 +186,7 @@ report ready after 3000ms
 
 - 什么时候有任务：`2026-07-28` 由 server 决定（via 在每个请求里声明扩展）；`2025-11-25` 只有工具声明 `execution.taskSupport: required` 且 server 声明了 `tasks.requests.tools.call` 时 via 才带 `task` 去要，`optional` 的工具照旧同步调用。任务一出现，via 把它记下来并在 stderr 写一行 `progress: task <provider>/<任务ID> <状态>`，然后按 server 建议的间隔（100 毫秒到 5 秒，缺省 1 秒）轮询，结束后输出与同步调用完全一致：`completed` 时是工具结果（2025 用 `tasks/result`，2026 取 `tasks/get` 里内联的 `result`），`failed` 与 `cancelled` 像 `isError` 的工具结果一样输出（退出码 1，`next:` 指向该工具的 `-h`）。`--dry-run`、`--yes`、`deny`、本地校验不受影响。
 - **受 `--timeout` 约束**（缺省为 server 的 `timeout`，整次调用的预算）。超时**不取消任务**，退出码 6：`error: still running as task gh/job/1 after 30s; it was not cancelled`，`next: via tasks gh job/1`。同一个命令继续等；之后可以再加 `--timeout`。
-- 任务进入 `input_required`（server 要 client 回答问题）：via 不回答，停止等待，退出码 1：`error: task gh/job/1 is waiting for input (elicitation/create), which via cannot give`，`next: via tasks gh job/1 --cancel`。
+- 任务进入 `input_required`（server 要 client 回答问题）：via 把问题当作调用中途的提问来处理（[下](#server-向用户提问)），答完继续跟随到结果。有终端就在 stderr 提问、把答案交给 server；没有终端（agent 经 shell、`via batch`、`via serve`）就回答 `decline`，任务照常继续，调用的结果里说明 server 问过用户（成功是退出码 0 加 `warning:` 与 `next:`；任务因此失败是退出码 5，见 [output.md](output.md#server-向用户提问elicitation)）。用户作答的时间计入 `--timeout`。两代协议的做法见 [ADR 0020](../adr/0020-tasks-and-skills-commands.md)：`2025-11-25` 调 `tasks/result`（它一直阻塞到任务结束，server 的 `elicitation/create` 请求沿同一条连接来到 client）；`2026-07-28` 从 `tasks/get` 的 `inputRequests` 读出问题，用 `tasks/update`（`inputResponses`）回答，再继续轮询。只有 elicitation 会被回答：任务等的是别的请求（例如 sampling，via 不声明它），或状态是 `input_required` 却没有可答的请求时，via 不回答、停止等待，退出码 1：`error: task gh/job/1 is waiting for input (sampling/createMessage), which via cannot give`，`next: via tasks gh job/1 --cancel`。
 - 读只读工具超时的自动重试（[arguments.md](arguments.md#调用过程)）在任务创建之后不再发生：重发会把任务跑两遍。
 
 **`--detach`**（全局选项）：任务创建后立即返回。
@@ -202,6 +202,7 @@ progress: task gh/job/1 working        （stderr）
 - `task:` 是**带 provider 前缀**的任务 ID，`<provider>/<server 给的 ID>`（ID 可能自带 `/`，所以只在第一个 `/` 处拆）；`-o json` 是 `{"task", "status", "message"?}`。`next:` 用两词写法，ID 按[引号规则](output.md#可粘贴的命令行)引用。
 - `2026-07-28` 的 server 可以不建任务而直接回结果（任务太短，或不想建）：这时输出结果本身，元信息行多一个标记 `no task`，退出码 0。
 - 不能满足时不发请求，退出码 2，`next: rerun without --detach`：`2025-11-25` 的 server 没有声明 `tasks.requests.tools.call`（`cannot detach: gh did not declare support for tasks on tool calls`），或工具的 `execution.taskSupport` 不是 `optional`/`required`（缺省是 `forbidden`）；`2026-07-28` 的 server 没有声明扩展（`cannot detach: gh did not declare the io.modelcontextprotocol/tasks extension`）。它不会悄悄改成同步调用：`--detach` 的意图就是不阻塞。
+- `--detach` 从不提问：任务这时就算已经在 `input_required`，也只是照常输出 `task:` 与 `status:`（`status: input_required`），`next:` 的 `via tasks <provider> <任务ID>` 就是回答它的命令。
 - `--detach` 用在没有工具调用的命令上（浏览视图、`find`、`tasks` 等）退出码 2。`via batch --detach` 对每一行生效。工具有一个叫 `detach` 的参数时写 `--p.detach`。
 
 **`via tasks`**（只作用于已存在的任务，没有 `--yes`/`--dry-run`，`deny` 不适用；元信息行的名称是 `tasks <provider>`，不含任务 ID）：
@@ -212,13 +213,13 @@ gh/job/1  working    gh report:generate  2026-10-22T03:14:00.000Z
 gh/job/2  completed  gh report:generate  2026-10-22T03:12:10.000Z
 (this server keeps no task list; these are the tasks via started)
 $ via tasks gh job/1                       等任务结束，输出工具结果（同一行也可写成 gh/job/1）
-$ via tasks gh job/1 --status              不等待：task、status、message、error、created、updated 逐行输出
+$ via tasks gh job/1 --status              不等待：task、status、message、error、created、updated 逐行输出（`input_required` 时多一行 note，元信息行以 `next: via tasks gh job/1` 结尾，那条命令在终端里提问）
 $ via tasks gh job/1 --cancel              请求取消，输出取消后的状态
 ```
 
 - **提供者与任务 ID**：`via tasks <provider> <任务ID>` 或 `via tasks <provider>/<任务ID>`（只有一个参数且含 `/` 时，第一个 `/` 之前是 provider）。第二个参数以 `-` 开头是未知选项；`--status` 与 `--cancel` 互斥，都需要任务 ID（退出码 2）。
-- **列表**：server 保留任务列表（`2025-11-25` 且声明了 `tasks.list`）时取自 server，并按 ID 补上 via 记录里的工具名；否则取自 via 自己的记录（下），对最近的 20 个各问一次 server 要当前状态。server 已不认识的标 `expired`，并从记录里删掉；暂时问不到的在最近一次已知状态后加 `?`。每行：带前缀的任务 ID、状态、工具（不知道写 `-`）、创建时间。没有任务时输出 `(no tasks)`；取自记录时最后一行说明 `this server keeps no task list; these are the tasks via started`。`-o json` 输出 `{"source": "server"|"record", "tasks": [{"id", "ref", "status", "tool"?, "created"?, "message"?}]}`。
-- **等待**（缺省）：等到 `completed`、`failed`、`cancelled` 或 `--timeout`，输出与调用相同（规则同上，超时同样不取消）。任务在 `input_required`：退出码 1，同上。
+- **列表**：server 保留任务列表（`2025-11-25` 且声明了 `tasks.list`）时取自 server，并按 ID 补上 via 记录里的工具名；否则取自 via 自己的记录（下），对最近的 20 个各问一次 server 要当前状态。server 已不认识的标 `expired`，并从记录里删掉；暂时问不到的在最近一次已知状态后加 `?`。每行：带前缀的任务 ID、状态、工具（不知道写 `-`）、创建时间。没有任务时输出 `(no tasks)`；取自记录时最后一行说明 `this server keeps no task list; these are the tasks via started`。`-o json` 输出 `{"source": "server"|"record", "tasks": [{"id", "ref", "status", "tool"?, "created"?, "message"?}]}`。 列表里有 `input_required` 的任务时，元信息行以 `next: via tasks <provider> <任务ID>` 结尾（第一个这样的任务），列表本身不提问。
+- **等待**（缺省）：等到 `completed`、`failed`、`cancelled` 或 `--timeout`，输出与调用相同（规则同上，超时同样不取消）。任务在 `input_required`：像调用一样提问或拒绝（同上；`via tasks` 没有可重复的原命令，所以拒绝时的 `next:` 只写 `ask the user to run this in a terminal`），然后继续等。
 - **取消**：2025 的 `tasks/cancel` 返回任务；2026 的扩展只回执，取消是协作式的，via 取消后再取一次状态。状态是 `cancelled` 时输出它；仍是 `working` 时同样输出，并多一行 `note: cancellation requested; the server still reports the task as running`（退出码 0，之后用 `--status` 再看）；任务已经 `completed` 或 `failed` 时退出码 1：`gh/job/2 was not cancelled: it already completed`。
 - **未知任务**（server 没有、已过期）：退出码 3，`error: no such task: job/1 (it may have expired)`，`next: via tasks gh`。server 没有声明 tasks（2025 的 `tasks` 能力，2026 的扩展）：退出码 3，不发请求，`gh does not offer MCP tasks: …`，`next: via gh`。
 - **via 的记录**：用户缓存目录下 `tasks/<server 哈希>/<ID 的哈希>.json`（权限 0600，目录 0700；哈希同[目录缓存键](discovery.md#缓存)，所以记录绑定 server 的定义，改别名不丢）。内容是 `{version, id, tool（规范写法的工具引用）, createdAt, status}`，**不含参数与结果**。任务一创建就由 CLI 写入（daemon 通过 `task` 事件告知，进程内模式直接得到），所以被中断的跟随也找得回；状态在 `via tasks` 与调用结束时更新。每个 server 最多 50 个、最长 30 天，写入时清理。它是缓存：删掉只失去列表，已知 ID 的命令照常工作；任务 ID 在扩展里相当于访问任务的凭据，记录因此与其他缓存同样按用户私有数据对待（[security.md](security.md)）。
@@ -239,7 +240,7 @@ next: via doctor
 
 ### server 向用户提问
 
-工具调用中途，server 可以向用户要输入（elicitation，[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）。没有终端时一律拒绝并在调用的结果里说明（退出码与 `next:` 见 [output.md](output.md#server-向用户提问elicitation)）；这里是有终端时的交互。终端 = stdin 与 stderr 都是 TTY，且不是 `via serve`、`via batch`、`--args -` 读走了 stdin 的调用。提示写 stderr，答案读 stdin：
+工具调用中途，server 可以向用户要输入（elicitation，[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）；调用跟随的任务、`via tasks <provider> <任务ID>` 等待的任务进入 `input_required` 时同样（[任务](#任务via-tasks-与---detach)）。没有终端时一律拒绝并在调用的结果里说明（退出码与 `next:` 见 [output.md](output.md#server-向用户提问elicitation)）；这里是有终端时的交互。终端 = stdin 与 stderr 都是 TTY，且不是 `via serve`、`via batch`、`--args -` 读走了 stdin 的调用。提示写 stderr，答案读 stdin：
 
 ```console
 $ via ask elicit-form

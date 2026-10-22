@@ -84,8 +84,12 @@ export type Request =
     } & ServerTarget)
   /** The answer to an `elicit` event of the `call` request `call`; the result says whether somebody was still waiting for it. */
   | { id: string; type: 'elicit-reply'; call: string; key: string; answer: ElicitAnswer }
-  /** A task by id: its state, waiting for its end (and result), cancelling it, or the server's task list. */
-  | ({ id: string; type: 'task'; action: 'get' | 'wait' | 'cancel' | 'list'; taskId?: string; timeoutMs: number } & ServerTarget)
+  /**
+   * A task by id: its state, waiting for its end (and result), cancelling it, or the server's task list. `elicit` (with
+   * `wait`) says the CLI answers the questions of a task in `input_required` like those of a `call`: `elicit` events,
+   * `elicit-reply` requests.
+   */
+  | ({ id: string; type: 'task'; action: 'get' | 'wait' | 'cancel' | 'list'; taskId?: string; timeoutMs: number; elicit?: true } & ServerTarget)
   /** `resources/list` plus `resources/templates/list` of one server. Never cached. */
   | ({ id: string; type: 'resources-list'; timeoutMs: number } & ServerTarget)
   /** `resources/read`. */
