@@ -82,7 +82,8 @@ flowchart LR
 | c4 Windows 支持 | 已实现 | daemon 走命名管道（[ADR 0012](adr/0012-windows-pipe-name-and-batch-files.md)），CI 在 Windows 上跑完整检查 |
 | c5 `via serve` | 已实现，未发布 | stdio MCP server，九个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[ADR 0024](adr/0024-via-serve-tasks-skills-and-completion.md)、[cli.md](spec/cli.md#via-serve)） |
 | d1 agent 评测 | 部分实现 | mcpc 对照列已加入 `bench:tokens` 与 `bench:eval`，token 结果见 [0.4-tokens](../bench/results/0.4-tokens.md)；agent 评测的成功率还没有发布（需要 `ANTHROPIC_API_KEY`） |
-| d2 OAuth 实测、d3 性能目标 | 计划中（0.4） | d2 需要在真实远程 server 上登录；d3 等维护者决定 |
+| d2 OAuth 实测 | 计划中（0.4） | 需要在真实远程 server 上登录 |
+| d3 性能目标 | 已实现 | 目标已按建议重新标定（冷启动相对 `node -e 0`、`find` 库路径与整进程分开、daemon 内存看 RssAnon），`bench:perf` 按新口径判定；复测见 [perf-0.4](../bench/results/perf-0.4.md)，当前代码有几项没有达到新目标，见门槛 2 |
 | d4 单文件分发 | 已按决定结案 | 只在 npm 分发；签名、公证、Homebrew 与单文件不做（[ADR 0023](adr/0023-npm-is-the-only-distribution-channel.md)） |
 | d5 拆分规则与截断预算 | 部分实现 | `npm run split-stats` 与 [0.4-split](../bench/results/0.4-split.md)；动词表新增 7 个通用动词，`deny` 同时匹配叶子写法；截断预算等 d1 的评测 |
 | d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
@@ -101,7 +102,7 @@ flowchart LR
 | 门槛 | 条件 | 状态 |
 | --- | --- | --- |
 | 门槛 1（0.1 → 0.2） | token 基准与 agent 评测跑通，任务成功率不低于原生 MCP，且不低于 mcp2cli | 未过关：token 基准已发布（[0.1](../bench/results/0.1.md)，[0.4](../bench/results/0.4-tokens.md) 起含 mcpc 一列），agent 评测（`npm run bench:eval`）已实现但还没有发布成功率结果 |
-| 门槛 2（0.2 → 0.3） | 热 daemon 调用开销达到[性能目标](development/testing.md#性能目标)，OAuth 在主流远程 server 上验证通过 | 部分达到：热 daemon 的额外开销远低于 15 ms；冷启动的几项和 daemon 内存在目标线上或略超（[perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md)）；OAuth 在真实远程 server 上的验证还没有记录 |
+| 门槛 2（0.2 → 0.3） | 热 daemon 调用开销达到[性能目标](development/testing.md#性能目标)，OAuth 在主流远程 server 上验证通过 | 部分达到：目标已在 0.4 重新标定（d3）。热 daemon 的额外开销（4.8–7.9 ms，目标 < 15）、库路径的 `find`（22.6 ms，< 30）、daemon 的 RssAnon（最高 37.7–48.0 MiB，< 55）达到；浏览类命令比裸 node 多 49–56 ms（不超过 50）、经热 daemon 的 `via find`、带框架配置的两条命令、整进程 `find` 没有达到，差 2–16 ms（[perf-0.4](../bench/results/perf-0.4.md)）；OAuth 在真实远程 server 上的验证还没有记录 |
 
 ## 0.4：验证、协议对齐与补齐
 
@@ -112,7 +113,7 @@ flowchart LR
 - **d1 发布 agent 评测结果**：用 `npm run bench:eval` 在 token 基准的同一组任务上跑原生 MCP、via、mcp2cli 三组，结果写进 `bench/results/`。这是门槛 1 的条件，也是「省 token 不降成功率」的直接证据；结果不达标时先改拆分、浏览与渲染，而不是继续加功能。
   - 对照组加入 [mcpc](https://github.com/apify/mcpc)，与 mcp2cli 一样是可选的一列（PATH 上有才运行并记录版本，说明文本取自 `mcpc help --skill`，`connect` 建会话的命令计入成本）。mcpc 与 via 的判断相同（agent 经 shell 用 MCP），但工具名原样、结果保持 MCP 的 JSON 形状，是检验 via 自己的设计（`resource:verb` 拆分、按 schema 生成的参数、紧凑渲染）最直接的对照（[愿景](overview/vision.md#与相近工具的区别)）。token 基准（`bench:tokens`）同样加这一列。**状态**：两个脚本里的 mcpc 一列已实现（`--mcpc` / `--no-mcpc`，缺失即跳过；说明文本 `bench/vendor/mcpc/`；`connect` 命令计入成本），token 基准的结果在 [0.4-tokens](../bench/results/0.4-tokens.md)（mcpc 合计约为 native 的 15%，与 mcp2cli 同一量级，约为 via 的四倍）；agent 评测的 mcpc 条件已用 `--fake-model` 验证流水线，成功率结果仍待有 `ANTHROPIC_API_KEY` 的环境运行。
 - **d2 OAuth 实测记录**：在 Linear、Notion 等主流远程 server 上走一遍 `via auth login`、调用、刷新、`via auth logout`，记录到 `bench/results/` 或对应的 [provider 指南](guides/providers/)，补齐门槛 2。
-- **d3 重新标定性能目标**：按 [perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md#目标重新标定的建议未改规范里的数字) 的建议，由维护者决定是否把冷启动改成相对 `node -e 0` 的增量、把 `find` 的库路径与整进程分开、daemon 内存改看匿名内存；决定后同步 [testing.md](development/testing.md#性能目标)。
+- **d3 重新标定性能目标**（已完成）：维护者采纳了 [perf-0.3-cold-start](../bench/results/perf-0.3-cold-start.md#目标重新标定的建议已在-04-采纳) 的三条建议，[testing.md](development/testing.md#性能目标) 已改写：冷启动是比同次交替运行的 `node -e 0` 多多少毫秒（浏览类不超过 50 ms，经热 daemon < 70 ms，带框架配置 < 80 ms），`find` 的库路径（< 30 ms）与整进程（不超过 +80 ms）分开，daemon 内存看 RssAnon（< 55 MiB；建议里的 40 MiB 在当前代码上过不去，理由在 [perf-0.4](../bench/results/perf-0.4.md#5-热-daemon第-4-次运行)）。`bench:perf` 按新口径测量与判定。复测里有几项没有达到，其中浏览类命令比 0.3 的复测多约 5 ms，回归没有二分过。
 - **d4 分发渠道**：已按决定结案，不再是待办。via 只在 npm 分发（`@modelctx-ai/via`）；macOS 公证、Windows 签名、Homebrew formula、Release 里的单文件可执行都不做，也不再追踪「单文件是否成为默认安装方式」。理由与后果见 [ADR 0023](adr/0023-npm-is-the-only-distribution-channel.md)。
 - **d5 拆分规则与截断预算**：在真实 server 上统计拆分失败（退回叶子工具）的比例、调整动词表；用 d1 的评测确定截断预算的默认值（现在是 8 KB）。动词表的改动按 CHANGELOG 的约定写明影响哪些规范写法。
 - **d6 引号审计**：`next:` 提示、`-h` 的用法行和 `--dry-run` 回显里拼出的命令行含有来自 server 的文本（工具名、参数名、枚举值、默认值、URI）和用户输入。逐处核对：复制粘贴这些命令时不会触发 shell 展开或执行（POSIX shell 的 `$`、反引号、`\`，PowerShell 与 `cmd.exe` 各自的转义），不能安全引用的值不出现在可粘贴的命令里。mcpc 修过同类问题（[apify/mcpc#450](https://github.com/apify/mcpc/pull/450)，反斜杠转义缺失导致粘贴的提示可执行命令）。结论写进 [output.md](spec/output.md) 与 [security.md](spec/security.md)，补测试。
