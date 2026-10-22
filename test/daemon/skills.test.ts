@@ -5,8 +5,9 @@ import { FAKE_TOKEN } from '../cli/helpers';
 import { daemonSandbox } from '../helpers/daemon';
 import { fixtureScript } from '../helpers/generation';
 
-const SERVER = fixtureScript('cli-stdio-server', 'modern');
-const config = `sources: false\nservers:\n  fs:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(SERVER)}]\n    env: { CLI_FIXTURE_FEATURES: "skills", FIXTURE_SECRET: "env:GH_TOKEN" }\n`;
+const configFor = (server: string): string =>
+  `sources: false\nservers:\n  fs:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${JSON.stringify(server)}]\n    env: { CLI_FIXTURE_FEATURES: "skills", FIXTURE_SECRET: "env:GH_TOKEN" }\n`;
+const config = configFor(fixtureScript('cli-stdio-server', 'modern'));
 
 describe('via skills through the daemon', () => {
   it('lists, reads, refuses a mismatch, and redacts only after the check', async () => {
@@ -34,7 +35,7 @@ describe('via skills through the daemon', () => {
   });
 
   it('says a stdio server of the old protocol has no skills', async () => {
-    const d = await daemonSandbox(config.replace(SERVER, fixtureScript('cli-stdio-server', 'legacy')), { GH_TOKEN: FAKE_TOKEN });
+    const d = await daemonSandbox(configFor(fixtureScript('cli-stdio-server', 'legacy')), { GH_TOKEN: FAKE_TOKEN });
     const r = await d.via(['skills', 'fs']);
     expect(r.code).toBe(3);
     expect(r.stderr).toContain('fs does not offer MCP skills: it speaks MCP');
