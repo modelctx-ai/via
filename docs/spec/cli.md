@@ -60,7 +60,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 | `via prompts <provider> [<名称> [参数]]` | 列出 MCP prompt；带名称时取该 prompt，参数写法同工具 |
 | `via skills <provider> [<名称> [<文件>]]` | 列出 MCP 技能（`2026-07-28` 的 Skills 扩展）；带名称时读 `SKILL.md`，再带文件时读该附属文件，内容按 server 发布的清单核对后才输出（[见下](#技能via-skills)） |
 | `via tasks <provider> [<任务ID>] [--status \| --cancel]` | 列出任务；带任务 ID 时等它结束并像工具调用一样输出结果，`--status` 只看状态，`--cancel` 取消（[见下](#任务via-tasks-与---detach)） |
-| `via daemon status\|stop\|run` | 管理后台进程；`run` 供内部拉起使用（[daemon.md](daemon.md)） |
+| `via daemon status\|stop\|run\|logs` | 管理后台进程；`run` 供内部拉起使用；`logs` 查看日志（[daemon.md](daemon.md)） |
 | `via serve` | 以 stdio MCP server 运行，向没有 shell 的 agent 暴露元工具（[见下](#via-serve)） |
 
 内置子命令名是保留字，大小写不敏感，不接受前缀。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警，该 server 在改名前不出现在任何视图里。
@@ -75,6 +75,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 - `via daemon`：
   - `status`：不拉起 daemon，只询问正在运行的。输出一行概况、socket 路径和各会话（server 名、传输、`running (pid N)` / `connected` / `stopped`、目录中的工具数、调用数、空闲时间或在途数）；不含 URL、参数、凭证。socket 上没有 daemon 应答时（包括连得上却完不成握手，例如令牌不符，或 Windows 上收尾中的 daemon 的管道还被别的连接占着），再看 daemon 进程记录（[daemon.md](daemon.md#进程记录)）：有不在监听的 daemon 进程时每个一行，`daemon: starting · pid N`（还没绑定 socket）、`daemon: stopping · pid N · finishing requests in flight`（已收到 `shutdown`、删掉 socket，在处理在途请求）或 `daemon: not reachable · pid N`（socket 被删或被替换，几秒内自行退出），再加 `socket:` 一行；一个都没有才输出 `daemon: not running` 加 `socket:` 一行（完不成握手而又没有记录时，照旧报告连不上的原因）。有 daemon 应答而旁边还有别的 daemon 进程（例如上一个仍在收尾）时，概况之后追加 `also: stopping · pid N · …`。`VIA_NO_DAEMON` 打开时输出 `daemon: disabled (VIA_NO_DAEMON)`，退出码都是 0。`-o json` 输出 `{"running": true, …}`（字段同协议的 `status`）或 `{"running": false, "socket": …}`，有其他 daemon 进程时带 `processes: [{ pid, state }]`（`state` 为 `starting`、`running`、`stopping`）。
   - `stop`：结束这个 socket 的所有 daemon 进程，返回时它们都已退出。先向应答的 daemon 发 `shutdown`，给在途请求 5 秒处理完；仍未结束就发 `shutdown`（`force`），让它放弃在途请求（关闭会话、停止 stdio 子进程）立即退出。socket 上不应答的 daemon 进程（进程记录里的 `starting`、`stopping`）收到 `SIGTERM`，同样立即退出（Windows 上 `SIGTERM` 即结束进程，它的 stdio 子进程不随之结束，见 [daemon.md](daemon.md#windows)）。全部退出后输出 `daemon: stopped (pid N[, M…])`，放弃过在途请求时追加 `, requests in flight abandoned`；这些请求的 CLI 按「连接中断」处理（只读请求在进程内重做，其余以退出码 6 报告可能已执行）。没有 daemon 时输出 `daemon: not running`，退出码 0。某个进程 5 秒后仍未退出时退出码 7，`next: kill <pid>`。`-o json` 输出 `{"running": false, "pid"?: N, "stopped": [N, …], "abandoned"?: true}`。
+  - `logs [<provider>] [-n <行数>] [--follow|-f] [--since <时长>]`：打印日志（[daemon.md](daemon.md#日志)）。不带 provider 是 daemon 自己的日志（`logs/daemon.log`），带 provider（与其他命令同样的唯一前缀、大小写宽松规则，找不到退出码 3 并给出候选）是该 server 的日志（stdio 子进程的 stderr、连接与协议事件、每次调用一行）。读文件，所以 daemon 没运行时、`VIA_NO_DAEMON=1` 下都能用（后者只有 server 的日志）。先输出最后 `-n` 行（默认 50，`-n 0` 一行不输出，常与 `--follow` 同用），从旧到新，轮转出的副本（`.1` 至 `.3`）也算在内；`--since` 只保留这段时间之内的行，时长写 `30s`、`10m`、`2h`、`1d`，可以连写（`1h30m`），无法解析或为 0 时退出码 2。`--follow` 在输出之后继续等新行（每 250 毫秒查看一次文件，跟随轮转，文件还不存在时等它出现），直到被 `Ctrl-C`（或 `SIGTERM`）中断，退出码 0。内容在写入时已脱敏，输出时控制字符再转义一遍；日志不存在时 stderr 写 `· no log yet for <provider> · <路径>`，stdout 为空，退出码 0。`-o json` 输出 JSON Lines：`{"time": "<ISO>", "source": "event|error|stderr", "text": "…"}`。
   - `run`：前台运行 daemon，由 CLI 分离拉起，也可手动运行。选项 `--socket <路径>`、`--idle-timeout <秒>`（缺省取配置的 `daemon.idleTimeout`）；已有 daemon 在这个 socket 上应答时输出 `daemon: already running on <路径>` 并以 0 退出。收到 SIGTERM/SIGINT/SIGHUP 时正常退出。
 - `via servers`：每个 server 一行，依次为 provider、传输方式（HTTP 只写 scheme 与主机，stdio 只写命令）、协议（上次拉取目录时协商出的 MCP 协议版本和连接是否有状态，如 `2026-07-28 stateless`、`2025-11-25 stateful`；固定了版本的加 `(pinned)`，还没有记录时只有固定的版本，什么都没有写 `-`）、鉴权方式及凭证引用是否可解析（只写引用，不写值）、来源文件、备注（`disabled`、`untrusted`、框架间冲突、保留名冲突）；之后列出配置诊断。不连接任何 server（协议一列读的是目录缓存，缓存过期或被清掉后回到 `-`），也不执行 `cmd:` 凭证引用（[config.md](config.md#凭证引用)）。`untrusted` 的备注附 `via trust <路径>`（多个文件待确认时为 `via trust`）。配置里有 error 级诊断时照常显示，不中止。
 - `via trust`：显示并记录对项目级配置文件的信任，也能列出、撤销记录；细节、确认方式和退出码见 [security.md](security.md#via-trust)。它读取配置但不连接 server，配置里有 error 级诊断时照常工作（不执行任何工具）。确认默认在终端里完成；`--yes` 只在带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1` 时有效。
@@ -235,6 +236,37 @@ next: via doctor
 ```
 
 因为无效的 `deny` 规则意味着本应隐藏的工具会可见，这里宁可停下，也不带着缺失的规则继续运行（[config.md](config.md#校验与诊断)）。
+
+### server 向用户提问
+
+工具调用中途，server 可以向用户要输入（elicitation，[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）。没有终端时一律拒绝并在调用的结果里说明（退出码与 `next:` 见 [output.md](output.md#server-向用户提问elicitation)）；这里是有终端时的交互。终端 = stdin 与 stderr 都是 TTY，且不是 `via serve`、`via batch`、`--args -` 读走了 stdin 的调用。提示写 stderr，答案读 stdin：
+
+```console
+$ via ask elicit-form
+? ask asks for your input (3 fields; an empty answer takes the default shown in brackets). The text below comes from the server, not from via. You have 58s (the --timeout of this call).
+  | Tell me about yourself
+1/3 Name (name) - text, 2 to 12 characters, required: Ann
+2/3 Count (count) - integer, 1 to 10 [3]: 11
+  ! at most 10
+2/3 Count (count) - integer, 1 to 10 [3]:
+    1) red (Red)
+    2) green (Green)
+3/3 Color (color) - one of the choices [green]: 1
+
+answers for ask:
+  name: Ann
+  count: 3
+  color: red
+Send these answers to ask? [y]es / [n]o (decline) / [c]ancel: y
+form answered: accept {"name":"Ann","count":3,"color":"red"}
+```
+
+- **表单**：按 schema 的顺序逐字段提问，支持字符串（`minLength`、`maxLength`、`format` 的 `email`、`uri`、`date`、`date-time`）、`number`、`integer`（`minimum`、`maximum`）、`boolean`（`y/yes/true/1`，`n/no/false/0`）、单选枚举（`enum`+`enumNames`，或 `oneOf`/`anyOf` 的 `const`+`title`；按序号、值或标题选）和多选（`array` 的 `items` 是枚举，逗号分隔，`minItems`/`maxItems`）。空行取 `default`；没有默认值的可选字段留空就是不回答；必填字段不接受空行。校验不过就说明原因并重问，同一问题最多 4 次，之后按 `cancel`。包含对象、嵌套数组或超过 50 个字段的 schema 无法逐字段提问，整个请求按 `decline`，并说明原因。
+- **最后一问没有默认值**：`y` 发送答案，`n` 拒绝（`decline`），`c` 取消（`cancel`）。空行或输入结束不会被当成同意。输入结束（`Ctrl-D`）时各字段取默认值或留空，最后一问连续 4 次没有有效回答、重试用尽，都按 `cancel`；`Ctrl-C` 照常结束整条命令。
+- **URL 模式**：先显示 server 的话、完整 URL 和主机名（IDN 以 punycode 显示），再问是否打开。只打开 `http` 与 `https`；其他 scheme、带用户名密码的 URL 不询问，直接 `decline` 并说明。同意后用平台的打开命令（与 `via auth login` 相同，Windows 用 `rundll32`，不经 `cmd.exe`；SSH 会话、无显示器时不尝试，只提示用户自己打开地址）打开，`accept` 只表示用户同意去做，via 不检查他是否做完。`2025-11-25` 的 `URLElicitationRequired` 错误（server 不等、要求用户先完成再重试）同样处理，用户在页面上完成后按回车，via 把调用再发一次。
+- **时间**：用户作答的时间计入调用的 `--timeout`，提示里显示剩余秒数，到点按 `cancel`。
+- **粘贴与提前输入**：一次粘贴多行时，后面的行留给后面的问题。
+- 终端里输入的答案只发给提问的 server，不写盘、不进日志、不进 `next:`。
 
 ### via serve
 

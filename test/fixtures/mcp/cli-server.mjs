@@ -1,7 +1,8 @@
 // Mock MCP server for the CLI end-to-end tests: a small GitHub-shaped tool set with annotations,
 // output schemas, progress, a long result and failing tools. Plain ESM like mock-server.mjs.
 // With `features` it also serves resources (text, JSON, blob, several contents, a long text, templates,
-// two list pages) and prompts; the feature `roots` adds the tool `list_roots`, which asks the client for its roots.
+// two list pages) and prompts; the feature `roots` adds the tool `list_roots`, which asks the client for its roots; the
+// feature `elicit` adds tools that ask the client's user for input (form and URL mode, and the `-32042` form of URL mode).
 import { createHash } from 'node:crypto';
 import { buildServer } from './flavors.mjs';
 
@@ -61,6 +62,29 @@ export function defaultTools() {
 }
 
 const ROOTS_TOOL = { name: 'list_roots', description: 'Ask the client for its roots', inputSchema: object() };
+
+/** Tools of the feature `elicit`: each one asks the user something in the middle of the call. */
+const ELICIT_TOOLS = [
+  { name: 'elicit_form', description: 'Ask the user for a name, a count, a color and a flag', inputSchema: object({ plain: { type: 'boolean' }, message: str('Replaces the question text'), title: str('Replaces the title of the name field') }) },
+  { name: 'elicit_confirm', description: 'Ask the user to confirm; fails when they do not', inputSchema: object({ what: str('What is confirmed') }) },
+  { name: 'elicit_url', description: 'Ask the user to visit a web page', inputSchema: object({ url: str('The page') }) },
+  { name: 'elicit_url_required', description: 'Fail with URLElicitationRequired the first time', inputSchema: object() },
+];
+
+/** The form `elicit_form` asks for: one field of each kind via supports. */
+const FORM = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', title: 'Name', description: 'Who is asking', minLength: 2, maxLength: 12 },
+    count: { type: 'integer', title: 'Count', minimum: 1, maximum: 10, default: 3 },
+    ratio: { type: 'number', minimum: 0, maximum: 1 },
+    color: { type: 'string', title: 'Color', enum: ['red', 'green', 'blue'], enumNames: ['Red', 'Green', 'Blue'], default: 'green' },
+    size: { type: 'string', oneOf: [{ const: 's', title: 'Small' }, { const: 'l', title: 'Large' }] },
+    tags: { type: 'array', title: 'Tags', items: { type: 'string', enum: ['a', 'b', 'c'] }, minItems: 0, maxItems: 2 },
+    verified: { type: 'boolean', title: 'Verified', default: true },
+  },
+  required: ['name'],
+};
 
 /** A 1x1 PNG. */
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -139,11 +163,11 @@ function skillEntries() {
 
 /** Shared, inspectable state: one Server is built per HTTP request, so it lives outside. */
 export function createCliState() {
-  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined, completions: [], skillRequests: [], tasks: new Map(), taskRequests: [] };
+  return { tools: defaultTools(), listCalls: 0, calls: [], inflight: 0, maxInflight: 0, reads: [], prompts: [], promptList: undefined, completions: [], skillRequests: [], tasks: new Map(), taskRequests: [], elicited: [], urlRequired: 0 };
 }
 
 /**
- * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots' | 'completions' | 'skills' | 'tasks' | 'tasks-nolist'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number, about?: { description?: string, websiteUrl?: string, instructions?: string } }} options
+ * @param {{ state: ReturnType<typeof createCliState>, authorization?: string, features?: Array<'resources' | 'prompts' | 'roots' | 'elicit' | 'completions' | 'skills' | 'tasks' | 'tasks-nolist'>, flavor?: 'legacy' | 'modern', notifier?: { toolsChanged(): void }, ttlMs?: number, about?: { description?: string, websiteUrl?: string, instructions?: string } }} options
  *   `flavor` picks the protocol generation (flavors.mjs); `notifier` is the stateless handler's change publisher;
  *   `about` is what the server says about itself (`serverInfo.description`, `websiteUrl`, `instructions`).
  */
@@ -329,7 +353,7 @@ export function createCliServer({ state, authorization, features = [], flavor = 
   table['tools/list'] = async () => {
     state.listCalls += 1;
     // `ttlMs`: the freshness hint a stateless server sends with its tool list.
-    const listed = [...state.tools, ...(features.includes('roots') ? [ROOTS_TOOL] : []), ...(withTasks ? TASK_TOOLS : [])];
+    const listed = [...state.tools, ...(features.includes('roots') ? [ROOTS_TOOL] : []), ...(features.includes('elicit') ? ELICIT_TOOLS : []), ...(withTasks ? TASK_TOOLS : [])];
     return { tools: listed, ...(flavor === 'modern' && ttlMs !== undefined ? { ttlMs } : {}) };
   };
 
@@ -387,6 +411,30 @@ export function createCliServer({ state, authorization, features = [], flavor = 
         const listed = await h.listRoots();
         return { content: [{ type: 'text', text: [`roots (listChanged: ${roots.listChanged === true}):`, ...listed.roots.map((r) => `${r.uri} ${r.name ?? ''}`.trimEnd())].join('\n') }] };
       }
+      case 'elicit_form': {
+        const form = args.title ? { ...FORM, properties: { ...FORM.properties, name: { ...FORM.properties.name, title: args.title } } } : FORM;
+        const answer = await h.elicit('form', { message: args.message ?? 'Tell me about yourself', requestedSchema: args.plain ? { type: 'object', properties: { name: form.properties.name }, required: ['name'] } : form });
+        if (!answer) return { content: [{ type: 'text', text: 'elicitation: the client did not declare the capability' }] };
+        state.elicited.push({ tool: name, action: answer.action, content: answer.content });
+        return { content: [{ type: 'text', text: `form answered: ${answer.action} ${JSON.stringify(answer.content ?? {})}` }] };
+      }
+      case 'elicit_confirm': {
+        const answer = await h.elicit('confirm', { message: `Really ${args.what ?? 'proceed'}?`, requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean', title: 'Confirm' } }, required: ['confirm'] } });
+        if (!answer) return { content: [{ type: 'text', text: 'elicitation: the client did not declare the capability' }] };
+        state.elicited.push({ tool: name, action: answer.action, content: answer.content });
+        if (answer.action !== 'accept' || answer.content?.confirm !== true) return { content: [{ type: 'text', text: `not confirmed (${answer.action})` }], isError: true };
+        return { content: [{ type: 'text', text: 'confirmed' }] };
+      }
+      case 'elicit_url': {
+        const answer = await h.elicit('page', { mode: 'url', message: 'Authorize in the browser', url: args.url ?? 'https://example.com/consent?token=abc', elicitationId: 'e-1' });
+        if (!answer) return { content: [{ type: 'text', text: 'elicitation: the client did not declare the capability' }] };
+        state.elicited.push({ tool: name, action: answer.action });
+        return { content: [{ type: 'text', text: `page answered: ${answer.action}` }] };
+      }
+      case 'elicit_url_required':
+        state.urlRequired += 1;
+        if (state.urlRequired === 1) h.fail(-32042, 'This request requires more information', { elicitations: [{ mode: 'url', elicitationId: 'e-2', url: 'https://example.com/connect', message: 'Connect your account' }] });
+        return { content: [{ type: 'text', text: 'unlocked' }] };
       case 'echo_text':
         return { content: [{ type: 'text', text: `echo: ${args.message}` }] };
       case 'run_job': {

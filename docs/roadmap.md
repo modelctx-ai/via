@@ -88,11 +88,11 @@ flowchart LR
 | d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
 | e1 SDK v2、e2 2026-07-28 无状态协议、e3 协议版本可见与固定、e8 一致性测试 | 已实现，未发布 | `@modelcontextprotocol/client` 2.3.1；`server/discover` 探测并自动回退（[ADR 0017](adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](spec/daemon.md)）；`protocolVersion` 配置字段；CI 新增 `conformance` 与 `stateless` 任务，预期失败的场景列在 `test/conformance/expected-failures.yml` |
 | e4 tasks、e6 Skills、e9 completion 与 server 自述 | 已实现，未发布 | `via tasks`、`via skills`（[ADR 0020](adr/0020-tasks-and-skills-commands.md)），`--detach`；server 自述只在 `via <provider> -h`，`--complete` 显式补全（[ADR 0021](adr/0021-server-self-description-and-completion.md)）；`via serve` 暂不暴露这些命令 |
-| e5 elicitation | 计划中（0.4），必须做 | 见 [MCP 协议对齐](#mcp-协议对齐) |
+| e5 elicitation | 已实现，未发布 | 终端里交互回答，其他情形拒绝并在调用结果里说明（退出码 5）；URL 模式只开 `http(s)`；daemon 经 `elicit` 事件与 `elicit-reply` 转给发起调用的 CLI（[ADR 0018](adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)、[output.md](spec/output.md)、[daemon.md](spec/daemon.md)） |
 | e7 授权规范对齐 | 已实现，未发布 | CIMD（`https://modelctx-ai.github.io/via/client-metadata.json`，需维护者在仓库设置里启用 Pages）、固定回调端口 29842–29851、预注册客户端的 secret、client credentials（secret 与私钥断言）、绑定授权服务器；企业托管授权（ID-JAG）有意不做；后续：配置里钉住授权服务器（[ADR 0019](adr/0019-oauth-client-identity-and-credentials.md)、[auth.md](spec/auth.md)） |
 | f1 schema 快照校验 | 已实现，未发布 | `--schema-snapshot <文件>`、`--schema-mode compatible\|strict`（[arguments.md](spec/arguments.md#schema-快照校验)） |
 | f2 出站代理 | 已实现，未发布 | MCP HTTP、OAuth 与 embedding 请求遵守 `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`，`via doctor` 显示生效的代理（[config.md](spec/config.md)、[security.md](spec/security.md)） |
-| f3 | 计划中（0.4） | 见[借鉴与补齐](#借鉴与补齐) |
+| f3 daemon 与 stdio server 日志 | 已实现，未发布 | `logs/` 下按 server 分文件的轮转日志与 daemon 自己的日志，`via daemon logs [<provider>] [-n] [--follow] [--since]`（[ADR 0022](adr/0022-per-server-logs-rotated-and-redacted.md)、[daemon.md](spec/daemon.md#日志)） |
 | f4 `-h` 调用示例 | 已实现，未发布 | [arguments.md](spec/arguments.md#调用示例) |
 | f5 SKILL.md | 已实现，未发布 | `via prompt --skill`（[cli.md](spec/cli.md)） |
 

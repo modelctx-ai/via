@@ -19,11 +19,16 @@ export interface CliEnv {
   readStdin: () => Promise<string>;
   /** True when a person can answer a question: stdin and stderr are both terminals. */
   interactive: boolean;
-  /** Ask a question on stderr and return the first line typed in reply (`via trust`). */
-  ask: (question: string) => Promise<string>;
+  /**
+   * Ask a question on stderr and return the first line typed in reply (`via trust`, a server's question during
+   * a call). `signal` withdraws the question (the call ran out of time): the answer is then empty.
+   */
+  ask: (question: string, options?: { signal?: AbortSignal }) => Promise<string>;
   /** Opens a URL in a browser; the default uses the platform opener (`via auth login`). */
   openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }>;
   now: () => number;
+  /** Ends long-running commands (`via daemon logs --follow`); default: SIGINT and SIGTERM of this process. */
+  interrupt?: AbortSignal;
   /** How to start `via daemon run` detached: the executable and the arguments before the subcommand. */
   daemonCommand: { command: string; args: string[] };
 }
@@ -39,13 +44,26 @@ async function readProcessStdin(): Promise<string> {
   return decodeText(Buffer.concat(chunks));
 }
 
-async function askOnTerminal(question: string): Promise<string> {
+/** Lines that arrived together with an answer (pasted, or typed ahead): the next question gets them. */
+const typedAhead: string[] = [];
+
+async function askOnTerminal(question: string, options: { signal?: AbortSignal } = {}): Promise<string> {
+  const early = typedAhead.shift();
+  if (early !== undefined) {
+    process.stderr.write(`${question}${early}\n`);
+    return early;
+  }
   const { createInterface } = await import('node:readline/promises');
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
+    // The pending question takes the first line of a chunk; readline emits the rest as `line` events.
+    rl.on('line', (line) => typedAhead.push(line));
     // At end of input readline closes without answering; that counts as an empty answer.
     const closed = new Promise<string>((resolve) => rl.once('close', () => resolve('')));
-    return await Promise.race([rl.question(question), closed]);
+    return await Promise.race([rl.question(question, options.signal ? { signal: options.signal } : {}), closed]);
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === 'AbortError') return '';
+    throw error;
   } finally {
     rl.close();
   }

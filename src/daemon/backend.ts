@@ -5,6 +5,7 @@ import type { Backend, Listing, ListingOptions } from '../cli/backend';
 import type { Compiled, CompileResult, SchemaCompiler } from '../cli/args/validate';
 import type { McpTool } from '../catalog/types';
 import { ClientError } from '../client/errors';
+import type { ElicitAnswer, ElicitQuestion } from '../client/elicit';
 import type { CallOptions, ListOptions } from '../client/session';
 import type { ServerConfig } from '../config/types';
 import type { CatalogCache } from '../cli/catalog-cache';
@@ -117,6 +118,7 @@ export class DaemonBackend implements Backend {
         ...(options.onProgress ? { progress: true } : {}),
         ...(options.taskSupport !== undefined ? { taskSupport: options.taskSupport } : {}),
         ...(options.onTask ? { tasks: true } : {}),
+        ...(options.elicit ? { elicit: true as const } : {}),
       },
       {
         deadlineMs: timeoutMs * (options.retry ? 2 : 1) + DEADLINE_SLACK_MS,
@@ -140,6 +142,7 @@ export class DaemonBackend implements Backend {
         ...(options.onProgress ? { progress: true } : {}),
         ...(options.taskSupport !== undefined ? { taskSupport: options.taskSupport } : {}),
         ...(options.onTask ? { tasks: true } : {}),
+        ...(options.elicit ? { elicit: true as const } : {}),
       },
       { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, onEvent: (event) => this.onCallEvent(event, options) },
     );
@@ -150,6 +153,7 @@ export class DaemonBackend implements Backend {
     this.onLog(event);
     if (event.event === 'progress' && options.onProgress) options.onProgress(event.data as Parameters<NonNullable<CallOptions['onProgress']>>[0]);
     if (event.event === 'task' && options.onTask) options.onTask(event.data as TaskInfo);
+    if (event.event === 'elicit' && options.elicit) void this.answer(options.elicit, event);
   }
 
   private async taskRequest<T>(server: string, action: 'get' | 'wait' | 'cancel' | 'list', taskId: string | undefined, options: ListOptions): Promise<T> {
@@ -172,6 +176,23 @@ export class DaemonBackend implements Backend {
 
   listTasks(server: string, options: ListOptions = {}): Promise<TaskList> {
     return this.taskRequest<TaskList>(server, 'list', undefined, options);
+  }
+
+  /** The daemon relays a server's question to the person behind this call: ask `sink`, send the answer back (daemon.md, "elicitation"). */
+  private async answer(sink: NonNullable<CallOptions['elicit']>, event: Event): Promise<void> {
+    const { key, question } = event.data as { key?: unknown; question?: ElicitQuestion };
+    if (typeof key !== 'string' || !question) return;
+    let answer: ElicitAnswer;
+    try {
+      answer = await sink.ask(question);
+    } catch {
+      answer = { action: 'cancel' };
+    }
+    try {
+      await this.send({ type: 'elicit-reply', call: event.id, key, answer }, { deadlineMs: 10_000, spawn: false });
+    } catch {
+      // The daemon is gone or the call is over: nobody is waiting for the answer any more.
+    }
   }
 
   /** A `log` event is `{ level: 'warning', message }`; other levels are not shown. */

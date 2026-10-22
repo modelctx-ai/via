@@ -8,8 +8,6 @@ client:
   # The SDK checks the issuer of the authorization server metadata strictly (RFC 8414 3.3); the 2025-03-26 scenario
   # serves metadata whose issuer differs from the URL it was fetched from.
   - auth/2025-03-26-oauth-metadata-backcompat
-  # e5: via does not implement elicitation (and never samples: it does not call a model).
-  - elicitation-sep1034-client-defaults
   # e7: cross-app access (enterprise-managed authorization, ID-JAG) is deliberately not implemented: lowest priority in
   # the roadmap until someone needs it (docs/spec/auth.md, "企业托管授权").
   - auth/cross-app-access-complete-flow

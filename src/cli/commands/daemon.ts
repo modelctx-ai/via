@@ -11,7 +11,7 @@ import { daemonDisabled } from '../app';
 import { fail, usageFailure } from '../failure';
 import { parseLocal } from '../options';
 
-const USAGE = 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>]';
+const USAGE = 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>] | via daemon logs [<provider>] [-n <lines>] [--follow] [--since <duration>]';
 
 export async function daemonCommand(app: App, argv: readonly string[]): Promise<number> {
   const [action, ...rest] = argv;
@@ -24,6 +24,8 @@ export async function daemonCommand(app: App, argv: readonly string[]): Promise<
       return stop(app);
     case 'run':
       return runDaemon(app, rest);
+    case 'logs':
+      return logs(app, rest);
     default:
       throw usageFailure(action === undefined ? USAGE : `unknown daemon action: ${action.slice(0, 40)}`, 'via daemon -h');
   }
@@ -245,6 +247,7 @@ async function runDaemon(app: App, argv: readonly string[]): Promise<number> {
   const onSignal = (): void => void daemon.stop();
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.once(signal, onSignal);
   const onCrash = (error: unknown): void => {
+    daemon.note('error', `crash: ${error instanceof Error ? error.message.split('\n')[0] : String(error).split('\n')[0]}`);
     process.stderr.write(`daemon: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
     void daemon.stop();
   };
@@ -254,5 +257,68 @@ async function runDaemon(app: App, argv: readonly string[]): Promise<number> {
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.off(signal, onSignal);
   process.off('uncaughtException', onCrash);
   process.off('unhandledRejection', onCrash);
+  return ExitCode.Ok;
+}
+
+// logs --------------------------------------------------------------------------------------
+
+/** Lines shown when `-n` is not given. */
+const DEFAULT_LOG_LINES = 50;
+
+/**
+ * `via daemon logs [<provider>] [-n N] [--follow] [--since <duration>]` (daemon.md, "日志"): the daemon's own
+ * log, or the log of one server (its stdio stderr, connection and protocol events, one line per call). Reads
+ * files; works with the daemon stopped and in `VIA_NO_DAEMON` mode, where only the server logs are written.
+ */
+async function logs(app: App, argv: readonly string[]): Promise<number> {
+  const { flags, positionals } = parseLocal('daemon logs', argv, [
+    { name: 'n', short: 'n', value: true },
+    { name: 'follow', short: 'f', value: false },
+    { name: 'since', value: true },
+  ]);
+  if (positionals.length > 1) throw usageFailure('usage: via daemon logs [<provider>] [-n <lines>] [--follow] [--since <duration>]', 'via daemon -h');
+  let count = DEFAULT_LOG_LINES;
+  if (typeof flags.n === 'string') {
+    count = /^\d+$/.test(flags.n) ? Number(flags.n) : Number.NaN;
+    if (!Number.isSafeInteger(count)) throw usageFailure(`-n must be a number of lines (got ${JSON.stringify(flags.n.slice(0, 40))})`, 'via daemon -h');
+  }
+  const { parseDuration, readLog, followLog } = await import('../../log/read');
+  let since: number | undefined;
+  if (typeof flags.since === 'string') {
+    const span = parseDuration(flags.since);
+    if (span === undefined) throw usageFailure(`--since must be a duration such as 30s, 10m, 2h or 1d (got ${JSON.stringify(flags.since.slice(0, 40))})`, 'via daemon -h');
+    since = app.io.now() - span;
+  }
+  const { daemonLogPath, logDir, serverLogPath } = await import('../../log');
+  const dir = logDir(app.cacheDir);
+  const name = positionals[0] === undefined ? undefined : (await (await import('../target')).resolveEntry(app, positionals[0])).server.name;
+  const path = name === undefined ? daemonLogPath(dir) : serverLogPath(dir, name);
+  const json = app.options.format === 'json';
+  const show = (lines: Array<{ time: number | undefined; source: string; text: string; raw: string }>): void => {
+    if (lines.length === 0) return;
+    app.out(
+      lines
+        .map((l) => (json ? JSON.stringify({ time: l.time === undefined ? null : new Date(l.time).toISOString(), source: l.source, text: l.text }) : l.raw))
+        .join('\n') + '\n',
+    );
+  };
+  const existing = await readLog(path, { count, ...(since !== undefined ? { since } : {}) });
+  show(existing);
+  if (existing.length === 0 && flags.follow !== true) {
+    const { stat } = await import('node:fs/promises');
+    const exists = await stat(path).then(() => true, () => false);
+    app.err(`· ${exists ? `no log lines${since !== undefined ? ' in that time' : ''}` : `no log yet for ${name ?? 'the daemon'}`} · ${path}\n`);
+  }
+  if (flags.follow !== true) return ExitCode.Ok;
+  // Until the person interrupts (tests hand in a signal of their own).
+  const stopper = new AbortController();
+  const onSignal = (): void => stopper.abort();
+  const signal = app.io.interrupt ?? stopper.signal;
+  if (!app.io.interrupt) for (const s of ['SIGINT', 'SIGTERM'] as const) process.once(s, onSignal);
+  try {
+    await followLog(path, { signal, onLines: show });
+  } finally {
+    if (!app.io.interrupt) for (const s of ['SIGINT', 'SIGTERM'] as const) process.off(s, onSignal);
+  }
   return ExitCode.Ok;
 }

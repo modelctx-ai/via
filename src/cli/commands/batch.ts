@@ -16,6 +16,13 @@ import { parseLocal } from '../options';
 import { resolveEntry } from '../target';
 import { resolveToolRef, splitToolRef, type OpenProvider } from './provider';
 import { argsContext, executeCall, type CallOutcome, type ToolTarget } from './tool';
+import { shellArg, shellWords } from '../../render/shell';
+
+/** `via call <ref> --args '<json>'`, for the `next:` of a line whose server asked for user input; nothing when it would be unwieldy. */
+function rerunLine(ref: string, args: unknown): { rerun?: string } {
+  const json = JSON.stringify(args ?? {});
+  return json.length > 500 ? {} : { rerun: `via call ${shellWords(ref)} --args ${shellArg(json, { placeholder: 'json' })}` };
+}
 
 /** Lines in flight at once, across all servers; each server's own `concurrency` still applies on top. */
 export const DEFAULT_BATCH_CONCURRENCY = 16;
@@ -178,6 +185,9 @@ class LineRunner {
           target,
           parseArgs: (t) => this.parseArgs(t, parsed.args),
           flags: [`line ${input.line}`],
+          // Lines run side by side with nobody to ask; a server's question is declined (ADR 0018).
+          interactive: false,
+          ...rerunLine(target.tool.ref, parsed.args),
           confirmNext: 'rerun only this line with: via batch --yes',
           refreshListing: (entry) => this.refresh(entry),
         },

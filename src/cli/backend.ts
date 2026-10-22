@@ -104,9 +104,12 @@ export class InProcessBackend implements Backend {
 
   /** The client that talks to servers, made on first use: browsing a cached catalog never needs it. */
   private client(): Promise<McpClient> {
-    this.clientLoading ??= import('../client').then(({ InProcessClient }) => {
-      const { servers, resolver, now, oauthStore, onWarning, roots, cache, env } = this.options;
+    this.clientLoading ??= Promise.all([import('../client'), import('../log'), import('../render/redact')]).then(([{ InProcessClient }, { openLog, ServerLog, logDir, serverLogPath }, { lazyRedactor }]) => {
+      const { servers, resolver, now, oauthStore, onWarning, roots, cache, env, cacheDir } = this.options;
+      // What a stdio server writes to stderr, and the connection's events, go to its log file (daemon.md "日志").
+      const redact = lazyRedactor(() => resolver.resolvedValues());
       return (this.loaded = new InProcessClient(servers, resolver, {
+        log: (server) => new ServerLog(openLog(serverLogPath(logDir(cacheDir), server.name)), redact),
         now,
         knownProtocol: (server) => cache.read(server)?.protocol,
         env,

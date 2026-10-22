@@ -39,9 +39,10 @@ MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[AD
 
 - `initialize`、`tools_call`：`via conf`（握手与 `tools/list`）、`via conf add_numbers --a 2 --b 3`；
 - `sse-retry`：调用中途服务端断开事件流，检查 via 按 `retry` 重连并带 `Last-Event-ID`；
+- `elicitation-sep1034-client-defaults`：server 在调用中途要五个都带默认值的字段。适配器用 util-linux 的 `script` 给 via 一个伪终端（stdin 与 stderr 都是 TTY，所以走的是用户看到的交互路径），一次写入五个空行和一个 `y`，让后面的问题读取提前输入的行（只在 Linux 上跑；`script` 缺失则该场景失败）；
 - `auth/*`：`via auth login conf --manual`，适配器自己请求授权 URL、取重定向地址再从 stdin 交给 via（相当于人把浏览器最后停在的页面地址粘贴回来），然后用登录后的令牌浏览（`auth/client-credentials-*` 没有浏览器：`via auth login conf`、`via conf`）；场景给的预注册客户端 id 写进 `auth.oauth.clientId`；预注册客户端的 secret 与 client credentials 的 secret、私钥由适配器放进环境变量，配置里写 `env:` 引用（和用户用法一致，配置文件里没有秘密）；CIMD 场景期望的 `client_id` 是一份并不存在的文档（`https://conformance-test.local/client-metadata.json`），适配器用 `auth.oauth.clientMetadataUrl` 换掉 via 托管的那份，和用户自托管文档时的写法一样。
 
-运行：`npm run test:conformance`（先构建，再 `--suite all`）。已知不过的场景写在 `test/conformance/expected-failures.yml`，每条标明缺口对应的路线图项（step-up 授权、有意不做的企业托管授权 ID-JAG 属 e7，elicitation 属 e5，另有一个 2025-03-26 旧授权规范的发现场景被 SDK 严格的 issuer 校验拒绝）：新增失败，或某条已经修好却没从清单里删掉，都让 CI 的 `conformance` 任务失败。升级一致性测试包时先 `npx @modelcontextprotocol/conformance list --client` 看有没有新场景；套件目前的 client 场景最高到 `2025-11-25`，所以这里走的是 via 的回退路径，无状态协议由上面的两代测试覆盖。
+运行：`npm run test:conformance`（先构建，再 `--suite all`）。已知不过的场景写在 `test/conformance/expected-failures.yml`，每条标明缺口对应的路线图项（step-up 授权、有意不做的企业托管授权 ID-JAG 属 e7，另有一个 2025-03-26 旧授权规范的发现场景被 SDK 严格的 issuer 校验拒绝）：新增失败，或某条已经修好却没从清单里删掉，都让 CI 的 `conformance` 任务失败。升级一致性测试包时先 `npx @modelcontextprotocol/conformance list --client` 看有没有新场景；套件目前的 client 场景最高到 `2025-11-25`，所以这里走的是 via 的回退路径，无状态协议由上面的两代测试覆盖。
 
 ### 安全相关测试
 

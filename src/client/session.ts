@@ -5,12 +5,14 @@ import pkg from '../../package.json';
 import type { CredentialResolver, ServerConfig } from '../config/types';
 import type { CompletionRef, CompletionResult, DetachedCall, GetPromptResult, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import type { McpTool } from '../catalog/types';
-import { createRedactor } from '../render/redact';
+import { createRedactor, redactValue } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
 import { cannotDetach, ClientError, internal, isNotFoundCode, mapError, noFeature, noSkills, noTasks, taskNeedsInput, taskNotFound, taskStillRunning, notFoundServer, resourceNotFound, skillNotFound, skillRefused, timedOut, untrustedServer, type Phase } from './errors';
 import { prepareStdioCommand } from '../platform/command';
 import { isModernProtocolVersion } from '../protocol-versions';
 import { proxyFetch } from '../proxy';
+import { describeQuestion, ELICITATION_CAPABILITY, parseAnswer, parseQuestion, urlElicitationsOf, type ElicitAnswer, type ElicitQuestion, type ElicitSink } from './elicit';
+import { originOf, programOf, type ServerLog } from '../log';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
 import { describeServer } from './server-info';
@@ -32,6 +34,8 @@ export interface CallOptions {
   onProgress?: (progress: { progress: number; total?: number; message?: string }) => void;
   /** Something the person should know about, caused by this call (see `SessionOptions.onWarning`). */
   onWarning?: (message: string) => void;
+  /** Who answers the questions a server asks the person during this call (elicitation, ADR 0018); none: they are declined. */
+  elicit?: ElicitSink;
 }
 
 export interface ListOptions {
@@ -75,6 +79,11 @@ export interface SessionOptions {
    * so a library caller is never surprised by a proxy it did not ask for.
    */
   env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Where this server's log lines go (daemon.md "日志"): stdio stderr, connection and protocol events, one line per
+   * call. Called once per session; absent: nothing is logged. Lines are redacted by the log.
+   */
+  log?: (server: ServerConfig) => ServerLog | undefined;
   /** Base of relative `roots` entries and the meaning of `~`: the CLI's working directory and home (config.md, `roots`). */
   roots?: { cwd: string; home: string };
 }
@@ -85,6 +94,9 @@ const METHOD_NOT_FOUND = -32601;
 function hasString(value: unknown, key: string): boolean {
   return typeof value === 'object' && value !== null && typeof (value as Record<string, unknown>)[key] === 'string';
 }
+
+/** How the SDK's own progress notification for a round of `input_required` begins (it is not the tool's progress). */
+const INPUT_ROUND = 'Fulfilling input required by';
 
 /** Safety net against a server that keeps returning cursors. */
 const MAX_LIST_PAGES = 1000;
@@ -193,6 +205,9 @@ export class McpSession {
   private lastProtocol?: ProtocolInfo;
   /** Abandons the connection being made (`close()` while connecting). */
   private abortConnect?: () => void;
+  /** The calls running now that can be asked to answer a server's question, oldest first. */
+  private readonly askers = new Set<{ sink: ElicitSink; left: () => number }>();
+  private readonly log: ServerLog | undefined;
 
   constructor(
     readonly server: ServerConfig,
@@ -200,6 +215,7 @@ export class McpSession {
     private readonly options: SessionOptions = {},
   ) {
     this.limiter = new Limiter(server.concurrency);
+    this.log = options.log?.(server);
   }
 
   /** Whether a live connection exists right now. */
@@ -392,15 +408,19 @@ export class McpSession {
 
   private runCall(rawName: string, args: Record<string, unknown> | undefined, options: CallOptions, detach: boolean): Promise<DetachedCall> {
     const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
-    let deadline = Date.now() + timeoutMs;
+    const began = Date.now();
+    let deadline = began + timeoutMs;
     const left = (): number => Math.max(1, deadline - Date.now());
     return this.limiter.run(async () => {
       if (options.onWarning) this.warnSink = options.onWarning;
+      // While this call runs, the server may ask the person behind it something (elicitation, ADR 0018).
+      const asker = options.elicit ? { sink: options.elicit, left } : undefined;
+      if (asker) this.askers.add(asker);
       let made: TaskInfo | undefined;
       const attempt = async (): Promise<DetachedCall> => {
         const handle = await this.ensureConnected(left(), timeoutMs);
         return this.request(handle, 'request', timeoutMs, async () => {
-          const started = await this.startCall(handle, rawName, args, options, detach, left);
+          const started = await this.startCall(handle, rawName, args, options, detach, left, asker);
           if ('result' in started) return started;
           made = started.task;
           options.onTask?.(started.task);
@@ -417,12 +437,25 @@ export class McpSession {
         await this.drop();
         deadline = Date.now() + timeoutMs; // the retry has a budget of its own
         return attempt();
+      } finally {
+        if (asker) this.askers.delete(asker);
       }
-    }, this.queueWait(timeoutMs));
+    }, this.queueWait(timeoutMs)).then(
+      (done) => {
+        // A call detached from the task it made has no result yet; the task's own calls are logged by whoever follows it.
+        this.log?.event(`call ${rawName} ${'task' in done ? 'became a task' : done.result.isError ? 'returned isError' : 'ok'} in ${Date.now() - began}ms`);
+        return done;
+      },
+      (err: unknown) => {
+        const failure = err instanceof ClientError ? `exit ${err.exitCode}: ${firstLine(err.message)}` : 'failed';
+        this.log?.error(`call ${rawName} failed in ${Date.now() - began}ms (${failure})`);
+        throw err;
+      },
+    );
   }
 
   /** Send `tools/call` and sort the answer into a result or a created task. */
-  private async startCall(handle: Handle, rawName: string, args: Record<string, unknown> | undefined, options: CallOptions, detach: boolean, left: () => number): Promise<DetachedCall> {
+  private async startCall(handle: Handle, rawName: string, args: Record<string, unknown> | undefined, options: CallOptions, detach: boolean, left: () => number, asker: { sink: ElicitSink; left: () => number } | undefined): Promise<DetachedCall> {
     const modern = handle.client.getProtocolEra() === 'modern';
     const capabilities = handle.client.getServerCapabilities() as { tasks?: { requests?: { tools?: { call?: unknown } } }; extensions?: Record<string, unknown> } | undefined;
     // The old protocol: the client asks for a task, for a tool that requires one or when detaching, if the server and the tool allow it.
@@ -439,11 +472,23 @@ export class McpSession {
       throw cannotDetach(this.server, `${this.server.provider} did not declare the ${TASKS_EXTENSION} extension`);
     }
     const params = { name: rawName, arguments: args ?? {}, ...(ask ? { task: {} } : {}) };
-    const send = { timeout: left(), ...(options.onProgress ? { onprogress: options.onProgress } : {}) };
+    // On the stateless protocol the SDK reports each round of answering the server's questions (roots,
+    // elicitation) as a progress notification of its own; that is not the tool's progress.
+    const onprogress = options.onProgress;
+    const send = onprogress ? { onprogress: (p: Parameters<NonNullable<CallOptions['onProgress']>>[0]) => (p.message?.startsWith(INPUT_ROUND) ? undefined : onprogress(p)) } : {};
     // The stateless protocol has the SDK mirror tool arguments the tool declared with `x-mcp-header`
     // into request headers (a server refuses the call without them); on the old protocol the result
     // is taken as the server sent it.
-    const raw: unknown = modern ? await handle.client.callTool(params, send) : await handle.client.request({ method: 'tools/call', params }, RAW, send);
+    const send1 = async (): Promise<unknown> =>
+      modern ? handle.client.callTool(params, { ...send, timeout: left() }) : handle.client.request({ method: 'tools/call', params }, RAW, { ...send, timeout: left() });
+    let raw: unknown;
+    try {
+      raw = await send1();
+    } catch (err) {
+      // `URLElicitationRequired`: the server wants the person at a web page first, then the call again.
+      if (!(await this.visitedUrls(err, asker))) throw err;
+      raw = await send1();
+    }
     if (typeof raw !== 'object' || raw === null) throw new Error('tools/call returned a non-object result');
     const lifted = modern ? handle.tasks.take(raw) : ask && 'task' in raw ? raw : undefined;
     if (lifted === undefined) return { result: raw as ToolCallResult };
@@ -577,6 +622,7 @@ export class McpSession {
       await pending.catch(() => undefined);
     }
     await this.drop();
+    await this.log?.flush();
   }
 
   // Internals ---------------------------------------------------------------------------------
@@ -717,6 +763,7 @@ export class McpSession {
       return await this.establish(attempt, resolved, authFetch, skipProbe);
     } catch (err) {
       if (!skipProbe || attempt.aborted || !(err instanceof ClientError) || err.retryable) throw err;
+      this.log?.event('the plain handshake failed; trying again with the protocol probe');
       return this.establish(attempt, resolved, authFetch, false);
     }
   }
@@ -728,17 +775,29 @@ export class McpSession {
     let stderrBuf = '';
     let client: (Client & { readonly tasks: CreatedTaskShim }) | undefined;
     let handle: Handle | undefined;
+    const began = Date.now();
+    this.log?.event(
+      `${resolved.type === 'stdio' ? `starting ${programOf(resolved.command)}` : `connecting to ${originOf(resolved.url)}`}; protocol: ${server.protocolVersion !== undefined ? `pinned to ${server.protocolVersion}` : legacy ? 'plain handshake, no probe (last seen on the old protocol)' : 'newest first (server/discover, then initialize)'}`,
+    );
     try {
       const { Client: ClientCtor } = await loadSdk();
       // The `roots` capability is declared only when the server has roots configured (ADR 0010), and
       // never as `listChanged`: the roots of a session do not change during its life.
       const roots = resolveRoots(server.roots, this.options.roots ?? { cwd: process.cwd(), home: process.env.HOME ?? '' });
-      const onToolsChanged = this.options.onToolsChanged;
+      const changed = this.options.onToolsChanged;
+      const onToolsChanged = changed
+        ? (): void => {
+            this.log?.event('the tool list changed (list_changed)');
+            changed();
+          }
+        : undefined;
       client = new ClientCtor(
         { name: 'via', version: pkg.version },
         {
+          // `elicitation` is always declared (ADR 0018): a question is answered by the person at the terminal that made
+          // the call, or declined; `sampling` never is, since via does not call a model.
           // `tasks` is declared on every request: a stateless server may only make a task for a client that did, and via follows it (ADR 0020).
-          capabilities: { ...(roots.length > 0 ? { roots: { listChanged: false } } : {}), extensions: { [TASKS_EXTENSION]: {} } },
+          capabilities: { elicitation: ELICITATION_CAPABILITY, ...(roots.length > 0 ? { roots: { listChanged: false } } : {}), extensions: { [TASKS_EXTENSION]: {} } },
           jsonSchemaValidator: LENIENT_VALIDATOR,
           ...negotiation(server.protocolVersion, resolved.type === 'stdio'),
           // Only a signal: via lists again itself (the daemon's catalog refresh), not the SDK.
@@ -747,6 +806,7 @@ export class McpSession {
       );
       attempt.client = client;
       if (roots.length > 0) client.setRequestHandler('roots/list', () => ({ roots }));
+      client.setRequestHandler('elicitation/create', (request) => this.onElicit(request.params));
       let transport: Transport;
       let terminate: (() => Promise<void>) | undefined;
       let pid: (() => number | null) | undefined;
@@ -768,6 +828,7 @@ export class McpSession {
         // Child stderr is never forwarded: it could echo credentials. Keep a tail for error messages.
         stdio.stderr?.on('data', (chunk: Buffer | string) => {
           stderrBuf = (stderrBuf + chunk.toString()).slice(-STDERR_KEEP);
+          this.log?.stderr(chunk.toString());
         });
         pid = () => stdio.pid;
         transport = stdio;
@@ -790,6 +851,7 @@ export class McpSession {
       const created: Handle = { client, tasks: client.tasks, closed: false, protocol: { version: '', stateful: false }, stderr: () => stderrBuf, ...(pid ? { pid } : {}), ...(terminate ? { terminate } : {}) };
       handle = created;
       client.onclose = () => {
+        if (!created.closed) this.log?.event('connection closed');
         created.closed = true;
       };
       if (attempt.aborted) throw new Error('the session was closed while connecting');
@@ -799,9 +861,11 @@ export class McpSession {
       created.protocol = { version: client.getNegotiatedProtocolVersion() ?? '', stateful: !modern && (resolved.type === 'stdio' || sessionId?.() !== undefined) };
       if (onToolsChanged) this.watchListen(created, client.autoOpenedSubscription);
       this.lastProtocol = created.protocol;
+      this.log?.event(`connected in ${Date.now() - began}ms; protocol ${created.protocol.version || 'unknown'}, ${created.protocol.stateful ? 'stateful' : 'stateless'}${pid?.() ? `; pid ${pid()}` : ''}`);
       return created;
     } catch (err) {
       const mapped = mapError(err, { server, phase: 'connect', timeoutMs, redact: this.redactor(), stderrTail: stderrBuf });
+      this.log?.error(`connect failed after ${Date.now() - began}ms: ${firstLine(mapped.message)}`);
       if (client) await client.close().catch(() => undefined); // kills a half-started child
       if (handle) handle.closed = true;
       throw mapped;
@@ -837,6 +901,7 @@ export class McpSession {
         return;
       } catch {
         delay = Math.min(delay * 2, RELISTEN_MAX_MS);
+        this.log?.event(`the list_changed stream is down; trying again in ${Math.round(delay / 1000)}s`);
       }
     }
   }
@@ -876,6 +941,54 @@ export class McpSession {
     (this.warnSink ?? this.options.onWarning)?.(message);
   }
 
+  // Elicitation -------------------------------------------------------------------------------
+
+  /**
+   * The server asks the person for input. The question goes to the oldest running call that can be asked
+   * (the protocol does not say which call a question belongs to), or is declined here with a warning when
+   * there is none. The server's text is redacted first.
+   */
+  private async onElicit(params: unknown): Promise<ElicitAnswer> {
+    const redact = this.redactor();
+    const question = parseQuestion(redactValue(params, (text) => redact(text)), this.server.provider);
+    if (!question) return { action: 'decline' };
+    const asker = this.askers.values().next().value;
+    if (!asker) {
+      this.warn(`${this.server.provider} asked for user input outside of a tool call; it was declined`);
+      return { action: 'decline' };
+    }
+    return this.askPerson(asker, question);
+  }
+
+  private async askPerson(asker: { sink: ElicitSink; left: () => number }, question: ElicitQuestion): Promise<ElicitAnswer> {
+    let answer: ElicitAnswer;
+    try {
+      answer = parseAnswer(await asker.sink.ask({ ...question, timeLeftMs: asker.left() }));
+    } catch {
+      answer = { action: 'cancel' };
+    }
+    // The kind of question and what became of it, never its text or the answer.
+    this.log?.event(`user input asked (${describeQuestion(question)}): ${answer.action}`);
+    return answer;
+  }
+
+  /**
+   * `err` is `URLElicitationRequired` (2025-11-25) and the person visited every page it names, so the call can
+   * be made again. False for any other error, with nobody to ask, or when the person declined or cancelled.
+   */
+  private async visitedUrls(err: unknown, asker: { sink: ElicitSink; left: () => number } | undefined): Promise<boolean> {
+    const urls = urlElicitationsOf(err);
+    if (!urls || !asker) return false;
+    const redact = this.redactor();
+    for (const wanted of urls) {
+      const question = parseQuestion({ mode: 'url', message: redact(wanted.message), url: redact(wanted.url) }, this.server.provider);
+      if (question?.mode !== 'url') return false;
+      const answer = await this.askPerson(asker, { ...question, retry: true });
+      if (answer.action !== 'accept') return false;
+    }
+    return true;
+  }
+
   /** Tear down the current connection (if any). */
   private async drop(): Promise<void> {
     const handle = this.handle;
@@ -895,4 +1008,10 @@ export class McpSession {
     }
     await handle.client.close().catch(() => undefined);
   }
+}
+
+/** The first line of a message, at most 300 characters. */
+function firstLine(text: string): string {
+  const line = text.split('\n')[0] ?? '';
+  return line.length > 300 ? `${line.slice(0, 300)}…` : line;
 }

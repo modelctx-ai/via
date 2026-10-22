@@ -9,6 +9,8 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { createCliServer, createCliState } from './cli-server.mjs';
 
 const state = createCliState();
+// CLI_FIXTURE_STDERR_ENV=NAME makes the server write the value of that environment variable to stderr (credential-in-log tests).
+if (process.env.CLI_FIXTURE_STDERR_ENV) process.stderr.write(`listening with ${process.env[process.env.CLI_FIXTURE_STDERR_ENV]}\nsecond line without end`);
 const log = process.env.CLI_FIXTURE_LOG;
 if (log) appendFileSync(log, `${JSON.stringify({ spawn: process.pid })}\n`);
 // CLI_FIXTURE_FEATURES=resources,prompts switches the optional capabilities on.
