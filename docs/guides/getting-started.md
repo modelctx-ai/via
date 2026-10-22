@@ -85,6 +85,8 @@ via auth login linear --manual   # SSH、容器等没有浏览器的环境：打
 via auth status                  # 各 server 的登录状态与过期时间
 ```
 
+CI、容器里没有人可以点浏览器：用机器授权（OAuth client credentials），配置里写 `auth: { oauth: { grant: client_credentials, clientId: ci-bot, clientSecret: "env:CI_SECRET" } }`，不需要 `via auth login`，第一次调用时自己申请令牌（[auth.md](../spec/auth.md#oauth-client-credentials)）。
+
 需要 API key 的 server，在 `~/.config/via/config.yaml` 里写凭证引用（[配置](../spec/config.md)）：
 
 ```yaml

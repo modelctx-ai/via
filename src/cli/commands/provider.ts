@@ -5,6 +5,7 @@ import { shellWords } from '../../render/shell';
 import type { App, Listing } from '../app';
 import type { ProviderEntry } from '../directory';
 import { fail, usageFailure } from '../failure';
+import { selfJson, selfLines, SELF_HEADER } from '../server-info';
 import { noteCanonical, resolveEntry, resolveInProvider } from '../target';
 import { callTool, showToolHelp, type ToolTarget } from './tool';
 
@@ -23,12 +24,14 @@ export async function openProvider(app: App, input: string): Promise<OpenProvide
 
 /** `--schema-snapshot` was given where there is no tool to check. */
 const notATool = () => usageFailure('--schema-snapshot applies to a tool call or its usage (-h), not to a listing', 'via call -h');
+const notACall = () => usageFailure('--detach applies to a tool call, not to a listing', 'via call -h');
 
 const withNewline = (s: string): string => (s.endsWith('\n') ? s : `${s}\n`);
 
 export async function providerCommand(app: App, words: readonly string[]): Promise<number> {
   const [typedProvider, typedTarget, ...toolArgv] = words as [string, ...string[]];
   if (app.options.schemaSnapshot !== undefined && typedTarget === undefined) throw notATool();
+  if (app.options.detach && typedTarget === undefined) throw notACall();
   const opened = await openProvider(app, typedProvider);
   const { visible } = opened.views;
 
@@ -37,14 +40,19 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
     const also = [
       ...(opened.listing.features?.resources ? [`via resources ${shellWords(visible.provider)}`] : []),
       ...(opened.listing.features?.prompts ? [`via prompts ${shellWords(visible.provider)}`] : []),
+      ...(opened.listing.features?.skills ? [`via skills ${shellWords(visible.provider)}`] : []),
     ];
-    app.out(withNewline(renderProvider(visible, { all: app.options.all, also })));
+    const view = withNewline(renderProvider(visible, { all: app.options.all, also }));
+    // `-h` adds what the server says about itself (instructions, description): only here (discovery.md, "server 自述").
+    if (app.options.help) return showServerSelf(app, opened, view);
+    app.out(view);
     return ExitCode.Ok;
   }
 
   const target = resolveInProvider(opened.views, (await app.config()).deny, typedTarget);
   if (target.kind === 'resource') {
     if (app.options.schemaSnapshot !== undefined) throw notATool();
+    if (app.options.detach) throw notACall();
     noteCanonical(app, [typedProvider, typedTarget], [visible.provider, target.group.name]);
     app.out(withNewline(renderResource(visible, target.group)));
     return ExitCode.Ok;
@@ -55,6 +63,31 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
     return showToolHelp(app, toolTarget);
   }
   return callTool(app, toolTarget, toolArgv);
+}
+
+/** `via <provider> -h`: the server's self-description, then the provider view. Reads the cache; asks the server once when the cache has none. */
+async function showServerSelf(app: App, opened: OpenProvider, view: string): Promise<number> {
+  const { server } = opened.entry;
+  const cache = await app.cache();
+  let self = cache.readInfo(server);
+  if (self === undefined) {
+    // A list cached before this was recorded, or a cache that could not be written: ask the server.
+    await app.listing(opened.entry, { refresh: true }).then(
+      () => undefined,
+      () => app.err(`warning: could not ask ${opened.entry.name} what it says about itself\n`),
+    );
+    self = cache.readInfo(server);
+  }
+  const redact = (text: string): string => app.redact(text);
+  const provider = opened.views.visible.provider;
+  if (app.options.format === 'json') {
+    app.out(`${JSON.stringify(await app.redactValue(selfJson(provider, self ?? {}, redact)), null, 2)}\n`);
+    return ExitCode.Ok;
+  }
+  const lines = self ? selfLines(self, redact) : ['  (unknown: the server could not be reached)'];
+  const text = await app.redactText(`${SELF_HEADER}\n${lines.join('\n')}\n\n`);
+  app.out(text + view);
+  return ExitCode.Ok;
 }
 
 /** `<provider>/<ref>` split at the first slash (cli.md, "工具引用的写法"). */

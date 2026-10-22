@@ -12,6 +12,8 @@ export interface GlobalOptions {
   yes: boolean;
   dryRun: boolean;
   noValidate: boolean;
+  /** `--detach`: a tool call returns as soon as the server made a task (cli.md, "任务"). */
+  detach: boolean;
   /** `--timeout`, converted to milliseconds. */
   timeoutMs?: number;
   help: boolean;
@@ -19,18 +21,21 @@ export interface GlobalOptions {
   schemaSnapshot?: string;
   /** `--schema-mode`: how strictly (arguments.md, "schema 快照校验"). */
   schemaMode: SchemaMode;
+  /** `--complete <argument>`: ask the server for values of that prompt or resource-template argument (cli.md, "补全"). */
+  complete?: string;
 }
 
 export function defaultOptions(): GlobalOptions {
-  return { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, help: false, schemaMode: 'compatible' };
+  return { format: 'text', full: false, all: false, yes: false, dryRun: false, noValidate: false, detach: false, help: false, schemaMode: 'compatible' };
 }
 
-const FLAGS: Record<string, keyof Pick<GlobalOptions, 'full' | 'all' | 'yes' | 'dryRun' | 'noValidate' | 'help'>> = {
+const FLAGS: Record<string, keyof Pick<GlobalOptions, 'full' | 'all' | 'yes' | 'dryRun' | 'noValidate' | 'detach' | 'help'>> = {
   '--full': 'full',
   '--all': 'all',
   '--yes': 'yes',
   '--dry-run': 'dryRun',
   '--no-validate': 'noValidate',
+  '--detach': 'detach',
   '-h': 'help',
   '--help': 'help',
 };
@@ -82,6 +87,17 @@ export function extractGlobals(argv: readonly string[]): { options: GlobalOption
     }
     if (token.startsWith('--schema-mode=')) {
       options.schemaMode = parseSchemaMode(token.slice('--schema-mode='.length));
+      continue;
+    }
+    if (token === '--complete') {
+      const value = argv[i + 1];
+      if (value === undefined) throw usageFailure('--complete needs the name of an argument');
+      i += 1;
+      options.complete = value;
+      continue;
+    }
+    if (token.startsWith('--complete=')) {
+      options.complete = token.slice('--complete='.length);
       continue;
     }
     if (token === '-o' || token === '--timeout') {

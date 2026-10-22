@@ -16,8 +16,9 @@ import { usageFailure } from '../failure';
 async function authStatus(app: App, server: ServerConfig): Promise<string> {
   const state = await authState(app, server);
   if (state.method === 'oauth') {
-    const { summarizeLogin } = await import('../../client/oauth');
+    const { summarizeLogin, summarizeMachineLogin } = await import('../../client/oauth');
     if (state.storeError) return `oauth (cannot read saved logins: ${state.storeError})`;
+    if (state.machine) return state.missing.length > 0 ? `oauth (client credentials, missing ${state.missing.join(', ')})` : `oauth (${summarizeMachineLogin(state.login!, app.io.now())})`;
     return `oauth (${summarizeLogin(state.login!, app.io.now())})`;
   }
   return state.missing.length > 0 ? `${state.method} (missing ${state.missing.join(', ')})` : state.method;

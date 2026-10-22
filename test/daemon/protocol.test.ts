@@ -284,7 +284,7 @@ describe('catalog', () => {
       const first = await list(conn, t);
       const at = first.result.fetchedAt;
       const same = await list(conn, t, { have: at });
-      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true, features: { resources: false, prompts: false }, protocol: { version: expect.stringMatching(/^\d{4}-\d\d-\d\d$/), stateful: expect.any(Boolean) } });
+      expect(same.result).toEqual({ unchanged: true, fetchedAt: at, fromCache: true, features: { resources: false, prompts: false, completions: false, skills: false }, protocol: { version: expect.stringMatching(/^\d{4}-\d\d-\d\d$/), stateful: expect.any(Boolean) } });
       const other = await list(conn, t, { have: at - 1 });
       expect(other.result).toMatchObject({ fetchedAt: at, fromCache: true });
       expect((other.result as ListedTools).tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
@@ -442,6 +442,18 @@ describe('sessions', () => {
     expect(effective.transport).toMatchObject({ cwd: work, env: { SECRET_FILE: `file:${join(work, 'keys/token')}`, ABS: 'file:/etc/x', HOME_FILE: 'file:~/t', KEY: 'env:K' } });
     expect(effectiveServer(stdioServer({ transport: { type: 'stdio', command: 'x', args: [], env: {}, cwd: 'sub' } }), resolve('/work')).transport).toMatchObject({ cwd: resolve('/work', 'sub') });
     expect(sessionKey(effective)).not.toBe(sessionKey(effectiveServer(server, resolve('/elsewhere'))));
+  });
+});
+
+describe('OAuth credential references across the socket', () => {
+  it('the client secret and private key follow the caller: relative file: paths become absolute, env: variables go into the stamp', () => {
+    const server = httpServer('http://x/mcp', { auth: { type: 'oauth', grant: 'client_credentials', clientId: 'c', clientSecret: 'env:CI_SECRET', privateKey: 'file:keys/ci.pem', keyAlgorithm: 'ES256' } });
+    const work = resolve('/work/project');
+    expect(effectiveServer(server, work).auth).toMatchObject({ clientSecret: 'env:CI_SECRET', privateKey: `file:${join(work, 'keys/ci.pem')}`, keyAlgorithm: 'ES256' });
+    const a = envStamp(server, { CI_SECRET: 'secret-value-one' });
+    expect(a).not.toBe('');
+    expect(a).not.toContain('secret-value-one');
+    expect(a).not.toBe(envStamp(server, { CI_SECRET: 'secret-value-two' }));
   });
 });
 

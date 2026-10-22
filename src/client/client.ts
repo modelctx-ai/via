@@ -1,6 +1,6 @@
 import type { McpTool } from '../catalog/types';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, DetachedCall, GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, ToolCallResult } from '../protocol';
 import { notFoundServer } from './errors';
 import { McpSession, type CallOptions, type ListOptions, type SessionOptions } from './session';
 
@@ -12,13 +12,31 @@ import { McpSession, type CallOptions, type ListOptions, type SessionOptions } f
 export interface McpClient {
   listTools(server: string, options?: ListOptions): Promise<McpTool[]>;
   callTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<ToolCallResult>;
+  /** `tools/call` that returns once the server made a task (`--detach`), or the result when it made none (ADR 0020). */
+  detachTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<DetachedCall>;
+  /** `tasks/get`. */
+  getTask(server: string, taskId: string, options?: ListOptions): Promise<TaskInfo>;
+  /** Wait for a task to end (within `timeoutMs`) and return it with its result. */
+  waitForTask(server: string, taskId: string, options?: ListOptions): Promise<TaskOutcome>;
+  /** `tasks/cancel`, and the state afterwards. */
+  cancelTask(server: string, taskId: string, options?: ListOptions): Promise<TaskInfo>;
+  /** `tasks/list`; no `tasks` when the server has no listing. */
+  listTasks(server: string, options?: ListOptions): Promise<TaskList>;
   /** `resources/list` and `resources/templates/list` (ADR 0010). */
   listResources(server: string, options?: ListOptions): Promise<ResourceListing>;
   readResource(server: string, uri: string, options?: ListOptions): Promise<ReadResourceResult>;
   listPrompts(server: string, options?: ListOptions): Promise<McpPrompt[]>;
   getPrompt(server: string, name: string, args: Record<string, string>, options?: ListOptions): Promise<GetPromptResult>;
+  /** `skills/list` (the skills extension; ADR 0020). */
+  listSkills(server: string, options?: ListOptions): Promise<SkillEntry[]>;
+  /** One file of a skill, verified against its manifest. `skill` is the URI of its `SKILL.md`; `file` is relative to its directory. */
+  readSkill(server: string, skill: string, file?: string, options?: ListOptions): Promise<SkillRead>;
+  /** `completion/complete` for an argument of a prompt or resource template. */
+  complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options?: ListOptions): Promise<CompletionResult>;
   /** What the server declared at `initialize`, once a session to it exists; undefined if unknown. */
   features(server: string): ServerFeatures | undefined;
+  /** What the server says about itself (`serverInfo`, `instructions`), once a session to it exists; undefined if unknown. */
+  info(server: string): ServerSelf | undefined;
   /** The protocol version the session to the server negotiated and whether it is stateful; undefined while not connected. */
   protocol(server: string): ProtocolInfo | undefined;
   close(): Promise<void>;
@@ -47,6 +65,26 @@ export class InProcessClient implements McpClient {
     return this.session(server).callTool(rawName, args, options);
   }
 
+  async detachTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): Promise<DetachedCall> {
+    return this.session(server).detachTool(rawName, args, options);
+  }
+
+  async getTask(server: string, taskId: string, options?: ListOptions): Promise<TaskInfo> {
+    return this.session(server).getTask(taskId, options);
+  }
+
+  async waitForTask(server: string, taskId: string, options?: ListOptions): Promise<TaskOutcome> {
+    return this.session(server).waitForTask(taskId, options);
+  }
+
+  async cancelTask(server: string, taskId: string, options?: ListOptions): Promise<TaskInfo> {
+    return this.session(server).cancelTask(taskId, options);
+  }
+
+  async listTasks(server: string, options?: ListOptions): Promise<TaskList> {
+    return this.session(server).listTasks(options);
+  }
+
   async listResources(server: string, options?: ListOptions): Promise<ResourceListing> {
     return this.session(server).listResources(options);
   }
@@ -63,8 +101,24 @@ export class InProcessClient implements McpClient {
     return this.session(server).getPrompt(name, args, options);
   }
 
+  async listSkills(server: string, options?: ListOptions): Promise<SkillEntry[]> {
+    return this.session(server).listSkills(options);
+  }
+
+  async readSkill(server: string, skill: string, file?: string, options?: ListOptions): Promise<SkillRead> {
+    return this.session(server).readSkill(skill, file, options);
+  }
+
+  async complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options?: ListOptions): Promise<CompletionResult> {
+    return this.session(server).complete(ref, argument, context, options);
+  }
+
   features(server: string): ServerFeatures | undefined {
     return this.sessions.get(this.find(server).name)?.features();
+  }
+
+  info(server: string): ServerSelf | undefined {
+    return this.sessions.get(this.find(server).name)?.info();
   }
 
   protocol(server: string): ProtocolInfo | undefined {

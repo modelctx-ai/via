@@ -9,7 +9,13 @@ import type { CallOptions, ListOptions } from '../client/session';
 import type { ServerConfig } from '../config/types';
 import type { CatalogCache } from '../cli/catalog-cache';
 import type {
+  CompletionRef,
+  CompletionResult,
   CursorGetResult,
+  DetachedCall,
+  TaskInfo,
+  TaskList,
+  TaskOutcome,
   ErrorInfo,
   Event,
   GetPromptResult,
@@ -21,7 +27,10 @@ import type {
   ResourceListing,
   Response,
   ServerFeatures,
+  ServerSelf,
   ServerTarget,
+  SkillEntry,
+  SkillRead,
   ToolCallResult,
   ValidateResult,
 } from '../protocol';
@@ -106,16 +115,63 @@ export class DaemonBackend implements Backend {
         ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
         ...(options.retry ? { retry: true } : {}),
         ...(options.onProgress ? { progress: true } : {}),
+        ...(options.taskSupport !== undefined ? { taskSupport: options.taskSupport } : {}),
+        ...(options.onTask ? { tasks: true } : {}),
       },
       {
         deadlineMs: timeoutMs * (options.retry ? 2 : 1) + DEADLINE_SLACK_MS,
-        onEvent: (event) => {
-          this.onLog(event);
-          if (event.event === 'progress' && options.onProgress) options.onProgress(event.data as Parameters<NonNullable<CallOptions['onProgress']>>[0]);
-        },
+        onEvent: (event) => this.onCallEvent(event, options),
       },
     );
     return unwrap<ToolCallResult>(response);
+  }
+
+  async detachTool(server: string, rawName: string, args: Record<string, unknown> = {}, options: CallOptions = {}): Promise<DetachedCall> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    const response = await this.send(
+      {
+        type: 'call',
+        ...this.target(config),
+        rawName,
+        args,
+        detach: true,
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+        ...(options.onProgress ? { progress: true } : {}),
+        ...(options.taskSupport !== undefined ? { taskSupport: options.taskSupport } : {}),
+        ...(options.onTask ? { tasks: true } : {}),
+      },
+      { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, onEvent: (event) => this.onCallEvent(event, options) },
+    );
+    return unwrap<DetachedCall>(response);
+  }
+
+  private onCallEvent(event: Event, options: CallOptions): void {
+    this.onLog(event);
+    if (event.event === 'progress' && options.onProgress) options.onProgress(event.data as Parameters<NonNullable<CallOptions['onProgress']>>[0]);
+    if (event.event === 'task' && options.onTask) options.onTask(event.data as TaskInfo);
+  }
+
+  private async taskRequest<T>(server: string, action: 'get' | 'wait' | 'cancel' | 'list', taskId: string | undefined, options: ListOptions): Promise<T> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<T>(await this.send({ type: 'task', action, ...(taskId !== undefined ? { taskId } : {}), ...this.target(config), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
+  }
+
+  getTask(server: string, taskId: string, options: ListOptions = {}): Promise<TaskInfo> {
+    return this.taskRequest<TaskInfo>(server, 'get', taskId, options);
+  }
+
+  waitForTask(server: string, taskId: string, options: ListOptions = {}): Promise<TaskOutcome> {
+    return this.taskRequest<TaskOutcome>(server, 'wait', taskId, options);
+  }
+
+  cancelTask(server: string, taskId: string, options: ListOptions = {}): Promise<TaskInfo> {
+    return this.taskRequest<TaskInfo>(server, 'cancel', taskId, options);
+  }
+
+  listTasks(server: string, options: ListOptions = {}): Promise<TaskList> {
+    return this.taskRequest<TaskList>(server, 'list', undefined, options);
   }
 
   /** A `log` event is `{ level: 'warning', message }`; other levels are not shown. */
@@ -149,8 +205,33 @@ export class DaemonBackend implements Backend {
     return unwrap<GetPromptResult>(await this.send({ type: 'prompt-get', ...this.target(config), name, args, timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
   }
 
+  async listSkills(server: string, options: ListOptions = {}): Promise<SkillEntry[]> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<SkillEntry[]>(await this.send({ type: 'skills-list', ...this.target(config), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, onEvent: (event) => this.onLog(event) }));
+  }
+
+  async readSkill(server: string, skill: string, file?: string, options: ListOptions = {}): Promise<SkillRead> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<SkillRead>(await this.send({ type: 'skill-read', ...this.target(config), skill, ...(file !== undefined ? { file } : {}), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }));
+  }
+
+  async complete(server: string, ref: CompletionRef, argument: { name: string; value: string }, context?: Record<string, string>, options: ListOptions = {}): Promise<CompletionResult> {
+    const config = this.find(server);
+    const timeoutMs = options.timeoutMs ?? config.timeout * 1000;
+    return unwrap<CompletionResult>(
+      await this.send({ type: 'complete', ...this.target(config), ref, argument, ...(context ? { context } : {}), timeoutMs }, { deadlineMs: timeoutMs + DEADLINE_SLACK_MS }),
+    );
+  }
+
   /** The daemon returns `features` with every listing; there is no other source in this process. */
   features(): ServerFeatures | undefined {
+    return undefined;
+  }
+
+  /** What a server says about itself is written to the catalog cache by the daemon (`CatalogCache.readInfo`). */
+  info(): ServerSelf | undefined {
     return undefined;
   }
 

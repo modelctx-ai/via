@@ -60,7 +60,23 @@ export type Request =
    */
   | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
   /** `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. */
-  | ({ id: string; type: 'call'; rawName: string; args: Record<string, unknown>; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
+  | ({
+      id: string;
+      type: 'call';
+      rawName: string;
+      args: Record<string, unknown>;
+      timeoutMs?: number;
+      retry?: boolean;
+      progress?: boolean;
+      /** `--detach`: return as soon as the server made a task; the result is a `DetachedCall`. */
+      detach?: boolean;
+      /** The tool's declared `execution.taskSupport` (2025-11-25), which decides whether a task is asked for. */
+      taskSupport?: string;
+      /** Send a `task` event when the call became a task. */
+      tasks?: boolean;
+    } & ServerTarget)
+  /** A task by id: its state, waiting for its end (and result), cancelling it, or the server's task list. */
+  | ({ id: string; type: 'task'; action: 'get' | 'wait' | 'cancel' | 'list'; taskId?: string; timeoutMs: number } & ServerTarget)
   /** `resources/list` plus `resources/templates/list` of one server. Never cached. */
   | ({ id: string; type: 'resources-list'; timeoutMs: number } & ServerTarget)
   /** `resources/read`. */
@@ -69,6 +85,12 @@ export type Request =
   | ({ id: string; type: 'prompts-list'; timeoutMs: number } & ServerTarget)
   /** `prompts/get`. */
   | ({ id: string; type: 'prompt-get'; name: string; args: Record<string, string>; timeoutMs: number } & ServerTarget)
+  /** `completion/complete` for a prompt or resource-template argument. */
+  | ({ id: string; type: 'complete'; ref: CompletionRef; argument: { name: string; value: string }; context?: Record<string, string>; timeoutMs: number } & ServerTarget)
+  /** `skills/list` of one server (the skills extension: manifests included), following the pages. Never cached. */
+  | ({ id: string; type: 'skills-list'; timeoutMs: number } & ServerTarget)
+  /** One file of a skill, verified against the skill's manifest: `skills/get` plus `resources/read`. `skill` is the URI of its `SKILL.md`. */
+  | ({ id: string; type: 'skill-read'; skill: string; file?: string; timeoutMs: number } & ServerTarget)
   /** Compile a JSON Schema (cached by the daemon) and check `data`; keeps ajv out of the CLI process. */
   | { id: string; type: 'validate'; schema: unknown; label: string; data?: unknown; compileOnly?: boolean }
   /**
@@ -93,7 +115,7 @@ export type RequestBody = Request extends infer R ? (R extends unknown ? Omit<R,
 // Responses -----------------------------------------------------------------------
 
 /** Intermediate message (progress, log); zero or more per request. */
-export type Event = { id: string; type: 'event'; event: 'progress' | 'log'; data: unknown };
+export type Event = { id: string; type: 'event'; event: 'progress' | 'log' | 'task'; data: unknown };
 
 export type ResultMeta = {
   /** Canonical form of the tool. */
@@ -131,7 +153,23 @@ export type Message = Response | Event | Stale;
 // Payloads ------------------------------------------------------------------------
 
 /** What a server declared at `initialize` that via can use besides tools (discovery.md, "浏览视图"). */
-export type ServerFeatures = { resources: boolean; prompts: boolean };
+export type ServerFeatures = { resources: boolean; prompts: boolean; completions?: boolean; skills?: boolean };
+
+/**
+ * What a server says about itself (`serverInfo` and `instructions`): text it controls, so it is shown
+ * only in `via <provider> -h`, cut, redacted and labeled (discovery.md, "server 自述"). `descriptionChars` and
+ * `instructionsChars` are the lengths before the cut.
+ */
+export type ServerSelf = {
+  name?: string;
+  title?: string;
+  version?: string;
+  description?: string;
+  descriptionChars?: number;
+  websiteUrl?: string;
+  instructions?: string;
+  instructionsChars?: number;
+};
 
 /**
  * What a connection negotiated (daemon.md, "协议版本与无状态连接"). `stateful` is false for the stateless
@@ -206,6 +244,59 @@ export type ReadResourceResult = { contents: Array<{ uri: string; mimeType?: str
 export type McpPromptArgument = { name: string; title?: string; description?: string; required?: boolean };
 
 export type McpPrompt = { name: string; title?: string; description?: string; arguments?: McpPromptArgument[] };
+
+/** What a `completion/complete` request is about: a prompt or a resource template (by its `uriTemplate`). */
+export type CompletionRef = { type: 'ref/prompt'; name: string } | { type: 'ref/resource'; uri: string };
+
+/** `result` of `complete`: the server's suggestions in its own order. */
+export type CompletionResult = { values: string[]; total?: number; hasMore?: boolean };
+
+// Tasks (both generations; ADR 0020) ------------------------------------------------------
+
+/** A task as either generation describes it (client/tasks.ts `readTask`). Times are milliseconds, timestamps are the server's strings. */
+export type TaskInfo = {
+  id: string;
+  /** `working`, `input_required`, `completed`, `failed` or `cancelled`. */
+  status: string;
+  /** `statusMessage`. */
+  message?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  ttlMs?: number;
+  /** The server's suggested polling interval. */
+  pollMs?: number;
+  /** The message of `error` on a failed task (2026-07-28). */
+  error?: string;
+  /** The methods of the requests an `input_required` task waits for an answer to. */
+  inputMethods?: string[];
+};
+
+/** `result` of a `call` with `detach`: the task the server made, or, when it made none, the result. */
+export type DetachedCall = { task: TaskInfo } | { result: ToolCallResult };
+
+/** `result` of `task` with `wait`: the task and, once it completed, its result (a failed or cancelled task has an error result; `input_required` has none). */
+export type TaskOutcome = { task: TaskInfo; result?: ToolCallResult };
+
+/** `result` of `task` with `list`: undefined tasks when the server has no listing (the 2026-07-28 extension has none). */
+export type TaskList = { tasks?: TaskInfo[] };
+
+// Skills (the `io.modelcontextprotocol/skills` extension) ----------------------------
+
+/** One file of a skill as its manifest publishes it: the resource URI, `sha256:<64 hex>` of the bytes, and their length. */
+export type SkillFile = { uri: string; digest: string; size: number };
+
+/** A skill's entry in `skills/list` and `skills/get`. `resources` is the complete manifest, or `"dynamic"` when the server does not publish one. */
+export type SkillEntry = { uri: string; frontmatter: { name: string; description: string; [key: string]: unknown }; resources: SkillFile[] | 'dynamic' };
+
+/**
+ * `result` of `skill-read`: the entry `skills/get` returned and one file of the skill, read and checked
+ * against the manifest (`verified` is false only for a `"dynamic"` manifest, which has nothing to check against).
+ */
+export type SkillRead = {
+  skill: SkillEntry;
+  file: { uri: string; mimeType?: string; text?: string; blob?: string };
+  verified: boolean;
+};
 
 /** `result` of `prompt-get`. */
 export type GetPromptResult = { description?: string; messages: Array<{ role: string; content: ContentBlock }> };

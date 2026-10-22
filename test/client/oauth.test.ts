@@ -1,9 +1,14 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:net';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { exportPKCS8, generateKeyPair } from 'jose';
 import { afterEach, describe, expect, it } from 'vitest';
 import { InProcessClient } from '../../src/client';
 import {
+  CALLBACK_PORTS,
+  CLIENT_METADATA_URL,
+  CallbackPortsBusyError,
   accountOf,
   browserUnavailable,
   checkStoreWritable,
@@ -11,8 +16,10 @@ import {
   createMemoryOAuthStore,
   createOAuthStore,
   describeLogin,
+  documentedRedirectUris,
   formatDuration,
   oauthKey,
+  oauthTarget,
   openBrowser,
   openerCommand,
   parseRedirect,
@@ -23,7 +30,7 @@ import {
   type OAuthKeyring,
   type OAuthRecord,
 } from '../../src/client/oauth';
-import { startOAuthServer, type OAuthServer } from '../fixtures/mcp/oauth-server.mjs';
+import { startOAuthServer, type OAuthServer, type OAuthServerOptions } from '../fixtures/mcp/oauth-server.mjs';
 import { FakeResolver, httpServer } from '../helpers/client';
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -31,7 +38,7 @@ afterEach(async () => {
   for (const fn of cleanups.splice(0)) await fn();
 });
 
-async function mockServer(options = {}): Promise<OAuthServer> {
+async function mockServer(options: OAuthServerOptions = {}): Promise<OAuthServer> {
   const srv = await startOAuthServer(options);
   cleanups.push(() => srv.close());
   return srv;
@@ -256,6 +263,116 @@ describe('redirect handling', () => {
     const ok = await fetch(`${loop.redirectUrl}?code=good&state=s`);
     expect(ok.status).toBe(200);
     await expect(loop.response).resolves.toEqual({ code: 'good', state: 's' });
+  });
+});
+
+/** Occupy `port` on 127.0.0.1 for the length of the test. */
+function occupy(port: number): Promise<Server> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      cleanups.push(() => new Promise<void>((ok) => server.close(() => ok())));
+      resolve(server);
+    });
+  });
+}
+
+describe('callback ports', () => {
+  it('are ten fixed loopback ports below every ephemeral range, and the metadata document lists exactly those redirect URIs', () => {
+    expect(CALLBACK_PORTS).toHaveLength(10);
+    expect(CALLBACK_PORTS.every((port, i) => port === CALLBACK_PORTS[0]! + i)).toBe(true);
+    expect(Math.max(...CALLBACK_PORTS)).toBeLessThan(32768);
+    const doc = JSON.parse(readFileSync(new URL('../../pages/client-metadata.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+    expect(doc.client_id).toBe(CLIENT_METADATA_URL);
+    expect(doc.redirect_uris).toEqual(documentedRedirectUris());
+    expect(documentedRedirectUris().every((u) => u.startsWith('http://127.0.0.1:') && u.endsWith('/callback'))).toBe(true);
+    expect(doc).toMatchObject({ client_name: 'via', token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] });
+    expect(new URL(CLIENT_METADATA_URL).protocol).toBe('https:');
+  });
+
+  it('the listener takes the first free port of the range and moves on when one is taken', async () => {
+    const ports = [29880, 29881, 29882]; // outside the real range: other test files log in concurrently
+    const taken = await occupy(ports[0]!);
+    const loop = await startLoopback(ports);
+    cleanups.push(() => loop.close());
+    expect(loop.redirectUrl).toBe('http://127.0.0.1:29881/callback');
+    expect(taken.listening).toBe(true);
+  });
+
+  it('is an error naming the range when every port is taken', async () => {
+    const ports = [29860, 29861];
+    for (const port of ports) await occupy(port);
+    await expect(startLoopback(ports)).rejects.toBeInstanceOf(CallbackPortsBusyError);
+    await expect(startLoopback(ports)).rejects.toThrow('ports 29860-29861 on 127.0.0.1 are all in use');
+  });
+
+  it('a login with every port taken fails with exit 6 and suggests --manual', async () => {
+    const srv = await mockServer();
+    const ports = [29862, 29863];
+    for (const port of ports) await occupy(port);
+    const error = await performLogin({ target: { provider: 'linear', url: srv.url }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 2000, io: io(srv), callbackPorts: ports }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 6, next: 'via auth login linear --manual' });
+    expect((error as Error).message).toBe('linear: ports 29862-29863 on 127.0.0.1 are all in use');
+    expect(srv.state.registrations).toHaveLength(0);
+  });
+
+  it('--manual uses the first port of the range as redirect URI without listening on it', async () => {
+    const srv = await mockServer();
+    const urls: string[] = [];
+    const manual: LoginIO = { ...io(srv), showUrl: (url) => urls.push(url), readLine: async () => (await srv.approve(urls[0]!)) };
+    await performLogin({ target: { provider: 'linear', url: srv.url }, store: createMemoryOAuthStore(), manual: true, timeoutMs: 5000, io: manual, callbackPorts: [29870, 29871] });
+    expect(srv.state.registrations[0]?.redirect_uris).toEqual(['http://127.0.0.1:29870/callback']);
+  });
+});
+
+describe('client ID metadata document (CIMD)', () => {
+  const document = (): Record<string, unknown> => JSON.parse(readFileSync(new URL('../../pages/client-metadata.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+
+  it('is the client id where the authorization server supports it: no registration, public client, loopback from the documented range', async () => {
+    const srv = await mockServer({ cimd: { [CLIENT_METADATA_URL]: document() } });
+    const notes: string[] = [];
+    const store = createMemoryOAuthStore();
+    const target = { provider: 'linear', url: srv.url, clientMetadataUrl: CLIENT_METADATA_URL };
+    const { record } = await performLogin({ target, store, manual: false, timeoutMs: 10_000, io: { ...io(srv), note: (t) => notes.push(t) }, now: () => T0 });
+    expect(srv.state.registrations).toHaveLength(0);
+    expect(srv.state.authorizeRequests[0]).toMatchObject({ client_id: CLIENT_METADATA_URL });
+    expect(documentedRedirectUris()).toContain(srv.state.authorizeRequests[0]!.redirect_uri);
+    expect(srv.state.tokenRequests[0]).toMatchObject({ client_id: CLIENT_METADATA_URL, grant_type: 'authorization_code' });
+    expect(srv.state.tokenRequests[0]).not.toHaveProperty('client_secret');
+    expect(record.clientInformation).toMatchObject({ client_id: CLIENT_METADATA_URL });
+    expect(notes.some((n) => n.startsWith(`client id: ${CLIENT_METADATA_URL} (client ID metadata document`))).toBe(true);
+
+    // The login refreshes with the same client id.
+    srv.expireAccessTokens();
+    const provider = createCallProvider({ ...httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } }) }, store, { now: () => T0 + 2 * HOUR });
+    await provider.accessToken();
+    expect(srv.state.tokenRequests.at(-1)).toMatchObject({ grant_type: 'refresh_token', client_id: CLIENT_METADATA_URL });
+  });
+
+  it('is not used when the authorization server does not advertise it: dynamic registration', async () => {
+    const srv = await mockServer();
+    await performLogin({ target: { provider: 'linear', url: srv.url, clientMetadataUrl: CLIENT_METADATA_URL }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 10_000, io: io(srv), now: () => T0 });
+    expect(srv.state.registrations).toHaveLength(1);
+    expect(srv.state.authorizeRequests[0]!.client_id).not.toBe(CLIENT_METADATA_URL);
+  });
+
+  it('is not used when it is turned off, or when a clientId is configured', async () => {
+    const srv = await mockServer({ cimd: { [CLIENT_METADATA_URL]: document() } });
+    await performLogin({ target: { provider: 'linear', url: srv.url }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 10_000, io: io(srv), now: () => T0 });
+    expect(srv.state.registrations).toHaveLength(1);
+    // The fixture does not know this id; the point is which one is sent.
+    const error = await performLogin({ target: { provider: 'linear', url: srv.url, clientId: 'pre-registered', clientMetadataUrl: CLIENT_METADATA_URL }, store: createMemoryOAuthStore(), manual: false, timeoutMs: 1000, io: io(srv), now: () => T0 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(srv.state.authorizeRequests.at(-1)).toMatchObject({ client_id: 'pre-registered' });
+    expect(srv.state.registrations).toHaveLength(1);
+  });
+
+  it('a configured URL replaces the hosted document; false switches CIMD off (oauthTarget)', () => {
+    const server = (oauth: object) => httpServer('https://m.example/mcp', { provider: 'm', name: 'm', auth: { type: 'oauth', ...oauth } as never });
+    expect(oauthTarget(server({}))?.clientMetadataUrl).toBe(CLIENT_METADATA_URL);
+    expect(oauthTarget(server({ clientMetadataUrl: 'https://example.org/c.json' }))?.clientMetadataUrl).toBe('https://example.org/c.json');
+    expect(oauthTarget(server({ clientMetadataUrl: false }))).not.toHaveProperty('clientMetadataUrl');
   });
 });
 
@@ -493,5 +610,242 @@ describe('InProcessClient with OAuth', () => {
     now = T0 + 4 * HOUR;
     await client.callTool('linear', 'echo_text', { message: 'and again' });
     expect(srv.state.tokenRequests.filter((t) => t.grant_type === 'refresh_token')).toHaveLength(2);
+  });
+});
+
+// Client secrets, the machine grant and the binding to the authorization server (auth.md) -----------------------
+
+const SECRET = 'shh-this-is-the-client-secret';
+
+type MemoryStore = ReturnType<typeof createMemoryOAuthStore>;
+
+/** A credential resolver for `env:` references that records what it handed out, like the real one. */
+function secrets(values: Record<string, string>): { resolve: (ref: string) => Promise<string>; handedOut: string[] } {
+  const handedOut: string[] = [];
+  return {
+    handedOut,
+    resolve: async (ref) => {
+      const value = values[ref.replace(/^env:/, '')];
+      if (value === undefined) throw new Error(`no such credential ${ref}`);
+      handedOut.push(value);
+      return value;
+    },
+  };
+}
+
+function machineServer(url: string, oauth: Record<string, unknown> = {}) {
+  return httpServer(url, { provider: 'ci', name: 'ci', auth: { type: 'oauth', grant: 'client_credentials', clientId: 'ci-client', clientSecret: 'env:CI_SECRET', ...oauth } as never });
+}
+
+describe('a pre-registered client with a secret', () => {
+  it('authenticates at the token endpoint with the secret (login and refresh), and the secret is not kept in the record', async () => {
+    const srv = await mockServer({ dcr: false, preRegistered: { clientId: 'pre', clientSecret: SECRET } });
+    const store = createMemoryOAuthStore();
+    const { resolve, handedOut } = secrets({ PRE_SECRET: SECRET });
+    const target = { provider: 'linear', url: srv.url, clientId: 'pre', clientSecret: 'env:PRE_SECRET' };
+    const { record } = await performLogin({ target, store, manual: false, timeoutMs: 10_000, io: io(srv), credentials: resolve, now: () => T0 });
+    expect(srv.state.tokenAuth).toEqual([{ grantType: 'authorization_code', clientId: 'pre', method: 'basic' }]);
+    expect(srv.state.registrations).toHaveLength(0);
+    expect(handedOut).toContain(SECRET);
+    expect(JSON.stringify(record)).not.toContain(SECRET);
+    expect(JSON.stringify([...store.records.values()])).not.toContain(SECRET);
+
+    const server = httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth', clientId: 'pre', clientSecret: 'env:PRE_SECRET' } });
+    const provider = createCallProvider(server, store, { resolveCredential: resolve, now: () => T0 + 2 * HOUR });
+    await provider.accessToken();
+    expect(srv.state.tokenAuth.at(-1)).toEqual({ grantType: 'refresh_token', clientId: 'pre', method: 'basic' });
+  });
+
+  it('a wrong secret is refused by the server and nothing is stored', async () => {
+    const srv = await mockServer({ dcr: false, preRegistered: { clientId: 'pre', clientSecret: SECRET } });
+    const store = createMemoryOAuthStore();
+    const target = { provider: 'linear', url: srv.url, clientId: 'pre', clientSecret: 'env:X' };
+    const error = await performLogin({ target, store, manual: false, timeoutMs: 10_000, io: io(srv), credentials: async () => 'not-the-secret', now: () => T0 }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 4 });
+    expect(store.records.size).toBe(0);
+  });
+});
+
+describe('client credentials (machine grant)', () => {
+  it('asks for a token with the secret when none is saved, saves it, and reuses it until it runs out', async () => {
+    const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+    const store = createMemoryOAuthStore();
+    const { resolve, handedOut } = secrets({ CI_SECRET: SECRET });
+    let now = T0;
+    const provider = createCallProvider(machineServer(srv.url), store, { resolveCredential: resolve, now: () => now });
+    await provider.requireLogin(); // no login needed
+    const token = await provider.accessToken();
+    expect(token).toMatch(/^cc-/);
+    expect(srv.state.tokenAuth).toEqual([{ grantType: 'client_credentials', clientId: 'ci-client', method: 'basic' }]);
+    expect(srv.state.tokenRequests[0]).toMatchObject({ grant_type: 'client_credentials', resource: srv.url });
+    expect(handedOut).toContain(SECRET);
+
+    const saved = [...store.records.values()][0]!;
+    expect(saved).toMatchObject({ grant: 'client_credentials', issuer: srv.issuer, tokens: { access_token: token } });
+    expect(saved.tokens).not.toHaveProperty('refresh_token');
+    expect(JSON.stringify(saved)).not.toContain(SECRET);
+    // The machine grant has a record of its own: the authorization code login of the same endpoint is another one.
+    expect(oauthKey({ url: srv.url, clientId: 'ci-client', grant: 'client_credentials' })).not.toBe(oauthKey({ url: srv.url, clientId: 'ci-client' }));
+
+    // A second process finds the token.
+    const other = createCallProvider(machineServer(srv.url), store, { resolveCredential: resolve, now: () => now });
+    expect(await other.accessToken()).toBe(token);
+    expect(srv.state.tokenAuth).toHaveLength(1);
+
+    // It runs out: asked again, no refresh grant.
+    now = T0 + 2 * HOUR;
+    const next = await provider.accessToken();
+    expect(next).not.toBe(token);
+    expect(srv.state.tokenAuth.map((t) => t.grantType)).toEqual(['client_credentials', 'client_credentials']);
+  });
+
+  it('asks again when the server refuses the saved token', async () => {
+    const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+    const client = new InProcessClient([machineServer(srv.url)], new FakeResolver({ CI_SECRET: SECRET }), { oauthStore: createMemoryOAuthStore(), now: () => T0 });
+    cleanups.push(() => client.close());
+    // No login was made: the first use asks for the token.
+    await client.listTools('ci');
+    expect(srv.state.tokenAuth).toHaveLength(1);
+    srv.expireAccessTokens();
+    const result = await client.callTool('ci', 'echo_text', { message: 'hi' });
+    expect(JSON.stringify(result)).toContain('echo: hi');
+    expect(srv.state.tokenAuth).toHaveLength(2);
+  });
+
+  it('signs a client assertion when a private key is configured (private_key_jwt)', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('ES256', { extractable: true });
+    const pem = await exportPKCS8(privateKey);
+    const srv = await mockServer({ machine: { clientId: 'ci-client', publicKey } });
+    const { resolve } = secrets({ CI_KEY: pem });
+    const server = httpServer(srv.url, { provider: 'ci', name: 'ci', auth: { type: 'oauth', grant: 'client_credentials', clientId: 'ci-client', privateKey: 'env:CI_KEY', keyAlgorithm: 'ES256' } });
+    const provider = createCallProvider(server, createMemoryOAuthStore(), { resolveCredential: resolve, now: () => T0 });
+    expect(await provider.accessToken()).toMatch(/^cc-/);
+    expect(srv.state.tokenAuth.map((t) => t.method)).toEqual(['jwt']);
+    expect(srv.state.tokenRequests[0]).toMatchObject({ client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer' });
+    expect(JSON.stringify(srv.state.tokenRequests)).not.toContain('PRIVATE KEY');
+  });
+
+  it('a refused secret is a client-credentials error (exit 4) that never shows the secret', async () => {
+    const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+    const provider = createCallProvider(machineServer(srv.url), createMemoryOAuthStore(), { resolveCredential: async () => 'wrong-secret-value', now: () => T0 });
+    const error = await provider.accessToken().catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'ClientCredentialsRejectedError', code: 'invalid_client' });
+    expect((error as Error).message).not.toContain('wrong-secret-value');
+    const client = new InProcessClient([machineServer(srv.url)], new FakeResolver({ CI_SECRET: 'wrong-secret-value' }), { oauthStore: createMemoryOAuthStore(), now: () => T0 });
+    cleanups.push(() => client.close());
+    await expect(client.listTools('ci')).rejects.toMatchObject({ exitCode: 4, message: 'ci: the authorization server refused the client credentials (invalid_client)' });
+  });
+
+  it('a credential that does not resolve fails before anything is sent (exit 4)', async () => {
+    const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+    const client = new InProcessClient([machineServer(srv.url)], new FakeResolver({}), { oauthStore: createMemoryOAuthStore(), now: () => T0 });
+    await expect(client.listTools('ci')).rejects.toMatchObject({ exitCode: 4, next: 'export CI_SECRET=<value>' });
+    expect(srv.state.tokenAuth).toHaveLength(0);
+    expect(srv.state.mcp).toHaveLength(0);
+  });
+
+  it('login validates the credentials, discovering the authorization server through the protected resource metadata', async () => {
+    const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET }, scopes: ['read', 'write'] });
+    const store = createMemoryOAuthStore();
+    const { resolve } = secrets({ CI_SECRET: SECRET });
+    const target = { provider: 'ci', url: srv.url, clientId: 'ci-client', grant: 'client_credentials' as const, clientSecret: 'env:CI_SECRET', scopes: ['read'] };
+    const noBrowser: LoginIO = {
+      ...io(srv),
+      openUrl: async () => {
+        throw new Error('the machine grant opens no browser');
+      },
+    };
+    const { record, set } = await performLogin({ target, store, manual: false, timeoutMs: 5000, io: noBrowser, credentials: resolve, now: () => T0 });
+    expect(record).toMatchObject({ grant: 'client_credentials', scope: 'read', issuer: srv.issuer });
+    expect(set.location.kind).toBe('file');
+    expect(srv.state.tokenRequests[0]).toMatchObject({ scope: 'read' });
+    expect(srv.state.authorizeRequests).toHaveLength(0);
+    expect(srv.state.registrations).toHaveLength(0);
+  });
+});
+
+describe('binding stored credentials to the authorization server', () => {
+  it('a server that now points at another authorization server does not get the machine grant credentials', async () => {
+    const a = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+    const b = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+    const store = createMemoryOAuthStore();
+    const { resolve } = secrets({ CI_SECRET: SECRET });
+    const target = { provider: 'ci', url: a.url, clientId: 'ci-client', grant: 'client_credentials' as const, clientSecret: 'env:CI_SECRET' };
+    await performLogin({ target, store, manual: false, timeoutMs: 5000, io: io(a), credentials: resolve, now: () => T0 });
+    expect(a.state.tokenAuth).toHaveLength(1);
+
+    a.state.authorizationServers = [b.issuer];
+    // The login rediscovers, finds the other server and refuses.
+    const again = await performLogin({ target, store, manual: false, timeoutMs: 5000, io: io(a), credentials: resolve, now: () => T0 }).catch((e: unknown) => e);
+    expect(again).toMatchObject({ name: 'LoginFailedError', exitCode: 4, next: 'via auth logout ci' });
+    expect((again as Error).message).toBe(`ci: its authorization server changed from ${a.issuer} to ${b.issuer}; the saved client credentials belong to the first and were not sent to the second`);
+    expect(b.state.tokenAuth).toHaveLength(0);
+    expect(b.state.tokenRequests).toHaveLength(0);
+
+    // A call that has to discover again (the cached discovery is gone) refuses the same way.
+    const [key, saved] = [...store.records.entries()][0]!;
+    delete saved.discovery;
+    delete saved.tokens;
+    store.records.set(key, saved);
+    const provider = createCallProvider(machineServer(a.url), store, { resolveCredential: resolve, now: () => T0 });
+    await expect(provider.accessToken()).rejects.toMatchObject({ name: 'AuthorizationServerChangedError', recorded: a.issuer, current: b.issuer });
+    expect(b.state.tokenAuth).toHaveLength(0);
+    const client = new InProcessClient([machineServer(a.url)], new FakeResolver({ CI_SECRET: SECRET }), { oauthStore: store, now: () => T0 });
+    cleanups.push(() => client.close());
+    await expect(client.listTools('ci')).rejects.toMatchObject({ exitCode: 4, next: 'via auth logout ci' });
+    expect(b.state.tokenAuth).toHaveLength(0);
+
+    // After a logout the credentials may be validated against the new server.
+    await store.delete(key);
+    const fresh = await performLogin({ target, store, manual: false, timeoutMs: 5000, io: io(a), credentials: resolve, now: () => T0 });
+    expect(fresh.record.issuer).toBe(b.issuer);
+  });
+
+  it('a configured secret is not sent to another authorization server at the next login', async () => {
+    const a = await mockServer({ dcr: false, preRegistered: { clientId: 'pre', clientSecret: SECRET } });
+    const b = await mockServer({ dcr: false, preRegistered: { clientId: 'pre', clientSecret: SECRET } });
+    const store = createMemoryOAuthStore();
+    const { resolve } = secrets({ PRE_SECRET: SECRET });
+    const target = { provider: 'linear', url: a.url, clientId: 'pre', clientSecret: 'env:PRE_SECRET' };
+    await performLogin({ target, store, manual: false, timeoutMs: 10_000, io: io(a), credentials: resolve, now: () => T0 });
+    a.state.authorizationServers = [b.issuer];
+    const error = await performLogin({ target, store, manual: false, timeoutMs: 2000, io: io(b), credentials: resolve, now: () => T0 }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 4, next: 'via auth logout linear' });
+    expect(b.state.authorizeRequests).toHaveLength(0);
+    expect(b.state.tokenAuth).toHaveLength(0);
+  });
+
+  it('a refresh token and a dynamically registered client go only to the authorization server that issued them', async () => {
+    const a = await mockServer();
+    const b = await mockServer();
+    const { store } = await loggedIn(a);
+    const memory = store as MemoryStore;
+    const [key, saved] = [...memory.records.entries()][0]!;
+    expect(saved.issuer).toBe(a.issuer);
+    delete saved.discovery; // as in a record from before the discovery cache existed
+    memory.records.set(key, saved);
+    a.state.authorizationServers = [b.issuer];
+    const server = httpServer(a.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } });
+    const provider = createCallProvider(server, store, { now: () => T0 + 2 * HOUR });
+    await expect(provider.accessToken()).rejects.toMatchObject({ name: 'AuthorizationServerChangedError', recorded: a.issuer, current: b.issuer });
+    expect(b.state.tokenRequests).toHaveLength(0);
+    // The login was not dropped: pointing back at the right server makes it work again.
+    a.state.authorizationServers = undefined;
+    const back = createCallProvider(server, store, { now: () => T0 + 2 * HOUR });
+    expect(await back.accessToken()).toMatch(/^at-/);
+  });
+
+  it('a record from before binding adopts the authorization server it meets, and keeps it from then on', async () => {
+    const a = await mockServer();
+    const { store } = await loggedIn(a);
+    const memory = store as MemoryStore;
+    const [key, saved] = [...memory.records.entries()][0]!;
+    delete saved.issuer;
+    delete (saved.clientInformation as { issuer?: string }).issuer;
+    delete (saved.tokens as { issuer?: string }).issuer;
+    memory.records.set(key, saved);
+    const server = httpServer(a.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } });
+    await createCallProvider(server, store, { now: () => T0 + 2 * HOUR }).accessToken();
+    expect(memory.records.get(key)?.issuer).toBe(a.issuer);
   });
 });

@@ -169,6 +169,10 @@ function findCmdRef(def: ServerDef): string | undefined {
   for (const [k, v] of Object.entries(def.env ?? {})) if (isCmd(v)) return `env.${k}`;
   for (const [k, v] of Object.entries(def.headers ?? {})) if (isCmd(v)) return `headers.${k}`;
   if (def.auth?.type === 'bearer' && isCmd(def.auth.bearer)) return 'auth.bearer';
+  if (def.auth?.type === 'oauth') {
+    if (def.auth.clientSecret !== undefined && isCmd(def.auth.clientSecret)) return 'auth.oauth.clientSecret';
+    if (def.auth.privateKey !== undefined && isCmd(def.auth.privateKey)) return 'auth.oauth.privateKey';
+  }
   if (def.auth?.type === 'headers') {
     for (const [k, v] of Object.entries(def.auth.headers)) if (isCmd(v)) return `auth.headers.${k}`;
   }

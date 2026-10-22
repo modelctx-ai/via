@@ -17,7 +17,7 @@
 
 - 大目录（500 个工具）；
 - structuredContent、`isError`、超长输出、图片等媒体内容；
-- OAuth（含动态客户端注册与刷新）；
+- OAuth（含 CIMD、动态客户端注册、预注册客户端的 secret、client credentials 的 secret 与私钥断言、授权服务器绑定、固定的回调端口、刷新）；
 - `list_changed` 通知；
 - 慢响应与超时、progress 通知；
 - 带 `destructiveHint` / `readOnlyHint` 的工具。
@@ -27,6 +27,7 @@
 MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[ADR 0017](../adr/0017-protocol-versions-newest-first-with-fallback.md)）。模拟 server 能讲其中任何一代，端到端测试对两代各跑一遍：
 
 - **同一张处理表，两种 server。** `test/fixtures/mcp/mock-server.mjs` 与 `cli-server.mjs` 把自己回答什么写成一张表（`tools/list`、`tools/call`、`resources/*`、`prompts/*`），`flavors.mjs` 把表装配成旧一代的 server（1.x SDK，`legacy`，默认）或无状态的 server（2.x SDK，`modern`）。工具、资源、prompt、进度、roots、`list_changed` 等行为两代相同；差别只在协议。无状态的 HTTP 端点是 `modern-http.mjs`（`createMcpHandler`，`legacy: 'reject'`：退回握手的客户端会被告知版本不受支持，所以测试不会在旧协议上误过）。stdio 夹具有 `-modern` 孪生脚本（`stdio-server-modern.mjs`、`cli-stdio-server-modern.mjs`）。
+- **扩展与任务的夹具。** `cli-server.mjs` 的 `features` 还能开 `completions`、`skills`、`tasks`、`tasks-nolist`，并用 `about` 给出 server 自述。`skills` 只在无状态一代声明扩展（扩展属于 `2026-07-28`），带清单、摘要不符、大小不符与 `"dynamic"` 的技能；`tasks` 在旧一代讲 `2025-11-25` 的 `tasks/*`，在无状态一代讲 `io.modelcontextprotocol/tasks`（`report_job` 的 `--ms`/`--mode` 控制时长与结局），任务 ID 形如 `job/1`（带 `/`，用来测只在第一个斜杠处拆分）。扩展方法在无状态 server 上用显式 schema 注册（`flavors.mjs` 的 `EXTENSION_METHODS`）。
 - **选哪一代。** 助手 `startHttpServer`、`startFixtureServer`、`stdioServer`、`CLI_STDIO_SERVER` 默认讲旧一代；环境变量 `VIA_TEST_PROTOCOL=modern`（`test/helpers/generation.ts`）把默认换成无状态一代。专讲某一代的测试（`test/client/protocol.test.ts`、`test/cli/protocol.test.ts`）显式传 `protocol`。`npm run test:stateless` 用 `modern` 重跑依赖 server 的套件（`test/cli`、`test/daemon`、`test/client`、`test/bench`），CI 里是单独的 `stateless` 任务；`npm test` 仍是旧一代。
 - **回放 server。** `bench/replay-server.mjs` 同样有两种：默认旧一代，`--protocol 2026-07-28`（选项 `protocol`）讲无状态协议；`VIA_REPLAY_PROTOCOL=2026-07-28` 让 token 基准与 agent 评测在无状态的回放 server 上跑。
 - **协议版本常量。** via 自己保存的版本列表（`src/protocol-versions.ts`）由 `test/protocol-versions.test.ts` 对照 SDK 检查：旧版列表等于 SDK 的 `SUPPORTED_PROTOCOL_VERSIONS`，无状态版本等于 SDK server 在 `server/discover` 里给出的列表，SDK client 能钉住每个版本连接。SDK 升级后增减版本会让它失败。
@@ -38,9 +39,9 @@ MCP 的 `2026-07-28` 是无状态协议，旧协议是 `initialize` 握手（[AD
 
 - `initialize`、`tools_call`：`via conf`（握手与 `tools/list`）、`via conf add_numbers --a 2 --b 3`；
 - `sse-retry`：调用中途服务端断开事件流，检查 via 按 `retry` 重连并带 `Last-Event-ID`；
-- `auth/*`：`via auth login conf --manual`，适配器自己请求授权 URL、取重定向地址再从 stdin 交给 via（相当于人把浏览器最后停在的页面地址粘贴回来），然后用登录后的令牌浏览；场景给的预注册客户端 id 写进 `auth.oauth.clientId`。
+- `auth/*`：`via auth login conf --manual`，适配器自己请求授权 URL、取重定向地址再从 stdin 交给 via（相当于人把浏览器最后停在的页面地址粘贴回来），然后用登录后的令牌浏览（`auth/client-credentials-*` 没有浏览器：`via auth login conf`、`via conf`）；场景给的预注册客户端 id 写进 `auth.oauth.clientId`；预注册客户端的 secret 与 client credentials 的 secret、私钥由适配器放进环境变量，配置里写 `env:` 引用（和用户用法一致，配置文件里没有秘密）；CIMD 场景期望的 `client_id` 是一份并不存在的文档（`https://conformance-test.local/client-metadata.json`），适配器用 `auth.oauth.clientMetadataUrl` 换掉 via 托管的那份，和用户自托管文档时的写法一样。
 
-运行：`npm run test:conformance`（先构建，再 `--suite all`）。已知不过的场景写在 `test/conformance/expected-failures.yml`，每条标明缺口对应的路线图项（CIMD、预注册客户端的密钥、step-up 授权、client credentials 等属 e7，elicitation 属 e5，另有一个 2025-03-26 旧授权规范的发现场景被 SDK 严格的 issuer 校验拒绝）：新增失败，或某条已经修好却没从清单里删掉，都让 CI 的 `conformance` 任务失败。升级一致性测试包时先 `npx @modelcontextprotocol/conformance list --client` 看有没有新场景；套件目前的 client 场景最高到 `2025-11-25`，所以这里走的是 via 的回退路径，无状态协议由上面的两代测试覆盖。
+运行：`npm run test:conformance`（先构建，再 `--suite all`）。已知不过的场景写在 `test/conformance/expected-failures.yml`，每条标明缺口对应的路线图项（step-up 授权、有意不做的企业托管授权 ID-JAG 属 e7，elicitation 属 e5，另有一个 2025-03-26 旧授权规范的发现场景被 SDK 严格的 issuer 校验拒绝）：新增失败，或某条已经修好却没从清单里删掉，都让 CI 的 `conformance` 任务失败。升级一致性测试包时先 `npx @modelcontextprotocol/conformance list --client` 看有没有新场景；套件目前的 client 场景最高到 `2025-11-25`，所以这里走的是 via 的回退路径，无状态协议由上面的两代测试覆盖。
 
 ### 安全相关测试
 

@@ -3,7 +3,6 @@
 // OAuth error; the caller checks `state` against the one it sent.
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { randomInt } from 'node:crypto';
 
 export interface AuthorizationResponse {
   code?: string;
@@ -13,6 +12,21 @@ export interface AuthorizationResponse {
 }
 
 export const CALLBACK_PATH = '/callback';
+
+/**
+ * The loopback ports the callback listener may use, tried in this order (auth.md, "回调"). Fixed so that the
+ * client metadata document (`pages/client-metadata.json`, CIMD) can list every redirect URI up front; a test
+ * keeps the two in step. Below every operating system's ephemeral range (Linux 32768-60999, macOS, Windows and
+ * the BSDs 49152-65535), so a busy port means another program listens there, never an outgoing connection of
+ * this machine; away from the ports development servers and databases like (3000, 5000, 8000-9999, 5432, …);
+ * ten of them, so a few concurrent logins or a stale listener do not block one.
+ */
+export const CALLBACK_PORTS: readonly number[] = Object.freeze(Array.from({ length: 10 }, (_, i) => 29842 + i));
+
+/** `http://127.0.0.1:<port>/callback`: the IP literal (RFC 8252 section 8.3), never `localhost`. */
+export function callbackUrl(port: number): string {
+  return `http://127.0.0.1:${port}${CALLBACK_PATH}`;
+}
 
 function fromParams(params: URLSearchParams): AuthorizationResponse {
   const out: AuthorizationResponse = {};
@@ -44,11 +58,6 @@ export function parseRedirect(input: string): AuthorizationResponse | undefined 
   return response.code || response.error ? response : undefined;
 }
 
-/** A port in the dynamic range for `--manual`, where nothing listens: the landing page is not meant to load. */
-export function randomPort(): number {
-  return randomInt(49152, 65536);
-}
-
 export interface Loopback {
   /** `http://127.0.0.1:<port>/callback` */
   redirectUrl: string;
@@ -60,8 +69,20 @@ export interface Loopback {
 const PAGE = (title: string, text: string): string =>
   `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font:16px system-ui;margin:3em auto;max-width:32em"><h1>${title}</h1><p>${text}</p></body>`;
 
-/** Listen on 127.0.0.1, random port, until one response arrives. Only requests addressed to that host and port are served. */
-export async function startLoopback(): Promise<Loopback> {
+/** Every port of the callback range is taken (or may not be bound): the listener cannot start. */
+export class CallbackPortsBusyError extends Error {
+  constructor(readonly ports: readonly number[]) {
+    super(`ports ${ports[0]}-${ports[ports.length - 1]} on 127.0.0.1 are all in use`);
+    this.name = 'CallbackPortsBusyError';
+  }
+}
+
+/**
+ * Listen on 127.0.0.1, on the first free port of `ports`, until one response arrives. A port that is taken
+ * (`EADDRINUSE`) or that the system keeps from this user (`EACCES`, e.g. Windows' excluded ranges) is skipped;
+ * any other error ends the attempt. Only requests addressed to that host and port are served.
+ */
+export async function startLoopback(ports: readonly number[] = CALLBACK_PORTS): Promise<Loopback> {
   let resolve!: (value: AuthorizationResponse) => void;
   const response = new Promise<AuthorizationResponse>((r) => {
     resolve = r;
@@ -96,13 +117,26 @@ export async function startLoopback(): Promise<Loopback> {
       resolve(got);
     }
   });
-  await new Promise<void>((ok, fail) => {
-    server.once('error', fail);
-    server.listen(0, '127.0.0.1', ok);
-  });
-  const port = (server.address() as AddressInfo).port;
+  let port: number | undefined;
+  for (const candidate of ports) {
+    try {
+      await new Promise<void>((ok, fail) => {
+        server.once('error', fail);
+        server.listen(candidate, '127.0.0.1', () => {
+          server.off('error', fail);
+          ok();
+        });
+      });
+      port = (server.address() as AddressInfo).port;
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EADDRINUSE' && code !== 'EACCES') throw error;
+    }
+  }
+  if (port === undefined) throw new CallbackPortsBusyError(ports);
   return {
-    redirectUrl: `http://127.0.0.1:${port}${CALLBACK_PATH}`,
+    redirectUrl: callbackUrl(port),
     response,
     close: () =>
       new Promise<void>((ok) => {

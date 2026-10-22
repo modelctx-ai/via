@@ -93,6 +93,7 @@ async function login(app: App, argv: readonly string[]): Promise<number> {
       timeoutMs: app.options.timeoutMs ?? LOGIN_TIMEOUT_MS,
       io,
       track: (value) => resolver.track?.(value),
+      credentials: (ref) => resolver.resolve(ref, entry.server.origin),
       now: app.io.now,
       ...proxied(app, resolver),
     });
@@ -102,6 +103,7 @@ async function login(app: App, argv: readonly string[]): Promise<number> {
 
   const { record, set } = result;
   const details: string[] = [];
+  if (record.grant === 'client_credentials') details.push('client credentials');
   if (record.scope) details.push(`scopes: ${record.scope}`);
   if (record.expiresAt !== undefined) details.push(`access token expires in ${formatDuration(record.expiresAt - app.io.now())}`);
   details.push(set.location.kind === 'keychain' ? 'stored in the system keychain' : `stored in ${set.location.path}`);
@@ -137,7 +139,7 @@ function loginPhrase(login: LoginStatus, now: number, format: (ms: number) => st
 async function status(app: App, argv: readonly string[]): Promise<number> {
   const { positionals } = parseLocal('auth status', argv, []);
   if (positionals.length > 1) throw usageFailure(USAGE, 'via auth -h');
-  const { formatDuration } = await import('../../client/oauth');
+  const { formatDuration, summarizeMachineLogin } = await import('../../client/oauth');
   const entries = positionals[0] === undefined ? (await app.table()).entries : [await resolveEntry(app, positionals[0])];
   const now = app.io.now();
   const rows: StatusRow[] = [];
@@ -147,7 +149,14 @@ async function status(app: App, argv: readonly string[]): Promise<number> {
     const row: StatusRow = { provider: entry.name, method: state.method, state: '' };
     if (state.method === 'oauth') {
       const login = state.login!;
-      row.state = state.storeError ? `cannot read saved logins (${state.storeError})` : loginPhrase(login, now, formatDuration);
+      row.state = state.storeError
+        ? `cannot read saved logins (${state.storeError})`
+        : state.machine
+          ? state.missing.length > 0
+            ? `client credentials, missing ${state.missing.join(', ')}`
+            : summarizeMachineLogin(login, now)
+          : loginPhrase(login, now, formatDuration);
+      if (state.machine && state.missing.length > 0) row.missing = state.missing;
       if (login.expiresAt !== undefined) row.expiresAt = login.expiresAt;
       if (login.scope) row.scopes = login.scope;
       if (login.account) row.account = login.account;

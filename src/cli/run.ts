@@ -35,6 +35,8 @@ export async function run(argv: readonly string[], overrides: Partial<CliEnv> = 
 async function dispatch(app: App, options: GlobalOptions, words: string[]): Promise<number> {
   const first = words[0];
   if (first === undefined) {
+    if (options.complete !== undefined) throw usageFailure('--complete applies to via prompts <provider> <name> and via resources <provider> <template>', 'via prompts -h');
+    if (options.detach) throw usageFailure('--detach applies to a tool call, not to a listing', 'via call -h');
     if (options.schemaSnapshot !== undefined) throw usageFailure('--schema-snapshot applies to a tool call or its usage (-h), not to a listing', 'via call -h');
     if (options.help) {
       app.out(HELP);
@@ -50,6 +52,10 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
     if (options.schemaSnapshot !== undefined && builtin !== 'call') {
       throw usageFailure(`--schema-snapshot applies to a tool call or its usage (-h), not to via ${builtin}`, 'via call -h');
     }
+    if (options.complete !== undefined && builtin !== 'prompts' && builtin !== 'resources') {
+      throw usageFailure(`--complete applies to via prompts <provider> <name> and via resources <provider> <template>, not to via ${builtin}`, 'via prompts -h');
+    }
+    if (options.detach && builtin !== 'call' && builtin !== 'batch') throw usageFailure(`--detach applies to a tool call, not to via ${builtin}`, 'via call -h');
     if (builtin === 'help') {
       const topic = argv[0] === undefined ? undefined : matchBuiltin(argv[0]);
       app.out(topic && topic !== 'help' ? `${COMMAND_USAGE[topic]}\n` : HELP);
@@ -91,7 +97,12 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
         return (await import('./commands/mcp-data')).promptsCommand(app, argv);
       case 'serve':
         return (await import('./commands/serve')).serveCommand(app, argv);
+      case 'skills':
+        return (await import('./commands/skills')).skillsCommand(app, argv);
+      case 'tasks':
+        return (await import('./commands/tasks')).tasksCommand(app, argv);
     }
   }
+  if (options.complete !== undefined) throw usageFailure('--complete applies to via prompts <provider> <name> and via resources <provider> <template>', 'via prompts -h');
   return (await import('./commands/provider')).providerCommand(app, words);
 }

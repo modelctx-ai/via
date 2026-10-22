@@ -7,6 +7,8 @@ export interface McpTool {
   description?: string;
   inputSchema?: JsonSchema;
   outputSchema?: JsonSchema;
+  /** `execution.taskSupport` (2025-11-25): whether the tool may or must run as a task. */
+  execution?: { taskSupport?: string };
   annotations?: {
     title?: string;
     readOnlyHint?: boolean;

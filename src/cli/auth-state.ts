@@ -10,6 +10,7 @@ export function credentialRefs(server: ServerConfig): string[] {
   const { auth, transport } = server;
   if (auth.type === 'bearer') refs.push(auth.bearer);
   if (auth.type === 'headers') refs.push(...Object.values(auth.headers));
+  if (auth.type === 'oauth') refs.push(...[auth.clientSecret, auth.privateKey].filter((ref): ref is string => ref !== undefined));
   refs.push(...Object.values(transport.type === 'stdio' ? transport.env : transport.headers));
   return [...new Set(refs.filter(isCredentialRef))];
 }
@@ -22,26 +23,16 @@ export interface AuthState {
   missing: string[];
   /** For OAuth. */
   login?: LoginStatus;
+  /** OAuth with the client-credentials grant: no login to make, a token is requested when none is usable (auth.md). */
+  machine?: boolean;
   /** Why the OAuth store could not be read. */
   storeError?: string;
   /** Whether a call would get through authentication without logging in or fixing a reference. */
   usable: boolean;
 }
 
-export async function authState(app: App, server: ServerConfig): Promise<AuthState> {
-  const kind = server.auth.type;
-  if (kind === 'oauth') {
-    const { describeLogin, oauthKey, oauthTarget } = await import('../client/oauth');
-    const target = oauthTarget(server);
-    if (!target) return { method: 'oauth', missing: [], login: { state: 'not-logged-in' }, usable: false };
-    try {
-      const stored = await (await app.oauthStore()).get(oauthKey(target));
-      const login = describeLogin(stored, app.io.now());
-      return { method: 'oauth', missing: [], login, usable: login.state === 'logged-in' || login.state === 'refreshable' };
-    } catch (error) {
-      return { method: 'oauth', missing: [], login: { state: 'not-logged-in' }, storeError: error instanceof Error ? error.message.split('\n')[0]! : 'store error', usable: false };
-    }
-  }
+/** The credential references of `server` that do not resolve (`cmd:` is not run: see below). */
+async function unresolved(app: App, server: ServerConfig): Promise<string[]> {
   const missing: string[] = [];
   for (const ref of credentialRefs(server)) {
     // `cmd:` is not run here: `via servers` connects to nothing, and a credential helper may be slow
@@ -53,6 +44,28 @@ export async function authState(app: App, server: ServerConfig): Promise<AuthSta
       missing.push(ref);
     }
   }
+  return missing;
+}
+
+export async function authState(app: App, server: ServerConfig): Promise<AuthState> {
+  const kind = server.auth.type;
+  if (kind === 'oauth') {
+    const { describeLogin, oauthKey, oauthTarget } = await import('../client/oauth');
+    const target = oauthTarget(server);
+    if (!target) return { method: 'oauth', missing: [], login: { state: 'not-logged-in' }, usable: false };
+    try {
+      const stored = await (await app.oauthStore()).get(oauthKey(target));
+      const login = describeLogin(stored, app.io.now());
+      if (target.grant === 'client_credentials') {
+        const missing = await unresolved(app, server);
+        return { method: 'oauth', missing, login, machine: true, usable: missing.length === 0 };
+      }
+      return { method: 'oauth', missing: [], login, usable: login.state === 'logged-in' || login.state === 'refreshable' };
+    } catch (error) {
+      return { method: 'oauth', missing: [], login: { state: 'not-logged-in' }, storeError: error instanceof Error ? error.message.split('\n')[0]! : 'store error', usable: false };
+    }
+  }
+  const missing = await unresolved(app, server);
   const method: AuthMethod = kind === 'none' ? (credentialRefs(server).length > 0 ? 'env' : 'none') : kind;
   return { method, missing, usable: missing.length === 0 };
 }

@@ -15,6 +15,11 @@
 import { Server as LegacyServer } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
+  CancelTaskRequestSchema,
+  CompleteRequestSchema,
+  GetTaskPayloadRequestSchema,
+  GetTaskRequestSchema,
+  ListTasksRequestSchema,
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
   ListResourceTemplatesRequestSchema,
@@ -26,6 +31,11 @@ import {
 import { CLIENT_CAPABILITIES_META_KEY, inputRequired, ProtocolError, Server as ModernServer } from '@modelcontextprotocol/server';
 
 const LEGACY_SCHEMAS = {
+  'tasks/get': GetTaskRequestSchema,
+  'tasks/result': GetTaskPayloadRequestSchema,
+  'tasks/list': ListTasksRequestSchema,
+  'tasks/cancel': CancelTaskRequestSchema,
+  'completion/complete': CompleteRequestSchema,
   'tools/list': ListToolsRequestSchema,
   'tools/call': CallToolRequestSchema,
   'resources/list': ListResourcesRequestSchema,
@@ -34,6 +44,12 @@ const LEGACY_SCHEMAS = {
   'prompts/list': ListPromptsRequestSchema,
   'prompts/get': GetPromptRequestSchema,
 };
+
+/** Pass-through schema for the methods of extensions (`skills/list`, …), which the SDK does not know. */
+const ANY = { '~standard': { version: 1, vendor: 'fixture', validate: (value) => ({ value }) } };
+
+/** Methods the stateless server registers with explicit schemas: not in the core spec. */
+const EXTENSION_METHODS = new Set(['skills/list', 'skills/get', 'tasks/get', 'tasks/cancel']);
 
 /** Thrown by `h.listRoots()` on a stateless connection: the handler is asked again with the answer. */
 class NeedRoots extends Error {}
@@ -47,7 +63,7 @@ class NeedRoots extends Error {}
  */
 export function buildServer(flavor, info, capabilities, table, options = {}) {
   if (flavor === 'legacy') {
-    const server = new LegacyServer(info, { capabilities });
+    const server = new LegacyServer(info, { capabilities, ...(options.instructions ? { instructions: options.instructions } : {}) });
     for (const [method, handler] of Object.entries(table)) {
       const schema = LEGACY_SCHEMAS[method];
       if (!schema) throw new Error(`flavors.mjs: no legacy schema for ${method}`);
@@ -69,7 +85,8 @@ export function buildServer(flavor, info, capabilities, table, options = {}) {
   }
   const server = new ModernServer(info, { capabilities, ...(options.instructions ? { instructions: options.instructions } : {}) });
   for (const [method, handler] of Object.entries(table)) {
-    server.setRequestHandler(method, async (request, ctx) => {
+    const register = (fn) => (EXTENSION_METHODS.has(method) ? server.setRequestHandler(method, { params: ANY }, (params, ctx) => fn({ params }, ctx)) : server.setRequestHandler(method, fn));
+    register(async (request, ctx) => {
       const envelope = ctx.mcpReq.envelope ?? {};
       const h = {
         progressToken: ctx.mcpReq._meta?.progressToken,

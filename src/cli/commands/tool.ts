@@ -17,6 +17,7 @@ import { formatToolHelp, parseToolArgs, validateOutput, type ParsedToolArgs, typ
 import { toErrorInfo, type App, type Listing } from '../app';
 import { matchingDeny, type ProviderEntry } from '../directory';
 import { shellWords, visibleText } from '../../render/shell';
+import type { TaskInfo } from '../../protocol';
 import { alignRows } from '../../render/width';
 import { CliFailure, fail, usageFailure } from '../failure';
 import { compareSnapshot, readSnapshot, toolDetail, type SchemaChange } from '../args/snapshot';
@@ -251,15 +252,43 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   const client = await app.client();
   const started = app.io.now();
   let result: ToolResult;
+  let task: TaskInfo | undefined;
+  // A call that became a task is recorded the moment it exists and named on stderr, so an interrupted run can be continued (cli.md, "任务").
+  const flags: string[] = [];
+  const callOptions = {
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    retry: tool.readOnly,
+    taskSupport: typeof tool.def.execution?.taskSupport === 'string' ? tool.def.execution.taskSupport : 'forbidden',
+    onProgress: (p: { progress: number; total?: number; message?: string }) =>
+      sink.progress(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${app.redact(sanitizeText(p.message))}` : ''}\n`),
+    onTask: (made: TaskInfo) => {
+      task = made;
+      records.put(server, { id: made.id, tool: tool.ref, createdAt: app.io.now(), status: made.status });
+      sink.progress(`progress: task ${app.redact.scan(visibleText(`${entry.name}/${made.id}`))} ${visibleText(made.status)}\n`);
+    },
+  };
+  let nextHint: string | undefined;
+  const records = await app.taskRecords();
   try {
-    result = await client.callTool(server.name, tool.rawName, parsed.args, {
-      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-      retry: tool.readOnly,
-      onProgress: (p) => sink.progress(`progress: ${p.total !== undefined ? `${p.progress}/${p.total}` : String(p.progress)}${p.message ? ` ${app.redact(sanitizeText(p.message))}` : ''}\n`),
-    });
+    if (options.detach) {
+      const detached = await client.detachTool(server.name, tool.rawName, parsed.args, callOptions);
+      if ('task' in detached) {
+        const made = detached.task;
+        nextHint = `via ${shellWords(['tasks', entry.name, made.id])}`;
+        result = { content: [], structuredContent: { task: `${entry.name}/${made.id}`, status: made.status, ...(made.message ? { message: made.message } : {}) } };
+      } else {
+        // The server answered at once: nothing is left to detach from.
+        flags.push('no task');
+        result = detached.result;
+      }
+    } else {
+      result = await client.callTool(server.name, tool.rawName, parsed.args, callOptions);
+      if (task) records.put(server, { id: (task as TaskInfo).id, tool: tool.ref, createdAt: app.io.now(), status: result.isError ? 'failed' : 'completed' });
+    }
   } catch (error) {
-    // The server rejected the arguments at the protocol level: same report as an `isError` result.
-    if (error instanceof ClientError && error.exitCode === ExitCode.ToolError) {
+    // The server rejected the arguments at the protocol level: same report as an `isError` result. (Not the errors
+    // that stop following a task: those have their own `next:`.)
+    if (error instanceof ClientError && error.exitCode === ExitCode.ToolError && error.kind !== 'task') {
       const info: ErrorInfo = { code: ExitCode.ToolError, message: error.message, next: `via ${shellWords(tool.ref)} -h` };
       const text = await app.redactText(formatError(info, options.format, app.redact));
       return { exitCode: ExitCode.ToolError, stdout: '', stderr: addDisagreeHint(text, options.format, error.message), warnings, error: info };
@@ -290,8 +319,9 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
       media: new FileMediaSink(join(app.cacheDir, 'media')),
       cursors: (await app.backend()).cursors(),
       now: app.io.now,
-      flags: [...(parsed.validated ? [] : ['unvalidated']), ...(request.flags ?? [])],
+      flags: [...(parsed.validated ? [] : ['unvalidated']), ...flags, ...(request.flags ?? [])],
       warnings: outputWarnings,
+      ...(nextHint ? { next: nextHint } : {}),
     },
   );
   const outcome: CallOutcome = {

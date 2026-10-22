@@ -53,6 +53,54 @@ describe('validateLayer', () => {
     expect(data.daemon).toEqual({ idleTimeout: 30, serverIdleTimeout: 10 });
   });
 
+  it('accepts auth.oauth.clientMetadataUrl as an https URL with a path, or false; rejects anything else', () => {
+    const ok = (value: unknown) => validateLayer({ servers: { o: { url: 'https://o.invalid', auth: { oauth: { clientMetadataUrl: value } } } } }, undefined);
+    expect(ok('https://example.org/via/client.json').data.servers.get('o')?.auth).toEqual({ type: 'oauth', clientMetadataUrl: 'https://example.org/via/client.json' });
+    expect(ok(false).data.servers.get('o')?.auth).toEqual({ type: 'oauth', clientMetadataUrl: false });
+    for (const bad of ['http://example.org/c.json', 'https://example.org/', 'https://example.org', 'https://u:p@example.org/c.json', 'https://example.org/c.json#x', 'not a url']) {
+      const { data, diagnostics } = ok(bad);
+      expect(diagnostics.map((d) => d.message), String(bad)).toEqual(['servers.o.auth.oauth.clientMetadataUrl: expected https URL with a path (no credentials, no fragment), or false']);
+      expect(data.servers.get('o')?.auth).toEqual({ type: 'oauth' });
+    }
+    expect(ok(true).diagnostics.map((d) => d.message)).toEqual(['servers.o.auth.oauth.clientMetadataUrl: expected non-empty string']);
+  });
+
+  describe('auth.oauth client secret, client credentials and key assertion', () => {
+    const check = (oauth: unknown) => validateLayer({ servers: { o: { url: 'https://o.invalid', auth: { oauth } } } }, undefined);
+    const messages = (oauth: unknown) => check(oauth).diagnostics.map((d) => `${d.level}: ${d.message}`);
+
+    it('accepts a secret for a pre-registered client, and both flavours of the machine grant', () => {
+      expect(check({ clientId: 'c', clientSecret: 'env:S' }).data.servers.get('o')?.auth).toEqual({ type: 'oauth', clientId: 'c', clientSecret: 'env:S' });
+      expect(check({ grant: 'client_credentials', clientId: 'c', clientSecret: 'keychain:via/ci', scopes: ['a'] }).data.servers.get('o')?.auth).toEqual({
+        type: 'oauth', grant: 'client_credentials', clientId: 'c', clientSecret: 'keychain:via/ci', scopes: ['a'],
+      });
+      expect(check({ grant: 'client_credentials', clientId: 'c', privateKey: 'file:~/.keys/ci.pem', keyAlgorithm: 'ES256' }).data.servers.get('o')?.auth).toEqual({
+        type: 'oauth', grant: 'client_credentials', clientId: 'c', privateKey: 'file:~/.keys/ci.pem', keyAlgorithm: 'ES256',
+      });
+      expect(check({ grant: 'authorization_code' }).data.servers.get('o')?.auth).toEqual({ type: 'oauth' });
+      expect(check({ grant: 'client_credentials', clientId: 'c', clientSecret: 'cmd:op read x' }).diagnostics).toEqual([]);
+    });
+
+    it('warns about a literal secret or key', () => {
+      expect(messages({ grant: 'client_credentials', clientId: 'c', clientSecret: 'plain-secret' })).toEqual(['warning: servers.o.auth.oauth.clientSecret: is a literal value; use env:, file: or keychain:']);
+    });
+
+    it('rejects combinations that cannot work', () => {
+      const nothing = check({ grant: 'client_credentials', clientId: 'c' });
+      expect(nothing.data.servers.get('o')).toEqual({ url: 'https://o.invalid' });
+      expect(nothing.diagnostics.map((d) => d.message)).toEqual(['servers.o.auth.oauth: expected exactly one of clientSecret and privateKey with grant: client_credentials']);
+      expect(messages({ grant: 'client_credentials', clientId: 'c', clientSecret: 'env:A', privateKey: 'env:B' })).toEqual(['error: servers.o.auth.oauth: expected exactly one of clientSecret and privateKey with grant: client_credentials']);
+      expect(messages({ grant: 'client_credentials', clientSecret: 'env:A' })).toEqual(['error: servers.o.auth.oauth.clientId: expected a client id (required with grant: client_credentials)']);
+      expect(messages({ clientSecret: 'env:A' })).toEqual(['error: servers.o.auth.oauth.clientSecret: expected a clientId next to it']);
+      expect(messages({ clientId: 'c', privateKey: 'env:K' })).toEqual(['error: servers.o.auth.oauth.privateKey: expected grant: client_credentials (a private key signs the client assertion of that grant only)']);
+      expect(messages({ grant: 'client_credentials', clientId: 'c', clientSecret: 'env:A', keyAlgorithm: 'RS256' })).toEqual(['error: servers.o.auth.oauth.keyAlgorithm: expected a privateKey next to it']);
+      expect(messages({ grant: 'password' })).toEqual(['error: servers.o.auth.oauth.grant: expected "authorization_code" or "client_credentials"']);
+      expect(messages({ grant: 'client_credentials', clientId: 'c', privateKey: 'env:K', keyAlgorithm: 'none' })).toEqual([
+        'error: servers.o.auth.oauth.keyAlgorithm: expected one of RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512',
+      ]);
+    });
+  });
+
   it('accepts roots as paths and file URIs', () => {
     const { data, diagnostics } = validateLayer({ servers: { a: { command: 'x', roots: ['.', '~/notes', '/abs', 'C:\\work', 'file:///u', 'FILE:///v'] } } }, undefined);
     expect(diagnostics).toEqual([]);

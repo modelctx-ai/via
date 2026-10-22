@@ -46,8 +46,18 @@
 - **列表**：资源、资源模板、prompt 的列表是文本表格（列宽按显示宽度对齐，描述取首行），同样受预算约束；`-o json` 输出完整的结构化数据，由 `cleanValue` 去掉空值。
 - **prompt 消息**：文本消息输出为 `[角色]` 加内容；非文本内容紧随其后。`-o raw` 的文本框架相同。`-o json` 见 cli.md。
 - **元信息行**：名称依次是 `resources <provider>`、`read <provider>`、`prompts <provider> <名称>`（不含 URI 与参数，它们可能带敏感信息）；大小按字节数写，不使用 `N rows`。
-- **退出码**：server 没有声明相应能力、资源 URI 不存在、prompt 名称不存在为 3；server 拒绝 prompt 参数为 1；鉴权、未信任、传输与超时同工具调用（4、5、6）。
+- **补全**：`--complete`（[cli.md](cli.md#补全)）的结果是每行一个取值的文本，同样走这条流水线；元信息行名称同 prompt 命令。
+- **退出码**：server 没有声明相应能力（含 `completions`）、资源 URI 不存在、prompt 名称不存在、资源模板不在列表里为 3；server 拒绝 prompt 参数为 1；鉴权、未信任、传输与超时同工具调用（4、5、6）。
 - 资源内容和 prompt 消息与工具输出一样是不可信的数据，via 不解释它们（[security.md](security.md)）。
+
+## 任务
+
+任务（[cli.md](cli.md#任务via-tasks-与---detach)）不另立格式，走上面同一条流水线：
+
+- **跟随**：任务的结果就是工具结果，渲染、预算、游标、脱敏与元信息行都与同步调用一致；任务的存在只多一行 stderr 的 `progress: task <provider>/<任务ID> <状态>`（与 `progress:` 的进度行同一类，`-o json` 时同样写 stderr）。
+- **`--detach`**：`task:`、`status:`（有 `statusMessage` 时 `message:`）三行内的对象，元信息行以 `next: via tasks <provider> <任务ID>` 结尾（调用的元信息行名称是工具的规范写法）；没有任务时就是结果加标记 `no task`。
+- **`via tasks`**：任务列表是对齐的文本表（任务 ID、状态、工具、创建时间）；`--status`、`--cancel` 是 `key: value` 对象；等待的结果同工具结果，元信息行名称是 `tasks <provider>`，不含任务 ID（它相当于凭据）。
+- **退出码**：成功 0；任务 `failed`/`cancelled` 为 1（同 `isError`）；`--detach` 不能满足为 2；任务或 provider 的 tasks 不存在为 3；`--timeout` 到而任务仍在跑为 6（任务没有被取消，`next:` 是继续等的命令）；`input_required` 为 1（`next:` 是 `--cancel`）。
 
 ## 输出格式
 
@@ -68,7 +78,7 @@
 
 - 耗时不足 1 秒写 `318ms`，否则写 `1.8s`。
 - 结果是列表（表格、数组）且未截断时写 `N rows`；其他情况写字节数，`k` 以 1024 为单位（`8.0k`，小于 1024 时写原始数字）；被截断时写 `已显示/总计 bytes`。
-- 标记有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)）和 `via batch` 的 `line N`（[cli.md](cli.md#via-batch)），排在 `+N cols` 之后、`next:` 之前，`unvalidated` 在前。`via batch` 另在最后输出一行 `· batch · …` 汇总。
+- 标记有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)）、`--detach` 时 server 没有建任务的 `no task`（[cli.md](cli.md#任务via-tasks-与---detach)）和 `via batch` 的 `line N`（[cli.md](cli.md#via-batch)），排在 `+N cols` 之后、`next:` 之前，`unvalidated` 在前。`via batch` 另在最后输出一行 `· batch · …` 汇总。
 - 警告（如 `outputSchema` 不匹配）写在元信息行之前，每条一行 `warning: …`。与结果无关的运行时警告（如刷新后的 OAuth 登录存不下来，[auth.md](auth.md#刷新)）在发生时同样写一行 `warning: …` 到 stderr，每个会话只提示一次。
 
 示例：

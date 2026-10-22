@@ -490,3 +490,115 @@ describe('via servers and via doctor with OAuth', () => {
     expect(r.stdout).toContain('needs auth');
   });
 });
+
+describe('client credentials and pre-registered secrets through the CLI', () => {
+  const SECRET = 'cli-test-client-secret-value';
+
+  async function machine(options: OAuthServerOptions = {}, oauth = 'grant: client_credentials, clientId: ci-client, clientSecret: "env:CI_SECRET"') {
+    const srv = await startOAuthServer({ machine: { clientId: 'ci-client', clientSecret: SECRET }, ...options });
+    useCleanup(() => srv.close());
+    const sb = makeSandbox({});
+    sb.userConfig(`sources: false\nservers:\n  ci:\n    url: ${srv.url}\n    auth: { oauth: { ${oauth} } }\n`);
+    return { srv, sb };
+  }
+
+  const env = { CI_SECRET: SECRET };
+  const noBrowser = {
+    openUrl: async () => {
+      throw new Error('the machine grant must not open a browser');
+    },
+    readLine: async () => {
+      throw new Error('the machine grant must not ask for input');
+    },
+  };
+
+  it('login validates the credentials without a browser; calls then work and nothing secret is printed', async () => {
+    const { srv, sb } = await machine();
+    const r = await sb.via(['auth', 'login', 'ci'], { env, now: T0, ...noBrowser });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toMatch(/^logged in: ci \(client credentials; scopes: read write; access token expires in 1h; stored in .+\)\n$/);
+    expect(srv.state.authorizeRequests).toHaveLength(0);
+    expect(srv.state.tokenAuth).toEqual([{ grantType: 'client_credentials', clientId: 'ci-client', method: 'basic' }]);
+    const call = await sb.via(['ci', 'whoami'], { env, now: T0, ...noBrowser });
+    expect(call.code).toBe(0);
+    expect(srv.state.tokenAuth).toHaveLength(1); // the saved token is used
+    for (const out of [r, call]) {
+      expect(out.stdout + out.stderr).not.toContain(SECRET);
+      for (const token of srv.issuedAccessTokens()) expect(out.stdout + out.stderr).not.toContain(token);
+    }
+    const files = readFileSync(recordFile(sb), 'utf8');
+    expect(files).not.toContain(SECRET);
+    expect(JSON.parse(files)).toMatchObject({ grant: 'client_credentials', issuer: srv.issuer });
+  });
+
+  it('needs no login: the first call asks for the token, and an expired one is asked for again', async () => {
+    const { srv, sb } = await machine();
+    expect((await sb.via(['ci', 'whoami'], { env, now: T0, ...noBrowser })).code).toBe(0);
+    expect(srv.state.tokenAuth).toHaveLength(1);
+    expect((await sb.via(['ci', 'whoami'], { env, now: T0 + 2 * HOUR, ...noBrowser })).code).toBe(0);
+    expect(srv.state.tokenAuth.map((t) => t.grantType)).toEqual(['client_credentials', 'client_credentials']);
+  });
+
+  it('a secret that does not resolve is exit 4 with the usual next: and nothing is sent', async () => {
+    const { srv, sb } = await machine();
+    const r = await sb.via(['ci', 'whoami'], { env: {}, now: T0 });
+    expect(r.code).toBe(4);
+    expect(r.stderr).toContain('CI_SECRET');
+    expect(srv.state.tokenAuth).toHaveLength(0);
+    expect(srv.state.mcp).toHaveLength(0);
+  });
+
+  it('a refused secret is exit 4 and says so without the secret', async () => {
+    const { srv, sb } = await machine();
+    const r = await sb.via(['ci', 'whoami'], { env: { CI_SECRET: 'definitely-not-the-secret' }, now: T0 });
+    expect(r.code).toBe(4);
+    expect(r.stderr).toBe('error: ci: the authorization server refused the client credentials (invalid_client)\nnext: check auth.oauth of ci in your via config\n');
+    expect(r.stdout + r.stderr).not.toContain('definitely-not-the-secret');
+    expect(srv.state.mcp.every((request) => !request.valid)).toBe(true); // only the discovery probe reached the MCP endpoint
+  });
+
+  it('status and servers describe the machine grant, and logout removes only the saved token', async () => {
+    const { srv, sb } = await machine();
+    expect((await sb.via(['servers'], { env, now: T0 })).stdout).toContain('oauth (client credentials, token requested on use)');
+    const noSecret = await sb.via(['auth', 'status', 'ci'], { env: {}, now: T0 });
+    expect(noSecret.code).toBe(4);
+    expect(noSecret.stdout).toContain('client credentials, missing env:CI_SECRET');
+    await sb.via(['auth', 'login', 'ci'], { env, now: T0 });
+    const status = await sb.via(['auth', 'status', 'ci'], { env, now: T0 });
+    expect(status.code).toBe(0);
+    expect(status.stdout).toMatch(/^ci\s+oauth\s+client credentials, token expires in 1h/);
+    expect((await sb.via(['servers'], { env, now: T0 })).stdout).toContain('oauth (client credentials, token expires in 1h)');
+    const out = await sb.via(['auth', 'logout', 'ci'], { env, now: T0 });
+    expect(out.stdout).toBe('logged out: ci (local login deleted)\n');
+    expect(srv.state.revocations).toHaveLength(0);
+    expect(oauthFiles(sb)).toEqual([]);
+  });
+
+  it('a pre-registered confidential client logs in through the browser flow with its secret', async () => {
+    const srv = await startOAuthServer({ dcr: false, preRegistered: { clientId: 'pre', clientSecret: SECRET } });
+    useCleanup(() => srv.close());
+    const sb = makeSandbox({});
+    sb.userConfig(`sources: false\nservers:\n  linear:\n    url: ${srv.url}\n    auth: { oauth: { clientId: pre, clientSecret: "env:PRE_SECRET" } }\n`);
+    const r = await sb.via(['auth', 'login', 'linear'], { env: { PRE_SECRET: SECRET }, now: T0, openUrl: browser(srv) });
+    expect(r.code).toBe(0);
+    expect(srv.state.tokenAuth).toEqual([{ grantType: 'authorization_code', clientId: 'pre', method: 'basic' }]);
+    expect(r.stdout + r.stderr).not.toContain(SECRET);
+    expect(readFileSync(recordFile(sb), 'utf8')).not.toContain(SECRET);
+    expect((await sb.via(['linear', 'whoami'], { env: { PRE_SECRET: SECRET }, now: T0 })).code).toBe(0);
+  });
+
+  it('refuses to send the credentials to a different authorization server, with the way out in next:', async () => {
+    const { srv, sb } = await machine();
+    const other = await startOAuthServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
+    useCleanup(() => other.close());
+    expect((await sb.via(['auth', 'login', 'ci'], { env, now: T0 })).code).toBe(0);
+    srv.state.authorizationServers = [other.issuer];
+    const r = await sb.via(['auth', 'login', 'ci'], { env, now: T0 });
+    expect(r.code).toBe(4);
+    expect(r.stderr).toBe(`error: ci: its authorization server changed from ${srv.issuer} to ${other.issuer}; the saved client credentials belong to the first and were not sent to the second\nnext: via auth logout ci\n`);
+    expect(other.state.tokenAuth).toHaveLength(0);
+    expect((await sb.via(['auth', 'logout', 'ci'], { env, now: T0 })).code).toBe(0);
+    expect((await sb.via(['auth', 'login', 'ci'], { env, now: T0 })).code).toBe(0);
+    expect(other.state.tokenAuth).toHaveLength(1);
+  });
+});

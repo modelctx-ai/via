@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import type { CallOptions, McpClient } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { ProtocolInfo, ServerFeatures, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, ProtocolInfo, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import { FileCursorStore } from '../render/cursor-file';
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor, redactValue } from '../render/redact';
@@ -128,7 +128,7 @@ export class InProcessBackend implements Backend {
       if (server.auth.type === 'oauth' && this.options.oauthStore) {
         // A saved login must exist (no network); its tokens join the redaction list.
         const { createCallProvider } = await import('../client/oauth');
-        await createCallProvider(server, this.options.oauthStore, { track: (value) => resolver.track?.(value), now }).requireLogin();
+        await createCallProvider(server, this.options.oauthStore, { track: (value) => resolver.track?.(value), resolveCredential: (ref) => resolver.resolve(ref, server.origin), now }).requireLogin();
       }
     } catch (error) {
       throw mapError(error, { server, phase: 'connect', timeoutMs, redact: (text) => createRedactor(resolver.resolvedValues())(text) });
@@ -153,8 +153,9 @@ export class InProcessBackend implements Backend {
     const tools = await client.listTools(server.name, { timeoutMs, onTtl: (ms) => void (ttlMs = ms) });
     const features = client.features(server.name);
     const protocol = client.protocol(server.name);
+    const info = client.info(server.name);
     const fetchedAt = now();
-    const rawBytes = cache.write(server, tools, { fetchedAt, ...(features ? { features } : {}), ...(protocol ? { protocol } : {}), ...(ttlMs !== undefined ? { ttlMs } : {}) });
+    const rawBytes = cache.write(server, tools, { fetchedAt, ...(features ? { features } : {}), ...(protocol ? { protocol } : {}), ...(ttlMs !== undefined ? { ttlMs } : {}), ...(info ? { info } : {}) });
     return { tools, fetchedAt, fromCache: false, ...(rawBytes !== undefined ? { rawBytes } : {}), ...(features ? { features } : {}), ...(protocol ? { protocol } : {}) };
   }
 
@@ -169,9 +170,25 @@ export class InProcessBackend implements Backend {
   listPrompts: McpClient['listPrompts'] = async (server, options) => (await this.client()).listPrompts(server, options);
   getPrompt: McpClient['getPrompt'] = async (server, name, args, options) => (await this.client()).getPrompt(server, name, args, options);
 
+  async detachTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): ReturnType<McpClient['detachTool']> {
+    return (await this.client()).detachTool(server, rawName, args, options);
+  }
+
+  getTask: McpClient['getTask'] = async (server, id, options) => (await this.client()).getTask(server, id, options);
+  waitForTask: McpClient['waitForTask'] = async (server, id, options) => (await this.client()).waitForTask(server, id, options);
+  cancelTask: McpClient['cancelTask'] = async (server, id, options) => (await this.client()).cancelTask(server, id, options);
+  listTasks: McpClient['listTasks'] = async (server, options) => (await this.client()).listTasks(server, options);
+  listSkills: McpClient['listSkills'] = async (server, options) => (await this.client()).listSkills(server, options);
+  readSkill: McpClient['readSkill'] = async (server, skill, file, options) => (await this.client()).readSkill(server, skill, file, options);
+  complete: McpClient['complete'] = async (server, ref, argument, context, options) => (await this.client()).complete(server, ref, argument, context, options);
+
   features(server: string): ServerFeatures | undefined {
     // No client yet means no session, so nothing has been declared.
     return this.loaded?.features(server);
+  }
+
+  info(server: string): ServerSelf | undefined {
+    return this.loaded?.info(server);
   }
 
   protocol(server: string): ProtocolInfo | undefined {
@@ -317,12 +334,37 @@ export class FallbackBackend implements Backend {
   getPrompt: McpClient['getPrompt'] = (server, name, args, options) =>
     this.run((b) => b.getPrompt(server, name, args, options), { idempotent: true, what: `getting a prompt of ${server}` });
 
+  // Detaching starts a job on the server: if the request may have reached the daemon it is not sent again.
+  detachTool(server: string, rawName: string, args?: Record<string, unknown>, options?: CallOptions): ReturnType<McpClient['detachTool']> {
+    return this.run((b) => b.detachTool(server, rawName, args, options), { idempotent: false, what: `calling ${rawName}` });
+  }
+
+  // Asking about a task, waiting for it, listing, and cancelling (cancelling twice is harmless) change nothing a repeat could break.
+  getTask: McpClient['getTask'] = (server, id, options) => this.run((b) => b.getTask(server, id, options), { idempotent: true, what: `asking ${server} about a task` });
+  waitForTask: McpClient['waitForTask'] = (server, id, options) => this.run((b) => b.waitForTask(server, id, options), { idempotent: true, what: `waiting for a task of ${server}` });
+  cancelTask: McpClient['cancelTask'] = (server, id, options) => this.run((b) => b.cancelTask(server, id, options), { idempotent: true, what: `cancelling a task of ${server}` });
+  listTasks: McpClient['listTasks'] = (server, options) => this.run((b) => b.listTasks(server, options), { idempotent: true, what: `listing the tasks of ${server}` });
+
+  // A skill is read and checked; nothing on the server changes, so a request that may have reached the daemon is repeated.
+  listSkills: McpClient['listSkills'] = (server, options) =>
+    this.run((b) => b.listSkills(server, options), { idempotent: true, what: `listing the skills of ${server}` });
+
+  readSkill: McpClient['readSkill'] = (server, skill, file, options) =>
+    this.run((b) => b.readSkill(server, skill, file, options), { idempotent: true, what: `reading a skill of ${server}` });
+
+  complete: McpClient['complete'] = (server, ref, argument, context, options) =>
+    this.run((b) => b.complete(server, ref, argument, context, options), { idempotent: true, what: `completing an argument of ${server}` });
+
   protocol(server: string): ProtocolInfo | undefined {
     return this.current.protocol(server);
   }
 
   features(server: string): ServerFeatures | undefined {
     return this.current.features(server);
+  }
+
+  info(server: string): ServerSelf | undefined {
+    return this.current.info(server);
   }
 
   compiler(): SchemaCompiler | undefined {

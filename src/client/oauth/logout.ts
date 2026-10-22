@@ -38,11 +38,17 @@ async function revokeToken(endpoint: string, token: string, hint: 'refresh_token
 
 export async function performLogout(options: { target: LoginTarget; store: OAuthStore; fetch?: FetchLike }): Promise<LogoutResult> {
   const { target, store } = options;
-  const key = oauthKey({ url: target.url, ...(target.clientId ? { clientId: target.clientId } : {}), ...(target.scopes ? { scopes: target.scopes } : {}) });
+  const key = oauthKey({
+    url: target.url,
+    ...(target.clientId ? { clientId: target.clientId } : {}),
+    ...(target.scopes ? { scopes: target.scopes } : {}),
+    ...(target.grant ? { grant: target.grant } : {}),
+  });
   const stored = await store.get(key).catch(() => undefined);
   let revoke: RevokeOutcome = 'none';
   const tokens = stored?.record.tokens;
-  if (stored && tokens) {
+  // The machine grant's tokens are short-lived and revoking one needs the client secret or key: nothing is sent.
+  if (stored && tokens && stored.record.grant !== 'client_credentials') {
     const endpoint = (stored.record.discovery?.authorizationServerMetadata as { revocation_endpoint?: string } | undefined)?.revocation_endpoint;
     if (!endpoint) revoke = 'unsupported';
     else {

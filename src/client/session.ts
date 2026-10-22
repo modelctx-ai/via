@@ -3,16 +3,19 @@
 import type { Client, ClientOptions, FetchLike, McpSubscription, StandardSchemaV1, SubscriptionFilter, Transport } from '@modelcontextprotocol/client';
 import pkg from '../../package.json';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { GetPromptResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ToolCallResult } from '../protocol';
+import type { CompletionRef, CompletionResult, DetachedCall, GetPromptResult, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import type { McpTool } from '../catalog/types';
 import { createRedactor } from '../render/redact';
 import { resolveConnection, type ResolvedConnection } from './credentials';
-import { ClientError, internal, mapError, noFeature, notFoundServer, resourceNotFound, timedOut, untrustedServer, type Phase } from './errors';
+import { cannotDetach, ClientError, internal, isNotFoundCode, mapError, noFeature, noSkills, noTasks, taskNeedsInput, taskNotFound, taskStillRunning, notFoundServer, resourceNotFound, skillNotFound, skillRefused, timedOut, untrustedServer, type Phase } from './errors';
 import { prepareStdioCommand } from '../platform/command';
 import { isModernProtocolVersion } from '../protocol-versions';
 import { proxyFetch } from '../proxy';
 import { Limiter } from './limiter';
 import { resolveRoots } from './roots';
+import { describeServer } from './server-info';
+import { CreatedTaskShim, inlineResult, isTerminal, pollDelay, readTask, TASKS_EXTENSION } from './tasks';
+import { chooseFile, contentBytes, parseSkillEntry, SKILLS_EXTENSION, verifyFile } from './skills';
 import type { ViaOAuthProvider } from './oauth/provider';
 import type { OAuthStore } from './oauth/store';
 
@@ -21,6 +24,10 @@ export interface CallOptions {
   timeoutMs?: number;
   /** Retry once after a timeout or lost connection. Callers pass this only for `readOnlyHint` tools. */
   retry?: boolean;
+  /** The tool's declared `execution.taskSupport` (2025-11-25); decides whether a task is asked for (cli.md, "任务"). */
+  taskSupport?: string;
+  /** Called once when the call became a task, with the task as the server first described it. */
+  onTask?: (task: TaskInfo) => void;
   /** Called for upstream `notifications/progress` (arguments.md, "调用过程"). */
   onProgress?: (progress: { progress: number; total?: number; message?: string }) => void;
   /** Something the person should know about, caused by this call (see `SessionOptions.onWarning`). */
@@ -121,6 +128,8 @@ interface Attempt {
 
 interface Handle {
   client: Client;
+  /** Lifts the task a stateless server makes instead of a tool result out of the response (client/tasks.ts). */
+  tasks: CreatedTaskShim;
   closed: boolean;
   /** What the handshake (or the probe) settled on. */
   protocol: ProtocolInfo;
@@ -131,13 +140,22 @@ interface Handle {
 }
 
 type Sdk = {
-  Client: typeof import('@modelcontextprotocol/client').Client;
+  Client: new (...args: ConstructorParameters<typeof import('@modelcontextprotocol/client').Client>) => Client & { readonly tasks: CreatedTaskShim };
 };
 
 let sdkPromise: Promise<Sdk> | undefined;
 
 function loadSdk(): Promise<Sdk> {
-  sdkPromise ??= import('@modelcontextprotocol/client').then(({ Client }) => ({ Client }));
+  sdkPromise ??= import('@modelcontextprotocol/client').then(({ Client }) => {
+    // The SDK has no runtime for tasks and its 2026 decoder rejects `resultType: "task"`: see CreatedTaskShim.
+    class ViaClient extends Client {
+      readonly tasks = new CreatedTaskShim();
+      protected override _onresponse(response: Parameters<Client['_onresponse' & keyof Client]>[0]): void {
+        super._onresponse(this.tasks.rewrite(response));
+      }
+    }
+    return { Client: ViaClient };
+  });
   return sdkPromise;
 }
 
@@ -213,7 +231,38 @@ export class McpSession {
   /** What the server declared at `initialize`, once connected; undefined before the first connection. */
   features(): ServerFeatures | undefined {
     const capabilities = this.handle && !this.handle.closed ? this.handle.client.getServerCapabilities() : undefined;
-    return capabilities ? { resources: capabilities.resources !== undefined, prompts: capabilities.prompts !== undefined } : undefined;
+    return capabilities ? { resources: capabilities.resources !== undefined, prompts: capabilities.prompts !== undefined, completions: capabilities.completions !== undefined, skills: this.skillsDeclared(capabilities) } : undefined;
+  }
+
+  /** Skills exist on a stateless-protocol connection to a server that declared the extension (ADR 0020). */
+  private skillsDeclared(capabilities: { extensions?: Record<string, unknown> } | undefined): boolean {
+    return this.handle?.client.getProtocolEra() === 'modern' && capabilities?.extensions?.[SKILLS_EXTENSION] !== undefined;
+  }
+
+  /** What the server says about itself (`serverInfo`, `instructions`), once connected; undefined before the first connection. */
+  info(): ServerSelf | undefined {
+    if (!this.handle || this.handle.closed) return undefined;
+    return describeServer(this.handle.client.getServerVersion() as Record<string, unknown> | undefined, this.handle.client.getInstructions(), this.redactor());
+  }
+
+  /**
+   * `completion/complete`: the server's suggestions for one argument of a prompt or resource template, given
+   * what is typed so far and the other arguments as context. A server without the capability is refused
+   * before any request. Suggestions are kept in the server's order (it sends at most 100).
+   */
+  complete(ref: CompletionRef, argument: { name: string; value: string }, context: Record<string, string> | undefined, options: ListOptions = {}): Promise<CompletionResult> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.require(handle, 'completions');
+      const params = { ref, argument, ...(context && Object.keys(context).length > 0 ? { context: { arguments: context } } : {}) };
+      const raw = (await handle.client.request({ method: 'completion/complete', params }, RAW, { timeout: left() })) as { completion?: unknown };
+      const completion = raw.completion as { values?: unknown; total?: unknown; hasMore?: unknown } | undefined;
+      if (typeof completion !== 'object' || completion === null || !Array.isArray(completion.values)) throw new Error('completion/complete result has no "completion.values" array');
+      return {
+        values: completion.values.filter((v): v is string => typeof v === 'string'),
+        ...(typeof completion.total === 'number' ? { total: completion.total } : {}),
+        ...(typeof completion.hasMore === 'boolean' ? { hasMore: completion.hasMore } : {}),
+      };
+    });
   }
 
   /** `resources/list` and `resources/templates/list` (ADR 0010). A server without the capability is refused before any request. */
@@ -266,38 +315,254 @@ export class McpSession {
     });
   }
 
-  /** `tools/call`; returns the server's result untouched (`isError` included). */
+  /**
+   * `skills/list`, following the pages: every skill with its manifest. An entry the extension does not allow a
+   * client to use (no `SKILL.md` URI, no `name`/`description`, no manifest) is left out, and said so once.
+   */
+  listSkills(options: ListOptions = {}): Promise<SkillEntry[]> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), options.onWarning, async (handle, left) => {
+      this.requireSkills(handle);
+      const raw = await this.pages<Record<string, unknown>>(handle, 'skills/list', 'skills', left, (e): e is Record<string, unknown> => typeof e === 'object' && e !== null);
+      const skills = raw.map(parseSkillEntry).filter((e): e is SkillEntry => e !== undefined);
+      if (skills.length < raw.length) this.warn(`${raw.length - skills.length} skill entr${raw.length - skills.length === 1 ? 'y' : 'ies'} of ${this.server.provider} ignored: the extension requires a URI, a name, a description and a manifest`);
+      return skills;
+    });
+  }
+
+  /**
+   * One file of one skill, checked before it is handed over: `skills/get` for the current entry, `resources/read` for
+   * the file (`file` is a name relative to the skill's directory, none for `SKILL.md`), then size and sha256 against
+   * the manifest. Anything that does not match is refused, never returned.
+   */
+  readSkill(skillUri: string, file: string | undefined, options: ListOptions = {}): Promise<SkillRead> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), options.onWarning, async (handle, left) => {
+      this.requireSkills(handle);
+      const redact = this.redactor();
+      const got = (await handle.client.request({ method: 'skills/get', params: { uri: skillUri } }, RAW, { timeout: left() }).catch((err: unknown) => {
+        if (isNotFoundCode(err)) throw skillNotFound(this.server, `no such skill: ${skillUri}`, redact);
+        throw err;
+      })) as { skill?: unknown };
+      const skill = parseSkillEntry(got.skill);
+      if (!skill) throw new Error('skills/get returned an entry without a URI, a name, a description or a manifest');
+      const choice = chooseFile(skill, file);
+      if ('problem' in choice) {
+        const named = skill.frontmatter.name;
+        if (choice.problem === 'unlisted') throw skillNotFound(this.server, `skill ${named} has no file ${file}`, redact, choice.files);
+        throw new ClientError({ exitCode: 2, message: choice.problem === 'empty' ? 'the file name is empty' : `the file name ${file} leaves the skill's directory (..)`, next: `via skills ${this.server.provider} ${named}` });
+      }
+      const read = (await handle.client.request({ method: 'resources/read', params: { uri: choice.uri } }, RAW, { timeout: left() }).catch((err: unknown) => {
+        throw resourceNotFound(err, choice.uri, this.server.provider, redact) ?? err;
+      })) as { contents?: unknown };
+      const contents = Array.isArray(read.contents) ? read.contents.filter((c): c is Record<string, unknown> => hasString(c, 'uri')) : [];
+      const item = contents.find((c) => c.uri === choice.uri) ?? contents[0];
+      const bytes = item ? contentBytes(item) : undefined;
+      if (!item || !bytes) throw skillRefused(this.server, choice.uri, 'the server returned no text or blob for it', redact);
+      const problem = verifyFile(skill, choice.uri, bytes);
+      if (problem) throw skillRefused(this.server, choice.uri, problem, redact);
+      return {
+        skill,
+        file: { uri: choice.uri, ...(typeof item.mimeType === 'string' ? { mimeType: item.mimeType } : {}), ...(typeof item.text === 'string' ? { text: item.text } : {}), ...(typeof item.blob === 'string' ? { blob: item.blob } : {}) },
+        verified: skill.resources !== 'dynamic',
+      };
+    });
+  }
+
+  /** Skills need the stateless protocol and the extension declared by the server; nothing is sent otherwise. */
+  private requireSkills(handle: Handle): void {
+    if (handle.client.getProtocolEra() !== 'modern') throw noSkills(this.server, { protocol: handle.protocol.version || 'before 2026-07-28' });
+    if ((handle.client.getServerCapabilities() as { extensions?: Record<string, unknown> } | undefined)?.extensions?.[SKILLS_EXTENSION] === undefined) throw noSkills(this.server, { extension: SKILLS_EXTENSION });
+  }
+
+  /**
+   * `tools/call`; returns the server's result untouched (`isError` included). When the call became a task (the server
+   * decided so on the stateless protocol; on the old one, because the tool requires it) the task is followed to its
+   * end within the same budget and its result returned as if the call had been synchronous (cli.md, "任务").
+   */
   callTool(rawName: string, args: Record<string, unknown> | undefined, options: CallOptions = {}): Promise<ToolCallResult> {
+    return this.runCall(rawName, args, options, false).then((done) => {
+      if ('result' in done) return done.result;
+      throw new Error('a followed call ended as a task'); // unreachable: following ends in a result or an error
+    });
+  }
+
+  /** `tools/call` that returns as soon as the server made a task (`--detach`); the result when it made none. */
+  detachTool(rawName: string, args: Record<string, unknown> | undefined, options: CallOptions = {}): Promise<DetachedCall> {
+    return this.runCall(rawName, args, options, true);
+  }
+
+  private runCall(rawName: string, args: Record<string, unknown> | undefined, options: CallOptions, detach: boolean): Promise<DetachedCall> {
     const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
     let deadline = Date.now() + timeoutMs;
     const left = (): number => Math.max(1, deadline - Date.now());
     return this.limiter.run(async () => {
       if (options.onWarning) this.warnSink = options.onWarning;
-      const attempt = async (): Promise<ToolCallResult> => {
+      let made: TaskInfo | undefined;
+      const attempt = async (): Promise<DetachedCall> => {
         const handle = await this.ensureConnected(left(), timeoutMs);
         return this.request(handle, 'request', timeoutMs, async () => {
-          const params = { name: rawName, arguments: args ?? {} };
-          const send = { timeout: left(), ...(options.onProgress ? { onprogress: options.onProgress } : {}) };
-          // The stateless protocol has the SDK mirror tool arguments the tool declared with `x-mcp-header`
-          // into request headers (a server refuses the call without them); on the old protocol the result
-          // is taken as the server sent it.
-          const raw: unknown =
-            handle.client.getProtocolEra() === 'modern'
-              ? await handle.client.callTool(params, send)
-              : await handle.client.request({ method: 'tools/call', params }, RAW, send);
-          if (typeof raw !== 'object' || raw === null) throw new Error('tools/call returned a non-object result');
-          return raw as ToolCallResult;
+          const started = await this.startCall(handle, rawName, args, options, detach, left);
+          if ('result' in started) return started;
+          made = started.task;
+          options.onTask?.(started.task);
+          if (detach) return started;
+          const outcome = await this.waitTask(handle, { task: started.task, fresh: false }, left, timeoutMs, true);
+          return { result: outcome.result! };
         });
       };
       try {
         return await attempt();
       } catch (err) {
-        if (!(options.retry && err instanceof ClientError && err.retryable)) throw err;
+        // A call that became a task is not sent again: that would run the job twice.
+        if (made || !(options.retry && err instanceof ClientError && err.retryable)) throw err;
         await this.drop();
         deadline = Date.now() + timeoutMs; // the retry has a budget of its own
         return attempt();
       }
     }, this.queueWait(timeoutMs));
+  }
+
+  /** Send `tools/call` and sort the answer into a result or a created task. */
+  private async startCall(handle: Handle, rawName: string, args: Record<string, unknown> | undefined, options: CallOptions, detach: boolean, left: () => number): Promise<DetachedCall> {
+    const modern = handle.client.getProtocolEra() === 'modern';
+    const capabilities = handle.client.getServerCapabilities() as { tasks?: { requests?: { tools?: { call?: unknown } } }; extensions?: Record<string, unknown> } | undefined;
+    // The old protocol: the client asks for a task, for a tool that requires one or when detaching, if the server and the tool allow it.
+    let ask = false;
+    if (!modern) {
+      const supported = capabilities?.tasks?.requests?.tools?.call !== undefined;
+      const toolSays = options.taskSupport;
+      if (detach) {
+        if (!supported) throw cannotDetach(this.server, `${this.server.provider} did not declare support for tasks on tool calls`);
+        if (toolSays !== undefined && toolSays !== 'optional' && toolSays !== 'required') throw cannotDetach(this.server, `the tool declares no task support (execution.taskSupport: ${toolSays})`);
+        ask = true;
+      } else ask = toolSays === 'required' && supported;
+    } else if (detach && capabilities?.extensions?.[TASKS_EXTENSION] === undefined) {
+      throw cannotDetach(this.server, `${this.server.provider} did not declare the ${TASKS_EXTENSION} extension`);
+    }
+    const params = { name: rawName, arguments: args ?? {}, ...(ask ? { task: {} } : {}) };
+    const send = { timeout: left(), ...(options.onProgress ? { onprogress: options.onProgress } : {}) };
+    // The stateless protocol has the SDK mirror tool arguments the tool declared with `x-mcp-header`
+    // into request headers (a server refuses the call without them); on the old protocol the result
+    // is taken as the server sent it.
+    const raw: unknown = modern ? await handle.client.callTool(params, send) : await handle.client.request({ method: 'tools/call', params }, RAW, send);
+    if (typeof raw !== 'object' || raw === null) throw new Error('tools/call returned a non-object result');
+    const lifted = modern ? handle.tasks.take(raw) : ask && 'task' in raw ? raw : undefined;
+    if (lifted === undefined) return { result: raw as ToolCallResult };
+    const task = readTask(lifted);
+    if (!task) throw new Error('tools/call answered with a task that has no valid id and status');
+    return { task };
+  }
+
+  // Tasks ---------------------------------------------------------------------------------------
+
+  /** Tasks need the capability (old protocol) or the extension (stateless protocol) declared by the server; nothing is sent otherwise. */
+  private requireTasks(handle: Handle): void {
+    const capabilities = handle.client.getServerCapabilities() as { tasks?: unknown; extensions?: Record<string, unknown> } | undefined;
+    if (handle.client.getProtocolEra() === 'modern') {
+      if (capabilities?.extensions?.[TASKS_EXTENSION] === undefined) throw noTasks(this.server, `it did not declare the ${TASKS_EXTENSION} extension`);
+    } else if (capabilities?.tasks === undefined) throw noTasks(this.server, 'it did not declare the tasks capability');
+  }
+
+  /** `tasks/get`: the task as the server describes it now, and the raw answer (the stateless protocol inlines the result in it). */
+  private async fetchTask(handle: Handle, id: string, left: () => number): Promise<{ task: TaskInfo; raw: unknown }> {
+    const raw = await handle.client.request({ method: 'tasks/get', params: { taskId: id } } as never, RAW, { timeout: left() }).catch((err: unknown) => {
+      if (isNotFoundCode(err)) throw taskNotFound(this.server, id, this.redactor());
+      throw err;
+    });
+    const task = readTask(raw);
+    if (!task) throw new Error('tasks/get answered with something that is not a task');
+    return { task, raw };
+  }
+
+  /**
+   * Follow a task until it ends or `left()` runs out: ask at the pace the server suggests, then take the result from where
+   * the generation keeps it (`tasks/result` on the old protocol, inline in `tasks/get` on the stateless one). A failed or
+   * cancelled task gives an error result, as a failing tool would. A task that waits for input stops the wait: `follow`
+   * (a call) turns that into an error, the task commands report the state. Running out of time is an error that names the
+   * task and does not cancel it.
+   */
+  private async waitTask(handle: Handle, initial: { task: TaskInfo; raw?: unknown; fresh: boolean }, left: () => number, timeoutMs: number, follow: boolean): Promise<TaskOutcome> {
+    const modern = handle.client.getProtocolEra() === 'modern';
+    let { task, raw, fresh } = initial;
+    // On the old protocol the status of a created task can be acted on at once; on the stateless one the answer to `tools/call`
+    // never carries the outcome, so a task that is already over still needs its `tasks/get`.
+    if (!modern) fresh = true;
+    const seconds = String(Math.round(timeoutMs / 100) / 10);
+    for (;;) {
+      if (task.status === 'input_required') {
+        if (follow) throw taskNeedsInput(this.server, task.id, task.inputMethods ?? [], this.redactor());
+        return { task };
+      }
+      if (isTerminal(task.status) && fresh) break;
+      if (!isTerminal(task.status)) {
+        if (left() <= 1) throw taskStillRunning(this.server, task.id, seconds, this.redactor());
+        await new Promise<void>((resolve) => setTimeout(resolve, Math.min(pollDelay(task), left())));
+        if (left() <= 1) throw taskStillRunning(this.server, task.id, seconds, this.redactor());
+      }
+      ({ task, raw } = await this.fetchTask(handle, task.id, left));
+      fresh = true;
+    }
+    const failure = (text: string): ToolCallResult => ({ content: [{ type: 'text', text }], isError: true });
+    if (task.status === 'completed') {
+      const result = modern
+        ? inlineResult(raw)
+        : ((await handle.client.request({ method: 'tasks/result', params: { taskId: task.id } } as never, RAW, { timeout: left() }).catch((err: unknown) => {
+            if (isNotFoundCode(err)) throw taskNotFound(this.server, task.id, this.redactor());
+            throw err;
+          })) as Record<string, unknown>);
+      if (typeof result !== 'object' || result === null) throw new Error('the task completed without a result');
+      return { task, result: result as ToolCallResult };
+    }
+    const why = task.error ?? task.message;
+    return { task, result: failure(task.status === 'cancelled' ? `task was cancelled${why ? `: ${why}` : ''}` : (why ?? 'task failed')) };
+  }
+
+  /** `tasks/get` for a task id. */
+  getTask(taskId: string, options: ListOptions = {}): Promise<TaskInfo> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.requireTasks(handle);
+      return (await this.fetchTask(handle, taskId, left)).task;
+    });
+  }
+
+  /** Wait for a task to end (within the timeout) and return it with its result (cli.md, "任务"). */
+  waitForTask(taskId: string, options: ListOptions = {}): Promise<TaskOutcome> {
+    const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs();
+    return this.operate(timeoutMs, undefined, async (handle, left) => {
+      this.requireTasks(handle);
+      const first = await this.fetchTask(handle, taskId, left);
+      return this.waitTask(handle, { ...first, fresh: true }, left, timeoutMs, false);
+    });
+  }
+
+  /**
+   * Ask the server to cancel a task and report what it says afterwards. The stateless extension only acknowledges (the
+   * task may stay `working`), so the state is fetched; a task that already ended is reported as it is.
+   */
+  cancelTask(taskId: string, options: ListOptions = {}): Promise<TaskInfo> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.requireTasks(handle);
+      const modern = handle.client.getProtocolEra() === 'modern';
+      try {
+        const raw = await handle.client.request({ method: 'tasks/cancel', params: { taskId } } as never, RAW, { timeout: left() });
+        const answered = modern ? undefined : readTask(raw);
+        if (answered) return answered;
+      } catch (err) {
+        if (!isNotFoundCode(err)) throw err;
+        // Unknown, or already over (the old protocol refuses to cancel an ended task): the state tells which.
+      }
+      return (await this.fetchTask(handle, taskId, left)).task;
+    });
+  }
+
+  /** `tasks/list` (old protocol, when the server declared `tasks.list`), all pages; no tasks when the server has no listing. */
+  listTasks(options: ListOptions = {}): Promise<TaskList> {
+    return this.operate(options.timeoutMs ?? this.defaultTimeoutMs(), undefined, async (handle, left) => {
+      this.requireTasks(handle);
+      const tasks = (handle.client.getServerCapabilities() as { tasks?: { list?: unknown } } | undefined)?.tasks;
+      if (handle.client.getProtocolEra() === 'modern' || tasks?.list === undefined) return {};
+      const raw = await this.pages<Record<string, unknown>>(handle, 'tasks/list', 'tasks', left, (e): e is Record<string, unknown> => typeof e === 'object' && e !== null);
+      return { tasks: raw.map(readTask).filter((t): t is TaskInfo => t !== undefined) };
+    });
   }
 
   /**
@@ -359,7 +624,7 @@ export class McpSession {
   }
 
   /** Refuse a request the server did not declare support for, instead of sending it. */
-  private require(handle: Handle, feature: keyof ServerFeatures): void {
+  private require(handle: Handle, feature: 'resources' | 'prompts' | 'completions'): void {
     if (handle.client.getServerCapabilities()?.[feature] === undefined) throw noFeature(this.server, feature);
   }
 
@@ -461,7 +726,7 @@ export class McpSession {
     const { server } = this;
     const timeoutMs = this.defaultTimeoutMs();
     let stderrBuf = '';
-    let client: Client | undefined;
+    let client: (Client & { readonly tasks: CreatedTaskShim }) | undefined;
     let handle: Handle | undefined;
     try {
       const { Client: ClientCtor } = await loadSdk();
@@ -472,7 +737,8 @@ export class McpSession {
       client = new ClientCtor(
         { name: 'via', version: pkg.version },
         {
-          capabilities: roots.length > 0 ? { roots: { listChanged: false } } : {},
+          // `tasks` is declared on every request: a stateless server may only make a task for a client that did, and via follows it (ADR 0020).
+          capabilities: { ...(roots.length > 0 ? { roots: { listChanged: false } } : {}), extensions: { [TASKS_EXTENSION]: {} } },
           jsonSchemaValidator: LENIENT_VALIDATOR,
           ...negotiation(server.protocolVersion, resolved.type === 'stdio'),
           // Only a signal: via lists again itself (the daemon's catalog refresh), not the SDK.
@@ -521,7 +787,7 @@ export class McpSession {
         transport = http;
       }
 
-      const created: Handle = { client, closed: false, protocol: { version: '', stateful: false }, stderr: () => stderrBuf, ...(pid ? { pid } : {}), ...(terminate ? { terminate } : {}) };
+      const created: Handle = { client, tasks: client.tasks, closed: false, protocol: { version: '', stateful: false }, stderr: () => stderrBuf, ...(pid ? { pid } : {}), ...(terminate ? { terminate } : {}) };
       handle = created;
       client.onclose = () => {
         created.closed = true;
@@ -585,6 +851,7 @@ export class McpSession {
       const track = (value: string): void => this.resolver.track?.(value);
       this.oauth = createCallProvider(this.server, this.options.oauthStore ?? createOAuthStore(), {
         track,
+        resolveCredential: (ref) => this.resolver.resolve(ref, this.server.origin),
         ...(this.proxied() ? { fetch: this.proxied()! } : {}),
         ...(this.options.now ? { now: this.options.now } : {}),
         onSaveFailed: (reason) => {

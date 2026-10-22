@@ -14,9 +14,13 @@ via <provider> <tool>                     调用无法拆分的叶子工具
 via resources <provider>                  列出该 server 的 MCP 资源与资源模板
 via read <provider> <uri>                 读取一个 MCP 资源
 via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时取该 prompt
+via skills <provider> [<名称> [<文件>]]   列出 MCP 技能；带名称时读 SKILL.md，再带文件时读该附属文件
+via tasks <provider> [<任务ID>]           列出任务；带任务 ID 时等它结束并输出结果（`--status`、`--cancel`）
+via <provider> <工具> … --detach          调用工具，任务一创建就返回任务 ID
+via <provider> -h                         provider 视图，前面加上 server 的自述（instructions、description）
 ```
 
-最后三行不属于 `provider → 资源 → 动作` 的层级：MCP 资源按 URI 寻址，URI 自带冒号（`file:///a.txt`），不能放进以冒号标明工具的语法里，所以它们是独立的内置子命令（[ADR 0010](../adr/0010-mcp-resources-prompts-and-roots.md)）。文档里的「MCP 资源」与工具名拆出的「资源（resource）」不是一回事，见[术语表](../overview/glossary.md)。
+中间三行不属于 `provider → 资源 → 动作` 的层级：MCP 资源按 URI 寻址，URI 自带冒号（`file:///a.txt`），不能放进以冒号标明工具的语法里，所以它们是独立的内置子命令（[ADR 0010](../adr/0010-mcp-resources-prompts-and-roots.md)）。文档里的「MCP 资源」与工具名拆出的「资源（resource）」不是一回事，见[术语表](../overview/glossary.md)。
 
 各级视图的输出格式见 [discovery.md](discovery.md#浏览视图)。
 
@@ -46,7 +50,7 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 | `via more <游标>` | 续读被截断的结果 |
 | `via batch [--concurrency <n>]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出（[见下](#via-batch)） |
 | `via servers` | 列出 server、来源文件、传输方式、鉴权状态与备注 |
-| `via auth login <provider> [--manual]`<br>`via auth status [<provider>]`<br>`via auth logout <provider>` | OAuth 登录、状态、登出；`login --manual` 用于无头环境（[auth.md](auth.md)） |
+| `via auth login <provider> [--manual]`<br>`via auth status [<provider>]`<br>`via auth logout <provider>` | OAuth 登录、状态、登出；`login --manual` 用于无头环境；`grant: client_credentials` 的 server 不需要登录，`login` 只验证凭据（[auth.md](auth.md)） |
 | `via trust [路径] [--dry-run]`、`via trust <路径> --yes` | 显示并信任项目级配置文件；`--list` 列出记录，`--revoke <路径>` 撤销（[security.md](security.md#via-trust)） |
 | `via sync [provider]` | 强制刷新工具目录缓存 |
 | `via doctor` | 检查连接与鉴权，检测各框架挂载的 MCP 并输出关闭提示 |
@@ -54,12 +58,14 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 | `via resources <provider>` | 列出 MCP 资源与资源模板（[见下](#mcp-资源与-prompt-命令)） |
 | `via read <provider> <uri>` | 读取一个 MCP 资源 |
 | `via prompts <provider> [<名称> [参数]]` | 列出 MCP prompt；带名称时取该 prompt，参数写法同工具 |
+| `via skills <provider> [<名称> [<文件>]]` | 列出 MCP 技能（`2026-07-28` 的 Skills 扩展）；带名称时读 `SKILL.md`，再带文件时读该附属文件，内容按 server 发布的清单核对后才输出（[见下](#技能via-skills)） |
+| `via tasks <provider> [<任务ID>] [--status \| --cancel]` | 列出任务；带任务 ID 时等它结束并像工具调用一样输出结果，`--status` 只看状态，`--cancel` 取消（[见下](#任务via-tasks-与---detach)） |
 | `via daemon status\|stop\|run` | 管理后台进程；`run` 供内部拉起使用（[daemon.md](daemon.md)） |
 | `via serve` | 以 stdio MCP server 运行，向没有 shell 的 agent 暴露元工具（[见下](#via-serve)） |
 
 内置子命令名是保留字，大小写不敏感，不接受前缀。provider 别名与之重名时（例如某个 server 叫 `find`），必须在配置里用 `alias` 改名，`via servers` 给出告警，该 server 在改名前不出现在任何视图里。
 
-0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用，`serve` 自 0.4 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
+0.1 只实现 `find`、`call`、`more`、`servers`、`sync`、`doctor`、`prompt`；`batch`、`trust`、`auth`、`daemon` 自 0.2 起可用，`resources`、`read`、`prompts` 自 0.3 起可用，`serve`、`skills`、`tasks` 自 0.4 起可用（[路线图](../roadmap.md)）。`prompt`（给 agent 的说明）与 `prompts`（server 提供的 prompt）是两个命令；`via prompt` 带了 provider 时报用法错误并提示 `via prompts <provider>`。
 
 各命令的细节：
 
@@ -96,6 +102,29 @@ via prompts <provider> [<名称> [参数]]    列出 MCP prompt；带名称时�
 - `via prompts <provider>`：每个 prompt 一行（名称、参数签名、描述的首行），最后一行 `→ via prompts <provider> <名称> -h for usage`。
 - `via prompts <provider> <名称> [参数…]`：名称按与工具相同的宽松规则匹配（原样、`-`/`_` 与大小写宽松、唯一前缀）；找不到时给出 did you mean（退出码 3），有歧义时列出候选。prompt 的参数是一组具名字符串，via 把它们当作只有字符串属性的工具 schema，复用工具的参数解析：`--名称 值`（名称按 kebab-case 书写）、`--args`、`@文件`、`-`（stdin）、唯一必填参数的位置写法、本地校验与 `-h`、`--no-validate`、校验报错与退出码 2（[arguments.md](arguments.md)）。`-h` 写在名称之后时显示这个 prompt 的用法，不含工具才有的 `alias` 与危险性标记行。结果的每条消息输出为 `[角色]` 一行加内容；非文本内容（图片、音频、嵌入资源、资源链接）紧随其后按[媒体规则](output.md#渲染流程)处理。`-o json` 输出 `{"description"?, "messages": [{"role", "content"}]}`，二进制内容只描述（`type`、`mimeType`），不内联。server 用 `-32602` 拒绝参数时退出码 1，信息取自 server。
 
+#### 补全
+
+`--complete <参数>` 调用 `completion/complete`，列出 server 为某个 prompt 参数或资源模板变量建议的取值。它是全局选项，所以参数恰好叫 `complete` 时写 `--p.complete`（[arguments.md](arguments.md)）；用在其他命令上退出码 2，不会被静默忽略。
+
+```console
+$ via prompts gh review --code 'x = 1' --lang py --complete lang
+python
+pytorch
+· prompts gh review · 120ms · 15 bytes
+
+$ via resources gh 'file:///project/logs/{date}.log' --complete date
+2026-10-18
+2026-10-19
+2026-10-20
+(3 of 40 shown; more match, type more of the value)
+```
+
+- **形式**：`via prompts <provider> <名称> [--<参数> <值>…] --complete <参数>`，或 `via resources <provider> <uri模板> [--<变量> <值>…] --complete <变量>`。要补全的那个参数已经写出的值就是前缀（没写则为空串）；其余写出的参数作为 `context.arguments` 一并发送。参数按工具的写法解析（`--名称 值`、`@文件`、`-`、kebab-case），但不做必填校验：补全发生在写完之前。`<uri模板>` 必须是 `via resources <provider>` 列出的某个 `uriTemplate`（逐字相同，含花括号，命令行里要加引号）；变量名取自模板里的 RFC 6570 表达式（`{date}`、`{+path}`、`{/a,b*}` 的 `date`、`path`、`a`、`b`）。
+- **输出**：server 给的取值，保持它的顺序，每行一个（换行等控制字符写成可见的转义），走通用的[渲染流水线](output.md#mcp-资源与-prompt)；没有建议时输出 `(no suggestions)`；server 说还有更多（`hasMore` 为真或 `total` 大于已给出的个数）时最后一行是 `(N of TOTAL shown; more match, type more of the value)`。`-o json` 输出 `{"values": […], "total"?, "hasMore"?}`。via 不缓存、不排序、不过滤 server 的建议；元信息行里的名称与 prompt 命令相同（`prompts <provider> <名称>`、`resources <provider>`）。
+- **发现**：不自动发请求。`-h` 不会为了列出取值去连接 server；目录缓存里记着 server 声明了 `completions` 能力时，prompt 的 `-h` 在用法之后多一行 `complete: --complete <argument> lists the values the server suggests for it`（只在该 prompt 有参数时）。
+- **错误**：参数不是这个 prompt 或模板的（`--complete nope`）退出码 2，列出可用的参数，`next:` 指向 `-h`；`via prompts <provider> --complete x` 缺名称退出码 2；模板不在列表里退出码 3，`next: via resources <provider>`；server 没有声明 `completions` 能力时不发请求，退出码 3（`error: gh does not offer MCP argument completion`，`next: via gh`）。
+- **不做**：不对工具参数补全（MCP 的补全只覆盖 prompt 与资源模板）；`via serve` 的元工具不提供补全（元工具集合保持固定的七个，[ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)）。
+
 server 没有在 `initialize` 里声明相应能力（`resources`、`prompts`）时不发请求，退出码 3：
 
 ```console
@@ -111,6 +140,89 @@ $ via read fs file:///project/missing.txt
 error: no such resource: file:///project/missing.txt (Resource not found: file:///project/missing.txt)
 next: via resources fs
 ```
+
+### 技能（`via skills`）
+
+MCP 的 Skills 扩展（`io.modelcontextprotocol/skills`，只存在于 `2026-07-28`）让 server 发布「技能」：一个目录，至少有带 YAML frontmatter 的 `SKILL.md`，可以有附属文件。`skills/list` 与 `skills/get` 返回条目，内容用普通的 `resources/read` 取。命令只读，像 `via resources` 一样没有 `--yes`、`--dry-run`，`deny` 不适用；第二个参数是 provider，元信息行里的名称是 `skills <provider>`。设计理由见 [ADR 0020](../adr/0020-tasks-and-skills-commands.md)。
+
+```console
+$ via skills gh
+refunds       3 files  Handle refund requests step by step.
+acme/billing  1 file   Acme billing.
+beta/billing  1 file   Beta billing.
+dyn           dynamic  A skill without a manifest.
+→ via skills gh <name> to read a skill · <name> <file> for one of its files
+
+$ via skills gh refunds
+---
+name: refunds
+description: Handle refund requests step by step.
+---
+# Refunds
+Read references/FORMS.md first.
+· skills gh · 41ms · 114 bytes
+files: references/FORMS.md · assets/pixel.png  (via skills gh refunds <file>)
+```
+
+- **列表**：每个技能一行（名称、文件数或 `dynamic`、描述的首行）；两个技能同名时这两行改写成路径（`acme/billing`）。`-o json` 输出服务端发布的条目（`uri`、`frontmatter`、`resources` 清单）。条目缺 `SKILL.md` 的 URI、`name`、`description` 或清单时扩展不允许使用，via 把它们去掉并警告一次（`warning: 1 skill entry of gh ignored…`）。没有技能时输出 `(no skills)`。
+- **读取**：`<名称>` 先按名称或路径逐字匹配，再宽松匹配（大小写、`-`/`_`），再取唯一前缀；也接受技能的 URI（`SKILL.md` 或其目录）。两个技能同名（或前缀对应多个）时不挑一个：退出码 3，`candidates:` 列出路径。列表里找不到的名称再试约定的 `skill://<名称>/SKILL.md`（列表可以不完整），仍没有时退出码 3 并给 did you mean。`<文件>` 是相对技能目录的名字（`references/FORMS.md`，开头的 `./` 和 `/` 忽略）或清单里的完整 URI；含 `..` 的退出码 2；清单完整时不在清单里的文件不是这个技能的文件，不发请求，退出码 3 并列出可用的文件。内容按 `via read` 的方式输出（文本、JSON 内容的整形、二进制写入缓存目录只打印路径，`-o raw` 取原文，预算与游标照常）。读 `SKILL.md` 且技能还有别的文件时，stderr 在元信息行之后多一行 `files: …`（最多 8 个，其余 `… N more`），stdout 保持纯内容，可以直接 `> SKILL.md`。`-o json` 输出 `{skill: {uri, name, description, files}, file: {uri, mimeType, text}, verified}`。
+- **核对**：每次读取先 `skills/get` 取最新的条目，再 `resources/read` 取文件，比较字节数与 `sha256:`（文本按 UTF-8，`blob` 按解码后的字节）。大小或摘要不符、文件不在清单里、server 没有返回内容：**拒绝**，不输出任何内容，退出码 6，`error: refused skill://x/SKILL.md: its sha256 differs from the manifest's (…); nothing was printed`，`next: via skills <provider>`（重新取清单）。清单是 `"dynamic"` 时没有可核对的东西，照常输出并在 stderr 警告 `could not be checked`，`-o json` 里 `verified` 为 false。核对在会话层（daemon 里的会话也一样）对 server 发来的原字节进行，之后才脱敏和渲染，所以内容里恰好有凭证值时是被替换，不是被拒绝。**不核对** `SKILL.md` 自己的 frontmatter 与条目是否一致（需要 YAML 解析）。
+- **没有技能**：server 的协议版本不是 `2026-07-28`，或它没有声明 `io.modelcontextprotocol/skills`，不发 `skills/*` 请求，退出码 3：`error: gh does not offer MCP skills: it speaks MCP 2025-11-25; skills need 2026-07-28 and the io.modelcontextprotocol/skills extension`（或 `…: it did not declare the io.modelcontextprotocol/skills extension`），`next: via gh`。server 声明扩展时，provider 视图的 `also:` 行多一项 `via skills <provider>`（[discovery.md](discovery.md#via-provider)）。
+- 技能内容与工具输出一样是不可信的数据，via 不解释它们、不把它们写进任何框架的技能目录（[ADR 0003](../adr/0003-read-only-framework-configs.md)）；要保存就 `via skills gh refunds > SKILL.md`。
+
+### 任务（`via tasks` 与 `--detach`）
+
+MCP 的 tasks 让一次 `tools/call` 变成一个可以事后查询的长任务。两代协议各有一种：`2025-11-25` 的核心协议（实验性，client 用 `task` 参数要求建任务）和 `2026-07-28` 的 `io.modelcontextprotocol/tasks` 扩展（server 自己决定，没有任务列表）。via 把它们收成同一套用法；设计理由、两代协议的对照见 [ADR 0020](../adr/0020-tasks-and-skills-commands.md)。
+
+**调用默认跟随到结果。** 不需要任何选项：
+
+```console
+$ via gh report:generate --ms 3000
+progress: task gh/job/1 working
+report ready after 3000ms
+· gh report:generate · 3.1s · 25 bytes
+```
+
+- 什么时候有任务：`2026-07-28` 由 server 决定（via 在每个请求里声明扩展）；`2025-11-25` 只有工具声明 `execution.taskSupport: required` 且 server 声明了 `tasks.requests.tools.call` 时 via 才带 `task` 去要，`optional` 的工具照旧同步调用。任务一出现，via 把它记下来并在 stderr 写一行 `progress: task <provider>/<任务ID> <状态>`，然后按 server 建议的间隔（100 毫秒到 5 秒，缺省 1 秒）轮询，结束后输出与同步调用完全一致：`completed` 时是工具结果（2025 用 `tasks/result`，2026 取 `tasks/get` 里内联的 `result`），`failed` 与 `cancelled` 像 `isError` 的工具结果一样输出（退出码 1，`next:` 指向该工具的 `-h`）。`--dry-run`、`--yes`、`deny`、本地校验不受影响。
+- **受 `--timeout` 约束**（缺省为 server 的 `timeout`，整次调用的预算）。超时**不取消任务**，退出码 6：`error: still running as task gh/job/1 after 30s; it was not cancelled`，`next: via tasks gh job/1`。同一个命令继续等；之后可以再加 `--timeout`。
+- 任务进入 `input_required`（server 要 client 回答问题）：via 不回答，停止等待，退出码 1：`error: task gh/job/1 is waiting for input (elicitation/create), which via cannot give`，`next: via tasks gh job/1 --cancel`。
+- 读只读工具超时的自动重试（[arguments.md](arguments.md#调用过程)）在任务创建之后不再发生：重发会把任务跑两遍。
+
+**`--detach`**（全局选项）：任务创建后立即返回。
+
+```console
+$ via gh --detach report:generate --ms 3000
+task: gh/job/1
+status: working
+progress: task gh/job/1 working        （stderr）
+· gh report:generate · 40ms · 32 bytes · next: via tasks gh job/1
+```
+
+- `task:` 是**带 provider 前缀**的任务 ID，`<provider>/<server 给的 ID>`（ID 可能自带 `/`，所以只在第一个 `/` 处拆）；`-o json` 是 `{"task", "status", "message"?}`。`next:` 用两词写法，ID 按[引号规则](output.md#可粘贴的命令行)引用。
+- `2026-07-28` 的 server 可以不建任务而直接回结果（任务太短，或不想建）：这时输出结果本身，元信息行多一个标记 `no task`，退出码 0。
+- 不能满足时不发请求，退出码 2，`next: rerun without --detach`：`2025-11-25` 的 server 没有声明 `tasks.requests.tools.call`（`cannot detach: gh did not declare support for tasks on tool calls`），或工具的 `execution.taskSupport` 不是 `optional`/`required`（缺省是 `forbidden`）；`2026-07-28` 的 server 没有声明扩展（`cannot detach: gh did not declare the io.modelcontextprotocol/tasks extension`）。它不会悄悄改成同步调用：`--detach` 的意图就是不阻塞。
+- `--detach` 用在没有工具调用的命令上（浏览视图、`find`、`tasks` 等）退出码 2。`via batch --detach` 对每一行生效。工具有一个叫 `detach` 的参数时写 `--p.detach`。
+
+**`via tasks`**（只作用于已存在的任务，没有 `--yes`/`--dry-run`，`deny` 不适用；元信息行的名称是 `tasks <provider>`，不含任务 ID）：
+
+```console
+$ via tasks gh
+gh/job/1  working    gh report:generate  2026-10-22T03:14:00.000Z
+gh/job/2  completed  gh report:generate  2026-10-22T03:12:10.000Z
+(this server keeps no task list; these are the tasks via started)
+$ via tasks gh job/1                       等任务结束，输出工具结果（同一行也可写成 gh/job/1）
+$ via tasks gh job/1 --status              不等待：task、status、message、error、created、updated 逐行输出
+$ via tasks gh job/1 --cancel              请求取消，输出取消后的状态
+```
+
+- **提供者与任务 ID**：`via tasks <provider> <任务ID>` 或 `via tasks <provider>/<任务ID>`（只有一个参数且含 `/` 时，第一个 `/` 之前是 provider）。第二个参数以 `-` 开头是未知选项；`--status` 与 `--cancel` 互斥，都需要任务 ID（退出码 2）。
+- **列表**：server 保留任务列表（`2025-11-25` 且声明了 `tasks.list`）时取自 server，并按 ID 补上 via 记录里的工具名；否则取自 via 自己的记录（下），对最近的 20 个各问一次 server 要当前状态。server 已不认识的标 `expired`，并从记录里删掉；暂时问不到的在最近一次已知状态后加 `?`。每行：带前缀的任务 ID、状态、工具（不知道写 `-`）、创建时间。没有任务时输出 `(no tasks)`；取自记录时最后一行说明 `this server keeps no task list; these are the tasks via started`。`-o json` 输出 `{"source": "server"|"record", "tasks": [{"id", "ref", "status", "tool"?, "created"?, "message"?}]}`。
+- **等待**（缺省）：等到 `completed`、`failed`、`cancelled` 或 `--timeout`，输出与调用相同（规则同上，超时同样不取消）。任务在 `input_required`：退出码 1，同上。
+- **取消**：2025 的 `tasks/cancel` 返回任务；2026 的扩展只回执，取消是协作式的，via 取消后再取一次状态。状态是 `cancelled` 时输出它；仍是 `working` 时同样输出，并多一行 `note: cancellation requested; the server still reports the task as running`（退出码 0，之后用 `--status` 再看）；任务已经 `completed` 或 `failed` 时退出码 1：`gh/job/2 was not cancelled: it already completed`。
+- **未知任务**（server 没有、已过期）：退出码 3，`error: no such task: job/1 (it may have expired)`，`next: via tasks gh`。server 没有声明 tasks（2025 的 `tasks` 能力，2026 的扩展）：退出码 3，不发请求，`gh does not offer MCP tasks: …`，`next: via gh`。
+- **via 的记录**：用户缓存目录下 `tasks/<server 哈希>/<ID 的哈希>.json`（权限 0600，目录 0700；哈希同[目录缓存键](discovery.md#缓存)，所以记录绑定 server 的定义，改别名不丢）。内容是 `{version, id, tool（规范写法的工具引用）, createdAt, status}`，**不含参数与结果**。任务一创建就由 CLI 写入（daemon 通过 `task` 事件告知，进程内模式直接得到），所以被中断的跟随也找得回；状态在 `via tasks` 与调用结束时更新。每个 server 最多 50 个、最长 30 天，写入时清理。它是缓存：删掉只失去列表，已知 ID 的命令照常工作；任务 ID 在扩展里相当于访问任务的凭据，记录因此与其他缓存同样按用户私有数据对待（[security.md](security.md)）。
+
+任务 ID 与任务里的文字（`statusMessage`、`error`）是 server 的数据：脱敏、控制字符写成可见转义，规则同其他输出。`via serve` 没有任务的元工具：经 `via_call` 的调用照常跟随到结果，`--detach` 与任务管理需要 shell（[ADR 0020](../adr/0020-tasks-and-skills-commands.md)）。
 
 ### 配置错误
 
@@ -245,9 +357,11 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `--timeout <秒>` | 覆盖本次调用的超时 |
 | `--schema-snapshot <文件>` | 调用工具或查看其用法之前，把工具当前的 `inputSchema`/`outputSchema` 与保存的快照比较；不兼容时不发调用，退出码 2（[arguments.md](arguments.md#schema-快照校验)） |
 | `--schema-mode compatible\|strict` | 快照比较的松紧，默认 `compatible` |
-| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式） |
+| `--detach` | 工具调用在 server 建出任务后立即返回任务 ID，不等结果（[任务](#任务via-tasks-与---detach)）；只用于工具调用（含 `via call`、`via batch`） |
+| `--complete <参数>` | 向 server 要这个 prompt 或资源模板参数的取值建议（[补全](#补全)），只用于 `via prompts <provider> <名称>` 与 `via resources <provider> <模板>` |
+| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)） |
 
-全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
+全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
 
 工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）；`--p.` 开头的参数不会被当作全局选项。
 

@@ -4,7 +4,7 @@
 import { CredentialError, type ServerConfig } from '../config/types';
 import type { ErrorInfo } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
-import { shellWord } from '../render/shell';
+import { shellWord, shellWords } from '../render/shell';
 import { sanitizeText } from '../render/sanitize';
 
 export class ClientError extends Error implements ErrorInfo {
@@ -16,6 +16,8 @@ export class ClientError extends Error implements ErrorInfo {
    * (arguments.md, "调用过程"). Not part of `ErrorInfo`.
    */
   readonly retryable: boolean;
+  /** `task` for the errors that stop following a task (the call may be continued with `via tasks`): not an argument problem. */
+  kind?: 'task';
 
   constructor(info: ErrorInfo, retryable = false) {
     super(info.message);
@@ -51,6 +53,7 @@ export interface ErrorContext {
 
 /** Longest piece of upstream text we echo into an error message. */
 const MAX_UPSTREAM_TEXT = 300;
+const SKILLS_EXTENSION_ID = 'io.modelcontextprotocol/skills';
 
 // Constructors for the fixed error kinds ------------------------------------------------------
 
@@ -98,10 +101,10 @@ export function oauthNeedsHttp(server: ServerConfig): ClientError {
 }
 
 /** The server did not declare the capability behind `via resources` / `via prompts` (exit code 3, nothing was sent). */
-export function noFeature(server: ServerConfig, feature: 'resources' | 'prompts'): ClientError {
+export function noFeature(server: ServerConfig, feature: 'resources' | 'prompts' | 'completions'): ClientError {
   return new ClientError({
     exitCode: ExitCode.NotFound,
-    message: `${server.provider} does not offer MCP ${feature}`,
+    message: `${server.provider} does not offer MCP ${feature === 'completions' ? 'argument completion' : feature}`,
     next: `via ${server.provider}`,
   });
 }
@@ -120,6 +123,81 @@ export function resourceNotFound(err: unknown, uri: string, provider: string, re
     message: `no such resource: ${flat(uri)}${detail ? ` (${detail})` : ''}`,
     next: `via resources ${provider}`,
   });
+}
+
+// Skills (ADR 0020) -----------------------------------------------------------------------------
+
+/** One line of server text for a message: redacted, cleaned, folded and cut. */
+function oneLine(redact: (text: string) => string, text: string): string {
+  return sanitizeText(redact(text)).replace(/\s+/g, ' ').trim().slice(0, MAX_UPSTREAM_TEXT);
+}
+
+/** `via skills` on a server that has none: an old protocol, or the extension not declared (exit code 3, nothing was sent). */
+export function noSkills(server: ServerConfig, why: { protocol: string } | { extension: string }): ClientError {
+  const reason =
+    'protocol' in why
+      ? `it speaks MCP ${why.protocol}; skills need 2026-07-28 and the ${SKILLS_EXTENSION_ID} extension`
+      : `it did not declare the ${why.extension} extension`;
+  return new ClientError({ exitCode: ExitCode.NotFound, message: `${server.provider} does not offer MCP skills: ${reason}`, next: `via ${server.provider}` });
+}
+
+/** The server does not know the skill (`skills/get` answered -32602 or -32002), or the typed file is not one of its files. */
+export function skillNotFound(server: ServerConfig, what: string, redact: (text: string) => string, candidates: readonly string[] = []): ClientError {
+  const list = candidates.slice(0, 5).map((c) => oneLine(redact, c));
+  return new ClientError({
+    exitCode: ExitCode.NotFound,
+    message: `${oneLine(redact, what)}`,
+    next: `via skills ${server.provider}`,
+    ...(list.length > 0 ? { candidates: list } : {}),
+  });
+}
+
+/** Content that does not match the skill's manifest: refused, nothing is printed (exit code 6: the server disagrees with itself). */
+export function skillRefused(server: ServerConfig, uri: string, problem: string, redact: (text: string) => string): ClientError {
+  return new ClientError({
+    exitCode: ExitCode.Upstream,
+    message: `refused ${oneLine(redact, uri)}: ${oneLine(redact, problem)}; nothing was printed`,
+    next: `via skills ${server.provider}`,
+  });
+}
+
+// Tasks (ADR 0020) -------------------------------------------------------------------------------
+
+/** The `<provider>/<task id>` spelling of a task (cli.md, "任务"). */
+export function taskRef(provider: string, id: string): string {
+  return `${provider}/${id}`;
+}
+
+const taskNext = (server: ServerConfig, id: string, flag = ''): string => `${shellWords(['via', 'tasks', server.provider, id])}${flag}`;
+
+/** `--timeout` ran out while following a task. The task was not cancelled; the same task id continues it (exit code 6). */
+export function taskStillRunning(server: ServerConfig, id: string, seconds: string, redact: (text: string) => string): ClientError {
+  const err = new ClientError({ exitCode: ExitCode.Upstream, message: `still running as task ${oneLine(redact, taskRef(server.provider, id))} after ${seconds}s; it was not cancelled`, next: taskNext(server, id) }, false);
+  err.kind = 'task';
+  return err;
+}
+
+/** A task that waits for input via cannot give (exit code 1; `--cancel` ends it). */
+export function taskNeedsInput(server: ServerConfig, id: string, methods: readonly string[], redact: (text: string) => string): ClientError {
+  const what = methods.length > 0 ? ` (${methods.map((m) => oneLine(redact, m)).join(', ')})` : '';
+  const err = new ClientError({ exitCode: ExitCode.ToolError, message: `task ${oneLine(redact, taskRef(server.provider, id))} is waiting for input${what}, which via cannot give`, next: taskNext(server, id, ' --cancel') });
+  err.kind = 'task';
+  return err;
+}
+
+/** The server does not know the task (never had it, or it expired): exit code 3. */
+export function taskNotFound(server: ServerConfig, id: string, redact: (text: string) => string): ClientError {
+  return new ClientError({ exitCode: ExitCode.NotFound, message: `no such task: ${oneLine(redact, id)} (it may have expired)`, next: `via tasks ${server.provider}` });
+}
+
+/** `via tasks` on a server without tasks (exit code 3, nothing was sent). */
+export function noTasks(server: ServerConfig, why: string): ClientError {
+  return new ClientError({ exitCode: ExitCode.NotFound, message: `${server.provider} does not offer MCP tasks: ${why}`, next: `via ${server.provider}` });
+}
+
+/** `--detach` that cannot be honored: the server or the tool cannot run as a task (exit code 2, nothing was sent). */
+export function cannotDetach(server: ServerConfig, why: string): ClientError {
+  return new ClientError({ exitCode: ExitCode.Usage, message: `cannot detach: ${why}`, next: 'rerun without --detach' });
 }
 
 export function internal(message: string): ClientError {
@@ -150,6 +228,21 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
       exitCode: ExitCode.Auth,
       message: expired ? `${provider} requires auth (the saved login expired)` : `${provider} requires auth`,
       next: loginNext,
+    });
+  }
+  if (err instanceof Error && err.name === 'AuthorizationServerChangedError') {
+    const { recorded, current } = err as Error & { recorded: string; current: string };
+    return new ClientError({
+      exitCode: ExitCode.Auth,
+      message: `${provider}: its authorization server changed from ${clean(recorded, ctx)} to ${clean(current, ctx)}; the saved client credentials belong to the first and were not sent to the second`,
+      next: `via auth logout ${provider}`,
+    });
+  }
+  if (err instanceof Error && err.name === 'ClientCredentialsRejectedError') {
+    return new ClientError({
+      exitCode: ExitCode.Auth,
+      message: `${provider}: the authorization server refused the client credentials (${clean((err as Error & { code: string }).code, ctx)})`,
+      next: `check auth.oauth of ${provider} in your via config`,
     });
   }
   if (err instanceof Error && err.name === 'TokenRefreshError') {
@@ -307,6 +400,12 @@ const CONNECTION_LOST = new Set(['CONNECTION_CLOSED', 'NOT_CONNECTED', 'SEND_FAI
 const CONNECTION_CLOSED = -32000;
 const INVALID_PARAMS = -32602;
 const RESOURCE_NOT_FOUND = -32002;
+
+/** Whether `err` is the server saying it does not know what was asked for (-32002), or calling it invalid (-32602). */
+export function isNotFoundCode(err: unknown): boolean {
+  const code = mcpCode(err);
+  return code === RESOURCE_NOT_FOUND || code === INVALID_PARAMS;
+}
 
 /** The JSON-RPC code of an error the server answered with (SDK `ProtocolError`); undefined for anything else. */
 function mcpCode(err: unknown): number | undefined {

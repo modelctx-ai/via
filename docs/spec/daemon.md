@@ -67,7 +67,12 @@ type ServerTarget = {
 type Request =
   | { id; type: "status" }
   | ({ id; type: "list"; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
-  | ({ id; type: "call"; rawName: string; args: object; timeoutMs?: number; retry?: boolean; progress?: boolean } & ServerTarget)
+  | ({ id; type: "call"; rawName: string; args: object; timeoutMs?: number; retry?: boolean; progress?: boolean;
+        detach?: boolean; taskSupport?: string; tasks?: boolean } & ServerTarget)
+  | ({ id; type: "task"; action: "get" | "wait" | "cancel" | "list"; taskId?: string; timeoutMs: number } & ServerTarget)
+  | ({ id; type: "skills-list"; timeoutMs: number } & ServerTarget)
+  | ({ id; type: "skill-read"; skill: string; file?: string; timeoutMs: number } & ServerTarget)
+  | ({ id; type: "complete"; ref: object; argument: { name: string; value: string }; context?: object; timeoutMs: number } & ServerTarget)
   | ({ id; type: "resources-list"; timeoutMs: number } & ServerTarget)
   | ({ id; type: "resource-read"; uri: string; timeoutMs: number } & ServerTarget)
   | ({ id; type: "prompts-list"; timeoutMs: number } & ServerTarget)
@@ -103,7 +108,11 @@ type ErrorInfo = {
 | 请求 | 行为 |
 | --- | --- |
 | `list` | 返回 `{ tools, fetchedAt, fromCache, features?, protocol? }`，`features` 是 `{ resources, prompts }`（server 是否声明了这两种能力，缓存里没有记录时省略），`protocol` 是 `{ version, stateful }`（最近一次连接协商出的协议版本与连接是否有状态，同样记在缓存里，没有记录时省略）。先在 daemon 里解析该 server 的凭证（缺失则退出码 4，不发任何请求），再依次看内存副本、磁盘缓存、server；`refresh` 跳过前两者（`via sync`、`via doctor`）。未信任的项目级 server 退出码 5。`have` 是 CLI 手里已有预构建目录的那份列表的 `fetchedAt`：daemon 的列表恰好是这一份时，应答为 `{ unchanged: true, fetchedAt, fromCache: true, features?, protocol? }`，不带 `tools`（凭证与信任检查照常先做；带 `refresh` 时忽略 `have`）。CLI 只在磁盘缓存里的列表也是这一份时才带 `have`，收到 `unchanged` 后需要工具时从那个缓存文件读，所以浏览类命令不必让 daemon 把整份列表再传一遍 |
-| `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样 |
+| `call` | 返回 server 的原始 `tools/call` 结果。`progress: true` 时，进度作为 `event` 推送。结果中的凭证值在 daemon 里替换为 `***` 后才发出，错误信息同样。调用变成任务时（[cli.md](cli.md#任务via-tasks-与---detach)）daemon 的会话就地跟随到结束，结果与同步调用一样；`tasks: true` 时任务一创建就推送一个 `task` 事件（任务的 `{id, status, …}`），CLI 据此写记录、打印 `progress: task …`；`taskSupport` 是工具声明的 `execution.taskSupport`（决定 2025 要不要带 `task`）。`detach: true` 时任务创建后立即返回 `{ task }`，server 没建任务则返回 `{ result }`。超时、`input_required` 与已创建任务后的失败不重试 |
+| `task` | `action`：`get` 返回 `{id, status, message?, …}`（`tasks/get`）；`wait` 等到任务结束或 `timeoutMs`，返回 `{ task, result? }`（`result` 在 `completed` 时是工具结果，`failed`/`cancelled` 时是 `isError` 结果，`input_required` 时没有）；`cancel` 发 `tasks/cancel`（2026 的扩展再取一次状态）并返回取消后的任务；`list` 返回 `{ tasks? }`，没有任务列表的 server（2026 的扩展，或 2025 没有声明 `tasks.list`）不带 `tasks`。server 没有声明 tasks 时退出码 3，不发请求；不认识的任务退出码 3；等待超时退出码 6，`next: via tasks <provider> <ID>`。任务由 server 持有，daemon 不保存任务：via 自己的记录在 CLI 一侧（[cli.md](cli.md#任务via-tasks-与---detach)） |
+| `skills-list` | 返回技能条目数组（`skills/list` 分页拉全，附清单）。不缓存。协议不是 `2026-07-28` 或没有声明 `io.modelcontextprotocol/skills` 时退出码 3，不发请求。不合格的条目（缺 URI、`name`、`description` 或清单）丢弃并推送一条 `log` 警告 |
+| `skill-read` | 读技能的一个文件：`skills/get` 取最新条目、`resources/read` 取文件，在 daemon 的会话里按清单核对字节数与 `sha256`，通过才返回 `{ skill, file, verified }`（再脱敏）；不符退出码 6，不返回内容。核对发生在脱敏之前 |
+| `complete` | `completion/complete`：返回 `{ values, total?, hasMore? }`。`ref` 是 `{type:"ref/prompt", name}` 或 `{type:"ref/resource", uri}`。没有声明 `completions` 能力时退出码 3，不发请求 |
 | `resources-list` | 返回 `{ resources, templates }`：`resources/list` 与 `resources/templates/list` 分页拉全（server 没有实现模板方法时 `templates` 为空）。不缓存。server 没有声明 `resources` 能力时不发请求，退出码 3 |
 | `resource-read` | 返回 `{ contents }`（`resources/read` 的原始结果：`text` 或 base64 的 `blob`）。server 不认识这个 URI（`-32002`，或把它报告为 `-32602` 的 server）退出码 3，信息带 server 的说明；没有声明 `resources` 时同 `resources-list` |
 | `prompts-list` | 返回 `prompts/list` 分页拉全的数组。没有声明 `prompts` 能力时退出码 3，不发请求 |
@@ -119,6 +128,7 @@ type ErrorInfo = {
 - `call` 的 `result` 是清理前的结构化数据（MCP content 与 structuredContent），截断与渲染在 CLI 侧做，渲染所需的游标写入 daemon。四个资源与 prompt 请求同样返回原始结果，凭证值在 daemon 内逐个字符串值替换为 `***` 后才发出，也受 `envStamp` 与未信任检查约束。替换保持协议结构：不改写键，也不改写内容块的 `type`、`mimeType`、`role`、`audience`、`lastModified` 和 base64 的 `data`、`blob`；`structuredContent` 与 `_meta` 不享受这些豁免（[脱敏的范围](output.md#脱敏的范围)）。
 - 协议中不得出现解析后的凭证值：server 定义里只有引用；`env:` 的差异只以摘要交换；`call` 的结果、进度和错误在 daemon 内先脱敏。CLI 在 daemon 模式下本地不解析凭证，脱敏靠 daemon 的结果和 `redact`。
 - `auth` 请求的 `login` 不经过 daemon：登录需要浏览器或终端交互，由 CLI 在自己的进程里完成并写入共用存储（[auth.md](auth.md#oauth)）；daemon 里的会话在下一次请求前读取存储，所以新的登录、登出和刷新结果无需通知。
+- 事件（`event`）有三种：`progress`、`log`（`warning` 级的提示，CLI 打印成 `warning:` 行）和 `task`（调用变成了任务）。
 - 未知消息类型返回 `exitCode: 7` 的错误，不断开连接。
 
 ## 协议版本与无状态连接

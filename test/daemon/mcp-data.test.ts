@@ -37,6 +37,20 @@ describe('resources and prompts through the daemon', () => {
     expect(inProcess.stdout).toBe(read.stdout);
   });
 
+  it('completes an argument and shows what the server says about itself in -h, through the daemon', async () => {
+    const about = JSON.stringify({ instructions: 'Use search first.' });
+    const yaml = config('', 'resources,prompts,completions').replace('FIXTURE_SECRET:', `CLI_FIXTURE_ABOUT: ${JSON.stringify(about)}, FIXTURE_SECRET:`);
+    const d = await sandbox(yaml);
+    const done = await d.via(['prompts', 'fs', 'review', '--lang', 'ru', '--complete', 'lang']);
+    expect(done.code).toBe(0);
+    expect(done.stdout).toBe('rust\nruby\n');
+    const help = await d.via(['fs', '-h']);
+    expect(help.stdout).toContain("from the server (its own text, not via's):\n  name: cli-fixture 0.0.0\n  instructions: Use search first.\n");
+    expect((await d.via(['fs'])).stdout).not.toContain('Use search first');
+    const status = (await d.status())!;
+    expect(status.sessions).toHaveLength(1);
+  });
+
   it('redacts credentials in what the daemon returns, and sends none over the socket', async () => {
     const d = await sandbox(config());
     const r = await d.via(['read', 'fs', 'file:///project/credentials.txt']);
