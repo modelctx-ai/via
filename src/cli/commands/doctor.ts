@@ -6,6 +6,8 @@ import type { App } from '../app';
 import { buildProviderTable, statusOf } from '../directory';
 import { describeProxy, proxySettings } from '../../proxy';
 import { renderDoctor, type ServerProbe } from '../doctor';
+import { detectHost, windowsSidePaths } from '../../platform/host';
+import { readFileSync } from 'node:fs';
 
 export async function doctorCommand(app: App): Promise<number> {
   const config = await app.config({ allowErrors: true });
@@ -35,6 +37,9 @@ export async function doctorCommand(app: App): Promise<number> {
   const { logDir, logsSummary } = await import('../../log');
   const dir = logDir(app.cacheDir);
   const used = await logsSummary(dir);
+  const host = detectHost({ platform: app.io.platform, env: app.io.env, readProcVersion });
+  // Framework and via config files on the Windows side of WSL: the servers' origins and every loaded file.
+  const windowsSideFiles = windowsSidePaths([...config.files.map((f) => f.path), ...config.servers.map((s) => s.origin.path)]);
   const out = renderDoctor({
     config,
     frameworks: BUNDLED_FRAMEWORKS,
@@ -43,6 +48,7 @@ export async function doctorCommand(app: App): Promise<number> {
     home: app.io.home,
     proxy: describeProxy(proxySettings(app.io.env)),
     logs: { dir, ...(used ?? {}) },
+    host: { kind: host, windowsSideFiles },
   });
   app.out(`${out.text}\n`);
   return out.exitCode;
@@ -67,6 +73,15 @@ async function loginStoreWarning(app: App, server: ServerConfig): Promise<Server
       message: `the OAuth login ${blocked.what} ${blocked.path} is not writable; a refreshed token cannot be saved`,
       next: `chmod u+w ${shellWord(blocked.path)}`,
     };
+  } catch {
+    return undefined;
+  }
+}
+
+/** `/proc/version` on Linux; undefined anywhere it cannot be read (not Linux, no procfs, no permission). */
+function readProcVersion(): string | undefined {
+  try {
+    return readFileSync('/proc/version', 'utf8');
   } catch {
     return undefined;
   }

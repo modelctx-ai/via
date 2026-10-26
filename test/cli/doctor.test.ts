@@ -61,6 +61,26 @@ describe('renderDoctor', () => {
     expect(renderDoctor(base).text).not.toContain('logs ');
   });
 
+  it('hints at the PowerShell 5.1 quoting on Windows and at /mnt reads under WSL, in the environment section, without changing the exit code', async () => {
+    const base = { config: config([server('github')]), frameworks: BUNDLED_FRAMEWORKS, probes: [probe('github')], home: '/home/u', logs: { dir: '/home/u/.cache/via/logs', files: 1, bytes: 700 } };
+    const windows = renderDoctor({ ...base, host: { kind: 'windows' } });
+    expect(windows.exitCode).toBe(0);
+    await expect(`${windows.text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-platform-windows.txt');
+
+    const files = ['/mnt/c/Users/u/AppData/Roaming/Claude/claude_desktop_config.json', '/mnt/c/Users/u/.cursor/mcp.json', '/mnt/d/work/.mcp.json', '/mnt/c/Users/u/a.json'];
+    const wsl = renderDoctor({ ...base, host: { kind: 'wsl', windowsSideFiles: files } });
+    expect(wsl.exitCode).toBe(0);
+    await expect(`${wsl.text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-platform-wsl.txt');
+
+    // Nothing to say: other hosts, WSL with everything on the Linux side, and a caller that does not ask.
+    for (const host of [{ kind: 'other' }, { kind: 'wsl' }, { kind: 'wsl', windowsSideFiles: [] }, { kind: 'other', windowsSideFiles: files }] as const) {
+      expect(renderDoctor({ ...base, host }).text).not.toContain('platform');
+    }
+    expect(renderDoctor(base).text).not.toContain('platform');
+    // The line is a hint: it does not mask a failing server's exit code.
+    expect(renderDoctor({ ...base, probes: [probe('github', { status: 'needs-auth' })], host: { kind: 'windows' } }).exitCode).toBe(4);
+  });
+
   it('shows the protocol each healthy server negotiated, and which versions are pinned', () => {
     const out = renderDoctor({
       config: config([server('github'), server('legacy', { protocolVersion: '2025-06-18' }), server('quiet'), server('down')]),

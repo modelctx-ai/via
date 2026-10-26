@@ -1,2 +1,4 @@
 # 仓库内文件一律以 LF 检出，包括 Windows：快照、夹具和信任记录里的内容哈希都依赖确切的字节。
 * text=auto eol=lf
+# 批处理文件要 CRLF：cmd.exe 对只有 LF 的 .cmd 解析不可靠。
+*.cmd text eol=crlf
