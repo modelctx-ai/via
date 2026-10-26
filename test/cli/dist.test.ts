@@ -9,6 +9,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { CallToolResult } from '@modelcontextprotocol/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { featuresOf, FEATURES } from '../../scripts/lib/chunk-features';
+import { startProxy } from '../helpers/proxy-server';
 import { CLI_STDIO_SERVER, FAKE_TOKEN, ghConfig, homeEnv, startFixtureServer } from './helpers';
 
 // The shipped CLI is what users run: build it exactly as `npm run build` does (into a scratch
@@ -31,11 +32,11 @@ function via(args: string[]) {
 }
 
 /** Like `via`, for commands that talk to a server running in this process. */
-function viaAsync(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function viaAsync(args: string[], extraEnv: Record<string, string> = {}): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [bin, ...args], {
       cwd: home,
-      env: { ...homeEnv(home), GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1' },
+      env: { ...homeEnv(home), GH_TOKEN: FAKE_TOKEN, NODE_DISABLE_COMPILE_CACHE: '1', VIA_NO_DAEMON: '1', ...extraEnv },
     });
     let stdout = '';
     let stderr = '';
@@ -159,6 +160,23 @@ describe('built dist/via.js', () => {
       expect(stdio).toMatchObject({ code: 0, stdout: 'job done\n' });
       expect(stdio.stderr).toContain('progress: 1/2 halfway');
     } finally {
+      await srv.close();
+      rmSync(join(home, '.config'), { recursive: true, force: true });
+    }
+  });
+
+  // undici is CommonJS: in the bundle its chunk has a default export only, which the source (named
+  // exports) does not show. A sandbox program such as srt always sets a proxy (ADR 0027).
+  it('goes through the proxy in HTTP_PROXY', async () => {
+    const srv = await startFixtureServer({ token: FAKE_TOKEN });
+    const proxy = await startProxy();
+    try {
+      writeUserConfig(ghConfig(srv.url));
+      const r = await viaAsync(['gh', 'issue:read', '--owner', 'acme', '--repo', 'api', '--issue-number', '3', '--method', 'get'], { HTTP_PROXY: proxy.url });
+      expect(r).toMatchObject({ code: 0, stdout: 'number: 3\ntitle: Support OAuth DCR\nstate: open\n' });
+      expect(proxy.log.length).toBeGreaterThan(0);
+    } finally {
+      await proxy.close();
       await srv.close();
       rmSync(join(home, '.config'), { recursive: true, force: true });
     }

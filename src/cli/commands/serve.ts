@@ -11,7 +11,7 @@ export async function serveCommand(app: App, argv: readonly string[]): Promise<n
     import('@modelcontextprotocol/server/stdio'),
     import('../run'),
   ]);
-  const server = await createServeServer(app.io, run);
+  const server = await createServeServer(app.io, run, (command) => app.commandVisible(command));
   const closed = new Promise<void>((resolve) => {
     server.onclose = () => resolve();
   });

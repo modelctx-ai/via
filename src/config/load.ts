@@ -2,7 +2,7 @@
 // the user config and the project config, merges them and returns what the rest of via needs.
 // Nothing here throws for a bad file: problems are collected in `diagnostics`.
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { checkDenyPattern } from './deny-safety';
 import type { ConfigDiagnostic } from './diagnostics';
@@ -11,6 +11,8 @@ import { validateLayer, type ConfigLayerData, type SourcesSetting } from './laye
 import { applyDef, canonical, newAccumulator, type Accumulator } from './merge';
 import { isPlainObject, ownEntries, type OriginedDef, type ServerDef } from './model';
 import { normalizeFrameworkEntry } from './normalize';
+import { findUp, PROJECT_CONFIG_NAME } from './policy-probe';
+import { mergePolicy, type CommandPolicy, type Policy, type SandboxSettings } from './policy';
 import { startsViaServe } from './self';
 import { parseConfigText, resolvePointer, ParseFailure } from './parse';
 import { ParseCache } from './parse-cache';
@@ -32,8 +34,7 @@ export const DEFAULTS = {
   semantic: { timeout: 3, indexTimeout: 30 },
 } as const;
 
-/** The project config file name; the first one found walking up from the working directory is used. */
-export const PROJECT_CONFIG_NAME = '.via.yaml';
+export { PROJECT_CONFIG_NAME };
 
 export interface LoadConfigOptions {
   /** Working directory; project config and project-scoped framework configs are looked up from here. Default: process cwd. */
@@ -77,6 +78,10 @@ export interface LoadedConfig {
   discovery: { wait: number };
   /** Optional features of `via find`; `semantic` is set only by the user config (security.md). */
   search?: { semantic?: SemanticSearchConfig };
+  /** Which built-in subcommands may run and which are shown (ADR 0028). */
+  commands: CommandPolicy;
+  /** Whether via runs inside a sandbox program (ADR 0027); user config only. */
+  sandbox: SandboxSettings;
   diagnostics: ConfigDiagnostic[];
   /** Every file that contributed, for `via doctor` and `via trust`. */
   files: LoadedFile[];
@@ -104,28 +109,6 @@ interface Layer {
  */
 function loadedFile(file: Omit<LoadedFile, 'sha256'>, read: ReadResult): LoadedFile {
   return Object.defineProperty(file, 'sha256', { enumerable: true, get: read.hash }) as LoadedFile;
-}
-
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
-/** Nearest ancestor (starting at `from`) that contains `relative` as a file. */
-function findUp(relative: string, from: string, ceiling: string | undefined, platform: NodeJS.Platform): string | undefined {
-  let dir = resolve(from);
-  const stop = ceiling === undefined ? undefined : pathIdentity(ceiling, platform);
-  for (;;) {
-    const candidate = join(dir, relative);
-    if (isFile(candidate)) return candidate;
-    const parent = dirname(dir);
-    // Case-insensitive on Windows: `c:\repo` and `C:\Repo` are the same ceiling.
-    if (parent === dir || pathIdentity(dir, platform) === stop) return undefined;
-    dir = parent;
-  }
 }
 
 interface ReadResult {
@@ -334,7 +317,41 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     }
   }
 
-  return { servers, deny, output, daemon, discovery, search, diagnostics, files };
+  const merged = mergePolicy(layers, ctx, cwd);
+  diagnostics.push(...merged.diagnostics);
+
+  return { servers, deny, output, daemon, discovery, search, commands: merged.policy.commands, sandbox: merged.policy.sandbox, diagnostics, files };
+}
+
+/** Diagnostics of the `commands` and `sandbox` fields (their messages start with the field path). */
+const POLICY_FIELD = /^(?:commands|sandbox)\b/;
+
+/**
+ * Only `commands` and `sandbox`, read before a command is dispatched (run.ts). `files` are the user
+ * and project config files that mention either key (policy-probe.ts); the rest of the configuration
+ * is left to `loadConfig`, which the command loads if it needs it. Errors in these fields, and a
+ * file that cannot be parsed, are returned as error-level diagnostics so the caller can stop
+ * (fail closed: a `commands.deny` that was not read must not leave the command runnable).
+ */
+export async function loadPolicy(files: readonly string[], options: LoadConfigOptions = {}): Promise<{ policy: Policy; diagnostics: ConfigDiagnostic[] }> {
+  const ctx: PathContext = pathContext(options);
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const parseCache = options.parseCacheDir === undefined ? undefined : new ParseCache(options.parseCacheDir, typeof __VIA_PARSE_ID__ === 'string' ? __VIA_PARSE_ID__ : 'source');
+  const userPath = userConfigPath(ctx);
+  const diagnostics: ConfigDiagnostic[] = [];
+  const layers: Layer[] = [];
+  // The user config first: lower priority than the project's.
+  const ordered = [...files].sort((a, b) => Number(b === userPath) - Number(a === userPath));
+  for (const path of ordered) {
+    const read = await readAndParse(path, 'yaml', 'error', false, diagnostics, parseCache);
+    if (!read) continue;
+    const { data, diagnostics: found } = validateLayer(read.value, path);
+    diagnostics.push(...found.filter((d) => POLICY_FIELD.test(d.message)));
+    layers.push({ origin: { scope: path === userPath ? 'user' : 'project', path }, data });
+  }
+  const merged = mergePolicy(layers, ctx, cwd);
+  diagnostics.push(...merged.diagnostics);
+  return { policy: merged.policy, diagnostics };
 }
 
 function finalize(

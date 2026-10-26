@@ -123,6 +123,26 @@ export const SERVE_TOOLS: Tool[] = [
   },
 ];
 
+/** The built-in each meta-tool runs; `via_browse` runs the provider grammar, which `commands` does not restrict (ADR 0028). */
+const TOOL_COMMAND: Readonly<Record<string, string>> = {
+  via_find: 'find',
+  via_call: 'call',
+  via_more: 'more',
+  via_resources: 'resources',
+  via_read: 'read',
+  via_prompts: 'prompts',
+  via_skills: 'skills',
+  via_tasks: 'tasks',
+};
+
+/** The meta-tools to list: those whose command `visible` keeps. A call to a hidden one still runs if the command may; a refused one is refused by the CLI. */
+export function serveTools(visible: (command: string) => boolean = () => true): Tool[] {
+  return SERVE_TOOLS.filter((tool) => {
+    const command = TOOL_COMMAND[tool.name];
+    return command === undefined || visible(command);
+  });
+}
+
 /** A call the meta-tool layer rejects before any command runs: same shape as a CLI usage error. */
 class ServeUsageError extends Error {}
 
@@ -294,11 +314,12 @@ export function commandLine(tool: string, input: Input): string[] {
  * the CLI with the same environment, working directory and home, with nothing to read on stdin and
  * no person to ask (`interactive: false`), its output captured into the tool result.
  */
-export async function createServeServer(base: CliEnv, runner: Runner): Promise<Server> {
+export async function createServeServer(base: CliEnv, runner: Runner, visible?: (command: string) => boolean): Promise<Server> {
   // The SDK is loaded on demand like everywhere else in src/ (implementation.md, "启动速度").
   const { Server } = await import('@modelcontextprotocol/server');
   const server = new Server({ name: 'via', version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
-  server.setRequestHandler('tools/list', async () => ({ tools: SERVE_TOOLS }));
+  const tools = serveTools(visible);
+  server.setRequestHandler('tools/list', async () => ({ tools }));
   server.setRequestHandler('tools/call', async (request): Promise<CallToolResult> => {
     let argv: string[];
     try {

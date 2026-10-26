@@ -93,6 +93,8 @@ Providers: aster · context7 · exa · github · linear · playwright · sentry
 
 `--check <文件>` 只比对不写入：块与当前输出一致时退出码 0，stderr 写 `· <文件> is up to date`；没有标记块或内容过期时退出码 1，`next:` 指向 `via prompt --out <文件>`；标记不可用退出码 5。适合放进 CI，防止实现改了、仓库里的说明还停在旧语法。
 
+配置用 [`commands`](../spec/config.md#commands) 隐藏或禁止了 `find`、`more` 时，说明里去掉 `via find` 那一行和 `via more` 那半句，agent 不会被引向它们；其余文字不变。改了 `commands` 之后同样要重跑 `--out` 刷新。
+
 ### SKILL.md
 
 有的 agent 框架不读 AGENTS.md，而是从「技能目录」里加载 `SKILL.md`：启动时只读 frontmatter 里的 `description` 决定要不要加载，需要时才读正文。给它们用 `--skill`：
@@ -149,7 +151,7 @@ Claude Desktop、IDE 的聊天面板这类 agent 不能执行命令，只能挂 
 
 没有全局安装时可以写成 `"command": "npx", "args": ["-y", "@modelctx-ai/via", "serve"]`。via 读框架配置时会认出这一条是它自己，不会把它当作 server 再拉起一次（`via servers` 里有一条 info 说明）。
 
-agent 看到的是九个元工具（`via_browse`、`via_find`、`via_call`、`via_more`、`via_resources`、`via_read`、`via_prompts`、`via_skills`、`via_tasks`，约 1,480 token），用法与命令行一一对应，输出也完全相同，见 [cli.md](../spec/cli.md#via-serve)。`via trust` 与 `via auth login` 没有对应的工具，仍然要你在终端里运行。框架从哪个目录拉起 `via serve`，项目级配置就按哪个目录查找，与在那里运行 `via` 相同。
+agent 看到的是九个元工具（`via_browse`、`via_find`、`via_call`、`via_more`、`via_resources`、`via_read`、`via_prompts`、`via_skills`、`via_tasks`，约 1,480 token），用法与命令行一一对应，输出也完全相同，见 [cli.md](../spec/cli.md#via-serve)。`via trust` 与 `via auth login` 没有对应的工具，仍然要你在终端里运行。框架从哪个目录拉起 `via serve`，项目级配置就按哪个目录查找，与在那里运行 `via` 相同。配置用 [`commands`](../spec/config.md#commands) 隐藏或禁止的子命令，对应的元工具不出现在工具列表里（例如 `hide: [tasks, skills]` 去掉 `via_tasks`、`via_skills`），工具定义随之变小。
 
 有 shell 的 agent 不需要 `via serve`：直接用命令行，上下文里只有 `via prompt` 的说明块，比九个工具定义更小。
 

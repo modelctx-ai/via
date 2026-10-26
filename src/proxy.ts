@@ -199,7 +199,11 @@ export function proxyFetch(env: Env, options: ProxyFetchOptions = {}, base: Fetc
       if (!agent) {
         // `proxyTunnel: false`: an http URL is forwarded in absolute form (what proxies expect); only https is tunnelled with CONNECT.
         agent = import('undici').then(
-          ({ ProxyAgent }) => new ProxyAgent({ uri: via.proxy.href, proxyTunnel: false }),
+          (mod) => {
+            // Bundled, undici is a CommonJS module whose chunk has only a default export; from source it has named ones too.
+            const ProxyAgent = mod.ProxyAgent ?? mod.default.ProxyAgent;
+            return new ProxyAgent({ uri: via.proxy.href, proxyTunnel: false });
+          },
           () => {
             agents.delete(key);
             throw new ProxyConfigError(`${via.entry.variable} cannot be used on this Node.js (${process.version}): the proxy support needs Node.js 20.18.1 or newer`);

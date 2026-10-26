@@ -19,6 +19,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 - 同一框架的项目级配置整条覆盖它的用户级配置（框架自己的优先级），这不算冲突；只有不同框架之间才记录冲突。冲突项记在 server 的 `conflicts` 里，列出被忽略的来源；内容完全相同的重复定义不算冲突。
 - 覆盖层只写了部分字段时只改这些字段：`env`、`headers`、`rename` 按键合并，`args` 整体替换，`noise` 追加去重，其余标量字段后者覆盖。覆盖层给出的传输方式与来源不同（对 HTTP server 写了 `command`，或对 stdio server 写了 `url`）时，整体替换传输定义，不继承另一种传输的字段。
 - `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`output.*`、`daemon.*`、`discovery.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
+- `commands.deny`、`commands.hide` 取各层的并集，`commands.allow`、`commands.show` 取交集（项目配置只能收窄）；`sandbox.*` 只读用户配置与命令行覆盖，逐字段覆盖（见下文）。
 - 覆盖层里没有任何来源定义的 server（只有 `timeout` 之类设置，没有 `command` 或 `url`）被忽略并给出告警，通常是框架那边已经删掉了它。
 
 `sources` 的细节：
@@ -51,6 +52,13 @@ servers:
   find:                    # 与内置子命令重名，必须改名
     alias: finder
 deny: ["^github/.*:delete$"]  # 正则，匹配 provider/资源:动作，deny 优先
+commands:
+  deny: [serve]            # 禁止运行的子命令
+  hide: [daemon]           # 不在帮助与给 agent 的说明里显示，仍可运行
+sandbox:
+  enabled: true            # via 在 srt 里运行：裸 via 等价于 srt via
+  policy:
+    network: { allowedDomains: [api.githubcopilot.com, registry.npmjs.org] }
 ```
 
 ## 字段参考
@@ -68,6 +76,8 @@ deny: ["^github/.*:delete$"]  # 正则，匹配 provider/资源:动作，deny �
 | `daemon.serverIdleTimeout` | 秒 | `300` | 单个 stdio server 空闲停止时间 |
 | `discovery.wait` | 秒 | `3` | 经 daemon 时，`via`、`via find`、`via prompt` 对单个 server 的等待上限，见[下文](#discovery) |
 | `search.semantic` | 映射 \| `false` | 未设置 | `via find` 的可选 embedding 检索，**只在用户配置里生效**，见[下文](#searchsemantic) |
+| `commands` | 映射 | 未设置 | 禁止、只允许、隐藏或只显示某些内置子命令，见[下文](#commands) |
+| `sandbox` | 映射 | 未设置 | 让 via 在沙箱程序（默认 srt）里运行，**只在用户配置里生效**，见[下文](#sandbox) |
 
 ### `discovery`
 
@@ -110,6 +120,65 @@ search:
 - 项目配置里出现 `search.semantic` 时被忽略并给出告警（`search-forbidden`）：它会把工具描述与查询发往仓库指定的主机（[security.md](security.md#embedding-检索的数据外流)）。框架配置没有 `search` 字段，不读取。
 - `url` 为 http 且不是回环地址、含内嵌凭证、缺少 `url` 或 `model`、`provider` 不是 `openai-compatible`、`auth` 是 `oauth`，都是 `invalid-field` 错误（与其他字段错误一样，命令拒绝执行，退出码 2），整段 `search.semantic` 被忽略。
 - 凭证引用在 `find` 需要请求端点时才解析；解析失败不让 `find` 失败，只退回词法排序并在 stderr 说明缺哪一项，不含值。
+
+### `commands`
+
+哪些内置子命令可以运行、哪些显示出来（[ADR 0028](../adr/0028-restrict-and-hide-subcommands.md)）：
+
+```yaml
+commands:
+  deny: [serve, daemon]       # 禁止运行
+  allow: [find, call, more]   # 只允许这些；不写 = 全部
+  hide: [doctor]              # 不显示，仍可运行
+  show: [find, call]          # 只显示这些；不写 = 全部
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `deny` | 子命令名列表 | 这些子命令被拒绝：退出码 5，`error: via serve is turned off in the via config (commands.deny)`，`next: via help`（[cli.md](cli.md#被配置限制的子命令)） |
+| `allow` | 子命令名列表 | 只有这些子命令可以运行，其余同 `deny`（消息写 `commands.allow`） |
+| `hide` | 子命令名列表 | 不出现在 `via -h`、`via help`、`via prompt`、`via serve` 的工具列表和 provider 视图的 `also:` 行；仍可运行，`via help <命令>` 仍显示它的用法 |
+| `show` | 子命令名列表 | 只显示这些，其余同 `hide` |
+
+- 名字是内置子命令名（`find`、`call`、`more`、`batch`、`servers`、`sync`、`doctor`、`prompt`、`trust`、`auth`、`daemon`、`resources`、`read`、`prompts`、`serve`、`skills`、`tasks`），大小写不敏感，`_` 等于 `-`。`help` 不能被限制，写了告警并忽略。
+- 不能运行的子命令一律不显示。provider 语法（`via`、`via <provider> …`）不是内置子命令，不受影响；限制工具与 server 用 [`deny`](#deny) 与 `disabled`。
+- `daemon run` 是 via 拉起 daemon 的内部入口，不受约束；`deny: [daemon]` 禁止的是 `status`、`stop`、`logs`。
+- 合并：`deny`、`hide` 各层取并集，`allow`、`show` 取交集，所以项目配置只能收窄，未信任时同样生效。
+- `deny`、`hide` 里不认识的名字是 error 级诊断（`unknown-command`）：写错的名字会让本该拿走的命令照常可用，所以与无效的 `deny` 正则一样，除 `via doctor`、`via servers`、`via help` 外的命令都拒绝执行（退出码 2）。`allow`、`show` 里不认识的名字只告警（忽略它只会更严）。
+- 和 `deny` 一样只在 via 一侧生效，不是安全边界（[security.md](security.md#边界说明)）。
+
+### `sandbox`
+
+让 via 在一个沙箱程序里运行（[ADR 0027](../adr/0027-run-via-inside-a-sandbox-program.md)）。默认关闭；开启后，`via <参数…>` 由 via 改为启动 `<command…> --settings <设置文件> -- <node> <via 入口> <参数…>`，即 [srt](https://github.com/anthropics/sandbox-runtime)（`@anthropic-ai/sandbox-runtime`）的命令行，并原样返回它的退出码。via 不依赖、不加载 srt 的包：任何接受这条命令行的程序都可以写进 `command`。
+
+```yaml
+sandbox:
+  enabled: true
+  command: srt                     # 或 [srt, --debug]
+  policy:                          # 交给沙箱程序的设置（srt 的 settings 格式），或一个 JSON 文件的路径
+    network:
+      allowedDomains: [api.githubcopilot.com, registry.npmjs.org]
+    filesystem:
+      allowWrite: ["."]
+      denyRead: [~/.ssh]
+  exclude: [auth, trust, daemon]   # 在沙箱外运行的子命令（默认值）
+```
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | 布尔 | `false` | 开启后除下面的例外，每条命令都在沙箱里运行 |
+| `command` | 字符串 \| 字符串列表 | `srt` | 沙箱程序与它自己的选项；via 在后面追加 `--settings <文件> -- <argv>` |
+| `policy` | 映射 \| 路径 | 不设置 | 映射原样写成 JSON；路径指向一个 JSON 文件（相对路径相对于写下它的配置文件），每次运行时读取。via 不校验其中的字段，由沙箱程序校验 |
+| `exclude` | 子命令名列表 | `[auth, trust, daemon]` | 在沙箱外运行的子命令；不认识的名字告警 |
+
+- **via 追加的设置**：在 `policy` 之上，`filesystem.allowWrite` 追加 via 的缓存目录与 OAuth 文件目录（`<数据目录>/oauth`），`filesystem.denyWrite` 追加 via 的用户配置目录与 `<数据目录>/trust.json`，`network.allowedDomains`、`network.deniedDomains`、`filesystem.denyRead` 缺省时补成空列表。结果写在缓存目录的 `sandbox/settings-<哈希>.json`（0600），内容相同的复用同一个文件。沙箱里因此能写缓存、存下刷新后的 OAuth 令牌，但改不了 via 的配置（关不掉沙箱）和信任记录。
+- **沙箱里不用 daemon**：里层的 via 带 `VIA_NO_DAEMON=1` 和 `VIA_SANDBOXED=1` 运行，所有 server 在它自己的进程里连接（[daemon.md](daemon.md#无-daemon-模式)）；看到 `VIA_SANDBOXED=1` 的 via 不再包裹自己。
+- **在沙箱外运行的**：`exclude` 里的子命令，`help` 与内置子命令的 `-h`（固定文字），`daemon run`。其余（浏览、`find`、调用、`batch`、`serve`、`doctor`、`prompt`…）都在里面，所以它们要写的文件（如 `via prompt --out` 的目标）必须在 `policy` 的 `allowWrite` 里，或者把这个子命令放进 `exclude`；via 自己的缓存（目录、游标、媒体文件）已经可写。
+- **网络**：srt 默认拒绝全部网络。HTTP server、OAuth 的授权服务器、`search.semantic` 的端点、`npx`/`uvx` 的包注册表都要写进 `network.allowedDomains`；via 自己的代理变量照常交给沙箱程序，srt 把它当作上游代理。
+- **失败关闭**：`command` 找不到是退出码 6，`next: ask the user: srt is not installed (needed by sandbox.enabled in the via config)`；`policy` 的文件读不出或不是 JSON 对象是退出码 2。沙箱程序自己拒绝设置时（字段错误、缺少 bubblewrap），它的报错直接显示，退出码是它的。都不会退回到不加沙箱运行。
+- **只读用户配置**：项目配置里的 `sandbox` 被忽略并告警（`sandbox-forbidden`）。
+- `via doctor` 在开启时多一行 `sandbox`，写明程序、设置来源，以及这次检查是否在沙箱里运行。
+- 这不是凭证隔离：server 与 via 在同一个沙箱里，via 能读的它们也能读（[security.md](security.md#边界说明)）。
 
 ### `servers.<name>`
 
@@ -199,6 +268,7 @@ via 自己发出的 HTTP 请求——连接 HTTP 的 MCP server、OAuth（登录
 - `deny` 中无效的正则被忽略并报错（其余规则照常编译）。因为无效的 deny 规则意味着本应隐藏的工具会可见，诊断为 error 级，调用方应当停下来让用户修复，而不是继续运行：CLI 对任何带 error 级诊断的配置都拒绝执行命令（`via doctor`、`via servers` 除外，它们负责展示诊断），退出码 2（[cli.md](cli.md#配置错误)）。
 - `deny` 中会让 via 卡死的正则（嵌套量词等，见「deny」的正则安全）同样被忽略，诊断为 error 级 `unsafe-deny`，处理方式与无效正则相同。
 - 框架配置里命令行是 `via serve` 的 stdio 条目（`serve` 之前的某个词去掉目录与 `.exe`、`.cmd`、`.bat`、`.js`、`.mjs`、`.cjs` 扩展名后是 `via`，或是 `@modelctx-ai/via` 包名，可带 `@版本`）是 via 自己，读进目录会让 via 拉起自己。这样的条目被忽略，给出 info 级诊断 `self-reference`：`servers.<名字>: runs via serve, which is via itself; left out of the catalog`（[ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)）。
+- `commands.deny`、`commands.hide` 里不认识的子命令名同样是 error 级诊断（`unknown-command`，见 [`commands`](#commands)）。
 - 加载结果同时返回全部诊断，供 `via doctor` 和 `via servers` 展示；诊断分 `error`、`warning`、`info` 三级。
 
 ## 解析缓存

@@ -19,6 +19,8 @@
 | **starting / failed** | `via` 里 provider 没有拿到目录时的两种状态。`starting`：等待到点但没有确定性失败（server 还在启动，daemon 在后台继续连），稍后重试即可；`failed`：确定性失败（进程退出、命令不存在、握手被拒），行末带原因。见 [discovery.md](../spec/discovery.md#浏览视图)。 |
 | **动作（verb）** | 从原始名拆出的动词部分，如 `create`、`create-or-update`。 |
 | **工具引用** | 定位一个工具的写法。命令行形式 `linear issue:create`，单字符串形式 `linear/issue:create`。 |
+| **沙箱（sandbox）** | 可选的 `sandbox` 配置：via 连同它派生的进程在沙箱程序（默认 srt）里运行，按用户的策略限制写入与网络。不是凭证隔离（[ADR 0027](../adr/0027-run-via-inside-a-sandbox-program.md)）。 |
+| **子命令限制** | `commands` 配置：禁止（`deny`）、只允许（`allow`）、隐藏（`hide`）或只显示（`show`）某些内置子命令；隐藏的仍可运行（[ADR 0028](../adr/0028-restrict-and-hide-subcommands.md)）。 |
 | **元工具（meta-tool）** | `via serve` 暴露给没有 shell 的 agent 的固定工具（`via_browse`、`via_find`、`via_call` 等），每个对应一条 CLI 命令；与下游 server 的工具不同，它们不随目录变化。 |
 | **规范写法** | via 所有输出中使用的工具引用形式，由[拆分规则](../spec/naming.md)确定。 |
 | **叶子工具** | 拆不出资源或动作的工具，直接挂在 provider 下，如 `via notion search`。 |

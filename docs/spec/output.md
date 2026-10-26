@@ -135,6 +135,8 @@ next: ask the user to run this in a terminal: via auth login linear
   | OAuth server 需要登录（没有登录记录、登录失效，或 401/403 且 `auth: oauth`），以及 `auth: none` 却收到 401 | 用户，在终端里 | `ask the user to run this in a terminal: via auth login <provider>` |
   | bearer / headers 凭证被拒（401/403） | 用户 | `ask the user: the credentials of <provider> were refused; check servers.<name>.auth in the via config (…)`（`auth login` 对静态凭证没有用） |
   | 凭证引用解析失败（`env:` 变量没设、`file:` 不存在或为空、`keychain:` 没有条目或读不出、`cmd:` 程序不在 PATH 或失败、引用写法有误） | 用户 | `ask the user: export EXA_KEY=<value>, or point the reference at another source (file:, keychain:)`（设变量、放文件、登录钥匙串、装程序都是人的事） |
+  | 沙箱程序不存在（`sandbox.command` 找不到，退出码 6） | 用户 | `ask the user: srt is not installed (needed by sandbox.enabled in the via config)`（[config.md](config.md#sandbox)） |
+  | 子命令被 `commands` 禁止（退出码 5） | agent 换别的命令 | `via help`（列出还能用的命令）；其他错误的 `next:` 指向被禁止的命令时不输出 |
   | 超时 | 重试 | `rerun with a larger --timeout` |
   | 进程启动后退出、连接断开、HTTP 5xx、网络不可达 | 可能是暂时的 | `via doctor` |
 
@@ -215,6 +217,6 @@ via 打印的命令行是给人和 agent 复制粘贴的：`next:` 提示（含�
 | 2 | 参数或用法错误；`--schema-snapshot` 比较出不兼容的变化（不发调用，[arguments.md](arguments.md#schema-快照校验)） |
 | 3 | 工具或 server 不存在 |
 | 4 | 需要鉴权或鉴权失败 |
-| 5 | 被拒绝：deny 规则命中，危险操作缺少 `--yes`，项目级配置未经 `via trust` 确认（`via trust` 本身没有得到确认时同样是 5），或 server 向用户提问而没有终端可答、调用因此失败（[elicitation](#server-向用户提问elicitation)） |
+| 5 | 被拒绝：deny 规则命中，子命令被 `commands` 禁止（[cli.md](cli.md#被配置限制的子命令)），危险操作缺少 `--yes`，项目级配置未经 `via trust` 确认（`via trust` 本身没有得到确认时同样是 5），或 server 向用户提问而没有终端可答、调用因此失败（[elicitation](#server-向用户提问elicitation)） |
 | 6 | 上游、传输错误或超时 |
 | 7 | via 内部错误 |

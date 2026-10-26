@@ -29,18 +29,24 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
 
   if (typedTarget === undefined) {
     noteCanonical(app, [typedProvider], [visible.provider]);
+    // What else the server offers, as far as the commands for it are shown (ADR 0028).
+    const offered = opened.listing.features;
+    const features = {
+      resources: !!offered?.resources && app.commandVisible('resources'),
+      prompts: !!offered?.prompts && app.commandVisible('prompts'),
+      skills: !!offered?.skills && app.commandVisible('skills'),
+    };
     const also = [
-      ...(opened.listing.features?.resources ? [`via resources ${shellWords(visible.provider)}`] : []),
-      ...(opened.listing.features?.prompts ? [`via prompts ${shellWords(visible.provider)}`] : []),
-      ...(opened.listing.features?.skills ? [`via skills ${shellWords(visible.provider)}`] : []),
+      ...(features.resources ? [`via resources ${shellWords(visible.provider)}`] : []),
+      ...(features.prompts ? [`via prompts ${shellWords(visible.provider)}`] : []),
+      ...(features.skills ? [`via skills ${shellWords(visible.provider)}`] : []),
     ];
     const view = withNewline(renderProvider(visible, { all: app.options.all, also }));
     // `-h` adds what the server says about itself (instructions, description): only here (discovery.md, "server 自述").
     if (app.options.help) return showServerSelf(app, opened, view);
     if (app.options.format === 'json') {
       // The data on stdout, the `→` hint (as in the text view) on stderr.
-      const features = opened.listing.features;
-      await writeJson(app, providerJson(visible, { resources: !!features?.resources, prompts: !!features?.prompts, skills: !!features?.skills }));
+      await writeJson(app, providerJson(visible, features));
       if (visible.tools.length > 0 && visible.resources.length > 0) app.err(`${providerHint(visible)}\n`);
       return ExitCode.Ok;
     }

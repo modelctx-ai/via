@@ -50,3 +50,23 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   serve: 'usage: via serve  (MCP server on stdin/stdout; register it in the agent framework as a stdio server)',
   prompts: 'usage: via prompts <provider> [<name> [--arg <value>…]]  (without a name: list; via prompts <provider> <name> -h: usage of one prompt; --complete <argument> asks the server for its values)',
 };
+
+/**
+ * `HELP` without the built-ins `visible` leaves out (ADR 0028): their usage lines and their names
+ * in the `commands:` line. The lines of the provider grammar (`via <provider> …`) stay.
+ */
+export function filterHelp(text: string, visible: (command: string) => boolean): string {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    const usage = /^ {2}via ([a-z]+)(?: |$)/.exec(line);
+    if (usage && !visible(usage[1]!)) continue;
+    if (lines[i - 1] === 'commands:') {
+      out.push(`  ${line.trim().split(/\s+/).filter(visible).join(' ')}`);
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}

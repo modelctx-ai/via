@@ -159,7 +159,8 @@ via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-1
 
 | 项 | 内容 | 状态 |
 | --- | --- | --- |
-| g1 stdio server 的进程级沙箱 | 按 server 在配置里声明策略（允许的域名、可写目录），用 `@anthropic-ai/sandbox-runtime` 包裹 daemon 派生的 stdio 子进程；默认关闭，srt 作可选依赖并懒加载，不碰浏览与冷启动路径。不是凭证隔离，`env` 里的凭证仍会进入子进程。microVM 后端等 microsandbox/smolvm 出 1.0 再接 | 待定：[ADR 0026](adr/0026-sandbox-stdio-server-processes.md)（提议中）、[待定问题](open-questions.md)、[issue #38](https://github.com/modelctx-ai/via/issues/38)。接受前先做 ADR 里的实测清单 |
+| g1 沙箱 | 可选的 `sandbox`：开启后裸 `via` 等价于 `srt via`，整个 via 连同它派生的进程在沙箱程序里运行，策略写在用户配置里；不依赖 srt 的包，沙箱里不用 daemon。不是凭证隔离。以后可能再加只包裹单个 server 的模式（ADR 0026 的做法）与 microVM 后端 | 已实现（Unreleased）：[ADR 0027](adr/0027-run-via-inside-a-sandbox-program.md)、[config.md](spec/config.md#sandbox)、[issue #38](https://github.com/modelctx-ai/via/issues/38)。自动测试用假 srt；在 Linux 上用 srt 0.0.81 + bubblewrap 0.9.0 手工验证过，macOS（Seatbelt）与 WSL2 未验证 |
+| g3 子命令的禁止与隐藏 | `commands.deny`/`allow`/`hide`/`show`：禁止、只允许、隐藏或只显示内置子命令；影响帮助、`via prompt`、`via serve` 的工具列表 | 已实现（Unreleased）：[ADR 0028](adr/0028-restrict-and-hide-subcommands.md)、[config.md](spec/config.md#commands) |
 | g2 Windows 的 WSL2 推荐路径实测 | 文档已写明 agent 与 via 都装在 WSL2 内、`scripts/windows/via.cmd` 垫片（[快速上手](guides/getting-started.md#windows)）；垫片与 WSL 相关的行为没有在真实 Windows 上验证过。待测：`wsl.exe` 冷/热转发延迟、VM 空闲关闭后 daemon 的行为、引号与 TTY | 待实测（[issue #37](https://github.com/modelctx-ai/via/issues/37)） |
 
 ## 不借鉴

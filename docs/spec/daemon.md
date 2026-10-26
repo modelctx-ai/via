@@ -198,6 +198,8 @@ daemon 与各个 server 的运行记录，用来回答「为什么连不上、�
 
 设置 `VIA_NO_DAEMON=1`（任何非空且不是 `0`、`false` 的值）时在进程内直连，适用于 CI 或不允许常驻进程的沙箱，各平台一致。HTTP server 基本不受影响；stdio server 每次调用都会重新拉起；游标保存在用户缓存目录。`via daemon status` 报告 `daemon: disabled (VIA_NO_DAEMON)`，不去连接 socket。
 
+开启了 [`sandbox`](config.md#sandbox) 时，沙箱里的 via 总是这个模式（[ADR 0027](../adr/0027-run-via-inside-a-sandbox-program.md)）：srt 让一条命令派生的进程随它一起结束，在里面拉起的 daemon 活不过这条命令。`via daemon` 默认在沙箱外运行（`sandbox.exclude`），看到的是沙箱外的 daemon；沙箱模式下的命令不使用它。
+
 ## socket 安全
 
 - 目录与文件（POSIX；Windows 见下「Windows」）：daemon 创建的 socket 权限 0600（绑定前把 umask 设为 0177，不存在更宽的瞬间），令牌文件 0600，缓存目录回退路径下的目录 0700。内核据此拒绝其他用户 `connect`。

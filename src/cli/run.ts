@@ -5,8 +5,9 @@ import type { App } from './app';
 import { matchBuiltin } from './builtins';
 import { makeEnv, type CliEnv } from './env';
 import { CliFailure, usageFailure } from './failure';
-import { COMMAND_USAGE, HELP } from './help';
+import { COMMAND_USAGE } from './help';
 import { extractGlobals, type GlobalOptions } from './options';
+import { checkPolicy, loadCliPolicy, sandboxApplies } from './policy';
 import { formatError } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
 
@@ -21,8 +22,25 @@ export async function run(argv: readonly string[], overrides: Partial<CliEnv> = 
     return info.code;
   }
   const { options, rest } = extracted;
+  // `commands` and `sandbox` (ADR 0027, ADR 0028) decide before anything runs: a refused command
+  // starts nothing, and a sandboxed one runs again inside the sandbox instead of here.
+  const policy = await loadCliPolicy(io);
+  const blocked = checkPolicy(policy, rest, options);
+  if (blocked) {
+    io.stderr.write(formatError(blocked, options.format));
+    return blocked.code;
+  }
+  if (sandboxApplies(policy.policy.sandbox, rest, options, io.env)) {
+    try {
+      return await (await import('./sandbox')).runSandboxed(io, policy.policy.sandbox, argv);
+    } catch (error) {
+      const info = error instanceof CliFailure ? error.info : { code: ExitCode.Internal, message: error instanceof Error ? error.message : String(error) };
+      io.stderr.write(formatError(info, options.format));
+      return info.code;
+    }
+  }
   const { App } = await import('./app');
-  const app = new App(io, options);
+  const app = new App(io, options, policy.policy);
   try {
     return await dispatch(app, options, rest);
   } catch (error) {
@@ -39,7 +57,7 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
     if (options.detach) throw usageFailure('--detach applies to a tool call, not to a listing', 'via call -h');
     if (options.schemaSnapshot !== undefined) throw usageFailure('--schema-snapshot applies to a tool call or its usage (-h), not to a listing', 'via call -h');
     if (options.help) {
-      app.out(HELP);
+      app.out(app.helpText());
       return ExitCode.Ok;
     }
     return (await import('./commands/root')).rootCommand(app);
@@ -58,7 +76,7 @@ async function dispatch(app: App, options: GlobalOptions, words: string[]): Prom
     if (options.detach && builtin !== 'call' && builtin !== 'batch') throw usageFailure(`--detach applies to a tool call, not to via ${builtin}`, 'via call -h');
     if (builtin === 'help') {
       const topic = argv[0] === undefined ? undefined : matchBuiltin(argv[0]);
-      app.out(topic && topic !== 'help' ? `${COMMAND_USAGE[topic]}\n` : HELP);
+      app.out(topic && topic !== 'help' ? `${COMMAND_USAGE[topic]}\n` : app.helpText());
       return ExitCode.Ok;
     }
     // `via prompts <provider> <name> -h` is the usage of that prompt, which only the command can show.

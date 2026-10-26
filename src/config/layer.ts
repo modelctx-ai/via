@@ -6,6 +6,7 @@ import type { ConfigDiagnostic, DiagnosticCode, DiagnosticLevel } from './diagno
 import { isPlainObject, ownEntries, type ServerDef } from './model';
 import { parseCredentialRef } from './credential-ref';
 import { isProtocolVersion, PROTOCOL_VERSIONS } from '../protocol-versions';
+import { ACTIVE_COMMANDS } from '../cli/builtins';
 import type { AuthConfig, SemanticSearchConfig } from './types';
 
 /** `sources` as written: `auto`, `false`, or a list of framework ids and file paths. */
@@ -22,13 +23,33 @@ export interface ConfigLayerData {
   discovery: { wait?: number };
   /** `search.semantic`: the validated fields, `false` to switch it off, absent when not set. */
   search: { semantic?: SemanticLayer | false };
+  /** `commands`: which built-in subcommands may run and which are shown (ADR 0028). Names are canonical. */
+  commands: CommandsLayer;
+  /** `sandbox`: run via inside a sandbox program such as srt (ADR 0027). */
+  sandbox: SandboxLayer;
+}
+
+/** The `commands` lists as written, names lower-cased; absent lists were not set. */
+export interface CommandsLayer {
+  allow?: string[];
+  deny?: string[];
+  hide?: string[];
+  show?: string[];
+}
+
+/** The `sandbox` fields as written; `policy` is either the settings themselves or a path to a JSON file of them. */
+export interface SandboxLayer {
+  enabled?: boolean;
+  command?: string[];
+  policy?: Record<string, unknown> | string;
+  exclude?: string[];
 }
 
 /** The `search.semantic` fields as written (defaults are applied when the layers are merged). */
 export type SemanticLayer = Pick<SemanticSearchConfig, 'url' | 'model' | 'auth'> &
   Partial<Pick<SemanticSearchConfig, 'timeout' | 'indexTimeout' | 'dimensions'>>;
 
-const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'output', 'daemon', 'discovery', 'search']);
+const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'output', 'daemon', 'discovery', 'search', 'commands', 'sandbox']);
 const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise', 'roots', 'protocolVersion']);
 
 const typeName = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'list' : typeof v);
@@ -333,6 +354,86 @@ function semanticLayer(r: Reporter, path: string, v: unknown): SemanticLayer | f
   return { auth: { type: 'none' }, ...out } as SemanticLayer;
 }
 
+/**
+ * A list of built-in subcommand names (`commands.*`, `sandbox.exclude`), compared like the command
+ * line compares them (case-insensitive, `_` equals `-`). `help` cannot be listed: it is how a person
+ * or an agent learns what is left. A name via does not know is an error where it would loosen
+ * nothing if dropped silently the other way round: in `deny` and `hide` a typo would leave the
+ * command runnable or shown (fail closed, like an invalid `deny` rule); elsewhere it only warns.
+ */
+function commandNames(r: Reporter, path: string, v: unknown, unknownLevel: DiagnosticLevel): string[] | undefined {
+  const list = strList(r, path, v);
+  if (list === undefined) return undefined;
+  const out: string[] = [];
+  for (const [i, raw] of list.entries()) {
+    const name = raw.trim().toLowerCase().replace(/_/g, '-');
+    if (name === 'help') {
+      r.add('warning', 'unknown-command', `${path}[${i}]`, 'help cannot be restricted; ignored');
+    } else if (!(ACTIVE_COMMANDS as readonly string[]).includes(name)) {
+      r.add(unknownLevel, 'unknown-command', `${path}[${i}]`, `${JSON.stringify(raw)} is not a via command (${ACTIVE_COMMANDS.join(', ')})`);
+    } else if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+function commandsLayer(r: Reporter, v: unknown): CommandsLayer {
+  const out: CommandsLayer = {};
+  if (v === null) return out;
+  if (!isPlainObject(v)) {
+    r.invalid('commands', 'map with allow, deny, hide or show');
+    return out;
+  }
+  for (const [key, value] of ownEntries(v)) {
+    if (key === 'allow' || key === 'show') {
+      const names = commandNames(r, `commands.${key}`, value, 'warning');
+      if (names !== undefined) out[key] = names;
+    } else if (key === 'deny' || key === 'hide') {
+      const names = commandNames(r, `commands.${key}`, value, 'error');
+      if (names !== undefined) out[key] = names;
+    } else r.add('warning', 'unknown-field', `commands.${key}`, 'unknown field');
+  }
+  return out;
+}
+
+function sandboxLayer(r: Reporter, v: unknown): SandboxLayer {
+  const out: SandboxLayer = {};
+  if (v === null) return out;
+  if (!isPlainObject(v)) {
+    r.invalid('sandbox', 'map');
+    return out;
+  }
+  for (const [key, value] of ownEntries(v)) {
+    const path = `sandbox.${key}`;
+    switch (key) {
+      case 'enabled': {
+        const b = bool(r, path, value);
+        if (b !== undefined) out.enabled = b;
+        break;
+      }
+      case 'command': {
+        const list = typeof value === 'string' ? [value] : strList(r, path, value);
+        if (list === undefined) break;
+        if (list.length === 0 || list.some((word) => word === '')) r.invalid(path, 'a program name, or a non-empty list of words');
+        else out.command = list;
+        break;
+      }
+      case 'policy':
+        if (typeof value === 'string' && value !== '') out.policy = value;
+        else if (isPlainObject(value)) out.policy = value;
+        else r.invalid(path, 'map (the sandbox settings) or the path of a JSON file with them');
+        break;
+      case 'exclude': {
+        const names = commandNames(r, path, value, 'warning');
+        if (names !== undefined) out.exclude = names;
+        break;
+      }
+      default:
+        r.add('warning', 'unknown-field', path, 'unknown field');
+    }
+  }
+  return out;
+}
+
 function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined {
   const base = `servers.${name}`;
   if (v === null) return {};
@@ -393,7 +494,7 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
  */
 export function validateLayer(raw: unknown, file: string | undefined): { data: ConfigLayerData; diagnostics: ConfigDiagnostic[] } {
   const r = new Reporter(file);
-  const data: ConfigLayerData = { servers: new Map(), deny: [], output: {}, daemon: {}, discovery: {}, search: {} };
+  const data: ConfigLayerData = { servers: new Map(), deny: [], output: {}, daemon: {}, discovery: {}, search: {}, commands: {}, sandbox: {} };
   if (raw === null || raw === undefined) return { data, diagnostics: r.diagnostics };
   if (!isPlainObject(raw)) {
     r.add('error', 'invalid-field', '(root)', `expected a map at the top level, got ${typeName(raw)}`);
@@ -465,6 +566,12 @@ export function validateLayer(raw: unknown, file: string | undefined): { data: C
             if (semantic !== undefined) data.search.semantic = semantic;
           } else r.add('warning', 'unknown-field', `search.${k}`, 'unknown field');
         }
+        break;
+      case 'commands':
+        data.commands = commandsLayer(r, value);
+        break;
+      case 'sandbox':
+        data.sandbox = sandboxLayer(r, value);
         break;
       default:
         if (key === 'domains') r.add('warning', 'removed-field', 'domains', 'domains were removed: providers are listed as they are, delete this mapping');

@@ -55,6 +55,8 @@ export interface DoctorInput {
    * something to say; absent: not reported.
    */
   host?: { kind: HostKind; windowsSideFiles?: readonly string[] };
+  /** Whether this `via doctor` runs inside the sandbox (ADR 0027); the line is shown only when `sandbox.enabled`. */
+  sandboxed?: boolean;
 }
 
 export interface DoctorOutput {
@@ -233,12 +235,36 @@ function renderPlatform(host: NonNullable<DoctorInput['host']>, home: string | u
   return lines;
 }
 
-/** The `proxy`, `logs` and `platform` lines share one section: they say where via runs and where its traffic and records go. */
+// sandbox and commands -----------------------------------------------------------------------
+
+/** A `sandbox` line when it is on (ADR 0027): which program, and whether this check itself ran inside it. */
+function renderSandbox(input: DoctorInput): string[] {
+  const { sandbox } = input.config;
+  if (!sandbox.enabled) return [];
+  const where = input.sandboxed ? 'this check ran inside it' : 'via doctor ran outside it (sandbox.exclude), so the checks above did too';
+  const policy = sandbox.policy === undefined ? 'its own default settings' : 'file' in sandbox.policy ? shorten(sandbox.policy.file, input.home) : 'the settings in sandbox.policy';
+  return [`sandbox   ${sandbox.command.join(' ')} · ${policy} · ${where}`];
+}
+
+/** A `commands` line when the config restricts any (ADR 0028). */
+function renderCommands(input: DoctorInput): string[] {
+  const { commands } = input.config;
+  const parts: string[] = [];
+  if (commands.allow !== undefined) parts.push(`allow: ${[...commands.allow].join(', ') || '(none)'}`);
+  if (commands.deny.size > 0) parts.push(`deny: ${[...commands.deny].join(', ')}`);
+  if (commands.show !== undefined) parts.push(`show: ${[...commands.show].join(', ') || '(none)'}`);
+  if (commands.hide.size > 0) parts.push(`hide: ${[...commands.hide].join(', ')}`);
+  return parts.length === 0 ? [] : [`commands  ${parts.join(' · ')}`];
+}
+
+/** The `proxy`, `logs`, `platform`, `sandbox` and `commands` lines share one section: they say where via runs and where its traffic and records go. */
 function environment(input: DoctorInput): string[][] {
   const lines = [
     ...(input.proxy ? renderProxy(input.proxy) : []),
     ...(input.logs ? renderLogs(input.logs, input.home) : []),
     ...(input.host ? renderPlatform(input.host, input.home) : []),
+    ...renderSandbox(input),
+    ...renderCommands(input),
   ];
   return lines.length > 0 ? [lines] : [];
 }

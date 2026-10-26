@@ -31,7 +31,9 @@
 | [0023](0023-npm-is-the-only-distribution-channel.md) | npm 是唯一的分发渠道：不做 Homebrew、单文件可执行与签名公证 | 已接受 |
 | [0024](0024-via-serve-tasks-skills-and-completion.md) | `via serve` 暴露任务、技能与补全：两个新元工具，其余是已有工具的可选参数；不默认 detach | 已接受 |
 | [0025](0025-pin-the-authorization-server-in-config.md) | 在配置里钉住授权服务器：`auth.oauth.issuer` | 已接受 |
-| [0026](0026-sandbox-stdio-server-processes.md) | 用进程级沙箱包裹 daemon 派生的 stdio server 子进程（`sandbox`，默认关闭，srt 可选依赖） | 提议中 |
+| [0026](0026-sandbox-stdio-server-processes.md) | 用进程级沙箱包裹 daemon 派生的 stdio server 子进程（`sandbox`，默认关闭，srt 可选依赖） | 被 ADR-0027 取代 |
+| [0027](0027-run-via-inside-a-sandbox-program.md) | 可选地把整个 via 放进沙箱程序里运行（`sandbox`，默认关闭，裸 `via` 等价于 `srt via`，不依赖 srt 的包） | 已接受 |
+| [0028](0028-restrict-and-hide-subcommands.md) | 在配置里禁止、只允许、隐藏或只显示某些子命令（`commands`） | 已接受 |
 
 ## 流程
 
