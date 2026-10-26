@@ -5,10 +5,12 @@ usage: via acme thing:do --title <str> --filter <json> --pages <json>
 Do the thing
   --title           <str>
   --filter          <json>
-  --filter.state    open|closed
-  --filter.labels   json
-  --filter.range    json
-  --pages           <json>
+  --filter.state    open|closed · required
+  --filter.labels   str[]
+  --filter.range    json · required
+  --pages           JSON array of objects with keys:
+    title           str · required
+    children        json · required
   --point           repeat the flag or pass a JSON array
   --due             <str>
   --legacy-tuple    repeat the flag or pass a JSON array

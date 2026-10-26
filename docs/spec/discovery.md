@@ -130,7 +130,8 @@ issue:search   query, [owner], [repo]                  Search issues
 - 签名最多显示 6 个参数，必填参数一个不省略，其余可选参数以 `…` 表示，完整参数用 `-h` 查看。
 - **类型与枚举**（让 `find` 或这一屏之后不必再 `-h`）：参数名之后写 schema 声明的类型，口径与 `-h` 的 `usage:` 行一致（`<str>`、`<num>`、`<json>`、枚举）：
   - 枚举（`enum`、`const`，或全是常量的 `anyOf`/`oneOf`，值都是字符串、数字或布尔，且 `a|b` 连起来不超过 60 个字符）写 `method=get|get_comments`，可选的写 `[state=open|closed]`；
-  - 数字（`integer`、`number`）写 `issue-number:num`；数组与对象写 `labels:json`；几种类型并列写 `id:str|num`（顺序同 schema）；
+  - 数字（`integer`、`number`）写 `issue-number:num`；对象写 `filter:json`；几种类型并列写 `id:str|num`（顺序同 schema）；
+  - 数组：元素是标量（string、number、integer、boolean）的写元素类型加 `[]`：`todo-ids:str[]`、`ns:num[]`、`flags:bool[]`，元素有几种标量时加括号 `x:(str|num)[]`，可空的数组（`array | null`）同样。不写 `:json`，因为这类参数既可以重复传参（`--todo-ids a --todo-ids b`）、也可以整体写 JSON，`:json` 只提示后一种。不用 `str…`：`…` 在签名里已表示「还有参数」；`[str]` 会与可选参数的方括号混在一起（`[todo-ids:[str]]`）。`str[]` 与 `usage:` 行的 `<str[]>` 是同一个写法，只比 `json` 多一个字符，超过 60 列时照常退回不带类型的写法。对象数组、tuple、嵌套数组和没有声明元素类型的数组仍写 `labels:json`；
   - 布尔：可选的写 `[draft?]`（给了就是开），必填的写 `force:bool`（`?` 在这里表示「可选」，所以必填的不用）；
   - 普通字符串，以及 schema 没说类型的参数，只写名字：`owner` 就是 `owner:str`，不重复；
   - 引用在本地的 `$ref` 照常展开。枚举值里的换行与控制字符写成可见的 `\uXXXX`。
