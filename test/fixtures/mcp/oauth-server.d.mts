@@ -20,6 +20,12 @@ export interface OAuthServerOptions {
   machine?: { clientId: string; clientSecret?: string; publicKey?: unknown };
   /** A confidential client for the authorization code flow: any loopback redirect URI, the secret required at the token endpoint. */
   preRegistered?: { clientId: string; clientSecret: string };
+  /**
+   * RFC 9207. `true`: metadata says `authorization_response_iss_parameter_supported` and the redirect
+   * carries this server's issuer. A string other than `'omit'` is sent as `iss` instead. `'omit'`
+   * advertises support but leaves `iss` off the redirect.
+   */
+  iss?: boolean | 'omit' | string;
 }
 
 export interface OAuthServerState {

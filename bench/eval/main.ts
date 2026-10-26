@@ -2,8 +2,10 @@
 // preflight checks, running the evaluation and writing the results.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { spawnExec } from '../harness/exec';
 import { loadSuite } from '../harness/load';
 import { makeRunners, probeMcp2cli, probeMcpc, viaVersion } from '../harness/runners';
+import { preflightAuth } from './preflight-auth';
 import { summarize } from './aggregate';
 import { createAnthropicClient, DEFAULT_MODEL } from './anthropic';
 import { fakeModelFactory } from './fake';
@@ -49,7 +51,7 @@ export const USAGE = `usage: npm run bench:eval -- [options]
   --mcpc <path>        mcpc executable (default: \`mcpc\` on PATH)
   --no-mcpc            leave out the mcpc condition
 
-Needs ANTHROPIC_API_KEY (and honors ANTHROPIC_BASE_URL) unless --fake-model is given.
+Needs ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN (and honors ANTHROPIC_BASE_URL) unless --fake-model is given.
 `;
 
 export function parseArgs(argv: string[]): EvalArgs {
@@ -110,7 +112,7 @@ export function parseArgs(argv: string[]): EvalArgs {
   return args;
 }
 
-const MISSING_KEY = `bench:eval needs an API key: set ANTHROPIC_API_KEY (ANTHROPIC_BASE_URL is honored too).
+const MISSING_KEY = `bench:eval needs an API key: set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN (ANTHROPIC_BASE_URL is honored too).
 The evaluation calls a live model and spends tokens; see bench/README.md.
 To check the pipeline without a key, run: npm run bench:eval -- --fake-model
 `;
@@ -197,6 +199,21 @@ export async function main(argv: string[], io: { stdout: (s: string) => void; st
     const client = await createAnthropicClient({ model: args.model, cache: args.cache, ...(args.effort ? { effort: args.effort } : {}) });
     model = () => client;
     modelName = args.model;
+  }
+
+  if (!args.fake) {
+    const userEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) if (value !== undefined) userEnv[key] = value;
+    try {
+      await preflightAuth({
+        providers: loaded.suite.mounted,
+        run: spawnExec(process.execPath, [viaBin], { cwd: root, env: userEnv, timeoutMs: 330_000 }),
+        log: (line) => io.stderr(`${line}\n`),
+      });
+    } catch (error) {
+      io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 4;
+    }
   }
 
   io.stderr(`running ${loaded.tasks.length} task(s) × ${conditions.join(', ')} × ${args.trials} trial(s) with ${modelName}\n`);

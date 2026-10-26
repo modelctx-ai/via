@@ -46,9 +46,11 @@ function listen(server) {
  * `cimd` maps a client metadata document URL to the document it serves: the server advertises
  * `client_id_metadata_document_supported` and accepts these URLs as `client_id` (without fetching them),
  * checking the redirect URI against the document's `redirect_uris`.
+ * `iss` turns on RFC 9207: `true` echoes this server's issuer on the redirect, a string sends that
+ * value, and `'omit'` advertises `authorization_response_iss_parameter_supported` without sending `iss`.
  */
 export async function startOAuthServer(options = {}) {
-  const { accessTokenTtl = 3600, dcr = true, revocation = true, rotateRefresh = true, scopes = ['read', 'write'], idToken = false, refreshTokens = true, cimd, machine, preRegistered } = options;
+  const { accessTokenTtl = 3600, dcr = true, revocation = true, rotateRefresh = true, scopes = ['read', 'write'], idToken = false, refreshTokens = true, cimd, machine, preRegistered, iss } = options;
   const lookupClient = (id) => clients.get(id) ?? (cimd && Object.hasOwn(cimd, id) ? cimd[id] : undefined);
 
   const clients = new Map(); // client_id -> registered metadata
@@ -97,6 +99,7 @@ export async function startOAuthServer(options = {}) {
           response_types_supported: ['code'],
           grant_types_supported: [...(machine ? ['client_credentials'] : []), 'authorization_code', 'refresh_token'],
           code_challenge_methods_supported: ['S256'],
+          ...(iss !== undefined ? { authorization_response_iss_parameter_supported: true } : {}),
           token_endpoint_auth_methods_supported: machine || preRegistered ? ['none', 'client_secret_basic', 'client_secret_post', ...(machine?.publicKey ? ['private_key_jwt'] : [])] : ['none'],
           ...(machine?.publicKey ? { token_endpoint_auth_signing_alg_values_supported: ['ES256'] } : {}),
           scopes_supported: scopes,
@@ -143,6 +146,8 @@ export async function startOAuthServer(options = {}) {
             resource: q.get('resource'),
           });
           target.searchParams.set('code', code);
+          if (iss === true) target.searchParams.set('iss', asOrigin);
+          else if (typeof iss === 'string' && iss !== 'omit') target.searchParams.set('iss', iss);
         }
         res.writeHead(302, { location: target.href }).end();
         return;

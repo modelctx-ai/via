@@ -3,3 +3,7 @@ dist
 coverage
 .build
 *.tsbuildinfo
+
+# Agent-eval transcripts (every call and the model's text). The .md report next to them is the
+# artifact that can be committed; the raw JSON stays on the machine that ran it.
+bench/results/eval-*.json

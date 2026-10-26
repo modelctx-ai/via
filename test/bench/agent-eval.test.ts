@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { run } from '../../src/cli/run';
+import { rejectAuthCommand } from '../../bench/eval/auth-guard';
 import { gateOf, median, summarize, summarizeCondition, wilson } from '../../bench/eval/aggregate';
+import { authUnusable, needsInteractiveLogin, preflightAuth } from '../../bench/eval/preflight-auth';
 import { fakeModelFactory } from '../../bench/eval/fake';
 import { judge, matchSpec, successOf, type LoggedCall } from '../../bench/eval/judge';
 import { loadSuite, type LoadedSuite } from '../../bench/harness/load';
@@ -251,10 +253,58 @@ describe('model misbehaviour is measured, not hidden', () => {
       const ok = await tools.call('shell', { command: 'via linear' });
       expect(ok.isError).toBe(false);
       expect(ok.text).toContain('[exit code: 0]');
+      const login = await tools.call('shell', { command: 'via auth login linear' });
+      expect(login.isError).toBe(true);
+      expect(login.text).toContain('authentication is checked before the run');
+      expect(login.text).toContain('[exit code: 127]');
       expect(env.calls()).toEqual([]);
     } finally {
       await env.close();
     }
+  });
+
+  it('checks configured logins before a run and refuses another login or a foreign server during it', async () => {
+    expect(needsInteractiveLogin({ provider: 'notion', method: 'oauth', state: 'not logged in' })).toBe(true);
+    expect(needsInteractiveLogin({ provider: 'linear', method: 'oauth', state: 'access token expired (refreshes on next call)' })).toBe(false);
+    expect(authUnusable({ provider: 'github', method: 'bearer', state: 'missing env:TOKEN' })).toBe(true);
+    expect(authUnusable({ provider: 'playwright', method: 'none', state: 'no credentials' })).toBe(false);
+
+    const replay = ['http://127.0.0.1:9/mcp'];
+    expect(rejectAuthCommand('via', ['via', 'auth', 'login', 'linear'], replay)).toMatch(/via auth/);
+    expect(rejectAuthCommand('mcp2cli', ['mcp2cli', '--oauth', '@linear'], replay)).toMatch(/--oauth/);
+    expect(rejectAuthCommand('mcpc', ['mcpc', 'login', 'notion'], replay)).toMatch(/mcpc login/);
+    expect(rejectAuthCommand('mcpc', ['mcpc', 'connect', 'https://mcp.notion.com/mcp', '@notion'], replay)).toMatch(/not a replay server/);
+    expect(rejectAuthCommand('mcpc', ['mcpc', 'connect', './mcp.json:notion', '@notion'], replay)).toBeUndefined();
+    expect(rejectAuthCommand('mcp2cli', ['mcp2cli', '--mcp', 'https://mcp.linear.app/mcp', '--list'], replay)).toMatch(/not a replay server/);
+    expect(rejectAuthCommand('mcp2cli', ['mcp2cli', '@playwright', 'browser-navigate', '--url', 'https://docs.acme.test/'], replay)).toBeUndefined();
+    expect(rejectAuthCommand('via', ['via', 'playwright', 'browser:navigate', '--url', 'https://docs.acme.test/'], replay)).toBeUndefined();
+
+    const calls: string[][] = [];
+    const lines: string[] = [];
+    await preflightAuth({
+      providers: ['linear', 'notion', 'playwright'],
+      log: (line) => lines.push(line),
+      run: async (args) => {
+        calls.push(args);
+        if (args[1] === 'status' && args[2] === '-o') {
+          return {
+            code: 0,
+            stdout: JSON.stringify([
+              { provider: 'linear', method: 'oauth', state: 'logged in, expires in 1h' },
+              { provider: 'notion', method: 'oauth', state: 'not logged in' },
+              { provider: 'playwright', method: 'none', state: 'no credentials' },
+            ]),
+            stderr: '',
+          };
+        }
+        if (args[1] === 'login') return { code: 0, stdout: 'logged in: notion\n', stderr: '' };
+        return { code: 0, stdout: JSON.stringify([{ provider: 'notion', method: 'oauth', state: 'logged in' }]), stderr: '' };
+      },
+    });
+    expect(calls).toContainEqual(['auth', 'login', 'notion']);
+    expect(calls.some((args) => args[1] === 'login' && args[2] === 'linear')).toBe(false);
+    expect(lines.some((line) => line.includes('playwright') && line.includes('no credentials'))).toBe(true);
+    expect(lines.some((line) => line.includes('notion ok'))).toBe(true);
   });
 });
 
