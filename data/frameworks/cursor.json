@@ -5,7 +5,7 @@
     { "path": ".cursor/mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
     { "path": "~/.cursor/mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
   ],
-  "disableHint": "侧栏 Customize 中找到对应 server，关闭开关；命令行用 agent mcp disable <名称>",
+  "disableHint": "In the Customize sidebar, find the server and turn off its toggle; on the command line run: agent mcp disable <name>",
   "verifiedAt": "2026-10-20",
   "sources": [
     "https://cursor.com/docs/context/mcp",

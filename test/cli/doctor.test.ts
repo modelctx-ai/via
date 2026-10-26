@@ -126,10 +126,41 @@ describe('renderDoctor', () => {
       ...['g', 'h', 'i'].map((n) => server(n, { origin: cursorOrigin })),
       server('mine'),
     ];
-    const probes = servers.map((s, i) => probe(s.name, { schemaBytes: s.name === 'mine' ? 90_000 : 7_000 + i * 100 }));
+    const probes = servers.map((s, i) => probe(s.name, { schemaBytes: s.name === 'mine' ? 90_000 : 7_000 + i * 100, toolCount: 10, toolNameBytes: 100 }));
     const out = renderDoctor({ config: config(servers), frameworks: BUNDLED_FRAMEWORKS, probes });
     expect(out.exitCode).toBe(0);
     await expect(`${out.text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-frameworks.txt');
+  });
+
+  describe('frameworks that defer schemas', () => {
+    const claude = (n: string) => server(n, { origin: claudeOrigin });
+    // 3 tools named `list`, `get`, `search_all` (4 + 3 + 10 bytes), each listed as `mcp__a__<name>\n`.
+    const probes = [probe('a', { schemaBytes: 40_000, toolCount: 3, toolNameBytes: 17 })];
+    const render = (env?: Record<string, string | undefined>) => renderDoctor({ config: config([claude('a'), server('b', { origin: cursorOrigin })]), frameworks: BUNDLED_FRAMEWORKS, probes: [...probes, probe('b', { schemaBytes: 8_000 })], ...(env ? { env } : {}) });
+
+    it('counts only tool names for a framework that defers, in a section of its own', async () => {
+      const out = render({});
+      expect(out.exitCode).toBe(0);
+      // 17 + 3 * (`mcp__a__`.length + 1) = 44 bytes = ~11 tokens
+      expect(out.text).toContain('frameworks deferring MCP schemas (only tool names are injected):\n  claude-code   1 server · ~11 tokens/turn');
+      expect(out.text).toContain('frameworks still injecting MCP schemas:\n  cursor        1 server · ~2k tokens/turn');
+      await expect(`${out.text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-frameworks-deferred.txt');
+    });
+
+    it('reports full schemas again when the framework condition holds in the environment', () => {
+      for (const value of ['false', 'FALSE']) {
+        const text = render({ ENABLE_TOOL_SEARCH: value }).text;
+        expect(text).toContain(`claude-code   1 server · ~10k tokens/turn (ENABLE_TOOL_SEARCH=${value})`);
+        expect(text).not.toContain('deferring');
+      }
+      for (const env of [{ ENABLE_TOOL_SEARCH: 'true' }, { ENABLE_TOOL_SEARCH: 'auto' }, { OTHER: 'false' }, {}]) expect(render(env).text).toContain('deferring MCP schemas');
+    });
+
+    it('says size unknown when the tool names were not measured', () => {
+      const text = renderDoctor({ config: config([claude('a')]), frameworks: BUNDLED_FRAMEWORKS, probes: [probe('a', { schemaBytes: 9_000 })], env: {} }).text;
+      expect(text).toContain('deferring MCP schemas (only tool names are injected):\n  claude-code   1 server · size unknown');
+      expect(text).not.toContain('still injecting');
+    });
   });
 
   it('estimates tokens at the documented bytes-per-token ratio', () => {
@@ -153,7 +184,7 @@ describe('renderDoctor', () => {
 
   it('counts a server under every framework that defines it differently (conflicts)', () => {
     const s = server('shared', { origin: cursorOrigin, conflicts: [claudeOrigin] });
-    const text = renderDoctor({ config: config([s]), frameworks: BUNDLED_FRAMEWORKS, probes: [probe('shared', { schemaBytes: 4000 })] }).text;
+    const text = renderDoctor({ config: config([s]), frameworks: BUNDLED_FRAMEWORKS, probes: [probe('shared', { schemaBytes: 4000 })], env: { ENABLE_TOOL_SEARCH: 'false' } }).text;
     expect(text).toMatch(/claude-code {3}1 server · ~1k tokens\/turn/);
     expect(text).toMatch(/cursor {8}1 server · ~1k tokens\/turn/);
   });

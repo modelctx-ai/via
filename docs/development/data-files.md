@@ -136,7 +136,7 @@
     { "path": "~/.config/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["linux"] },
     { "path": "%APPDATA%/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["win32"] }
   ],
-  "disableHint": "运行命令 MCP: List Servers，选中 server 后选择 Disable",
+  "disableHint": "Run the command MCP: List Servers, select the server, then choose Disable",
   "verifiedAt": "2026-10-20",
   "sources": ["https://code.visualstudio.com/docs/agents/reference/mcp-configuration"],
   "notes": "只读取 mcp.json；旧版 settings.json 中的 mcp.servers 不读取。"
@@ -151,10 +151,12 @@
 | `configs[].scope` | `user` 或 `project`；`project` 级的 stdio 命令受[信任规则](../spec/security.md#项目级配置的信任)约束 |
 | `configs[].platforms` | 可选，`linux`、`darwin`、`win32` 的子集；缺省表示所有平台。同一框架在不同系统上路径不同时，写成多条 |
 | `configs[].dollarVariables` | 可选，`true` 表示该框架会展开值里的裸 `$NAME`（Gemini CLI），整值为 `$NAME` 时转成 `env:NAME`；其他框架里 `$NAME` 保持字面值。只在官方文档写明时才设置 |
-| `disableHint` | `via doctor` 显示的关闭方法 |
+| `disableHint` | `via doctor` 显示的关闭方法。**英文**，一两句，写成可以照做的步骤（命令、菜单、配置键）；`<name>` 这类占位符也用英文。会原样进入 CLI 输出，而 via 的输出全是英文；schema 拒绝含中日韩字符的值 |
+| `deferredSchemas` | 可选，只给**确认**默认延迟加载 MCP 工具 schema（会话开始时只注入工具名，用到时再取 schema）的框架设置；官方文档没有写明的不要设。`{}` 表示延迟加载且 via 看不到任何能关掉它的开关 |
+| `deferredSchemas.fullWhenEnv` | 可选，`{ "name": "ENABLE_TOOL_SEARCH", "values": ["false"] }`：`via doctor` 进程的环境里 `name` 的值（去掉首尾空白、忽略大小写）等于 `values` 之一时，该框架实际是全量注入。`name` 为大写环境变量名，`values` 全部小写。只读 via 进程自己的环境，不读也不写任何框架配置 |
 | `verifiedAt` | 最近一次对照官方文档或源码核对的日期（`YYYY-MM-DD`）；从未核对过时为 `null`，表示条目依据文档编写，此时不得有 `sources` |
 | `sources` | 可选，核对时依据的官方文档和源码链接（`https://`）；`verifiedAt` 不为 `null` 时必须填写 |
-| `notes` | 可选，已知的缺口，如暂不读取的位置 |
+| `notes` | 可选，已知的缺口，如暂不读取的位置。只给维护者看，不进入 CLI 输出 |
 
 同一框架的多个配置文件中，`project` 级覆盖 `user` 级（整条 server 定义替换，不做字段合并），这不算冲突。同一作用域内有多个文件时（如 Devin 的 `.devin/mcp_config.local.json` 与 `.devin/mcp_config.json`），列表里靠前的优先，所以优先级高的写在前面；同一文件的不同写法（Amp 的 `settings.json` 与 `settings.jsonc`）都列出，显式指定该框架时只要其中一个存在就不告警。各框架 server 条目的写法差异（`type`/`transport`、`url`/`serverUrl`、Codex 的 `bearer_token_env_var` 等）由统一的规范化代码处理，不放在数据文件里；见 [config.md](../spec/config.md#框架配置的规范化)。
 

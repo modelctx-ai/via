@@ -29,7 +29,22 @@
         }
       }
     },
-    "disableHint": { "type": "string", "minLength": 1 },
+    "disableHint": { "type": "string", "minLength": 1, "pattern": "^[^\\u2E80-\\u9FFF\\uFF00-\\uFFEF]*$" },
+    "deferredSchemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fullWhenEnv": {
+          "type": "object",
+          "required": ["name", "values"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+            "values": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[^A-Z]+$" } }
+          }
+        }
+      }
+    },
     "verifiedAt": {
       "anyOf": [{ "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$" }, { "type": "null" }]
     },

@@ -4,7 +4,7 @@
   "configs": [
     { "path": "~/.codeium/windsurf/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
   ],
-  "disableHint": "Cascade 面板的 MCPs 区域，关闭对应 server 的开关",
+  "disableHint": "In the MCPs area of the Cascade panel, turn off the server's toggle",
   "verifiedAt": "2026-10-20",
   "sources": [
     "https://code.visualstudio.com/docs/agents/reference/mcp-configuration",
