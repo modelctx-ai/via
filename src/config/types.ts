@@ -3,6 +3,8 @@
 // consumes them. Credential references stay unresolved here: they are only
 // resolved in memory right before a connection is made.
 
+import { askUser } from "../render/ask";
+
 /** A credential reference (`env:NAME`, `file:~/x`, `keychain:svc/acct`, `cmd:…`) or a literal value. */
 export type CredentialRef = string;
 
@@ -127,17 +129,25 @@ export interface ServerConfig {
   conflicts?: ConfigOrigin[];
 }
 
-/** Thrown (or returned) when a credential reference cannot be resolved. Exit code 4. */
+/**
+ * Thrown (or returned) when a credential reference cannot be resolved. Exit code 4. Every way a
+ * reference fails is something only a person can arrange (set a variable, create a file, add a
+ * keychain entry, install a program), so `next` is always an `ask the user: …` line (output.md, "错误").
+ */
 export class CredentialError extends Error {
+  /** Suggested next step for the `next:` line, already in the `ask the user: …` form. */
+  readonly next?: string;
+
   constructor(
     message: string,
     /** The reference that failed, e.g. `env:EXA_KEY` — never a resolved value. */
     readonly ref: CredentialRef,
-    /** Suggested next step for the `next:` line. */
-    readonly next?: string,
+    /** What the person needs to do, as a bare sentence (`export EXA_KEY=<value>`); the `ask the user:` lead-in is added here. */
+    hint?: string,
   ) {
     super(message);
     this.name = "CredentialError";
+    if (hint) this.next = hint.startsWith('ask the user') ? hint : askUser(hint);
   }
 }
 

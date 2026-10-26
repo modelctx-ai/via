@@ -225,7 +225,7 @@ via 自己的 `config.yaml` 每条命令都要读，而加载 YAML 库并解析�
 - 凭证引用可以出现在 `env`、`headers` 的值以及 `auth.bearer`、`auth.headers`、`auth.oauth.clientSecret`、`auth.oauth.privateKey` 中。
 - 不以上述前缀开头的值视为字面量；出现在用户或项目配置中的字面量凭证，`via doctor` 告警。`auth.bearer`、`auth.headers`、`auth.oauth.clientSecret`、`auth.oauth.privateKey` 中的字面量在加载时就告警。
 - `env:` 的变量未设置或为空、`file:` 的文件不存在或为空、`keychain:` 无此条目，都是凭证缺失（退出码 4），错误信息只说明缺哪一项，不含任何解析出的值。`file:` 的相对路径相对于当前目录。
-- 钥匙串模块是原生库，首次用到 `keychain:` 时才加载。加载失败（该平台没有预编译模块、没有 Secret Service 的 Linux 服务器）与钥匙串本身读不出来一样，是凭证缺失（退出码 4）：`error: cannot read the system keychain: <原因>`，`next:` 提示改用 `env:` 或 `file:`。`NAPI_RS_NATIVE_LIBRARY_PATH` 指向某个 `.node` 文件时改为加载它（napi-rs 的通用约定）。OAuth 的存储在这种情况下退回文件（[auth.md](auth.md#存储)）。
+- 钥匙串模块是原生库，首次用到 `keychain:` 时才加载。加载失败（该平台没有预编译模块、没有 Secret Service 的 Linux 服务器）与钥匙串本身读不出来一样，是凭证缺失（退出码 4）：`error: cannot read the system keychain: <原因>`，`next: ask the user: use env: or file: instead, …`（凭证引用解析失败的 `next:` 一律是 `ask the user: …`，判定表见 [output.md](output.md#错误)）。`NAPI_RS_NATIVE_LIBRARY_PATH` 指向某个 `.node` 文件时改为加载它（napi-rs 的通用约定）。OAuth 的存储在这种情况下退回文件（[auth.md](auth.md#存储)）。
 - `cmd:` 出现在项目配置或项目级、框架级配置里时，加载阶段就拒绝：该 server 的定义整条被忽略并报错（`cmd-forbidden`，[security.md](security.md#项目级配置的信任)）。`via trust` 不能放行 `cmd:`。
 - `cmd:` 的执行方式（[security.md](security.md#cmd-凭证)）：
   - 命令行按空白分词，不经 shell。`'…'` 内按字面处理；`"…"` 内只有 `\"` 与 `\\` 是转义；引号外 `\` 转义下一个字符；不展开 `$VAR`、`~`、通配符，管道与重定向无效。命令为空或引号未闭合是无效引用（退出码 4）。**Windows 上**反斜杠是路径分隔符，分词改用 C 运行时规则（与 `CommandLineToArgvW` 相同）：反斜杠按字面处理，只有紧挨着双引号的一串反斜杠才有转义含义（`2n` 个换成 `n` 个，`2n+1` 个换成 `n` 个加一个字面双引号）；`'…'` 仍按字面。所以 `cmd:C:\Tools\op.exe read x` 和 `cmd:"C:\Program Files\1Password CLI\op.exe" read x` 都能直接写。

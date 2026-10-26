@@ -164,7 +164,7 @@ describe('renderDoctor', () => {
     const probes = [
       probe('github'),
       probe('linear', { status: 'needs-auth', message: 'no stored token' }),
-      probe('exa', { status: 'needs-auth', message: 'environment variable EXA_KEY is not set', next: 'export EXA_KEY=<value>' }),
+      probe('exa', { status: 'needs-auth', message: 'environment variable EXA_KEY is not set', next: 'ask the user: export EXA_KEY=<value>' }),
       probe('playwright', { status: 'error', message: 'cannot start playwright: spawn npx ENOENT\n  at somewhere' }),
       probe('acme', { status: 'untrusted' }),
       probe('old', { status: 'disabled' }),

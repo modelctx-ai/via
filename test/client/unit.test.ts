@@ -130,7 +130,7 @@ describe('mapError', () => {
   });
 
   it('maps CredentialError to exit 4 with its own next, or auth login', () => {
-    expect(mapError(new CredentialError('missing', 'env:X', 'export X=…'), ctx)).toMatchObject({ exitCode: 4, next: 'export X=…' });
+    expect(mapError(new CredentialError('missing', 'env:X', 'export X=…'), ctx)).toMatchObject({ exitCode: 4, next: 'ask the user: export X=…' });
     expect(mapError(new CredentialError('missing', 'env:X'), ctx)).toMatchObject({ exitCode: 4, next: expect.stringMatching(/^ask the user: fix the credential reference in servers\.\w+\.auth/) });
   });
 

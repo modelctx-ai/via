@@ -794,7 +794,7 @@ describe('client credentials (machine grant)', () => {
   it('a credential that does not resolve fails before anything is sent (exit 4)', async () => {
     const srv = await mockServer({ machine: { clientId: 'ci-client', clientSecret: SECRET } });
     const client = new InProcessClient([machineServer(srv.url)], new FakeResolver({}), { oauthStore: createMemoryOAuthStore(), now: () => T0 });
-    await expect(client.listTools('ci')).rejects.toMatchObject({ exitCode: 4, next: 'export CI_SECRET=<value>' });
+    await expect(client.listTools('ci')).rejects.toMatchObject({ exitCode: 4, next: 'ask the user: export CI_SECRET=<value>' });
     expect(srv.state.tokenAuth).toHaveLength(0);
     expect(srv.state.mcp).toHaveLength(0);
   });

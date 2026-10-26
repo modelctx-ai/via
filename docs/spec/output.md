@@ -134,10 +134,11 @@ next: ask the user to run this in a terminal: via auth login linear
   | 项目级配置未信任（退出码 5） | 用户，在终端里 | `ask the user to run this in a terminal: via trust <路径>` |
   | OAuth server 需要登录（没有登录记录、登录失效，或 401/403 且 `auth: oauth`），以及 `auth: none` 却收到 401 | 用户，在终端里 | `ask the user to run this in a terminal: via auth login <provider>` |
   | bearer / headers 凭证被拒（401/403） | 用户 | `ask the user: the credentials of <provider> were refused; check servers.<name>.auth in the via config (…)`（`auth login` 对静态凭证没有用） |
+  | 凭证引用解析失败（`env:` 变量没设、`file:` 不存在或为空、`keychain:` 没有条目或读不出、`cmd:` 程序不在 PATH 或失败、引用写法有误） | 用户 | `ask the user: export EXA_KEY=<value>, or point the reference at another source (file:, keychain:)`（设变量、放文件、登录钥匙串、装程序都是人的事） |
   | 超时 | 重试 | `rerun with a larger --timeout` |
   | 进程启动后退出、连接断开、HTTP 5xx、网络不可达 | 可能是暂时的 | `via doctor` |
 
-  程序名来自用户自己的配置，回显前脱敏、清理控制字符、折成一行（同上一条）。`-o json` 的 `error.next` 是同一个字符串。凭证缺失（`CredentialError`）的 `next:` 是它自己的说明（`export NOT_SET=<value>`），没有说明时 OAuth server 用 `auth login` 的写法，其余写 `ask the user: fix the credential reference in servers.<name>.auth of the via config`。
+  程序名来自用户自己的配置，回显前脱敏、清理控制字符、折成一行（同上一条）。`-o json` 的 `error.next` 是同一个字符串。凭证引用解析失败（`CredentialError`）的 `next:` 是各情形自己的说明，统一加 `ask the user: ` 前缀（`ask the user: export NOT_SET=<value>, …`），说明里不含凭证值，`via doctor` 里该 server 的 `next:` 与 `-o json` 的 `error.next` 相同；没有说明时 OAuth server 用 `auth login` 的写法，其余写 `ask the user: fix the credential reference in servers.<name>.auth of the via config`。
 - 参数错误附 usage（[arguments.md](arguments.md#校验与报错)）；找不到附 did you mean（[discovery.md](discovery.md#找不到时)）。
 - `-o json` 时错误同样写 stderr，格式为 `{"error": {"code": <退出码>, "message": "…", "next": "…", "details": [...]}}`。参数校验失败时 `details` 中每条错误一个对象：
 

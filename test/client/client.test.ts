@@ -120,7 +120,7 @@ describe('errors', () => {
     const err = await failure(client.callTool('mock', 'echo', { message: 'x' }));
     expect(err.exitCode).toBe(4);
     expect(err.message).toBe('environment variable NOT_SET is not set');
-    expect(err.next).toBe('export NOT_SET=<value>');
+    expect(err.next).toBe('ask the user: export NOT_SET=<value>');
   });
 
   it('missing credential without a next of its own falls back to auth login', async () => {
