@@ -158,7 +158,7 @@ issue:search   query, [owner], [repo]                  Search issues
 server 常以它所操作的资源的复数命名（`jobs` 的工具 `create_job`、`jobs`、`close_jobs`），这时每个工具的规范写法都带 provider 前缀，单数化后与查询里的资源词（`job`）相同。若 provider 名照常进名称字段，这个词对该 provider 的每个工具都命中，idf 被压平，名称权重最高也就失去了区分作用，只在描述里多提了几次这个词的工具会排到真正叫这个名字的工具前面（实测：`list jobs` 的第 1 名是 `jobs issues`，叶子 `jobs` 第 6）。所以 BM25 这一级有两条规则，都是通用的，不针对任何 server：
 
 - **provider 名是范围，不是词**：provider 名的词（单数化后；`google-drive` 是 `google`、`drive`）不进该 provider 工具的名称字段索引，工具原始名里的 provider 前缀或后缀也不进（`jobs_create_job` 只索引 `create`、`job`）；但工具自己的规范名或原始名里另外含有这个词时照常索引（资源 `job:create`、叶子 `jobs`、`list_acme_accounts` 里的 `acme`）。查询词若等于某个 provider 名的词，该 provider 的所有工具各得一份相同的加分（名称字段命中，idf 取「这个 provider 的工具数」），所以 `github create issue` 仍偏向 github，同时这个词照常按工具自己的名称、描述、参数名计分。文档长度仍计入 provider 名的词，长度归一化不变。
-- **名称被查询覆盖**：工具规范名（不含 provider）的每个词都在查询里（或是查询词的同义词 / 词形还原结果）时，在 BM25 分数上加 `0.25 × Σ ln(1 + (N − df + 0.5) / (df + 0.5))`，其中 `N` 是工具总数，`df` 是规范名里有这个词的工具数（不是文档频率：资源词常出现在同一 server 的大部分描述里，文档 idf 接近 0）。`list jobs` 覆盖叶子 `jobs`，`create job` 覆盖 `job:create`，不覆盖 `topic:create`。加分只在第 4 级内改变分数，不跨越第 1–3 级，也不因工具是叶子还是 `resource:verb` 而不同。
+- **名称被查询覆盖**：工具原始名的每个词（去掉开头的 provider 名；末尾的 provider 名保留，因为它是品牌还是资源——`close_jobs` 对 `jobs`——由拆分规则决定，而这条规则不能依赖拆分）都在查询里（或是查询词的同义词 / 词形还原结果）时，每个词在 BM25 分数上加 `0.3 + 0.25 × ln(1 + (N − df + 0.5) / (df + 0.5))`，其中 `N` 是工具总数，`df` 是原始名里有这个词的工具数。第一项不随 `df` 变化：同一个 server 里叫这个词的工具越多，第二项越小，而单个 server 里资源词几乎出现在所有描述里，文档 idf 接近 0，只靠第二项压不过描述里提到该词的工具。`list jobs` 覆盖叶子 `jobs`，`create job` 覆盖 `create_job`（不论拆成 `job:create` 还是别的写法），不覆盖 `create_topic`。加分只在第 4 级内改变分数，不跨越第 1–3 级；它只看原始名，所以工具是叶子还是 `resource:verb`、动词表怎样变，都不改变谁得到加分（`rename` 也不影响）。
 
 结果默认 10 条，每条一行，格式同资源视图（含[类型与枚举](#via-provider-resource)）但带 provider 前缀；每条下面缩进两格带一行 `example:`，就是 `-h` 会给的那一行（同一个函数生成，遵守[调用示例](arguments.md#调用示例)的全部规则，包括 Windows 分支），所以大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。没有示例的工具（没有参数，或必填参数写不出安全的值）不带这一行。
 
@@ -191,7 +191,7 @@ agent 的查询是自然语言（「删除工单」「合并 PR」），用词�
 - **口语填充词**（`i`、`want`、`please`…）在查询侧丢弃，除非查询只剩它们。
 - **不变的部分**：第 1–3 级的规范写法匹配、并列规则（同层级按分数、再按规范写法）、空查询都不变；同义词只改变第 4 级的分数，不会让工具越过规范写法命中的工具，也不影响任何规范名。
 
-效果用 `npm run eval:search` 衡量：`test/fixtures/search/eval.json` 是 98 条自然语言查询到期望规范名的集合（调参用），`heldout.json` 是之后另写、从未用于调参的 30 条，对 `test/fixtures/tools/` 的 15 个 server 报告 recall@1、recall@5 与 MRR；回归测试断言不低于词法基线，并锁定实测下限。`provider-scope.json` 是 11 条 provider 名等于资源复数的查询（[范围规则](#provider-名与资源词相同)），在 15 个 server 之外再加虚构的 `test/fixtures/other/jobs.json` 上评测，要求全部排第 1。
+效果用 `npm run eval:search` 衡量：`test/fixtures/search/eval.json` 是 98 条自然语言查询到期望规范名的集合（调参用），`heldout.json` 是之后另写、从未用于调参的 30 条，对 `test/fixtures/tools/` 的 15 个 server 报告 recall@1、recall@5 与 MRR；回归测试断言不低于词法基线，并锁定实测下限。`provider-scope.json` 是 12 条 provider 名等于资源复数的查询（[范围规则](#provider-名与资源词相同)），在 15 个 server 之外再加虚构的 `test/fixtures/other/jobs.json` 上评测，要求全部排第 1。
 
 ### embedding 检索（可选，默认关闭）
 

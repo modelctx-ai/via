@@ -10,8 +10,10 @@ import type { Catalog, CatalogTool, ProviderCatalog } from './types';
 const K1 = 1.2;
 const B = 0.75;
 const FIELD_WEIGHT = { name: 4, param: 2, description: 1 } as const;
-// A tool whose name words are all in the query gets this share of their summed idf (over tool names) on top of its BM25 score.
-const NAME_COVERED = 0.25;
+// A tool whose raw name words are all in the query gets, per word, NAME_COVERED_BASE plus NAME_COVERED_RARITY times
+// the word's idf over raw names, on top of its BM25 score (discovery.md, "provider 名与资源词相同").
+const NAME_COVERED_BASE = 0.3;
+const NAME_COVERED_RARITY = 0.25;
 // Reciprocal rank fusion constant for hybrid ranking (discovery.md, "语义检索").
 const RRF_K = 60;
 // Semantic candidates beyond the requested limit that take part in fusion.
@@ -55,7 +57,7 @@ export interface DocTerms {
 interface Doc {
   tool: CatalogTool;
   length: number;
-  /** The distinct words of the tool part of the canonical form (`job:create` -> job, create). */
+  /** The distinct words of the raw name without a leading provider name (`close_jobs` -> close, job). */
   nameWords: string[];
   forms: string[];
 }
@@ -117,7 +119,7 @@ export class SearchIndex {
   /** provider word -> ids of the docs of the providers named by it. */
   private readonly providerDocs = new Map<string, number[]>();
   private readonly providerWords = new Map<string, string[]>();
-  /** name word -> number of tools whose canonical name has it. */
+  /** name word -> number of tools whose raw name has it. */
   private readonly nameDf = new Map<string, number>();
   private avgLength = 1;
   private readonly rules: CatalogRules;
@@ -148,9 +150,9 @@ export class SearchIndex {
   private add(tool: CatalogTool, provider: ProviderCatalog, known: DocTerms | undefined): void {
     const { length, pairs } = known ?? docTerms(tool, this.rules);
     const id = this.docs.length;
-    const nameWords = [...new Set(this.terms(tool.name, false))];
-    this.docs.push({ tool, length, nameWords, forms: [normalizeQuery(tool.ref), normalizeQuery(tool.name)] });
+    const nameWords = [...new Set(this.rawNameWords(tool))];
     for (const word of nameWords) this.nameDf.set(word, (this.nameDf.get(word) ?? 0) + 1);
+    this.docs.push({ tool, length, nameWords, forms: [normalizeQuery(tool.ref), normalizeQuery(tool.name)] });
     let words = this.providerWords.get(tool.provider);
     if (!words) {
       words = [...new Set(this.terms(tool.provider, false))];
@@ -255,6 +257,19 @@ export class SearchIndex {
    * still scores through the tools' own names and descriptions in `accumulate`, where its idf is not
    * flattened by the provider's name.
    */
+  /**
+   * The words of the raw name without a leading provider name (a namespace, which every split drops).
+   * A trailing one stays: whether it is a brand or the resource (`close_jobs` on `jobs`) is a split
+   * decision, and this must not depend on it.
+   */
+  private rawNameWords(tool: CatalogTool): string[] {
+    const tokens = tokenize(tool.rawName);
+    const lead = tokenize(tool.provider);
+    let start = 0;
+    while (lead.length > 0 && tokens.length - start > lead.length && lead.every((w, i) => tokens[start + i] === w)) start += lead.length;
+    return tokens.slice(start).map((w) => singularize(w, this.rules.split));
+  }
+
   private providerScores(terms: readonly string[], into: Map<number, number>): void {
     for (const term of terms) {
       const ids = this.providerDocs.get(term);
@@ -273,8 +288,9 @@ export class SearchIndex {
    * `job:create`) is what the query names. BM25 cannot see that when the word is in most descriptions
    * and parameter names of the provider: saturation leaves a name hit and a passing mention almost
    * equal, its idf is near 0, and long parameter lists lower the score of the tool that was named.
-   * The bonus therefore weighs each name word by how few tool names have it, not by how few
-   * documents mention it.
+   * The bonus has a fixed part per word, which stays when a word is in many names, and a part for
+   * how few raw names have the word. Both come from the raw names (`nameWords`), never from the
+   * `resource:verb` split, so that changing how tools are split does not change who gets the bonus.
    */
   private nameCovered(queryWords: readonly string[], scores: Map<number, number>): void {
     const words = new Set(queryWords);
@@ -285,7 +301,7 @@ export class SearchIndex {
         const df = this.nameDf.get(w)!;
         return sum + Math.log(1 + (this.docs.length - df + 0.5) / (df + 0.5));
       }, 0);
-      scores.set(id, score + NAME_COVERED * rarity);
+      scores.set(id, score + NAME_COVERED_BASE * name.length + NAME_COVERED_RARITY * rarity);
     }
   }
 
