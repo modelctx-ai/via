@@ -26,6 +26,8 @@ const config = (wait = 1): string => `sources: false\ndiscovery:\n  wait: ${wait
 describe.skipIf(isWindows)('starting and failed, through the daemon', () => {
   it('answers after discovery.wait, marks the slow server starting and the missing one failed with its reason', async () => {
     const d = await daemonSandbox(config());
+    // Warm the quick server first: under the load of the whole suite even it can miss a 1-second wait.
+    await d.via(['sync', 'ok']);
     const began = Date.now();
     const r = await d.via([]);
     const took = Date.now() - began;
@@ -63,6 +65,7 @@ describe.skipIf(isWindows)('starting and failed, through the daemon', () => {
 
   it('via find: warns about starting and failed providers on separate lines', async () => {
     const d = await daemonSandbox(config());
+    await d.via(['sync', 'ok']);
     const r = await d.via(['find', 'echo']);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain('ok');
