@@ -636,8 +636,24 @@ export class DaemonServer {
       requests: this.requests,
       cursors: await this.cursors.count(),
       rssBytes: process.memoryUsage.rss(),
+      anonBytes: anonymousBytes(),
       sessions: this.sessions.status(),
     };
+  }
+}
+
+/**
+ * `RssAnon` of this process in bytes: the part of the resident memory that is not file pages (the
+ * node executable's mapped pages are shared with every other node process). Linux only; null
+ * elsewhere or when `/proc` cannot be read.
+ */
+function anonymousBytes(): number | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    const match = /^RssAnon:\s+(\d+) kB$/m.exec(readFileSync('/proc/self/status', 'utf8'));
+    return match ? Number(match[1]) * 1024 : null;
+  } catch {
+    return null;
   }
 }
 

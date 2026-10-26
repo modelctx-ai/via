@@ -28,6 +28,36 @@ describe('via servers', () => {
     expect(r.stdout + r.stderr).not.toContain(FAKE_TOKEN);
   });
 
+  it('-o json: a server per object with transport, source, status, protocol and tool count, and nothing a URL query or an environment could carry', async () => {
+    const { srv, sb } = await setup();
+    sb.userConfig(
+      `sources: false\nservers:\n  gh:\n    url: ${srv.url}\n    auth: { bearer: "env:GH_TOKEN" }\n  query:\n    url: https://q.example.com/mcp/PATHSECRET?token=QUERYSECRET\n  local:\n    command: node\n    args: [x.js, ARGSECRET]\n    env: { SOME_KEY: ENVSECRET-value }\n  off:\n    url: ${srv.url}\n    disabled: true\n`,
+    );
+    const sync = await sb.via(['sync', 'gh']);
+    expect(sync.code).toBe(0);
+    const r = await sb.via(['servers', '-o', 'json']);
+    expect(r.code).toBe(0);
+    const out = JSON.parse(r.stdout) as { servers: Array<Record<string, any>>; diagnostics: unknown[] };
+    expect(out.servers.map((x) => x.provider)).toEqual(['gh', 'query', 'local', 'off']);
+    const gh = out.servers[0]!;
+    expect(gh).toMatchObject({ name: 'gh', status: 'ok', transport: { type: 'http', origin: new URL(srv.url).origin }, auth: { method: 'bearer', usable: true }, source: { scope: 'user', path: '~/.config/via/config.yaml' } });
+    expect(gh.protocol).toMatchObject({ version: expect.any(String), stateful: expect.any(Boolean), pinned: false });
+    expect(gh.tools).toBeGreaterThan(0);
+    expect(out.servers[1]).toMatchObject({ transport: { type: 'http', origin: 'https://q.example.com' }, tools: null, protocol: null });
+    expect(out.servers[2]).toMatchObject({ transport: { type: 'stdio', command: 'node' } });
+    expect(out.servers[3]).toMatchObject({ status: 'disabled', tools: null });
+    for (const secret of ['PATHSECRET', 'QUERYSECRET', 'ARGSECRET', 'ENVSECRET', FAKE_TOKEN]) expect(r.stdout + r.stderr).not.toContain(secret);
+    // The tool count is the one `via sync` and `via` show.
+    expect(sync.stdout).toMatch(new RegExp(`gh +${gh.tools} tools`));
+  });
+
+  it('-o raw is a usage error: there is no upstream text', async () => {
+    const { sb } = await setup();
+    const r = await sb.via(['servers', '-o', 'raw']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('next: via servers -o json');
+  });
+
   it('does not contact any server', async () => {
     const { srv, sb } = await setup();
     await sb.via(['servers']);

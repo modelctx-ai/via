@@ -123,7 +123,7 @@ type ErrorInfo = {
 | `validate` | 编译 JSON Schema（按内容缓存）并校验 `data`，返回 ajv 的错误与 `format` 警告；`compileOnly` 只编译。这样 CLI 进程不加载 ajv |
 | `redact` | 把 daemon 已知的凭证值换成 `***`，只在已有连接时发，不为它拉起 daemon。`text` 是 CLI 拼好的文字（错误、校验警告），只替换 8 个字符以上的凭证；`value` 是 CLI 回显的内容（`--dry-run` 的 `args`，任意 JSON），其中每个字符串里的任何长度的凭证都替换，键与结构不变（[脱敏的范围](output.md#脱敏的范围)） |
 | `cursor-put` / `cursor-get` | 存取游标记录（内容已脱敏），返回 id 或记录；记录落在用户缓存目录，不随 daemon 退出而丢失 |
-| `status` | 返回 pid、版本、socket、运行时间、距空闲退出的时间、请求数、游标数、内存和各会话（server 名、传输、是否连接、子进程 pid、协商出的协议、目录中的工具数、调用数、空闲时间）。不含 URL、参数和任何凭证 |
+| `status` | 返回 pid、版本、socket、运行时间、距空闲退出的时间、请求数、游标数、内存（`rssBytes` 是进程的常驻内存；`anonBytes` 是匿名常驻内存，Linux 上读 `/proc/self/status` 的 `RssAnon`，没有这个数的平台为 `null`，性能目标按它判定；旧版本的 daemon 没有这个字段，CLI 缺字段时只显示 `rss`）和各会话（server 名、传输、是否连接、子进程 pid、协商出的协议、目录中的工具数、调用数、空闲时间）。不含 URL、参数和任何凭证 |
 | `shutdown` | 先停止监听、删除 socket，应答，处理完在途请求后退出。带 `force: true` 时应答后放弃在途请求（关闭会话与 stdio 子进程，它们的 CLI 看到连接中断）立即退出；`via daemon stop` 在 5 秒宽限之后发它 |
 
 约定：

@@ -229,6 +229,11 @@ export type DaemonStatus = {
   requests: number;
   cursors: number;
   rssBytes: number;
+  /**
+   * Anonymous resident memory (`RssAnon` of `/proc/<pid>/status`), the number the memory target is
+   * stated in; `null` where the platform has no such figure. Absent from a daemon of an older version.
+   */
+  anonBytes?: number | null;
   sessions: SessionStatus[];
 };
 
