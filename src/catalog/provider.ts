@@ -1,19 +1,22 @@
-import { findDenyRule } from './deny';
+import { denyForms, findDenyRule, MAX_DENY_INPUT_LENGTH } from './deny';
+import { defaultDestructiveWords, inferDestructive } from './destructive';
 import { defaultSplitRules, type SplitRules } from './rules';
 import { extractParams } from './signature';
 import { splitToolName } from './split';
 import { defaultStopwords } from './stopwords';
 import { kebab } from './tokenize';
-import type { CatalogTool, McpTool, ProviderCatalog, ResourceGroup } from './types';
+import type { CatalogTool, DestructiveBy, McpTool, ProviderCatalog, ResourceGroup } from './types';
 
 export interface CatalogRules {
   split: SplitRules;
   /** Generic words the search index leaves out of descriptions (data/stopwords.json). */
   stopwords: ReadonlySet<string>;
+  /** Words of a raw tool name that make a tool without a `destructiveHint` destructive (data/destructive.json). */
+  destructive: ReadonlySet<string>;
 }
 
 export function defaultCatalogRules(): CatalogRules {
-  return { split: defaultSplitRules(), stopwords: defaultStopwords() };
+  return { split: defaultSplitRules(), stopwords: defaultStopwords(), destructive: defaultDestructiveWords() };
 }
 
 export interface ProviderInput {
@@ -26,6 +29,11 @@ export interface ProviderInput {
   rename?: Record<string, string>;
   /** `deny` regular expressions, matched against `provider/resource:verb` and `provider/raw-name`. */
   deny?: readonly RegExp[];
+  /**
+   * `servers.<name>.confirm`: `tools` make matching tools need `--yes`, `except` takes it away; both are
+   * matched like `deny` rules. A tool in both lists needs `--yes`.
+   */
+  confirm?: { tools: readonly RegExp[]; except: readonly RegExp[] };
 }
 
 interface Draft {
@@ -60,17 +68,22 @@ function readOnlyOf(def: McpTool): boolean {
 }
 
 /**
- * `destructiveHint: true` on a tool that is not read-only. MCP gives `destructiveHint` meaning only
- * when `readOnlyHint` is false, so a tool marked both is read-only: no `--yes`, and it is retried
- * like any read-only tool (arguments.md, "危险操作").
+ * Why a tool needs `--yes` before the user's `confirm` rules apply (arguments.md, "危险操作"). Read-only wins over
+ * everything: MCP gives `destructiveHint` meaning only when `readOnlyHint` is false, so a tool marked both is read-only
+ * (no `--yes`, retried like any read-only tool). Otherwise `destructiveHint` decides when the server declared it. When it
+ * did not, a word of the raw name decides (`delete_secrets`): an explicit `destructiveHint: false` is never second-guessed.
  */
-function destructiveOf(def: McpTool): boolean {
-  return !readOnlyOf(def) && def.annotations?.destructiveHint === true;
+function destructiveOf(def: McpTool, words: ReadonlySet<string>): DestructiveBy | undefined {
+  if (readOnlyOf(def)) return undefined;
+  const hint = def.annotations?.destructiveHint;
+  if (hint === true) return 'server';
+  if (hint === undefined && inferDestructive(def.name, words)) return 'inferred';
+  return undefined;
 }
 
-function toCatalogTool(provider: string, d: Draft): CatalogTool {
+function toCatalogTool(provider: string, d: Draft, rules: CatalogRules, confirm: ProviderInput['confirm']): CatalogTool {
   const name = d.resource !== null ? `${d.resource}:${d.verb}` : d.leafName;
-  return {
+  const tool: CatalogTool = {
     provider,
     rawName: d.def.name,
     resource: d.resource,
@@ -83,10 +96,21 @@ function toCatalogTool(provider: string, d: Draft): CatalogTool {
     description: d.def.description ?? d.def.title ?? '',
     params: paramsOf(d.def),
     readOnly: readOnlyOf(d.def),
-    destructive: destructiveOf(d.def),
+    destructive: false,
     renamed: d.renamed,
     def: d.def,
   };
+  let by = destructiveOf(d.def, rules.destructive);
+  if (confirm) {
+    if (findDenyRule(tool, confirm.tools) !== undefined) by = 'config';
+    // A name too long to be matched is never exempted (findDenyRule reports it as matching, which fails closed for `deny`).
+    else if (denyForms(tool).every((f) => f.length <= MAX_DENY_INPUT_LENGTH) && findDenyRule(tool, confirm.except) !== undefined) by = undefined;
+  }
+  if (by !== undefined) {
+    tool.destructive = true;
+    tool.destructiveBy = by;
+  }
+  return tool;
 }
 
 /**
@@ -159,7 +183,7 @@ export function buildProviderCatalog(
     if (!demoted) break;
   }
 
-  const all = drafts.map((d) => toCatalogTool(input.provider, d));
+  const all = drafts.map((d) => toCatalogTool(input.provider, d, rules, input.confirm));
   const deny = input.deny ?? [];
   const visible = all.filter((t) => findDenyRule(t, deny) === undefined);
 

@@ -11,6 +11,8 @@ export interface ToolArgsContext {
   rawName: string;
   readOnly: boolean;
   destructive: boolean;
+  /** Why `destructive` is true; absent means the server declared it. Only read for the wording of `-h`. */
+  destructiveBy?: 'server' | 'inferred' | 'config';
 }
 
 export interface ToolArgsIO {

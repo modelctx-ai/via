@@ -75,6 +75,9 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
     }
     d.auth = auth;
   }
+  // `confirm.tools` only adds; `confirm.except` and `confirm: never` loosen, so load.ts strips them from project layers.
+  if (def.confirmTools !== undefined) d.confirmTools = [...new Set([...(d.confirmTools ?? []), ...def.confirmTools])];
+  if (def.confirmExcept !== undefined) d.confirmExcept = [...new Set([...(d.confirmExcept ?? []), ...def.confirmExcept])];
   for (const key of ['alias', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'protocolVersion'] as const) {
     if (def[key] !== undefined) (d as Record<string, unknown>)[key] = def[key];
   }

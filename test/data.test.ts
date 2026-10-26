@@ -12,6 +12,7 @@ describe('data files validate against data/schema (data-files.md)', () => {
   it.each([
     ['verbs.json', 'schema/verbs.schema.json'],
     ['stopwords.json', 'schema/stopwords.schema.json'],
+    ['destructive.json', 'schema/destructive.schema.json'],
     ['noise.json', 'schema/noise.schema.json'],
     ['columns.json', 'schema/columns.schema.json'],
     ['synonyms.json', 'schema/synonyms.schema.json'],
@@ -33,6 +34,16 @@ describe('data files validate against data/schema (data-files.md)', () => {
     const { verbs } = read('verbs.json') as { verbs: string[] };
     expect(words.every((w) => /^[a-z0-9-]+$/.test(w))).toBe(true);
     expect(words.filter((w) => verbs.includes(w))).toEqual([]);
+  });
+
+  it('destructive words are single lower-case words that are not names of read operations', () => {
+    const { words } = read('destructive.json') as { words: string[] };
+    expect(words.every((w) => /^[a-z0-9]+$/.test(w))).toBe(true);
+    const { verbs } = read('verbs.json') as { verbs: string[] };
+    // Every word of the table that is also a verb is one the verb table splits on; none may be a read verb.
+    for (const read of ['get', 'list', 'search', 'read', 'fetch', 'query', 'describe']) expect(words, read).not.toContain(read);
+    expect(verbs).toContain('delete');
+    expect(words).toContain('delete');
   });
 
   it('keeps the minimum verb set required by naming.md', () => {

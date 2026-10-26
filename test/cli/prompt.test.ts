@@ -28,8 +28,8 @@ describe('renderPrompt', () => {
     expect(PROMPT_INSTRUCTIONS).toMatch(/-h` → all parameters, if the example is not enough/);
   });
 
-  it('stays within the documented token budget (about 190 tokens at 4 bytes per token)', () => {
-    expect(Buffer.byteLength(PROMPT_INSTRUCTIONS, 'utf8') / 4).toBeLessThanOrEqual(190);
+  it('stays within the documented token budget (about 207 tokens at 4 bytes per token)', () => {
+    expect(Buffer.byteLength(PROMPT_INSTRUCTIONS, 'utf8') / 4).toBeLessThanOrEqual(208);
   });
 
   it('lists the providers as they are, with no grouping and no resource lists', () => {

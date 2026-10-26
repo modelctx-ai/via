@@ -47,6 +47,9 @@ export interface ParamInfo {
   values?: string;
 }
 
+/** What made a tool destructive (see `CatalogTool#destructiveBy`). */
+export type DestructiveBy = 'server' | 'inferred' | 'config';
+
 /** A tool after name splitting (naming.md). */
 export interface CatalogTool {
   provider: string;
@@ -78,7 +81,14 @@ export interface CatalogTool {
   description: string;
   params: ParamInfo[];
   readOnly: boolean;
+  /** True when the tool needs `--yes`: see `destructiveBy`. */
   destructive: boolean;
+  /**
+   * Why `destructive` is true (arguments.md, "危险操作"): `server` declared `destructiveHint`, `inferred` is via's
+   * reading of a word in the raw name (data/destructive.json), `config` is a `confirm.tools` rule of the user.
+   * Absent when the tool is not destructive.
+   */
+  destructiveBy?: DestructiveBy;
   /**
    * The call example of `-h` without its `example: via <ref>` head (`--owner text --repo text`),
    * when the tool has one. Kept in the prebuilt catalog so `via find` shows it without reading the

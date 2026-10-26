@@ -121,6 +121,31 @@ function strList(r: Reporter, path: string, v: unknown, server?: string, scalars
   return out;
 }
 
+/**
+ * `confirm`: `destructive` or `never`, or a map `{ tools, except }` of deny-style patterns (config.md, "confirm").
+ * The patterns are compiled and checked when the servers are finalized (load.ts).
+ */
+function confirm(r: Reporter, path: string, v: unknown, server: string, def: ServerDef): void {
+  if (v === 'destructive' || v === 'never') {
+    def.confirm = v;
+    return;
+  }
+  if (!isPlainObject(v)) {
+    r.invalid(path, '"destructive", "never" or a map with tools and except', server);
+    return;
+  }
+  for (const [key, value] of ownEntries(v)) {
+    if (key === 'tools' || key === 'except') {
+      const list = strList(r, `${path}.${key}`, value, server);
+      if (list === undefined) continue;
+      if (key === 'tools') def.confirmTools = list;
+      else def.confirmExcept = list;
+    } else {
+      r.add('warning', 'unknown-field', `${path}.${key}`, 'unknown field', server);
+    }
+  }
+}
+
 /** `roots`: paths or `file://` URIs. Any other URI scheme is refused: MCP roots are file URIs. */
 function roots(r: Reporter, path: string, v: unknown, server: string): string[] | undefined {
   const list = strList(r, path, v, server);
@@ -474,8 +499,7 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
         break;
       case 'auth': def.auth = auth(r, path, value, name); break;
       case 'confirm':
-        if (value === 'destructive' || value === 'never') def.confirm = value;
-        else r.invalid(path, '"destructive" or "never"', name);
+        confirm(r, path, value, name, def);
         break;
     }
   }

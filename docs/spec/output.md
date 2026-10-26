@@ -159,7 +159,7 @@ next: ask the user to run this in a terminal: via auth login linear
 
   `arg` 是命令行写法，`path` 是 JSON Pointer，`rule` 是失败的 schema 关键字（`required`、`type`、`enum`、`maximum`、`pattern`、`additionalProperties` 等，JSON 解析失败为 `json`）。`got` 遵循与文本输出相同的截断与脱敏规则。
 
-`-h` 加 `-o json` 输出工具详情（`tool`、`rawName`、`description`、`readOnly`、`destructive`、`inputSchema`、`outputSchema`），格式与用途见 [arguments.md](arguments.md#schema-快照校验)；它是 `--schema-snapshot` 读取的快照文件。
+`-h` 加 `-o json` 输出工具详情（`tool`、`rawName`、`description`、`readOnly`、`destructive`、`destructiveBy`、`inputSchema`、`outputSchema`），格式与用途见 [arguments.md](arguments.md#schema-快照校验)；它是 `--schema-snapshot` 读取的快照文件。
 
 ## server 向用户提问（elicitation）
 

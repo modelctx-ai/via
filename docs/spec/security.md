@@ -8,7 +8,7 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 | --- | --- |
 | 凭证出现在输出或日志里 | 已解析的凭证值在所有输出中精确匹配替换为 `***`；脱敏保持结构：内容里任何长度的凭证都替换，键、协议字段与 via 自己写的文字只扫描 8 个字符以上的凭证（[输出规范](output.md#脱敏的范围)）；协议消息不携带凭证。日志（[daemon.md](daemon.md#日志)）：每一行写盘前用同一个脱敏器，stdio 子进程的 stderr 按行处理（凭证切在两个数据块之间也能认出）并按内容处理（任何长度的凭证）；日志不记录参数值、调用结果、资源内容、elicitation 的问题与答案；控制字符与转义序列写成可见的转义，日志里的一行永远只是一行；日志与缓存同目录同权限（0700/0600，Windows 靠用户目录的 ACL），两周没写过的被清理 |
 | agent 读取配置文件拿到凭证 | 配置只存引用；推荐 `keychain:`；`via doctor` 对明文值告警 |
-| 误调用破坏性工具 | `destructiveHint` 工具需要 `--yes`；`deny` 正则规则，deny 优先 |
+| 误调用破坏性工具 | `destructiveHint` 工具需要 `--yes`；server 没有声明任何破坏性注解时，名字含 `delete`、`remove` 等词（`data/destructive.json`）的工具同样需要，并标为「推断」（[ADR 0030](../adr/0030-infer-destructive-from-names.md)）；`confirm.tools` 可点名要求确认；`deny` 正则规则，deny 优先。推断是名字上的猜测，不是边界：不含这些词的破坏性工具、`--yes` 本身都不受它保护 |
 | agent 用到不想让它用的子命令（`via serve`、`via daemon stop`…） | `commands.deny` / `commands.allow` 拒绝（退出码 5），`commands.hide` / `commands.show` 不在帮助、`via prompt`、`via serve` 里列出；项目配置只能收窄。只在 via 一侧生效，见[边界说明](#边界说明)（[ADR 0028](../adr/0028-restrict-and-hide-subcommands.md)） |
 | stdio server、`cmd:` 助手写到不该写的地方、连到不该连的主机 | 可选的 `sandbox`：via 连同它派生的进程在 srt 一类沙箱程序里运行，按用户写的策略限制写入与网络；沙箱里写不了 via 的配置与信任记录；只读用户配置，开启后失败关闭（[config.md](config.md#sandbox)、[ADR 0027](../adr/0027-run-via-inside-a-sandbox-program.md)） |
 | 不可信仓库里的项目配置 | 项目级配置中的 stdio 命令和 HTTP 端点首次使用前需 `via trust`（默认在终端确认；`--yes` 需要显式路径加环境变量开启，agent 说明里要求不要自己运行）；`cmd:` 凭证引用只允许出现在用户配置中，信任也不能放行 |
@@ -62,6 +62,7 @@ server 在调用中途向用户提问（[ADR 0018](../adr/0018-elicitation-in-a-
 - 未信任时，这些 server 在视图中显示为 `untrusted`，调用退出码 5，`next:` 为 `ask the user to run this in a terminal: via trust <路径>`（同一个 server 有多个文件待确认时不带路径；信任是用户的决定，agent 不运行它）。路径含空格等字符时按 shell 规则加引号，没有安全写法的路径写成 `<path>`（[output.md](output.md#可粘贴的命令行)）。
 - 项目级配置和框架配置中出现 `cmd:` 凭证引用时直接拒绝，信任也不能放行：该 server 的定义整条被忽略，并报 error 级诊断（`cmd-forbidden`）。`cmd:` 会执行命令，不属于「确认之后可以使用」的范畴；需要时在用户配置里定义，项目配置只能引用用户配置里已有的 server（改传输部分仍要信任）。
 - `deny` 不受信任机制约束：项目配置只能追加规则，不能撤销用户配置的规则，详见 [config.md](config.md#deny)。
+- `confirm` 同理：项目配置可以用 `confirm.tools` 增加需要确认的工具；`confirm: never` 与 `confirm.except` 会去掉一道确认，只在用户配置和命令行覆盖里有效，项目配置里的被忽略并告警（`confirm-forbidden`），详见 [config.md](config.md#confirm)。
 
 ### `via trust`
 

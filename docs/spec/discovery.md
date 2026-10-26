@@ -98,7 +98,7 @@ commit         get · list
 - 每个资源一行，动作内联，按资源名排序；一行内的动作按 `tools/list` 中的先后顺序排列。
 - 叶子工具在资源行之后：`tools: search · fetch`，按 `tools/list` 顺序，超过 12 个时截断并提示 `--all`。
 - 资源行数超过一屏（默认 20 行）时截断，提示 `… N more · via <provider> --all`，位于叶子工具行之前。
-- 危险动作可以加标记（如 `delete!`），只读资源不加标记。
+- 需要 `--yes` 的动作加标记（如 `delete!`），不区分来源（server 声明的、推断的、配置要求的；区分在资源视图与 `-h` 里），只读资源不加标记。
 - server 声明了 MCP 资源、prompt 或技能（`2026-07-28` 且声明了 `io.modelcontextprotocol/skills`）时，叶子工具行之后多一行 `also: via resources <provider> · via prompts <provider> · via skills <provider>`（只列出声明了的）。这是 agent 发现这几类内容的唯一入口，所以 `via prompt` 的说明文本不需要提它们。
 - 最后一行提示下一步：`→ via <provider> <resource> for signatures`。
 - **`-o json`**：`{"provider", "resources": [{"name", "verbs": [...]}], "tools": [...], "also": {"resources", "prompts", "skills"}}`。`resources` 与 `verbs` 的顺序同文本，`tools` 是叶子工具名，`also` 是三个布尔值（server 是否声明了这类内容，与文本的 `also:` 行同源）。JSON 是完整的：文本视图为一屏而做的截断（`… N more`、`--all`）不适用，也没有 `!` 标记（危险与否在资源视图的 `destructive` 字段里）。`→` 提示写 stderr。
@@ -136,8 +136,8 @@ issue:search   query, [owner], [repo]                  Search issues
   - 引用在本地的 `$ref` 照常展开。枚举值里的换行与控制字符写成可见的 `\uXXXX`。
   - 整个签名（含括号与 `…`）超过 60 列时退回不带类型的写法，所有参数仍照原规则显示；所以同一屏里的行可以两种写法并存。必填参数一个不省略的规则不变。
   - 类型来自[预构建缓存](#预构建缓存)，浏览仍然不读 schema。
-- **`-o json`**：数组，每项 `{"ref", "provider", "resource", "verb", "rawName", "signature": {"required": [...], "optional": [...]}, "description", "readOnly", "destructive"}`。`ref` 是规范写法（`gh issue:read`），`signature` 是**完整**的参数名（kebab-case，必填在前，不受 6 个的限制，也不带类型），`description` 是完整的描述文字，`readOnly`/`destructive` 是布尔（两者都声明时 `destructive` 为假，同 `[read-only]` 的规则）。字符串按「内容」档脱敏（[output.md](output.md#脱敏的范围)）。`→` 提示写 stderr。叶子工具（`via find` 的结果里可能有）的 `resource` 与 `verb` 为 `null`。
-- 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后，两者都声明时只标 `[read-only]`（[arguments.md](arguments.md#危险操作)）。
+- **`-o json`**：数组，每项 `{"ref", "provider", "resource", "verb", "rawName", "signature": {"required": [...], "optional": [...]}, "description", "readOnly", "destructive"}`。`ref` 是规范写法（`gh issue:read`），`signature` 是**完整**的参数名（kebab-case，必填在前，不受 6 个的限制，也不带类型），`description` 是完整的描述文字，`readOnly`/`destructive` 是布尔（两者都声明时 `destructive` 为假，同 `[read-only]` 的规则）；`destructive` 为真时多一个字段 `destructiveBy`：`server`（声明了 `destructiveHint`）、`inferred`（server 没声明，via 按原始名里的词推断）、`config`（`confirm.tools`），为假时不出现。三种来源的 `destructive` 都是 `true`，只读 `destructive` 的消费者不受影响。字符串按「内容」档脱敏（[output.md](output.md#脱敏的范围)）。`→` 提示写 stderr。叶子工具（`via find` 的结果里可能有）的 `resource` 与 `verb` 为 `null`。
+- 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后，两者都声明时只标 `[read-only]`；via 推断的标 `[destructive?]`，`confirm.tools` 要求的标 `[confirm]`（[arguments.md](arguments.md#危险操作)）。
 
 ## 搜索
 

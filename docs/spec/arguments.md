@@ -226,7 +226,7 @@ $ via github issue:read --owner acme --repo api --issue-number 1 --method get \
 | `tool` | 规范写法，如 `github issue:read` |
 | `rawName` | 原始名 |
 | `description` | 工具描述（有则写） |
-| `readOnly`、`destructive` | 为真时才写 |
+| `readOnly`、`destructive`、`destructiveBy` | 为真时才写；`destructiveBy` 在 `destructive` 为真时写，值为 `server`、`inferred` 或 `config` |
 | `inputSchema` | 输入 schema；工具没有声明时为 `{"type": "object"}` |
 | `outputSchema` | 输出 schema（有则写） |
 
@@ -278,16 +278,20 @@ $ via github issue:read --owner acme --repo api --issue-number 1 --method get \
 
 ## 危险操作
 
-- 工具 annotations 中 `destructiveHint: true` 的工具需要 `--yes` 才会执行；缺少时退出码为 5，并说明原因：
+- 需要 `--yes` 的工具有三种来源，`destructive` 为真时由 `destructiveBy` 区分：`server`（工具 annotations 中 `destructiveHint: true`）、`inferred`（via 按名字推断，见下）、`config`（用户在 `confirm.tools` 里列出，[config.md](config.md#confirm)）。缺少 `--yes` 时退出码为 5，并说明原因：
 
   ```console
   error: gh file:delete is destructive and was not run
   next: rerun with --yes to confirm
   ```
+
+  推断出来的和配置要求的在第一行里说明来源，`next:` 不变：`error: gh secret:delete is destructive (inferred from its name; the server gave no hint) and was not run`、`error: gh archive-task needs confirmation (the via config requires it) and was not run`。
+- **按名字推断**：很多 server 不写任何注解，只靠 `destructiveHint: true` 会让 `delete_*` 之类的工具不加 `--yes` 就执行。工具不是只读（`readOnlyHint` 不是 `true`）且**没有声明 `destructiveHint`** 时，把原始名切词（与命名规则同一个 `tokenize`，`getHTTP` 切成 get、http；不看规范写法、`rename` 或动词表，所以拆分规则变化不影响结果），任一词（整词，小写比较）在 `data/destructive.json` 的破坏性词表里，就按破坏性处理：`delete_secrets`、`secretDelete`、`remove-member` 命中，`list_deleted_items`、`dropbox_search` 不命中。显式声明永远优先：`destructiveHint: false` 不推断，`readOnlyHint: true` 不推断也不要求确认；只写了 `readOnlyHint: false` 而没有 `destructiveHint` 的工具仍会推断（MCP 对这种工具的默认就是破坏性，via 只在名字佐证时采用）。不采用 MCP 的「没声明就算破坏性」的原因见 [ADR 0030](../adr/0030-infer-destructive-from-names.md)。
+- 推断是 via 的猜测，所以不冒充 server 的声明：`[destructive?]`（资源视图与 `find`）、`destructive? (inferred from the name; needs --yes)`（`-h`）、`-o json` 的 `destructiveBy: "inferred"`；server 声明的仍是 `[destructive]` 与 `destructive (needs --yes)`，`destructiveBy: "server"`；`confirm.tools` 要求的是 `[confirm]`、`needs --yes (confirm in the via config)`、`"config"`。`destructive` 布尔值对三种来源都为真，旧的消费者读它不受影响；`destructiveBy` 只在 `destructive` 为真时出现。
 - `readOnlyHint: true` 的工具不算破坏性，即使同时声明了 `destructiveHint: true`：MCP 规定 `destructiveHint` 只在 `readOnlyHint` 为 false 时有意义。这样的工具按只读处理：不需要 `--yes`，帮助与视图只标 `read-only`，超时或连接错误后照常自动重试一次（见下文「调用过程」）。
-- 可在配置中按 server 设置 `confirm: never` 关闭这一检查。
+- 可在配置中按 server 设置 `confirm: never` 关闭 server 声明的和 via 推断的检查，或用 `confirm: { tools, except }` 指定哪些工具必须确认、哪些豁免（[config.md](config.md#confirm)）。
 - `readOnlyHint` 在帮助和资源视图中标注，方便 agent 判断。
-- `--dry-run` 只打印解析结果：规范写法、目标 server、最终参数（凭证打码），不发起调用，退出码 0。
+- `--dry-run` 只打印解析结果：规范写法、目标 server、最终参数（凭证打码），不发起调用，退出码 0；需要 `--yes` 而没给时多一行 `requires: --yes (…)`，括号里写来源（`destructive tool`、`destructive tool, inferred from its name`、`confirm in the via config`）。`via batch`、`via serve` 的每次调用走同一条路径（`executeCall`），判断相同。
 - 配置中的 `deny` 规则命中的工具在浏览和 `find` 结果中不可见，直接调用也会被拒绝，退出码 5。
 
 ## 调用过程

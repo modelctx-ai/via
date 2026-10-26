@@ -1,6 +1,6 @@
 # 数据文件
 
-规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`stopwords`、`noise`、`columns`、`synonyms`、`common-flags` 的 schema 已经提供，测试会逐个校验。
+规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`stopwords`、`destructive`、`noise`、`columns`、`synonyms`、`common-flags` 的 schema 已经提供，测试会逐个校验。
 
 ## verbs.json
 
@@ -42,6 +42,21 @@
 - 只作用于工具描述的索引，不影响名称与参数名：那些位置上的词都值得检索。
 - 动词表里的词不需要写在这里：同一个词在多个工具里重复出现时，索引自然把它摊薄。
 - 新增词时在 `test/data.test.ts` 的约束下保持单个小写词，且不要与动词表重复。
+
+## destructive.json
+
+没有声明 `destructiveHint` 的工具里，哪些按名字推断为破坏性（[危险操作](../spec/arguments.md#危险操作)，[ADR 0030](../adr/0030-infer-destructive-from-names.md)）。
+
+```json
+{
+  "version": 1,
+  "words": ["delete", "remove", "destroy", "drop", "purge", "erase", "wipe", "revoke", "truncate", "prune"]
+}
+```
+
+- 用原始工具名切词（与命名规则同一个 `tokenize`）后整词比较，所以 `deleted`、`dropbox` 不命中；每个词是单个小写字母数字词。
+- 词表**保守**：一个词只有在「名字里出现它几乎就意味着数据丢失或权限收回」时才收，常见的无害用法（`clear`、`reset`、`close`、`archive`、`cancel`、`disable`、`kill`）不收。新增词要在 ADR 0030 的表里写明理由和已知的误报，改动写进 `CHANGELOG.md` 并说明会让哪些工具开始要 `--yes`。
+- 改动词表会改变目录预构建缓存里的标记，缓存键里的规则指纹随 `data/*.json` 变化，旧缓存自动失效。
 
 ## noise.json
 

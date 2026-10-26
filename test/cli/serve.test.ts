@@ -133,6 +133,15 @@ describe('via serve', () => {
     expect(confirmed.exitCode).toBe(0);
   });
 
+  it('treats a tool without annotations whose name says delete as destructive, the same as the CLI', async () => {
+    const { srv, client } = await setup();
+    srv.state.tools = [{ name: 'delete_secrets', description: 'Delete secrets', inputSchema: { type: 'object', properties: {} } }];
+    const refused = await call(client, 'via_call', { tool: 'gh/delete_secrets' });
+    expect(refused).toEqual({ texts: ['error: gh secret:delete is destructive (inferred from its name; the server gave no hint) and was not run\nnext: rerun with --yes to confirm\n'], isError: true, exitCode: 5 });
+    expect(srv.state.calls).toHaveLength(0);
+    expect((await call(client, 'via_call', { tool: 'gh/delete_secrets', yes: true })).exitCode).toBe(0);
+  });
+
   it('applies deny rules', async () => {
     const { client } = await setup('', 'deny: ["^gh/file:delete$"]\n');
     const r = await call(client, 'via_call', { tool: 'gh/file:delete', args: { owner: 'a', repo: 'b', path: 'c' }, yes: true });

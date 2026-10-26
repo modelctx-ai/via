@@ -91,6 +91,7 @@ function computeInputsHash(input: ProviderInput): string {
       aliases: input.aliases ?? [],
       rename: input.rename ?? {},
       deny: (input.deny ?? []).map((re) => [re.source, re.flags]),
+      confirm: input.confirm ? { tools: input.confirm.tools.map((re) => [re.source, re.flags]), except: input.confirm.except.map((re) => [re.source, re.flags]) } : null,
     }),
   );
 }

@@ -42,13 +42,13 @@ export function readSnapshot(value: unknown): Snapshot | string {
 }
 
 /** The tool detail `-h -o json` prints, and the file this check reads back. */
-export function toolDetail(tool: McpTool, ref: string, flags: { readOnly: boolean; destructive: boolean }): Record<string, unknown> {
+export function toolDetail(tool: McpTool, ref: string, flags: { readOnly: boolean; destructive: boolean; destructiveBy?: string | undefined }): Record<string, unknown> {
   return {
     tool: ref,
     rawName: tool.name,
     ...(tool.description ? { description: tool.description } : {}),
     ...(flags.readOnly ? { readOnly: true } : {}),
-    ...(flags.destructive ? { destructive: true } : {}),
+    ...(flags.destructive ? { destructive: true, ...(flags.destructiveBy ? { destructiveBy: flags.destructiveBy } : {}) } : {}),
     inputSchema: tool.inputSchema ?? { type: 'object' },
     ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
   };
