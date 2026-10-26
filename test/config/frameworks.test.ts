@@ -32,10 +32,23 @@ describe('data/frameworks', () => {
       { ...base, sources: ['http://example.invalid/docs'] },
       { ...base, configs: [{ path: 'x', format: 'json', pointer: '/a', scope: 'user', dollarVariables: 'yes' }] },
       { ...base, extra: true },
+      { ...base, disableHint: '在设置中关闭' },
+      { ...base, deferredSchemas: { fullWhenEnv: { name: 'enable_tool_search', values: ['false'] } } },
+      { ...base, deferredSchemas: { fullWhenEnv: { name: 'ENABLE_TOOL_SEARCH', values: ['FALSE'] } } },
+      { ...base, deferredSchemas: { fullWhenEnv: { name: 'ENABLE_TOOL_SEARCH', values: [] } } },
+      { ...base, deferredSchemas: { fullWhenEnv: { name: 'ENABLE_TOOL_SEARCH' } } },
+      { ...base, deferredSchemas: { other: true } },
     ];
     for (const entry of bad) expect(validate(entry), JSON.stringify(entry)).toBe(false);
     expect(validate({ ...base, verifiedAt: '2026-10-20', sources: ['https://cursor.com/docs/context/mcp'] })).toBe(true);
     expect(validate({ ...base, verifiedAt: null })).toBe(true);
+    expect(validate({ ...base, deferredSchemas: { fullWhenEnv: { name: 'ENABLE_TOOL_SEARCH', values: ['false'] } } })).toBe(true);
+    expect(validate({ ...base, deferredSchemas: {} })).toBe(true);
+  });
+
+  it('only claude-code defers schemas, and its condition is ENABLE_TOOL_SEARCH=false', () => {
+    expect(BUNDLED_FRAMEWORKS.filter((f) => f.deferredSchemas).map((f) => f.id)).toEqual(['claude-code']);
+    expect(findFramework('claude-code')?.deferredSchemas).toEqual({ fullWhenEnv: { name: 'ENABLE_TOOL_SEARCH', values: ['false'] } });
   });
 
   it('has one file per framework, named after its id, and all of them are registered', () => {

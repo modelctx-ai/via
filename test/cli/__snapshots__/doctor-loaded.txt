@@ -5,10 +5,12 @@ servers   2 ok · 1 needs auth (docs) · 1 untrusted (local)
     next: ask the user to run this in a terminal: via auth login docs
 
 frameworks still injecting MCP schemas:
-  claude-code   1 server · size unknown
-    hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用；默认已用 tool search 延迟加载 schema，设 ENABLE_TOOL_SEARCH=false 才会全量注入
   cursor        2 servers · ~8k tokens/turn
-    hint: 侧栏 Customize 中找到对应 server，关闭开关；命令行用 agent mcp disable <名称>
+    hint: In the Customize sidebar, find the server and turn off its toggle; on the command line run: agent mcp disable <name>
+
+frameworks deferring MCP schemas (only tool names are injected):
+  claude-code   1 server · size unknown
+    hint: Start with --strict-mcp-config to load an empty MCP config, or disable servers one by one in /mcp
 
 secrets:
   exa: EXA_API_KEY in ~/.cursor/mcp.json is plaintext

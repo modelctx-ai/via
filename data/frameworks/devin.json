@@ -7,7 +7,7 @@
     { "path": "~/.config/devin/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["linux", "darwin"] },
     { "path": "%APPDATA%/devin/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user", "platforms": ["win32"] }
   ],
-  "disableHint": "命令行用 devin mcp disable <名称>，或在 mcp_config.json 对应条目中设置 \"disabled\": true；桌面端在 Cascade 面板的 MCPs 区域关闭开关",
+  "disableHint": "Run: devin mcp disable <name>, or set \"disabled\": true on the entry in mcp_config.json; on the desktop app, turn off its toggle in the MCPs area of the Cascade panel",
   "verifiedAt": "2026-10-20",
   "sources": [
     "https://docs.devin.ai/cli/extensibility/mcp/configuration",

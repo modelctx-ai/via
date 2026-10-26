@@ -5,10 +5,11 @@
     { "path": ".mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
     { "path": "~/.claude.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
   ],
-  "disableHint": "启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用；默认已用 tool search 延迟加载 schema，设 ENABLE_TOOL_SEARCH=false 才会全量注入",
-  "verifiedAt": "2026-10-20",
+  "disableHint": "Start with --strict-mcp-config to load an empty MCP config, or disable servers one by one in /mcp",
+  "deferredSchemas": { "fullWhenEnv": { "name": "ENABLE_TOOL_SEARCH", "values": ["false"] } },
+  "verifiedAt": "2026-10-26",
   "sources": [
     "https://code.claude.com/docs/en/mcp"
   ],
-  "notes": "~/.claude.json 的 /projects/<路径>/mcpServers（local 作用域，优先级最高）按项目路径分键，暂不读取。CLAUDE_CONFIG_DIR 改写用户配置位置，暂不处理。type 为 stdio、http（streamable-http 为别名）、sse（已弃用）；ws 不支持；只有 url 没有 type 的条目 Claude Code 自己会拒绝，via 按 http 处理。headersHelper 既不执行也不继承。"
+  "notes": "~/.claude.json 的 /projects/<路径>/mcpServers（local 作用域，优先级最高）按项目路径分键，暂不读取。CLAUDE_CONFIG_DIR 改写用户配置位置，暂不处理。type 为 stdio、http（streamable-http 为别名）、sse（已弃用）；ws 不支持；只有 url 没有 type 的条目 Claude Code 自己会拒绝，via 按 http 处理。headersHelper 既不执行也不继承。deferredSchemas 只按进程环境里的 ENABLE_TOOL_SEARCH=false 判断；auto、auto:N（阈值模式）、settings.json 的 env 字段、alwaysLoad、旧模型和 Foundry 部署的回退不在 via 能看到的范围内，不判断（依据 mcp 文档的 Configure tool search 一节，2026-10-26 核对）。"
 }

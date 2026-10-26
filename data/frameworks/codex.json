@@ -5,7 +5,7 @@
     { "path": ".codex/config.toml", "format": "toml", "pointer": "/mcp_servers", "scope": "project" },
     { "path": "~/.codex/config.toml", "format": "toml", "pointer": "/mcp_servers", "scope": "user" }
   ],
-  "disableHint": "在 config.toml 的 [mcp_servers.<名称>] 中设置 enabled = false，或用 codex mcp remove <名称>",
+  "disableHint": "Set enabled = false under [mcp_servers.<name>] in config.toml, or run: codex mcp remove <name>",
   "verifiedAt": "2026-10-20",
   "sources": [
     "https://developers.openai.com/codex/mcp",
