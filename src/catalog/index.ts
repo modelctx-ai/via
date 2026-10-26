@@ -13,7 +13,7 @@ export {
 export { denyForms, findDenyRule, MAX_DENY_INPUT_LENGTH } from './deny';
 export { buildCatalog, normalizeProviderName, RESERVED_COMMANDS } from './build';
 export { defaultStopwords } from './stopwords';
-export { extractParams, formatSignature, shortDescription, SIGNATURE_MAX_PARAMS } from './signature';
+export { extractParams, formatSignature, shortDescription, signatureLists, SIGNATURE_MAX_PARAMS, TYPED_SIGNATURE_MAX_WIDTH } from './signature';
 export { docTerms, SearchIndex, type DocTerms, type SearchHit, type SearchOptions, type SearchIndexOptions } from './search';
 export { restoreProvider, snapshotProvider, type RestoredProvider, type RestoredTerms, type SnapshotHead } from './snapshot';
 export { rulesFingerprint } from './fingerprint';
@@ -32,10 +32,19 @@ export {
   renderResource,
   renderFind,
   rootEntries,
+  rootJson,
+  providerJson,
+  providerHint,
+  resourceHint,
+  findNoMatch,
+  exampleCommand,
+  toolListing,
+  ROOT_HINT,
   DEFAULT_MAX_ROWS,
   DEFAULT_MAX_LEAVES,
   type RootEntry,
   PROVIDER_STATUSES,
+  type ToolListing,
   type ProviderStatus,
 } from './browse';
 export { formatSplitTable } from './report';

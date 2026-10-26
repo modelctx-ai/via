@@ -1,4 +1,4 @@
-import { formatSignature, shortDescription } from './signature';
+import { formatSignature, shortDescription, signatureLists, SIGNATURE_MAX_PARAMS } from './signature';
 import type { CatalogTool, ProviderCatalog, ResourceGroup } from './types';
 import type { SearchHit } from './search';
 import { shellArg, shellWords, visibleText } from '../render/shell';
@@ -65,6 +65,18 @@ function byName(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/** The line that ends the root view; with `-o json` it goes to stderr, so that stdout is only the data. */
+export const ROOT_HINT = '→ via <provider> to browse · via find <query> to search';
+
+/** `via -o json` (discovery.md, "浏览视图"): `{"providers": [{"provider", "tools", "status"}]}`, in the order of the text view. */
+export function rootJson(entries: readonly RootEntry[]): { providers: Array<{ provider: string; tools: number; status: string }> } {
+  return {
+    providers: [...entries]
+      .sort((a, b) => byName(a.provider, b.provider))
+      .map((e) => ({ provider: e.provider, tools: e.toolCount, status: e.status === 'ok' ? 'ok' : STATUS_LABEL[e.status] })),
+  };
+}
+
 /** `via` — status line, then one row per provider with its tool count. */
 export function renderRoot(entries: readonly RootEntry[]): string {
   const total = entries.reduce((n, e) => n + e.toolCount, 0);
@@ -74,13 +86,12 @@ export function renderRoot(entries: readonly RootEntry[]): string {
     if (names.length > 0) summary.push(`${names.length} ${STATUS_LABEL[status]} (${names.join(', ')})`);
   }
   const lines = [summary.join(' · ')];
-  const hint = '→ via <provider> to browse · via find <query> to search';
 
   const rows = [...entries]
     .sort((a, b) => byName(a.provider, b.provider))
     .map((e) => [e.provider, e.status === 'ok' ? plural(e.toolCount, 'tool') : e.detail ? `${STATUS_LABEL[e.status]} · ${e.detail}` : STATUS_LABEL[e.status]]);
   lines.push(...alignRows(rows));
-  lines.push(hint);
+  lines.push(ROOT_HINT);
   return lines.join('\n');
 }
 
@@ -114,8 +125,29 @@ export function renderProvider(provider: ProviderCatalog, options: ProviderViewO
   }
   if (provider.tools.length === 0) lines.push('(no tools)');
   if (options.also && options.also.length > 0) lines.push(`also: ${options.also.join(' · ')}`);
-  if (provider.tools.length > 0 && provider.resources.length > 0) lines.push(`→ via ${shellWords(provider.provider)} <resource> for signatures`);
+  if (provider.tools.length > 0 && provider.resources.length > 0) lines.push(providerHint(provider));
   return lines.join('\n');
+}
+
+/** The `→` line that ends the provider view. */
+export function providerHint(provider: ProviderCatalog): string {
+  return `→ via ${shellWords(provider.provider)} <resource> for signatures`;
+}
+
+/**
+ * `via <provider> -o json`: every resource with its verbs and every leaf tool, whole (the text view's
+ * `--all` cut is for the screen, not for a program), and which other kinds of content the server has.
+ */
+export function providerJson(
+  provider: ProviderCatalog,
+  also: { resources: boolean; prompts: boolean; skills: boolean },
+): { provider: string; resources: Array<{ name: string; verbs: string[] }>; tools: string[]; also: typeof also } {
+  return {
+    provider: provider.provider,
+    resources: provider.resources.map((g) => ({ name: g.name, verbs: g.tools.map((t) => t.verb!) })),
+    tools: provider.leaves.map((t) => t.name),
+    also,
+  };
 }
 
 /** `[read-only]` / `[destructive]` tag shown after the description (arguments.md: hints are shown in the resource view). */
@@ -131,7 +163,8 @@ function hintTag(tool: CatalogTool): string {
 function toolRows(label: (t: CatalogTool) => string, tools: readonly CatalogTool[]): string[] {
   return alignRows(
     tools.map((t) => {
-      const row = [label(t), formatSignature(t.params)];
+      // Types and allowed values in the signature: enough to write the call without `-h` (discovery.md).
+      const row = [label(t), formatSignature(t.params, SIGNATURE_MAX_PARAMS, true)];
       const tail = [shortDescription(t.description), hintTag(t)].filter(Boolean).join(' ');
       if (tail) row.push(tail);
       return row;
@@ -139,15 +172,76 @@ function toolRows(label: (t: CatalogTool) => string, tools: readonly CatalogTool
   );
 }
 
+/** A tool as `-o json` lists it in the resource view and in `via find`. */
+export interface ToolListing {
+  ref: string;
+  provider: string;
+  resource: string | null;
+  verb: string | null;
+  rawName: string;
+  signature: { required: string[]; optional: string[] };
+  description: string;
+  readOnly: boolean;
+  destructive: boolean;
+  example?: string;
+}
+
+/**
+ * The `example:` line `-h` shows, as a command: the words of the tool's canonical form and the
+ * arguments kept in the prebuilt catalog. Undefined for a tool without one.
+ */
+export function exampleCommand(tool: CatalogTool): string | undefined {
+  return tool.exampleArgs === undefined ? undefined : `via ${shellWords(tool.ref)} ${tool.exampleArgs}`;
+}
+
+/** Fields from the prebuilt catalog only: no schema is read. `example` only where the command asks for it. */
+export function toolListing(tool: CatalogTool, options: { example?: boolean } = {}): ToolListing {
+  const example = options.example ? exampleCommand(tool) : undefined;
+  return {
+    ref: tool.ref,
+    provider: tool.provider,
+    resource: tool.resource,
+    verb: tool.verb,
+    rawName: tool.rawName,
+    signature: signatureLists(tool.params),
+    description: tool.description,
+    readOnly: tool.readOnly,
+    destructive: tool.destructive,
+    ...(example !== undefined ? { example } : {}),
+  };
+}
+
 /** `via <provider> <resource>` — one row per tool: verb, signature, short description. */
 export function renderResource(provider: ProviderCatalog, group: ResourceGroup): string {
   const lines = toolRows((t) => t.name, group.tools);
-  lines.push(`→ via ${shellWords(provider.provider)} ${shellArg(group.name, { placeholder: 'resource' })}:<verb> -h for usage`);
+  lines.push(resourceHint(provider, group));
   return lines.join('\n');
 }
 
-/** `via find` results: like the resource view, with the provider prefix. */
-export function renderFind(hits: readonly SearchHit[], query: string): string {
-  if (hits.length === 0) return `no tools match "${visibleText(query)}"\n→ via to list providers`;
-  return toolRows((t) => t.ref, hits.map((h) => h.tool)).join('\n');
+/** The `→` line that ends the resource view. */
+export function resourceHint(provider: ProviderCatalog, group: ResourceGroup): string {
+  return `→ via ${shellWords(provider.provider)} ${shellArg(group.name, { placeholder: 'resource' })}:<verb> -h for usage`;
+}
+
+/** What `via find` says when nothing matches; the second line is a `→` hint. */
+export function findNoMatch(query: string): { message: string; hint: string } {
+  return { message: `no tools match "${visibleText(query)}"`, hint: '→ via to list providers' };
+}
+
+/**
+ * `via find` results: like the resource view, with the provider prefix. Unless `brief`, each result
+ * is followed by its `example:` line, the one `-h` would show, indented under it.
+ */
+export function renderFind(hits: readonly SearchHit[], query: string, options: { brief?: boolean } = {}): string {
+  if (hits.length === 0) {
+    const none = findNoMatch(query);
+    return `${none.message}\n${none.hint}`;
+  }
+  const tools = hits.map((h) => h.tool);
+  const rows = toolRows((t) => t.ref, tools);
+  if (options.brief) return rows.join('\n');
+  return rows.flatMap((row, i) => {
+    const example = exampleCommand(tools[i]!);
+    return example === undefined ? [row] : [row, `  example: ${example}`];
+  }).join('\n');
 }

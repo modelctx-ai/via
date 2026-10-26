@@ -24,13 +24,20 @@ import { stringHash } from '../hash';
 import { cacheKey } from './catalog-cache';
 
 /** Bumped when the file layout changes. */
-const VIEW_VERSION = 4;
+const VIEW_VERSION = 5;
+
+/** The call examples in a file are written for one platform's quoting (arguments.md, "调用示例"): a file from the other kind is a miss. */
+const PLATFORM_KIND = process.platform === 'win32' ? 'win' : 'posix';
 
 interface ViewFile {
   v: number;
   fp: string;
   /** Hash of the build inputs other than the raw list. */
   inputs: string;
+  /** Quoting rules the examples were written for (`PLATFORM_KIND`). */
+  plat: string;
+  /** 1 when the tools carry their call examples (written for `via find`), 0 when they were left out. */
+  ex: number;
   /** `fetchedAt` of the raw list the snapshot was derived from. */
   at: number;
   /** Length of the raw cache file's text, when the list came from one. */
@@ -49,6 +56,8 @@ export interface RawListing {
 export interface CachedView {
   catalog: ProviderCatalog;
   terms: RestoredTerms;
+  /** Whether the tools carry their call examples (`CatalogTool#exampleArgs`). */
+  examples: boolean;
 }
 
 /** JSON with object keys in sorted order, so equal values always hash alike. */
@@ -86,6 +95,15 @@ function computeInputsHash(input: ProviderInput): string {
   );
 }
 
+/** The function that writes the call example of a tool (arguments.md, "调用示例"), or none if it cannot be loaded. */
+async function callExamples(): Promise<((tool: CatalogTool) => string | undefined) | undefined> {
+  try {
+    return (await import('./args/example')).callExampleArgs;
+  } catch {
+    return undefined;
+  }
+}
+
 export class ViewCache {
   constructor(
     /** `<cache dir>/catalog`, the directory of the raw cache. */
@@ -113,7 +131,7 @@ export class ViewCache {
     let data: ViewFile | undefined;
     try {
       const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<ViewFile> | null;
-      if (parsed && parsed.v === VIEW_VERSION && parsed.fp === this.fingerprint && typeof parsed.at === 'number' && parsed.inputs === inputs) data = parsed as ViewFile;
+      if (parsed && parsed.v === VIEW_VERSION && parsed.fp === this.fingerprint && typeof parsed.at === 'number' && parsed.inputs === inputs && parsed.plat === PLATFORM_KIND) data = parsed as ViewFile;
     } catch {
       data = undefined;
     }
@@ -142,7 +160,7 @@ export class ViewCache {
     }
     try {
       const restored = restoreProvider(input.provider, data.head, data.body, () => listing.tools);
-      return restored ? { catalog: restored.catalog, terms: restored.terms } : undefined;
+      return restored ? { catalog: restored.catalog, terms: restored.terms, examples: data.ex === 1 } : undefined;
     } catch {
       return undefined;
     }
@@ -151,9 +169,14 @@ export class ViewCache {
   /**
    * Keep a build for later runs and return its search terms. Best effort, like the raw cache: a
    * cache that cannot be written must never fail a command.
+   *
+   * `examples` also writes the call example of every tool (and sets it on the tools of `catalog`).
+   * They are made from the schemas, which a browse never reads, so only `via find` asks for them;
+   * writing them again for a catalog restored without them is how a file gets them later.
    */
-  write(server: ServerConfig, input: ProviderInput, listing: RawListing, catalog: ProviderCatalog): Map<CatalogTool, DocTerms> {
-    const { head, body, terms } = snapshotProvider(catalog, listing.tools);
+  async write(server: ServerConfig, input: ProviderInput, listing: RawListing, catalog: ProviderCatalog, options: { examples?: boolean } = {}): Promise<Map<CatalogTool, DocTerms>> {
+    const exampleOf = options.examples ? await callExamples() : undefined;
+    const { head, body, terms } = snapshotProvider(catalog, listing.tools, undefined, exampleOf);
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       try {
@@ -167,6 +190,8 @@ export class ViewCache {
         v: VIEW_VERSION,
         fp: this.fingerprint,
         inputs: inputsHash(input),
+        plat: PLATFORM_KIND,
+        ex: exampleOf ? 1 : 0,
         at: listing.fetchedAt,
         ...(listing.rawBytes !== undefined ? { bytes: listing.rawBytes } : {}),
         head,

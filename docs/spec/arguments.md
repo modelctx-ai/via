@@ -89,7 +89,7 @@ alias: issue_read · read-only
 
 ### 调用示例
 
-`-h` 在 `alias:` 行之前给出一行 `example:`，是按 `inputSchema` 生成、可以直接粘贴运行的调用（`via prompts <provider> <名称> -h` 同样有，写的是 prompt 的参数）。agent 读了它就知道嵌套对象、对象数组、tuple 该怎么写，不必再去翻映射规则；这行文字会进入 agent 的上下文，所以只给一条、尽量短（上例约 25 个 token）。错误信息里的 `usage:` 不带它。
+`-h` 在 `alias:` 行之前给出一行 `example:`，是按 `inputSchema` 生成、可以直接粘贴运行的调用（`via prompts <provider> <名称> -h` 同样有，写的是 prompt 的参数）。agent 读了它就知道嵌套对象、对象数组、tuple 该怎么写，不必再去翻映射规则；这行文字会进入 agent 的上下文，所以只给一条、尽量短（上例约 25 个 token）。错误信息里的 `usage:` 不带它。`via find` 的结果下面也带这一行（缩进两格，`-o json` 里是 `example` 字段，[discovery.md](discovery.md#搜索)），用的是同一个函数：为了不在搜索时读 schema，它的结果存在[预构建缓存](discovery.md#预构建缓存)里，所以两处的文字必须一致（测试逐工具比较）。
 
 - **选哪些参数**：所有必填参数，之后补可选参数，直到共 3 个；必填参数已有 3 个以上时只写必填。可选参数的值是空容器（`'{}'`、`'[]'`，没有教学意义），或补上它会让整行超过 200 个字符时，跳过。没有参数的工具不显示。必填参数连一个可写的值都没有，或只写必填就超过 400 个字符时，整行不显示。
 - **取什么值**：`enum`/`const` 的第一个值；其次 `examples` 的第一个、`default`（长度超过 60 字符的不用；boolean 不用 `default`，直接写开关）；都没有时按类型生成：string 写 `text`（有 `format` 时写该格式的合法值：`date-time`、`date`、`time`、`email`、`uri`、`hostname`、`ipv4`），integer/number 取 `minimum`（`exclusiveMinimum` 加 1；不超过 `maximum`，默认 1），boolean 写 `--flag`。

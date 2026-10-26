@@ -13,7 +13,7 @@ import type { MetaInfo } from '../../render/meta';
 import { renderOptions, renderToolResult, sanitizeText } from '../../render/pipeline';
 import { defaultNoise } from '../../render/rules';
 import type { ToolResult } from '../../render/types';
-import { formatToolHelp, parseToolArgs, validateOutput, type ParsedToolArgs, type ToolArgsContext, type ToolArgsIO } from '../args';
+import { formatToolHelp, formatUsage, parseToolArgs, validateOutput, type ParsedToolArgs, type ToolArgsContext, type ToolArgsIO } from '../args';
 import type { App, Listing } from '../app';
 import { toErrorInfo } from '../error-info';
 import { matchingDeny, type ProviderEntry } from '../directory';
@@ -64,6 +64,18 @@ export async function showToolHelp(app: App, initial: ToolTarget): Promise<numbe
   }
   app.out(withNewline(formatToolHelp(target.tool.def, argsContext(target.tool))));
   return ExitCode.Ok;
+}
+
+/**
+ * Every visible tool of a provider, for `via <provider> -h --all` (discovery.md, "浏览视图"): its
+ * `usage:` line (no parameter descriptions) and its detail as `-h -o json` prints it. Reads the
+ * schemas of the provider, which the listings never do.
+ */
+export function providerTools(provider: ProviderCatalog): { usage: string[]; details: Record<string, unknown>[] } {
+  return {
+    usage: provider.tools.map((t) => formatUsage(t.def, argsContext(t))),
+    details: provider.tools.map((t) => toolDetail(t.def, t.ref, { readOnly: t.readOnly, destructive: t.destructive })),
+  };
 }
 
 // Schema snapshot -----------------------------------------------------------------------------

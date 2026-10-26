@@ -367,7 +367,7 @@ describe('help and routing', () => {
     const general = await sb.via(['-h']);
     expect(general.code).toBe(0);
     expect(general.stdout).toContain('usage:');
-    expect((await sb.via(['find', '-h'])).stdout).toBe('usage: via find [<query>] [-n <count>]\n');
+    expect((await sb.via(['find', '-h'])).stdout).toBe('usage: via find [<query>] [-n <count>] [--brief]  (--brief: no example line under each result)\n');
     expect((await sb.via(['help', 'servers'])).stdout).toContain('via servers');
   });
 

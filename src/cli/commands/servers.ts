@@ -10,6 +10,7 @@ import type { App } from '../app';
 import { authState, type AuthState } from '../auth-state';
 import type { CacheEntry } from '../catalog-cache';
 import { buildProviderTable, type ProviderEntry } from '../directory';
+import { writeJson } from '../listing-output';
 import { protocolLabel } from '../protocol-label';
 import { parseLocal } from '../options';
 import { usageFailure } from '../failure';
@@ -143,7 +144,7 @@ export async function serversCommand(app: App, argv: readonly string[]): Promise
       servers: rows.map(serverJson),
       diagnostics: config.diagnostics.map((d) => ({ level: d.level, message: formatDiagnostic(d) })),
     };
-    app.out(`${JSON.stringify(await app.redactValue(payload), null, 2)}\n`);
+    await writeJson(app, payload);
     return ExitCode.Ok;
   }
   const lines = rows.map((r) => [r.server.provider, describeTransport(r.server), protocolLabel(r.server.disabled ? undefined : r.protocol, r.server.protocolVersion) ?? '-', r.authText, r.source, r.notes.join('; ')]);

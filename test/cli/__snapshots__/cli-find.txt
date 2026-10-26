@@ -1,3 +1,6 @@
-gh issue:read   owner, repo, issue-number, method  Get issue details [read-only]
-gh issue:write  owner, repo, title, [body]         Create or update an issue
-gh issue:list   owner, repo, [state], [per-page]   List issues [read-only]
+gh issue:read   owner, repo, issue-number:num, method=get|get_comments  Get issue details [read-only]
+  example: via gh issue:read --owner text --repo text --issue-number 1 --method get
+gh issue:write  owner, repo, title, [body]                              Create or update an issue
+  example: via gh issue:write --owner text --repo text --title text
+gh issue:list   owner, repo, [state=open|closed], [per-page:num]        List issues [read-only]
+  example: via gh issue:list --owner text --repo text --state open

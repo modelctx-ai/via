@@ -322,7 +322,7 @@ export class App {
   }
 
   /** Fetch several providers in parallel; failures become statuses instead of aborting. */
-  async loadProviders(entries: readonly ProviderEntry[], options: { refresh?: boolean } = {}): Promise<LoadedProviders> {
+  async loadProviders(entries: readonly ProviderEntry[], options: { refresh?: boolean; examples?: boolean } = {}): Promise<LoadedProviders> {
     const config = await this.config();
     const [{ buildCatalog, failureReason, providerInput, statusOf }, views] = await Promise.all([this.deps(), this.viewCache()]);
     const statuses: Record<string, ProviderStatus> = {};
@@ -351,17 +351,22 @@ export class App {
     const byName = new Map(results.map((r) => [r.entry.name, r]));
     const written = new Map<CatalogTool, DocTerms>();
     const restored = new Map<string, { get(tool: CatalogTool): DocTerms | undefined }>();
+    // Builds in the cache that lack the call examples a caller asked for (`via find`): written again with them.
+    const withoutExamples = new Set<string>();
     const catalog = buildCatalog(inputs, undefined, (input) => {
       const r = byName.get(input.provider);
       const hit = r?.listing ? views.read(r.entry.server, input, r.listing) : undefined;
       if (!hit) return undefined;
       restored.set(input.provider, hit.terms);
+      if (options.examples && !hit.examples) withoutExamples.add(input.provider);
       return hit.catalog;
     });
     for (const [i, r] of results.entries()) {
       const built = catalog.providers.find((p) => p.provider === r.entry.name);
-      if (!r.listing || !built || restored.has(r.entry.name)) continue;
-      for (const [tool, known] of views.write(r.entry.server, inputs[i]!, r.listing, built)) written.set(tool, known);
+      if (!r.listing || !built) continue;
+      if (restored.has(r.entry.name) && !withoutExamples.has(r.entry.name)) continue;
+      const terms = await views.write(r.entry.server, inputs[i]!, r.listing, built, { examples: options.examples ?? false });
+      if (!restored.has(r.entry.name)) for (const [tool, known] of terms) written.set(tool, known);
     }
     const terms = { get: (tool: CatalogTool): DocTerms | undefined => written.get(tool) ?? restored.get(tool.provider)?.get(tool) };
     const background = this.backendReady?.mode === 'daemon';
@@ -383,7 +388,7 @@ export class App {
     let visible = views.read(entry.server, input, listing)?.catalog;
     if (!visible) {
       visible = buildProvider(entry, listing.tools, config, true);
-      views.write(entry.server, input, listing, visible);
+      await views.write(entry.server, input, listing, visible);
     }
     let full: ProviderCatalog | undefined;
     return {

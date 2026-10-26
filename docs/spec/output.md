@@ -69,6 +69,11 @@
 | `-o raw` | 上游原始 content，不做任何处理（仍脱敏）；不受预算约束，不产生游标 | 排查问题 |
 | `--full` | 关闭截断，可与任意格式组合 | 需要完整结果时 |
 
+浏览视图（`via`、`via <provider>`、`via <provider> <resource>`）与 `via find` 是 via 自己生成的目录，不经过上面的渲染流水线（没有预算与游标），但同样接受 `-o`：
+
+- `-o json` 输出目录的 JSON（字段见 [discovery.md](discovery.md#浏览视图)，全部来自预构建缓存，不读 schema），stdout 只有 JSON；文本视图末尾的 `→` 提示与「没有命中」的说明改写 stderr，`noteCanonical` 的元信息行（`· gh issue`）照旧在 stderr。字符串（描述、名字、枚举值）是 server 的内容，按[内容档](#脱敏的范围)脱敏后再序列化。`via servers -o json` 同理（[cli.md](cli.md#内置子命令)）。
+- `-o raw` 是上游原始 content，目录没有上游原文可给，退出码 2（`error: -o raw applies to a tool call: a listing has no upstream text to show`，`next:` 是同一条命令加 `-o json`），而不是悄悄输出文本。
+
 ## 元信息行
 
 成功调用后在 stderr 输出一行，以 `·` 开头，字段以 ` · ` 分隔：

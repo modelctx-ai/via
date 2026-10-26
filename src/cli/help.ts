@@ -11,7 +11,7 @@ usage:
   via <provider> <resource>                  actions of a resource, with signatures
   via <provider> <resource>:<verb> -h        usage of a tool
   via <provider> <resource>:<verb> [args]    call a tool
-  via find <query> [-n 10]                   search tools across providers
+  via find <query> [-n 10] [--brief]         search tools across providers, each with a call example
   via batch [--concurrency <n>] [--line <n>] JSON Lines on stdin: concurrent calls, results in input order
   via resources <provider>                   resources and resource templates of a server
   via read <provider> <uri>                  read a resource
@@ -32,7 +32,7 @@ docs: docs/spec/cli.md
 
 /** Usage of each built-in subcommand, for \`via <command> -h\`. */
 export const COMMAND_USAGE: Readonly<Record<string, string>> = {
-  find: 'usage: via find [<query>] [-n <count>]',
+  find: 'usage: via find [<query>] [-n <count>] [--brief]  (--brief: no example line under each result)',
   call: 'usage: via call <provider>/<resource>:<verb> [--args <json>|@file|-] [--<arg> <value>…]',
   more: 'usage: via more <cursor>',
   servers: 'usage: via servers',

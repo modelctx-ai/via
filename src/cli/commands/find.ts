@@ -1,20 +1,27 @@
-// `via find <query> [-n <count>]`
-import { renderFind, SearchIndex } from '../../catalog';
+// `via find <query> [-n <count>] [--brief]`
+import { findNoMatch, renderFind, SearchIndex, toolListing } from '../../catalog';
 import { ExitCode } from '../../render/exit-codes';
 import type { App } from '../app';
 import { usageFailure } from '../failure';
+import { rejectRaw, writeJson } from '../listing-output';
 import { parseLocal } from '../options';
 
 export async function findCommand(app: App, argv: readonly string[]): Promise<number> {
-  const { flags, positionals } = parseLocal('find', argv, [{ name: 'limit', value: true, short: 'n' }]);
+  const { flags, positionals } = parseLocal('find', argv, [
+    { name: 'limit', value: true, short: 'n' },
+    { name: 'brief', value: false },
+  ]);
   let limit = 10;
   if (flags.limit !== undefined) {
     limit = Number(flags.limit);
     if (!Number.isInteger(limit) || limit < 1) throw usageFailure(`-n must be a positive integer (got ${JSON.stringify(String(flags.limit).slice(0, 40))})`, 'via find -h');
   }
   const query = positionals.join(' ');
+  rejectRaw(app, ['find', ...(query === '' ? [] : [query])]);
+  const brief = flags.brief === true;
   const { entries } = await app.table();
-  const { catalog, terms, statuses, failures, background } = await app.loadProviders(entries);
+  // The examples under the results come from the prebuilt catalog; a build made without them (by a browse) gets them now, once.
+  const { catalog, terms, statuses, failures, background } = await app.loadProviders(entries, { examples: !brief });
 
   // Optional embedding retrieval (ADR 0011): off unless the user config enables it, and then loaded
   // on demand. Any failure leaves the lexical ranking and a meta line.
@@ -25,7 +32,13 @@ export async function findCommand(app: App, argv: readonly string[]): Promise<nu
     limit,
     ...(semantic?.scores ? { semantic: semantic.scores } : {}),
   });
-  app.out(`${renderFind(hits, query)}\n`);
+  if (app.options.format === 'json') {
+    // Fields of the prebuilt catalog, `example` included unless --brief; the `→` hint goes to stderr as in the text view.
+    await writeJson(app, hits.map((h) => toolListing(h.tool, { example: !brief })));
+    if (hits.length === 0) app.err(`${findNoMatch(query).message}\n${findNoMatch(query).hint}\n`);
+  } else {
+    app.out(`${renderFind(hits, query, { brief })}\n`);
+  }
   // Providers that are still starting are told apart from the ones that could not be searched: the first
   // are worth asking again in a moment, the second need a look (discovery.md, "浏览视图").
   const starting = failures.filter((f) => statuses[f.entry.name] === 'starting').map((f) => f.entry.name).sort();

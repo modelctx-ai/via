@@ -7,6 +7,7 @@
 ```text
 via                                       状态 + 每个 provider 一行，带工具数
 via <provider> [--all]                    该 provider 的资源，动作内联列出
+via <provider> -h --all                   server 自述、provider 视图，再加全部工具的 usage 行
 via <provider> <resource>                 该资源下每个动作一行，带参数签名
 via <provider> <resource>:<verb> -h       用法
 via <provider> <resource>:<verb> [参数]   调用
@@ -54,7 +55,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 
 | 命令 | 作用 |
 | --- | --- |
-| `via find <查询> [-n 10]` | 跨 provider 搜索工具，每条结果带参数签名 |
+| `via find <查询> [-n 10] [--brief]` | 跨 provider 搜索工具，每条结果带参数签名（含类型与枚举）和一行 `example:` 调用示例；`--brief` 去掉示例行 |
 | `via call <provider>/<resource>:<verb> --args '{…}'` | 显式调用，参数为 JSON、`@文件` 或 `-`（stdin），供脚本使用 |
 | `via more <游标>` | 续读被截断的结果 |
 | `via batch [--concurrency <n>] [--line <n>[,<n>…]]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出；`--line` 只执行指定的行（[见下](#via-batch)） |
@@ -79,7 +80,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 各命令的细节：
 
 - `via call`：`<provider>/<ref>` 按与命令行形式相同的规则解析（provider 与资源接受唯一前缀，原始名可用）；其后的参数交给工具参数解析器，`--args`、`@文件`、`-`（stdin）均可用。
-- `via find`：没有命中时输出 `no tools match "<查询>"`；个别 provider 无法连接时照常搜索其余的，并在 stderr 警告哪些没有被搜索。用户配置了 `search.semantic` 时，stderr 可能多一行 `· semantic …` 元信息行（退回词法排序的原因，或第一次补全 embedding 缓存），退出码不变（[discovery.md](discovery.md#embedding-检索可选默认关闭)）。
+- `via find`：每条结果下缩进两格带一行 `example:`（与 `-h` 同一个函数生成，没有示例的工具不带），`--brief` 去掉它；`-o json` 见 [discovery.md](discovery.md#搜索)。没有命中时输出 `no tools match "<查询>"`；个别 provider 无法连接时照常搜索其余的，并在 stderr 警告哪些没有被搜索。用户配置了 `search.semantic` 时，stderr 可能多一行 `· semantic …` 元信息行（退回词法排序的原因，或第一次补全 embedding 缓存），退出码不变（[discovery.md](discovery.md#embedding-检索可选默认关闭)）。
 - `via more`：只读游标，不加载配置和目录。游标先向已经在运行的 daemon 要（不会为此拉起 daemon），再看缓存目录（[daemon.md](daemon.md#daemon-持有的状态)）。
 - `via daemon`：
   - `status`：不拉起 daemon，只询问正在运行的。输出一行概况（pid、版本、运行时间、内存、距空闲退出的时间；内存写作 `rss 83.0 MB · anon 41.2 MB`，`anon` 是 Linux 上 `/proc/<pid>/status` 的 `RssAnon`，也是[性能目标](../development/testing.md#性能目标)用的口径，其他平台写 `anon n/a`；不报告 `anon` 的旧版本 daemon 只写 `rss`）、socket 路径和各会话（server 名、传输、`running (pid N)` / `connected` / `stopped`、目录中的工具数、调用数、空闲时间或在途数）；不含 URL、参数、凭证。socket 上没有 daemon 应答时（包括连得上却完不成握手，例如令牌不符，或 Windows 上收尾中的 daemon 的管道还被别的连接占着），再看 daemon 进程记录（[daemon.md](daemon.md#进程记录)）：有不在监听的 daemon 进程时每个一行，`daemon: starting · pid N`（还没绑定 socket）、`daemon: stopping · pid N · finishing requests in flight`（已收到 `shutdown`、删掉 socket，在处理在途请求）或 `daemon: not reachable · pid N`（socket 被删或被替换，几秒内自行退出），再加 `socket:` 一行；一个都没有才输出 `daemon: not running` 加 `socket:` 一行（完不成握手而又没有记录时，照旧报告连不上的原因）。有 daemon 应答而旁边还有别的 daemon 进程（例如上一个仍在收尾）时，概况之后追加 `also: stopping · pid N · …`。`VIA_NO_DAEMON` 打开时输出 `daemon: disabled (VIA_NO_DAEMON)`，退出码都是 0。`-o json` 输出 `{"running": true, …}`（字段同协议的 `status`）或 `{"running": false, "socket": …}`，有其他 daemon 进程时带 `processes: [{ pid, state }]`（`state` 为 `starting`、`running`、`stopping`）。
@@ -402,10 +403,10 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 
 | 选项 | 作用 |
 | --- | --- |
-| `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)） |
+| `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)）；浏览视图、`via find`、`via servers` 支持 `json`，`raw` 在它们上退出码 2 |
 | `--json` | `-o json` 的别名（模型对 `--json` 的先验很强）。工具自己有名为 `json` 的参数时写 `--p.json` |
 | `--full` | 关闭截断 |
-| `--all` | 浏览视图不截断条目 |
+| `--all` | 浏览视图不截断条目；`via <provider> -h --all` 另列出全部工具的用法 |
 | `--yes` | 确认执行危险工具 |
 | `--dry-run` | 只解析并打印将要发出的调用，不执行（输出格式见下） |
 | `--no-validate` | 跳过本地 schema 校验（[arguments.md](arguments.md#schema-不可靠时)）；`--yes` 与 `deny` 照常生效 |
@@ -414,7 +415,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `--schema-mode compatible\|strict` | 快照比较的松紧，默认 `compatible` |
 | `--detach` | 工具调用在 server 建出任务后立即返回任务 ID，不等结果（[任务](#任务via-tasks-与---detach)）；只用于工具调用（含 `via call`、`via batch`） |
 | `--complete <参数>` | 向 server 要这个 prompt 或资源模板参数的取值建议（[补全](#补全)），只用于 `via prompts <provider> <名称>` 与 `via resources <provider> <模板>` |
-| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)） |
+| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)），再加 `--all` 时在视图后列出该 provider 全部工具的 `usage:` 行（`-o json` 时是工具详情的数组） |
 
 全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
 

@@ -303,6 +303,9 @@ describe('built dist/via.js', () => {
         // The markers must match the bundle, or the check below passes vacuously.
         const bundle = readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, f), 'utf8'));
         for (const m of modules) expect(bundle.some((text) => marker(m).test(text)), m).toBe(true);
+        // The first `find` after a refresh reads the schemas once, to keep the call example of every
+        // tool in the prebuilt catalog (discovery.md, "预构建缓存"); the ones after it do not.
+        expect((await viaAsync(['find', 'issue'])).code).toBe(0);
         for (const args of [[], ['find', 'issue'], ['gh'], ['gh', 'issue']]) {
           const { files } = loads(args);
           const texts = files.map((f) => readFileSync(join(dir, f), 'utf8'));
