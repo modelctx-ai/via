@@ -27,6 +27,8 @@ via:
   - run: via linear issue:get --id PLT-300
   - run: via find "search pull requests"
   - run: via github pull-request:search --query "repo:acme/api is:pr is:open PLT-300" --per-page 5
+  # 0.4-dev (#34)：这个任务本来就没有 -h：两次 find 的 example: 行已经给出 issue:get 与 pull-request:search 的写法。
+  # `via linear comment` 是找资源的一步，不是 -h，保留（第一次 find 恰好列到了 comment:create，但 agent 那时不会去找它）。
   - run: via linear comment
   - run: >-
       via linear comment:create --issue-id PLT-300 --body "Fix is in review: https://github.com/acme/api/pull/487"

@@ -27,6 +27,8 @@ calls:
 via:
   - run: via playwright
   - run: via playwright browser:navigate --url https://docs.acme.test/
+  # 0.4-dev (#34)：保留这条 -h。browser-type 是叶子工具：前面只有 `via playwright` 的 provider 视图（只列名字，没有签名）和
+  # 一份页面快照，没有 find 或资源视图给出必填的 --element / --ref / --text。
   - run: via playwright browser-type -h
   - run: via playwright browser-type --element "Search docs" --ref e8 --text "rate limit" --submit
   - run: via playwright browser:click --element "Rate limits result" --ref e73

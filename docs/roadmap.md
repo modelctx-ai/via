@@ -81,11 +81,11 @@ flowchart LR
 | c3 resources、prompts 与 roots | 已实现 | [ADR 0010](adr/0010-mcp-resources-prompts-and-roots.md) |
 | c4 Windows 支持 | 已实现 | daemon 走命名管道（[ADR 0012](adr/0012-windows-pipe-name-and-batch-files.md)），CI 在 Windows 上跑完整检查 |
 | c5 `via serve` | 已实现，未发布 | stdio MCP server，九个元工具，每次调用就是一次 CLI 命令（[ADR 0016](adr/0016-via-serve-meta-tools-over-stdio.md)、[ADR 0024](adr/0024-via-serve-tasks-skills-and-completion.md)、[cli.md](spec/cli.md#via-serve)） |
-| d1 agent 评测 | 部分实现 | mcpc 对照列已加入 `bench:tokens` 与 `bench:eval`，token 结果见 [0.4-tokens](../bench/results/0.4-tokens.md)；agent 评测的成功率还没有发布（需要 `ANTHROPIC_API_KEY`） |
+| d1 agent 评测 | 部分实现 | mcpc 对照列已加入 `bench:tokens` 与 `bench:eval`，token 结果见 [0.4-tokens](../bench/results/0.4-tokens.md)，#34 之后的重跑见 [0.4-tokens-after-34](../bench/results/0.4-tokens-after-34.md)（via 合计 14,731 → 15,365，仍约 native 的 4%，命令数不变：九个任务里没有一条 `-h` 能去掉，`find` 的 `example:` 行在 `cross-issue-to-pr` 里净增约 400 token）；agent 评测的成功率还没有发布（需要 `ANTHROPIC_API_KEY`） |
 | d2 OAuth 实测 | 计划中（0.4） | 需要在真实远程 server 上登录 |
 | d3 性能目标 | 已实现 | 目标已按建议重新标定（冷启动相对 `node -e 0`、`find` 库路径与整进程分开、daemon 内存看 RssAnon），`bench:perf` 按新口径判定；复测与回归修复见 [perf-0.4](../bench/results/perf-0.4.md)：浏览路径的冷启动回归已修（比 v0.3.1 快 5–8 ms），仍有三项没有达到新目标，见门槛 2 |
 | d4 单文件分发 | 已按决定结案 | 只在 npm 分发；签名、公证、Homebrew 与单文件不做（[ADR 0023](adr/0023-npm-is-the-only-distribution-channel.md)） |
-| d5 拆分规则与截断预算 | 部分实现 | `npm run split-stats` 与 [0.4-split](../bench/results/0.4-split.md)；动词表新增 7 个通用动词，`deny` 同时匹配叶子写法；截断预算等 d1 的评测 |
+| d5 拆分规则与截断预算 | 部分实现 | `npm run split-stats` 与 [0.4-split](../bench/results/0.4-split.md)；动词表新增 7 个通用动词，`deny` 同时匹配叶子写法；截断预算等 d1 的评测；资源视图签名的 60 列上限也要重新量：`issue:read`、`pull-request:read` 的 `method=…` 枚举因此退回不带类型的写法，基准里这两处的 `-h` 去不掉（[0.4-tokens-after-34](../bench/results/0.4-tokens-after-34.md)） |
 | d6 引号审计 | 已实现，未发布 | 可粘贴的命令行统一由一处转义，无法安全引用的值写成占位符（[output.md](spec/output.md)、[security.md](spec/security.md)） |
 | e1 SDK v2、e2 2026-07-28 无状态协议、e3 协议版本可见与固定、e8 一致性测试 | 已实现，未发布 | `@modelcontextprotocol/client` 2.3.1；`server/discover` 探测并自动回退（[ADR 0017](adr/0017-protocol-versions-newest-first-with-fallback.md)、[daemon.md](spec/daemon.md)）；`protocolVersion` 配置字段；CI 新增 `conformance` 与 `stateless` 任务，预期失败的场景列在 `test/conformance/expected-failures.yml` |
 | e4 tasks、e6 Skills、e9 completion 与 server 自述 | 已实现，未发布 | `via tasks`（含 `input_required` 里的 elicitation）、`via skills`（[ADR 0020](adr/0020-tasks-and-skills-commands.md)），`--detach`；server 自述只在 `via <provider> -h`，`--complete` 显式补全（[ADR 0021](adr/0021-server-self-description-and-completion.md)）；`via serve` 经 `via_skills`、`via_tasks` 与 `via_call`/`via_prompts`/`via_resources` 的新参数暴露（[ADR 0024](adr/0024-via-serve-tasks-skills-and-completion.md)） |

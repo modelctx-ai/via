@@ -28,10 +28,14 @@ calls:
 
 via:
   - run: via notion
+  # 0.4-dev (#34)：保留这条 -h。它前面是 `via notion`（provider 视图，只列资源名与叶子工具名，没有签名；不是 find，也不是资源视图），
+  # 看不到 search 的参数。
   - run: via notion search -h
   - run: via notion search --query "Q3 roadmap" --page-size 5
   - run: via notion fetch --id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701
   - run: via notion page
+  # 0.4-dev (#34)：保留这条 -h。`via notion page` 里 `page:update` 的 command 是长枚举（update_properties、replace_content、
+  # insert_content_after …），签名里不写（枚举连起来超过 60 个字符不进签名）；要用的取值 insert_content_after 只有 -h 里才能确认。
   - run: via notion page:update -h
   - run: >-
       via notion page:update --page-id 2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701 --command insert_content_after --old-str "- Who owns the on-call runbook for the new queue?" --new-str "- Decision: per-tenant limits will be exposed in the public API docs."

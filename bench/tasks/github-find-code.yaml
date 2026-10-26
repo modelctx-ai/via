@@ -20,6 +20,8 @@ calls:
 
 via:
   - run: via github
+  # 0.4-dev (#34)：这个任务没有 -h，无需改动：资源视图 `via github code`（`query, [order=asc|desc], …`）与 `via github file-content`
+  # （`owner, repo, [path], …`）的签名已够写出两次调用，参数都是普通字符串或数字。
   - run: via github code
   - run: via github code:search --query "RateLimiter repo:acme/api" --per-page 5
   - run: via github file-content

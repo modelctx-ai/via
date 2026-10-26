@@ -8,6 +8,7 @@
 
 ### Added
 
+- 发布 #34 之后的 token 基准重跑（[0.4-tokens-after-34.md](bench/results/0.4-tokens-after-34.md)，[#34](https://github.com/modelctx-ai/via/issues/34)）：via 合计 14,731 → 15,365 token（仍约 native 的 4%，mcp2cli 16%、mcpc 15%），命令数 52 → 52。逐条检查了任务里每一条 `-h`，没有一条能去掉：4 条面对的是叶子工具（前面只有 provider 视图，没有签名），3 条的资源视图签名因超过 60 列退回了不带类型与枚举的写法（`issue:read` 与 `pull-request:read` 的 `method`、`notion page:update` 的 `command`）；各任务 yaml 里用注释写明了理由。`via find` 的 `example:` 行在 `cross-issue-to-pr` 里让两次 `find` 各多约 166 和 231 token，这个任务本来没有 `-h`，所以是净增加。README 的 4% 不变。不涉及动词表与规范写法。
 - 发布 2026-10-26 的 agent 评测报告（[eval-2026-10-26-deepseek-flash.md](bench/results/eval-2026-10-26-deepseek-flash.md)）：deepseek-flash、effort medium，9 个任务 × 10 次。native 68/90、via 66/90、mcp2cli 67/90、mcpc 68/90。门槛 1 不成立，三组对比的 Wilson 区间都重叠。mcp2cli 一列是同日第二次运行，第一次因本机回放收到 HTTP 502 而作废。原始 JSON 不在仓库里。不涉及动词表与规范写法。
 - agent 评测的原始 JSON（`bench/results/eval-*.json`，每次调用和模型原文）不进仓库，`.gitignore` 排除；可以提交的是同名 `.md` 报告，以及原来的 token / 拆分 / 性能结果。登录拦截只拒绝 `via auth`、`mcp2cli --oauth`、`mcpc login` 和 `--mcp` / `mcpc connect` 指向回放 server 以外的地址，不再把工具参数里的 `https://`（如 `https://docs.acme.test/`）当成另一次登录。mcp2cli 的说明多一句：别名已经建好，用 `@name --search` 再调用，不要自己传 `--mcp`。沙箱设置 `NO_PROXY=*`，避免 HTTP 代理把本机回放答成 502。不涉及动词表与规范写法。
 - agent 评测在第一个任务之前校验登录（[bench/README.md](bench/README.md#四种条件)）：用户配置里已有凭证的挂载 server，OAuth 未登录就先 `via auth login` 并复查，凭证不可用则退出码 4，不开始评测。任务进行中拒绝 `via auth`、`mcp2cli --oauth`、`mcpc login`/`logout`，以及不是本次回放 server 的 `http(s)` 地址。`--fake-model` 不碰凭证。不涉及动词表与规范写法。
