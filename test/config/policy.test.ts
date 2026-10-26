@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateLayer } from '../../src/config/layer';
 import { loadPolicy } from '../../src/config/load';
@@ -86,7 +86,7 @@ describe('sandbox: merging', () => {
 
   it('the user config turns it on; a policy path is relative to the file that names it', () => {
     const { policy } = mergePolicy([layer({ sandbox: { enabled: true, command: ['srt', '--debug'], policy: 'srt.json', exclude: ['auth'] } }).layer], ctx, '/repo');
-    expect(policy.sandbox).toMatchObject({ enabled: true, command: ['srt', '--debug'], policy: { file: join('/home/u/.config/via', 'srt.json') }, exclude: ['auth'] });
+    expect(policy.sandbox).toMatchObject({ enabled: true, command: ['srt', '--debug'], policy: { file: resolve('/home/u/.config/via', 'srt.json') }, exclude: ['auth'] });
     const inline = mergePolicy([layer({ sandbox: { enabled: true, command: 'my-srt', policy: { network: { allowedDomains: ['a.example'] } } } }).layer], ctx, '/repo').policy.sandbox;
     expect(inline).toMatchObject({ command: ['my-srt'], policy: { inline: { network: { allowedDomains: ['a.example'] } } } });
   });
