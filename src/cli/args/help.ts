@@ -182,6 +182,8 @@ export function formatToolHelp(tool: McpTool, ctx: ToolArgsContext): string {
     if (!p.inlineEnum && p.literals) pieces.push(`one of: ${listWithin(p.literals.map(literalText), 72)}`);
     if (p.scalarArray) pieces.push('repeat the flag or pass a JSON array');
     if ('default' in p.schema && p.schema.default !== undefined) pieces.push(`default: ${defaultText(p.schema.default)}`);
+    // A required parameter always has its row, so `-h` answers "what does --issue-number take" even when the schema says nothing else.
+    if (pieces.length === 0 && p.info.required) pieces.push(p.boolean ? 'bool' : p.placeholder);
     if (pieces.length > 0) rows.push([`  ${p.flag}`, pieces.join(' · ')]);
 
     // Declared fields of an object parameter: `--filter.<field>`.

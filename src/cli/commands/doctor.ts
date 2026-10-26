@@ -26,7 +26,7 @@ export async function doctorCommand(app: App): Promise<number> {
         const warning = await loginStoreWarning(app, server);
         return { ...base, status: 'ok', toolCount: tools.length, ...(protocol ? { protocol } : {}), schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), ...(warning ? { warning } : {}) };
       } catch (error) {
-        const probe: ServerProbe = { ...base, status: statusOf(error), message: app.redact.scan(error instanceof Error ? error.message : String(error)) };
+        const probe: ServerProbe = { ...base, status: probeStatus(statusOf(error)), message: app.redact.scan(error instanceof Error ? error.message : String(error)) };
         const next = error instanceof ClientError || error instanceof CredentialError ? error.next : undefined;
         if (next) probe.next = app.redact.scan(next);
         return probe;
@@ -85,4 +85,9 @@ function readProcVersion(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** `via doctor` has no `starting`: a probe that ran out of time is a finding (its message says so). */
+function probeStatus(status: ReturnType<typeof statusOf>): ServerProbe['status'] {
+  return status === 'failed' || status === 'starting' ? 'error' : status;
 }

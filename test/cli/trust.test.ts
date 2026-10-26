@@ -30,7 +30,7 @@ describe('via trust', () => {
     const file = stdioProject(sb);
     const r = await sb.via(['job']);
     expect(r.code).toBe(5);
-    expect(r.stderr).toContain(`next: via trust ${file}`);
+    expect(r.stderr).toContain(`next: ask the user to run this in a terminal: via trust ${file}`);
   });
 
   it('shows what would be trusted without values, and refuses to record without a terminal or --yes (exit 5)', async () => {
@@ -265,7 +265,7 @@ describe('via trust', () => {
     expect(servers.stdout).toContain(`untrusted (via trust ${file})`);
     const doctor = await sb.via(['doctor']);
     expect(doctor.code).toBe(5);
-    expect(doctor.stdout).toContain(`next: via trust ${file}`);
+    expect(doctor.stdout).toContain(`next: ask the user to run this in a terminal: via trust ${file}`);
   });
 
   it('quotes a path with spaces in the next: hint', async () => {
@@ -276,7 +276,7 @@ describe('via trust', () => {
     expect(r.code).toBe(5);
     // Single quotes for a POSIX shell, double quotes for cmd.exe and PowerShell (render/shell.ts).
     const q = process.platform === 'win32' ? '"' : "'";
-    expect(r.stderr).toContain(`next: via trust ${q}${join(dir, '.via.yaml')}${q}`);
+    expect(r.stderr).toContain(`next: ask the user to run this in a terminal: via trust ${q}${join(dir, '.via.yaml')}${q}`);
   });
 
   it('works with a project HTTP server end to end', async () => {

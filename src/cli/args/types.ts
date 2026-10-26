@@ -35,6 +35,8 @@ export interface ParsedToolArgs {
   warnings: string[];
   /** False when validation was skipped (`--no-validate` or an uncompilable schema): the meta line shows `unvalidated`. */
   validated: boolean;
+  /** Top-level keys the tool does not declare that were written as `--name` flags; `--dry-run` lists them. */
+  extraFields: string[];
 }
 
 /** One line of a validation report: `--state  must be one of: …`. */

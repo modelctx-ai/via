@@ -11,11 +11,19 @@ export const DEFAULT_MAX_ROWS = 20;
 /** Default number of leaf tool names on the `tools:` line before it is cut. */
 export const DEFAULT_MAX_LEAVES = 12;
 
-export type ProviderStatus = 'ok' | 'needs-auth' | 'error' | 'untrusted';
+/**
+ * What a provider's tool list came to in a browse (discovery.md, "浏览视图"). The names are the ones
+ * `-o json` prints. `starting`: the wait ran out but nothing failed for certain (the server is still
+ * starting, a daemon goes on connecting); `failed`: it certainly did not work (the process exited, the
+ * command is missing, the handshake was refused), with a reason.
+ */
+export const PROVIDER_STATUSES = ['ok', 'needs-auth', 'starting', 'failed', 'untrusted'] as const;
+export type ProviderStatus = (typeof PROVIDER_STATUSES)[number];
 
 const STATUS_LABEL: Record<Exclude<ProviderStatus, 'ok'>, string> = {
   'needs-auth': 'needs auth',
-  error: 'failed',
+  starting: 'starting',
+  failed: 'failed',
   untrusted: 'untrusted',
 };
 
@@ -24,18 +32,25 @@ export interface RootEntry {
   /** Visible tools; 0 when the catalog could not be loaded. */
   toolCount: number;
   status: ProviderStatus;
+  /** One line after the status label: the reason for `failed`, what to do for `starting`. Already redacted. */
+  detail?: string;
 }
 
 export function rootEntries(
   providers: readonly ProviderCatalog[],
   statuses: Readonly<Record<string, ProviderStatus>> = {},
+  details: Readonly<Record<string, string>> = {},
 ): RootEntry[] {
-  return providers.map((p) => ({
-    provider: p.provider,
-    // A catalog restored from the cache knows its size without restoring its tools.
-    toolCount: (p as { toolCount?: number }).toolCount ?? p.tools.length,
-    status: statuses[p.provider] ?? 'ok',
-  }));
+  return providers.map((p) => {
+    const detail = details[p.provider];
+    return {
+      provider: p.provider,
+      // A catalog restored from the cache knows its size without restoring its tools.
+      toolCount: (p as { toolCount?: number }).toolCount ?? p.tools.length,
+      status: statuses[p.provider] ?? 'ok',
+      ...(detail ? { detail } : {}),
+    };
+  });
 }
 
 function plural(n: number, word: string): string {
@@ -54,7 +69,7 @@ function byName(a: string, b: string): number {
 export function renderRoot(entries: readonly RootEntry[]): string {
   const total = entries.reduce((n, e) => n + e.toolCount, 0);
   const summary = [plural(entries.length, 'provider'), plural(total, 'tool')];
-  for (const status of ['needs-auth', 'error', 'untrusted'] as const) {
+  for (const status of ['needs-auth', 'starting', 'failed', 'untrusted'] as const) {
     const names = entries.filter((e) => e.status === status).map((e) => e.provider);
     if (names.length > 0) summary.push(`${names.length} ${STATUS_LABEL[status]} (${names.join(', ')})`);
   }
@@ -63,7 +78,7 @@ export function renderRoot(entries: readonly RootEntry[]): string {
 
   const rows = [...entries]
     .sort((a, b) => byName(a.provider, b.provider))
-    .map((e) => [e.provider, e.status === 'ok' ? plural(e.toolCount, 'tool') : STATUS_LABEL[e.status]]);
+    .map((e) => [e.provider, e.status === 'ok' ? plural(e.toolCount, 'tool') : e.detail ? `${STATUS_LABEL[e.status]} · ${e.detail}` : STATUS_LABEL[e.status]]);
   lines.push(...alignRows(rows));
   lines.push(hint);
   return lines.join('\n');

@@ -588,7 +588,7 @@ describe('InProcessClient with OAuth', () => {
   it('without a login fails with exit 4 before sending anything', async () => {
     const srv = await mockServer();
     const client = new InProcessClient([httpServer(srv.url, { provider: 'linear', name: 'linear', auth: { type: 'oauth' } })], new FakeResolver(), { oauthStore: createMemoryOAuthStore() });
-    await expect(client.listTools('linear')).rejects.toMatchObject({ exitCode: 4, message: 'linear requires auth', next: 'via auth login linear' });
+    await expect(client.listTools('linear')).rejects.toMatchObject({ exitCode: 4, message: 'linear requires auth', next: 'ask the user to run this in a terminal: via auth login linear' });
     expect(srv.state.mcp).toHaveLength(0);
   });
 

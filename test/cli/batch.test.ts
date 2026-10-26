@@ -206,7 +206,7 @@ describe('deny and confirmation', () => {
     expect(normalize(r.stderr)).toBe(
       [
         'error: line 1: gh file:delete is destructive and was not run',
-        'next: rerun only this line with: via batch --yes',
+        'next: rerun only this line with: via batch --yes --line 1',
         '· gh echo-text · <t> · 11 bytes · line 2',
         '· batch · 2 calls · 1 ok · 1 failed · 0ms',
         '',

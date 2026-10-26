@@ -1,3 +1,4 @@
+import { askToRun } from './ask';
 import { ExitCode } from './exit-codes';
 import { redactValue, scannerOf } from './redact';
 import { shellArg, shellQuery, shellWords, visibleText } from './shell';
@@ -42,7 +43,7 @@ export function formatError(info: ErrorInfo, format: OutputFormat, redact: (s: s
 // Common errors ---------------------------------------------------------------
 
 export function authRequiredError(provider: string): ErrorInfo {
-  return { code: ExitCode.Auth, message: `${provider} requires auth`, next: `via auth login ${shellArg(provider, { placeholder: 'provider', positional: true })}` };
+  return { code: ExitCode.Auth, message: `${provider} requires auth`, next: askToRun(`via auth login ${shellArg(provider, { placeholder: 'provider', positional: true })}`) };
 }
 
 export function usageError(message: string, next: string, lines: string[] = []): ErrorInfo {

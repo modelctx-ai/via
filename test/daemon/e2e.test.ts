@@ -505,7 +505,7 @@ describe('OAuth', () => {
     // Not logged in yet: needs auth (exit 4), decided by the daemon.
     const before = await d.via(['linear', 'echo-text', '--message', 'hi']);
     expect(before.code).toBe(4);
-    expect(before.stderr).toContain('next: via auth login linear');
+    expect(before.stderr).toContain('next: ask the user to run this in a terminal: via auth login linear');
 
     const login = await d.via(['auth', 'login', 'linear'], { openUrl: browser });
     expect(login.code).toBe(0);

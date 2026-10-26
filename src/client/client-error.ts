@@ -12,8 +12,13 @@ export class ClientError extends Error implements ErrorInfo {
    * (arguments.md, "调用过程"). Not part of `ErrorInfo`.
    */
   readonly retryable: boolean;
-  /** `task` for the errors that stop following a task (the call may be continued with `via tasks`): not an argument problem. */
-  kind?: 'task';
+  /**
+   * `task` for the errors that stop following a task (the call may be continued with `via tasks`): not an argument problem.
+   * `timeout` for the time running out while connecting or waiting for an answer: not a failure that is certain, so the
+   * browse views show such a provider as `starting` rather than `failed` (discovery.md, "浏览视图"). Local to a process:
+   * a daemon's reply carries `pending` instead.
+   */
+  kind?: 'task' | 'timeout';
 
   constructor(info: ErrorInfo, retryable = false) {
     super(info.message);

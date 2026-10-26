@@ -1,12 +1,12 @@
 servers   1 ok · 2 needs auth (linear, exa) · 1 failed (playwright) · 1 untrusted (acme) · 1 disabled (old)
   linear: needs auth (no stored token)
-    next: via auth login linear
+    next: ask the user to run this in a terminal: via auth login linear
   exa: needs auth (environment variable EXA_KEY is not set)
     next: export EXA_KEY=<value>
   playwright: failed (cannot start playwright: spawn npx ENOENT at somewhere)
   acme: untrusted
-    next: via trust /work/repo/.via.yaml
-    next: via trust /work/repo/.mcp.json
+    next: ask the user to run this in a terminal: via trust /work/repo/.via.yaml
+    next: ask the user to run this in a terminal: via trust /work/repo/.mcp.json
 
 frameworks: no MCP servers found in framework configs
 

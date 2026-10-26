@@ -110,15 +110,29 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 
 ## 错误
 
-错误一律写 stderr，第一行是原因，后面跟可执行的下一步：
+错误一律写 stderr，第一行是原因，后面跟下一步（agent 能执行的命令，或明说要转告用户的事，见下面的判定表）：
 
 ```console
 error: linear requires auth
-next: via auth login linear
+next: ask the user to run this in a terminal: via auth login linear
 ```
 
 - `isError` 结果：上游错误文本经清理、脱敏后输出，退出码 1，`next:` 指向该工具的 `-h`。「清理」指去掉终端转义序列和控制字符（保留换行与制表符），并受预算约束，`--full` 时不截断。
-- 传输与上游错误（退出码 6）：第一行写原因，如 `cannot start playwright: …`、`github did not answer within 60s`、`lost the connection to exa`；`next:` 超时时为 `rerun with a larger --timeout`，其余为 `via doctor`。网络错误只写 scheme 与主机（URL 的路径和查询串可能带凭证）；上游回显的文本经脱敏、清理、折成一行并限长 300 字符。`exclusive: true` 的 stdio server 启动失败时原因后追加「可能与 agent 框架中仍在运行的同名 server 冲突」（命令不存在时除外）。
+- 传输与上游错误（退出码 6）：第一行写原因，如 `cannot start playwright: …`、`github did not answer within 60s`、`lost the connection to exa`；`next:` 按下面的判定表写。网络错误只写 scheme 与主机（URL 的路径和查询串可能带凭证）；上游回显的文本经脱敏、清理、折成一行并限长 300 字符。`exclusive: true` 的 stdio server 启动失败时原因后追加「可能与 agent 框架中仍在运行的同名 server 冲突」（命令不存在时除外）。
+- **`next:` 写给谁**：一个 `next:` 要么是 agent 自己能执行的命令，要么是 agent 做不了、得转告用户的事。后者必须一眼看出来，不能写成 agent 会去试的命令（`via doctor` 对一个没安装的程序只会把同一句话再说一遍）。口径与 elicitation、`via trust` 已有的一致：
+
+  | 情形 | 谁处理 | `next:` |
+  | --- | --- | --- |
+  | stdio 命令不存在（`ENOENT`） | 用户 | `ask the user: <程序名> is not installed (needed by <provider>)` |
+  | stdio 命令不可执行（`EACCES`） | 用户 | `ask the user: <程序名> is not executable by this user (needed by <provider>); its permissions need fixing` |
+  | 命令路径的某一段不是目录（`ENOTDIR`） | 用户 | `ask the user: <程序名> cannot be found: a part of its path is not a directory (needed by <provider>)` |
+  | 项目级配置未信任（退出码 5） | 用户，在终端里 | `ask the user to run this in a terminal: via trust <路径>` |
+  | OAuth server 需要登录（没有登录记录、登录失效，或 401/403 且 `auth: oauth`），以及 `auth: none` 却收到 401 | 用户，在终端里 | `ask the user to run this in a terminal: via auth login <provider>` |
+  | bearer / headers 凭证被拒（401/403） | 用户 | `ask the user: the credentials of <provider> were refused; check servers.<name>.auth in the via config (…)`（`auth login` 对静态凭证没有用） |
+  | 超时 | 重试 | `rerun with a larger --timeout` |
+  | 进程启动后退出、连接断开、HTTP 5xx、网络不可达 | 可能是暂时的 | `via doctor` |
+
+  程序名来自用户自己的配置，回显前脱敏、清理控制字符、折成一行（同上一条）。`-o json` 的 `error.next` 是同一个字符串。凭证缺失（`CredentialError`）的 `next:` 是它自己的说明（`export NOT_SET=<value>`），没有说明时 OAuth server 用 `auth login` 的写法，其余写 `ask the user: fix the credential reference in servers.<name>.auth of the via config`。
 - 参数错误附 usage（[arguments.md](arguments.md#校验与报错)）；找不到附 did you mean（[discovery.md](discovery.md#找不到时)）。
 - `-o json` 时错误同样写 stderr，格式为 `{"error": {"code": <退出码>, "message": "…", "next": "…", "details": [...]}}`。参数校验失败时 `details` 中每条错误一个对象：
 
@@ -175,6 +189,16 @@ via 打印的命令行是给人和 agent 复制粘贴的：`next:` 提示（含�
 `usage:` 行是语法说明，不是可以直接粘贴的命令：`[ ]` 表示可选，`<str>` 是占位，`a|b|c` 是枚举，粘贴到 shell 里 `|` 和 `<` 会被解释。但其中来自 server 的词仍遵守上面的规则：不能原样使用的参数名（两个参数归一化后同名时用原名，原名里可以有任何字符）按规则 3 引用，不能引用的写成 `--<name>`；枚举值与默认值里的换行写成转义。`-h` 里的 `example:` 行（[arguments.md](arguments.md#调用示例)）是可以粘贴的命令，全部遵守规则 1 到 5。
 
 不在保证范围内：csh 与 tcsh（单引号里的 `!` 仍触发历史展开）；终端或编辑器自己对粘贴内容的处理；batch 文件里的 `%`。每个平台上 via 只按自己运行的平台引用，从 Linux 容器里复制到 Windows 的命令不保证。
+
+## 浏览与搜索里没有拿到目录的 provider
+
+`via`、`via find`、`via prompt` 并行向全部 server 要目录，个别 provider 拿不到时命令不失败（退出码 0），而是把它标出来（[discovery.md](discovery.md#浏览视图)）。状态只有五个：`ok`、`needs auth`、`starting`、`failed`、`untrusted`；这里约定它们在 stderr 与退出码上的表现。
+
+- **`starting`**（等待到点，没有确定性失败）和 **`failed`**（确定性失败）不混用：`starting` 稍后重试即可，`failed` 要看一眼。agent 读到 `starting` 不应当放弃这个 provider。
+- `via` 的状态列：`failed · <原因首行>`、`starting · retry in a moment`（进程内模式是 `starting · via sync <provider>`）。`failed` 的原因是上游错误文本，按「内容」档脱敏，去掉 `cannot start <provider>:` 前缀，折成一行，最多 80 个字符。
+- `via` 第一行汇总里每种状态一段 `N <状态> (名字…)`，顺序固定：`needs auth`、`starting`、`failed`、`untrusted`。
+- `via find` 的 stderr 分两行警告，某一类没有就不出现，各自的退出码影响为零：`warning: N provider(s) still starting: <名字…> (<提示>)` 与 `warning: N provider(s) could not be searched: <名字…> (see via, via doctor)`。`N provider` 单数时不加 `s`；名字按字母序。
+- `via prompt` 的 `Providers:` 行照常列出这两类 provider。
 
 ## 退出码
 

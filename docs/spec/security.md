@@ -57,7 +57,7 @@ server 在调用中途向用户提问（[ADR 0018](../adr/0018-elicitation-in-a-
 - 信任按「文件路径（符号链接解析后的真实路径）+ 内容的 SHA-256」记录在用户数据目录的 `trust.json`（目录 0700，文件 0600，原子替换）；内容变化后需要重新确认。哈希针对 via 实际解析的那份字节，读取与校验之间文件被改动不会被误信任。记录文件损坏时视为没有任何信任记录，并给出告警。Windows 上路径先规范成唯一写法再记录和比较：用 `realpath.native` 取真实路径（还原大小写、展开 8.3 短名、联接点与 `subst` 盘符），去掉 `\\?\` 与 `\\?\UNC\` 前缀，盘符大写；比较时不区分大小写（NTFS 默认不区分），所以 `c:\repo\.via.yaml`、`C:/Repo/.via.yaml` 和 `\\?\C:\REPO\.via.yaml` 是同一个文件、同一条记录。
 - 项目级文件设置非空的 `roots` 同样视为决定 server 能碰什么的字段：它会把本机目录交给 server（filesystem 类 server 会把 roots 当作可访问范围），所以与 `command`、`url` 一样需要 `via trust`；用户级配置里定义的 server，如果项目配置给它加了 `roots`，视为未信任。写成 `[]` 只会收窄，不需要。
 - 凡是参与决定传输的项目级文件都要已被信任：stdio 进程如何启动（`command`、`args`、`env`、`cwd`），HTTP 请求发往哪里、带什么头（`url`、`headers`）。用户级配置里定义的 server，如果项目配置给它加了 `env`、改了 `url` 或加了 `headers`，同样视为未信任；项目配置只改 `timeout`、`disabled`、`auth` 等不影响传输的字段则不需要。项目配置里 `sources` 列出的文件按项目级处理。
-- 未信任时，这些 server 在视图中显示为 `untrusted`，调用退出码 5，并提示 `via trust <路径>`（同一个 server 有多个文件待确认时提示不带路径的 `via trust`）。路径含空格等字符时按 shell 规则加引号，没有安全写法的路径写成 `<path>`（[output.md](output.md#可粘贴的命令行)）。
+- 未信任时，这些 server 在视图中显示为 `untrusted`，调用退出码 5，`next:` 为 `ask the user to run this in a terminal: via trust <路径>`（同一个 server 有多个文件待确认时不带路径；信任是用户的决定，agent 不运行它）。路径含空格等字符时按 shell 规则加引号，没有安全写法的路径写成 `<path>`（[output.md](output.md#可粘贴的命令行)）。
 - 项目级配置和框架配置中出现 `cmd:` 凭证引用时直接拒绝，信任也不能放行：该 server 的定义整条被忽略，并报 error 级诊断（`cmd-forbidden`）。`cmd:` 会执行命令，不属于「确认之后可以使用」的范畴；需要时在用户配置里定义，项目配置只能引用用户配置里已有的 server（改传输部分仍要信任）。
 - `deny` 不受信任机制约束：项目配置只能追加规则，不能撤销用户配置的规则，详见 [config.md](config.md#deny)。
 

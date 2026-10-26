@@ -2,13 +2,15 @@
 // connect to every server on every command. The raw list is stored; splitting and the
 // index are recomputed on load, so rule upgrades never need a cache flush.
 //
-// The key is a hash of the server's transport definition: command, args, cwd, URL, the *names* of
-// env variables and headers, and the credential *references* (never resolved values). A literal
-// credential only ever enters the hash, which is one-way.
+// The key is a hash of the server's transport definition: command, args, cwd, URL, and the env
+// variables and headers by name and as written: a credential reference (`env:`, `file:`,
+// `keychain:`, `cmd:`) contributes its reference text and is never resolved; a literal value
+// contributes itself, because two servers that differ only in an env value (a data set, a mode, a
+// root directory) list different tools. Literals only ever enter the hash, which is one-way:
+// neither the file name nor anything on disk holds the value.
 import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
-import { parseCredentialRef } from '../config/credential-ref';
 import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
 import { validSelf } from '../client/server-info';
@@ -71,9 +73,12 @@ function sortedKeys(record: Record<string, string>): string[] {
   return Object.keys(record).sort();
 }
 
-/** Credential-bearing values contribute their reference text; plain values contribute nothing. */
-function refsOf(record: Record<string, string>): Array<[string, string]> {
-  return sortedKeys(record).map((k) => [k, parseCredentialRef(record[k]!).kind === 'literal' ? '' : record[k]!]);
+/**
+ * Name and value as written, sorted by name. A credential reference is its own text (the value it
+ * points to is never looked up); a literal is the value, which only goes into the hash.
+ */
+function entriesOf(record: Record<string, string>): Array<[string, string]> {
+  return sortedKeys(record).map((k) => [k, record[k]!]);
 }
 
 const keys = new WeakMap<ServerConfig, { transport: unknown; auth: unknown; key: string }>();
@@ -95,8 +100,8 @@ function computeKey(server: ServerConfig): string {
   const { transport, auth } = server;
   const transportPart =
     transport.type === 'stdio'
-      ? { type: 'stdio', command: transport.command, args: transport.args, cwd: transport.cwd ?? null, env: refsOf(transport.env) }
-      : { type: 'http', url: transport.url, headers: refsOf(transport.headers) };
+      ? { type: 'stdio', command: transport.command, args: transport.args, cwd: transport.cwd ?? null, env: entriesOf(transport.env) }
+      : { type: 'http', url: transport.url, headers: entriesOf(transport.headers) };
   const authPart =
     auth.type === 'bearer'
       ? { type: 'bearer', ref: auth.bearer }

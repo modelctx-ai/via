@@ -3,10 +3,14 @@ usage: via acme thing:do --title <str> --filter <json> --pages <json>
          [--draft]
 
 Do the thing
+  --title           <str>
+  --filter          <json>
   --filter.state    open|closed
   --filter.labels   json
   --filter.range    json
+  --pages           <json>
   --point           repeat the flag or pass a JSON array
+  --due             <str>
   --legacy-tuple    repeat the flag or pass a JSON array
   --draft           default: false
 accepts extra fields: --<name> <value>

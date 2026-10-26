@@ -19,6 +19,7 @@ import {
   type ServerConfig,
   type TrustStore,
 } from '../../config';
+import { askToRun } from '../../render/ask';
 import { ExitCode } from '../../render/exit-codes';
 import { shortenHome } from '../../config/paths';
 import { inertText, shellQuote, shellWord } from '../../render/shell';
@@ -153,7 +154,7 @@ export async function trustCommand(app: App, argv: readonly string[]): Promise<n
     // explicit path, and the opt-in the user sets for their own scripts, are both required.
     if (positionals.length === 0) throw usageFailure('via trust: --yes needs an explicit <path>', 'via trust -h', [USAGE]);
     if (app.io.env[NONINTERACTIVE_OPT_IN] !== '1') {
-      throw fail(ExitCode.Denied, 'trust was not recorded: --yes is disabled unless the user opts in to non-interactive trust (see via trust -h)', `ask the user to run this in a terminal: via trust ${shellWord(positionals[0]!)}`);
+      throw fail(ExitCode.Denied, 'trust was not recorded: --yes is disabled unless the user opts in to non-interactive trust (see via trust -h)', askToRun(`via trust ${shellWord(positionals[0]!)}`));
     }
   }
 
@@ -196,7 +197,7 @@ export async function trustCommand(app: App, argv: readonly string[]): Promise<n
   }
   if (!app.options.yes) {
     if (!app.io.interactive) {
-      throw fail(ExitCode.Denied, 'trust was not recorded: confirmation needs a terminal', `ask the user to run this in a terminal: via trust${pending.length === 1 ? ` ${shellWord(pending[0]!.file.path)}` : ''}`);
+      throw fail(ExitCode.Denied, 'trust was not recorded: confirmation needs a terminal', askToRun(`via trust${pending.length === 1 ? ` ${shellWord(pending[0]!.file.path)}` : ''}`));
     }
     const answer = (await app.io.ask(`trust ${pending.length === 1 ? 'this file' : `these ${pending.length} files`}? [y/N] `)).trim().toLowerCase();
     if (answer !== 'y' && answer !== 'yes') throw fail(ExitCode.Denied, 'trust was not recorded', 'via trust');

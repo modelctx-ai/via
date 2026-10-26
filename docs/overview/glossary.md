@@ -16,6 +16,7 @@
 | **roots** | client 声明给 server 的目录列表（MCP 的 `roots` 能力）。via 默认不声明，按 server 用配置的 `roots` 字段开启。 |
 | **elicitation** | server 在一次调用中途向用户要输入（表单或打开网页），MCP 的 `elicitation` 能力。via 在交互终端里让用户回答，其他情形拒绝并在调用的结果里说明（[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）。 |
 | **协议版本（protocol version）** | 一次 MCP 连接协商出的协议修订，形如 `2026-07-28`、`2025-11-25`。`2026-07-28` 起协议无状态（没有 `initialize` 握手和 server 端会话），via 默认新版本优先、自动回退，`protocolVersion` 可以固定；「有状态」的含义见 [daemon.md](../spec/daemon.md#协议版本与无状态连接)。 |
+| **starting / failed** | `via` 里 provider 没有拿到目录时的两种状态。`starting`：等待到点但没有确定性失败（server 还在启动，daemon 在后台继续连），稍后重试即可；`failed`：确定性失败（进程退出、命令不存在、握手被拒），行末带原因。见 [discovery.md](../spec/discovery.md#浏览视图)。 |
 | **动作（verb）** | 从原始名拆出的动词部分，如 `create`、`create-or-update`。 |
 | **工具引用** | 定位一个工具的写法。命令行形式 `linear issue:create`，单字符串形式 `linear/issue:create`。 |
 | **元工具（meta-tool）** | `via serve` 暴露给没有 shell 的 agent 的固定工具（`via_browse`、`via_find`、`via_call` 等），每个对应一条 CLI 命令；与下游 server 的工具不同，它们不随目录变化。 |

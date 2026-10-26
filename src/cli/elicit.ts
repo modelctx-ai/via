@@ -3,6 +3,7 @@
 // answered. Light on purpose (no MCP SDK, no readline): the terminal dialog is loaded only when a
 // question arrives and a person can be asked.
 import type { ElicitAnswer, ElicitQuestion, ElicitSink } from '../client/elicit';
+import { askToRun } from '../render/ask';
 import { formatError, type ErrorInfo } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
 import { visibleText } from '../render/shell';
@@ -70,7 +71,7 @@ export class Elicitation {
     const { app } = this;
     const asked = this.unanswered.length === 1 ? 'asked for user input' : `asked for user input ${this.unanswered.length} times`;
     const about = first.message === '' ? '' : ` ("${first.message}")`;
-    const next = `ask the user to run this in a terminal${this.options.rerun ? `: ${this.options.rerun}` : ''}`;
+    const next = askToRun(this.options.rerun);
     if (outcome.exitCode !== ExitCode.ToolError) {
       const lines = `warning: ${first.provider} ${asked}${about} and it was declined: no terminal is attached\nnext: ${next}\n`;
       return { ...outcome, stderr: await app.redactText(lines) + outcome.stderr };

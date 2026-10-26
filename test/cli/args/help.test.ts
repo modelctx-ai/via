@@ -14,7 +14,10 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
         '         [--page <num>] [--per-page <num>]',
         '',
         'Get issue details',
-        '  --method   get: Get issue details · get_comments: Get issue comments · …',
+        '  --owner          <str>',
+        '  --repo           <str>',
+        '  --issue-number   <num>',
+        '  --method         get: Get issue details · get_comments: Get issue comments · …',
         'example: via github issue:read --owner text --repo text --issue-number 1 --method get',
         'alias: issue_read · read-only',
       ].join('\n'),
@@ -87,6 +90,28 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
       example: via acme thing:do --filter.state open
       alias: thing_do"
     `);
+  });
+
+  // arguments.md, "帮助": a required parameter always has a row, with only its type or values when the schema says nothing else.
+  it('lists a required parameter without a description on its own row', () => {
+    const tool = makeTool({
+      type: 'object',
+      properties: {
+        issue_number: { type: 'integer' },
+        method: { type: 'string', enum: ['get', 'get_comments'] },
+        force: { type: 'boolean' },
+        note: { type: 'string' },
+        page: { type: 'integer', description: 'Page' },
+      },
+      required: ['issue_number', 'method', 'force', 'page'],
+    });
+    const help = formatToolHelp(tool, CTX);
+    expect(help).toContain('\n  --issue-number   <num>\n');
+    expect(help).toContain('\n  --method         get|get_comments\n');
+    expect(help).toContain('\n  --force          bool\n');
+    expect(help).toContain('\n  --page           Page\n');
+    // An optional parameter with nothing to say still has no row.
+    expect(help).not.toMatch(/\n {2}--note /);
   });
 
   it('notes that roots accept extra fields', () => {

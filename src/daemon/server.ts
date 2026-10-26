@@ -458,6 +458,7 @@ export class DaemonServer {
         const onWarning = (message: string): void => this.sendWarning(conn, request.id, message);
         const result: ListResult = await this.sessions.list(request, {
           timeoutMs: request.timeoutMs,
+          ...(typeof request.waitMs === 'number' ? { waitMs: request.waitMs } : {}),
           refresh: request.refresh === true,
           onWarning,
           ...(typeof request.have === 'number' ? { have: request.have } : {}),

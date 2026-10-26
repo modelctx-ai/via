@@ -1,7 +1,8 @@
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { cacheKey, CATALOG_TTL_MS } from '../../src/cli/catalog-cache';
+import { CatalogCache, cacheKey, CATALOG_TTL_MS } from '../../src/cli/catalog-cache';
 import type { ServerConfig } from '../../src/config';
 import { httpServer, stdioServer } from '../helpers/client';
 import { defaultGeneration } from '../helpers/generation';
@@ -221,9 +222,47 @@ describe('cacheKey', () => {
     expect(cacheKey(stdioServer({ env: { TOKEN: 'env:T' } }))).not.toBe(cacheKey(stdioServer({ env: { TOKEN: 'env:U' } })));
   });
 
-  it('does not depend on resolved values or on plain header and env values', () => {
+  it('depends on literal env and header values (same command and names, different values: two files)', () => {
     const a = httpServer('https://x.example/mcp', { headers: { 'X-Team': 'one' } });
     const b = httpServer('https://x.example/mcp', { headers: { 'X-Team': 'two' } });
-    expect(cacheKey(a)).toBe(cacheKey(b));
+    expect(cacheKey(a)).not.toBe(cacheKey(b));
+    const gh = stdioServer({ env: { CLI_FIXTURE_FEATURES: 'resources,prompts' } });
+    const el = stdioServer({ env: { CLI_FIXTURE_FEATURES: 'elicit' } });
+    expect(cacheKey(gh)).not.toBe(cacheKey(el));
+    expect(cacheKey(gh)).toBe(cacheKey(stdioServer({ env: { CLI_FIXTURE_FEATURES: 'resources,prompts' } })));
+  });
+
+  it('does not hold a literal value in the key or look a credential reference up', () => {
+    const key = cacheKey(stdioServer({ env: { MODE: 'super-secret-literal' } }));
+    expect(key).toMatch(/^[0-9a-f]{32}$/);
+    expect(key).not.toContain('super-secret');
+    // A reference contributes its text only: the value it points to may change without moving the key.
+    const saved = process.env.VIA_TEST_REF_VALUE;
+    process.env.VIA_TEST_REF_VALUE = 'one';
+    const before = cacheKey(stdioServer({ env: { TOKEN: 'env:VIA_TEST_REF_VALUE' } }));
+    process.env.VIA_TEST_REF_VALUE = 'two';
+    const after = cacheKey(stdioServer({ env: { TOKEN: 'env:VIA_TEST_REF_VALUE' } }));
+    if (saved === undefined) delete process.env.VIA_TEST_REF_VALUE;
+    else process.env.VIA_TEST_REF_VALUE = saved;
+    expect(after).toBe(before);
+  });
+
+  it('keeps one raw list, one info file and one prebuilt file per distinct definition', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'via-key-'));
+    try {
+      const cache = new CatalogCache(dir);
+      const a = stdioServer({ env: { MODE: 'a' } });
+      const b = stdioServer({ env: { MODE: 'b' } });
+      cache.write(a, [{ name: 'only_a', inputSchema: { type: 'object' } }], { fetchedAt: Date.now() });
+      cache.write(b, [{ name: 'only_b', inputSchema: { type: 'object' } }], { fetchedAt: Date.now() });
+      expect(readdirSync(dir).filter((n) => n.endsWith('.json'))).toHaveLength(2);
+      expect(cache.read(a)?.tools.map((t) => t.name)).toEqual(['only_a']);
+      expect(cache.read(b)?.tools.map((t) => t.name)).toEqual(['only_b']);
+      cache.clear(a);
+      expect(cache.read(a)).toBeUndefined();
+      expect(cache.read(b)).toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

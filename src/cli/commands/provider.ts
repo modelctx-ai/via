@@ -6,7 +6,7 @@ import type { App } from '../app';
 import { usageFailure } from '../failure';
 import { openProvider, resolveToolRef, splitToolRef, type OpenProvider } from '../open-provider';
 import { selfJson, selfLines, SELF_HEADER } from '../server-info';
-import { noteCanonical, resolveInProvider } from '../target';
+import { noteCanonical, resolveInProvider, resolveVerbWord, type Target } from '../target';
 
 // `./tool` (argument parsing, validation, the render pipeline) is imported where a tool is called or
 // described: browsing a provider or a resource never loads it.
@@ -19,7 +19,7 @@ const notACall = () => usageFailure('--detach applies to a tool call, not to a l
 const withNewline = (s: string): string => (s.endsWith('\n') ? s : `${s}\n`);
 
 export async function providerCommand(app: App, words: readonly string[]): Promise<number> {
-  const [typedProvider, typedTarget, ...toolArgv] = words as [string, ...string[]];
+  const [typedProvider, typedTarget, ...restArgv] = words as [string, ...string[]];
   if (app.options.schemaSnapshot !== undefined && typedTarget === undefined) throw notATool();
   if (app.options.detach && typedTarget === undefined) throw notACall();
   const opened = await openProvider(app, typedProvider);
@@ -39,7 +39,16 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
     return ExitCode.Ok;
   }
 
-  const target = resolveInProvider(opened.views, (await app.config()).deny, typedTarget);
+  const deny = (await app.config()).deny;
+  let target: Target = resolveInProvider(opened.views, deny, typedTarget);
+  let toolArgv = restArgv;
+  // `via gh issue read …` is `via gh issue:read …`; any other word after a resource is an error (cli.md, "解析顺序").
+  const typedWords = [typedProvider, typedTarget];
+  if (target.kind === 'resource' && restArgv.length > 0) {
+    target = { kind: 'tool', provider: visible, tool: resolveVerbWord(opened.views, deny, target.group, restArgv[0]!) };
+    typedWords.push(restArgv[0]!);
+    toolArgv = restArgv.slice(1);
+  }
   if (target.kind === 'resource') {
     if (app.options.schemaSnapshot !== undefined) throw notATool();
     if (app.options.detach) throw notACall();
@@ -49,7 +58,7 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
   }
   const toolTarget = { entry: opened.entry, listing: opened.listing, views: opened.views, tool: target.tool };
   if (app.options.help) {
-    noteCanonical(app, [typedProvider, typedTarget], [visible.provider, target.tool.name]);
+    noteCanonical(app, typedWords, [visible.provider, target.tool.name]);
     return (await toolCommands()).showToolHelp(app, toolTarget);
   }
   return (await toolCommands()).callTool(app, toolTarget, toolArgv);

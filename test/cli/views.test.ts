@@ -33,7 +33,7 @@ describe('via (root)', () => {
     const r = await sb.via([]);
     expect(r.code).toBe(0);
     expect(r.stdout).toMatch(/^linear\s+needs auth$/m);
-    expect(r.stdout).toMatch(/^slack\s+failed$/m);
+    expect(r.stdout).toMatch(/^slack\s+failed · cannot reach http:\/\/127\.0\.0\.1:1 \(network error\)$/m);
     expect(r.stdout).toMatch(/^figma\s+untrusted$/m);
     expect(r.stdout.split('\n')[0]).toMatch(/1 needs auth \(linear\).*1 failed \(slack\).*1 untrusted \(figma\)/);
     await expect(r.stdout).toMatchFileSnapshot('./__snapshots__/cli-root-statuses.txt');

@@ -194,7 +194,7 @@ describe('merge order (arguments.md, "JSON 输入")', () => {
 describe('--no-validate keeps parsing and conversion', () => {
   it('still converts types and reads files, and reports validated: false', async () => {
     const r = await parse(schema, ['--count', '3', '--name', '@n.txt'], { validate: false, files: { 'n.txt': 'x' } });
-    expect(r).toEqual({ args: { count: 3, name: 'x' }, warnings: [], validated: false });
+    expect(r).toEqual({ args: { count: 3, name: 'x' }, warnings: [], validated: false, extraFields: [] });
   });
 
   it('accepts arguments the schema forbids, but not unreadable files', async () => {

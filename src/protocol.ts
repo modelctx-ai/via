@@ -58,8 +58,11 @@ export type Request =
    * `tools/list` of one server: daemon memory, then the disk cache, then the server. `have` is the
    * `fetchedAt` of a list the caller already holds (or a build made from it): when the daemon's
    * list is that one it answers without the tools (`unchanged`). Ignored with `refresh`.
+   * `waitMs` (discovery commands, discovery.md "缓存"): answer after at most this long. When the server has not
+   * finished by then the reply is `{ pending: true }` and the daemon keeps connecting, up to `timeoutMs`, and
+   * writes the cache; without `waitMs` the reply waits for the list or the failure.
    */
-  | ({ id: string; type: 'list'; timeoutMs: number; refresh?: boolean; have?: number } & ServerTarget)
+  | ({ id: string; type: 'list'; timeoutMs: number; waitMs?: number; refresh?: boolean; have?: number } & ServerTarget)
   /**
    * `tools/call`; the result comes back raw but with resolved credentials replaced by `***`. `elicit` says
    * the CLI answers the server's questions to the person (`elicit` events, answered with `elicit-reply`),
@@ -199,8 +202,10 @@ export type ProtocolInfo = { version: string; stateful: boolean };
  * recorded). `unchanged` replaces `tools` when the request's `have` is the `fetchedAt` of the list
  * the daemon would have sent; the credentials and trust checks ran all the same.
  */
-export type ListResult = ListedTools | ListUnchanged;
+export type ListResult = ListedTools | ListUnchanged | ListPending;
 export type ListedTools = { tools: McpTool[]; fetchedAt: number; fromCache: boolean; features?: ServerFeatures; protocol?: ProtocolInfo };
+/** The server did not answer within the request's `waitMs` and is still being connected to; ask again in a moment. */
+export type ListPending = { pending: true };
 export type ListUnchanged = { unchanged: true; fetchedAt: number; fromCache: true; features?: ServerFeatures; protocol?: ProtocolInfo };
 
 /** `result` of `validate`. `ok: false` means the schema cannot be compiled. */

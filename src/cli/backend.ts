@@ -34,6 +34,13 @@ export interface Listing {
 export interface ListingOptions {
   /** Per-request ceiling in milliseconds. */
   timeoutMs: number;
+  /**
+   * Discovery commands (`via`, `via find`, `via prompt`): a daemon answers after at most `waitMs` and
+   * keeps connecting up to `timeoutMs` in the background, writing the cache; a server that has not
+   * finished by then fails with a `timeout` error (the provider is `starting`). A backend that has
+   * nothing behind it (in-process) ignores this and stops at `timeoutMs`.
+   */
+  background?: { waitMs: number; timeoutMs: number };
   /** Skip the cache and ask the server (`via sync`, `via doctor`). */
   refresh?: boolean;
   /**

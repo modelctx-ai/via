@@ -13,7 +13,7 @@ export interface TypeInfo {
 }
 
 /** Global options a tool parameter must be addressed through `--p.<name>` (cli.md). */
-export const GLOBAL_OPTION_NAMES: ReadonlySet<string> = new Set(['full', 'all', 'yes', 'dry-run', 'no-validate', 'timeout', 'help', 'schema-snapshot', 'schema-mode']);
+export const GLOBAL_OPTION_NAMES: ReadonlySet<string> = new Set(['full', 'all', 'yes', 'dry-run', 'no-validate', 'timeout', 'help', 'json', 'schema-snapshot', 'schema-mode']);
 
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

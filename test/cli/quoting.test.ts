@@ -66,7 +66,11 @@ describe('what the person typed, echoed in an error', () => {
       // has no safe spelling in every shell and becomes a placeholder, which does not parse when pasted
       const one = shellQuote(words.join(' '), 'linux') !== undefined;
       const expected = (prefix: string[]): string[][] => (plain ? [['find', ...prefix, ...words]] : one ? [['find', prefix.concat(words).join(' ')]] : []);
-      expect(paste(nextCommands(provider.stderr)), input).toEqual(expected([]));
+      // A provider that does not exist lists the providers and points at `via` (or a close name): the typed text is not in `next:` at all.
+      const next = provider.stderr.split('\n').filter((l) => l.startsWith('next:'));
+      expect(next, input).toHaveLength(1);
+      expect(next[0], input).toMatch(/^next: via( [a-z-]+)?$/);
+      expect(provider.stderr.split('\n').filter((l) => l.startsWith('providers:')), input).toEqual(['providers: gh']);
       expect(paste(nextCommands(tool.stderr)), input).toEqual(expected(['gh']));
     }
   });

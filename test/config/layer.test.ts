@@ -42,6 +42,7 @@ describe('validateLayer', () => {
         },
         output: { budget: 4096, cellWidth: 40 },
         daemon: { idleTimeout: 30, serverIdleTimeout: 10 },
+        discovery: { wait: 1.5 },
       },
       undefined,
     );
@@ -51,6 +52,7 @@ describe('validateLayer', () => {
     expect(data.servers.get('o')?.auth).toEqual({ type: 'oauth', scopes: ['read'], clientId: 'client-1' });
     expect(data.output).toEqual({ budget: 4096, cellWidth: 40 });
     expect(data.daemon).toEqual({ idleTimeout: 30, serverIdleTimeout: 10 });
+    expect(data.discovery).toEqual({ wait: 1.5 });
   });
 
   it('accepts auth.oauth.clientMetadataUrl as an https URL with a path, or false; rejects anything else', () => {
@@ -183,6 +185,8 @@ describe('validateLayer', () => {
     [{ output: 5 }, 'output: expected map'],
     [{ daemon: { idleTimeout: '10m' } }, 'daemon.idleTimeout: expected number'],
     [{ daemon: { serverIdleTimeout: -5 } }, 'daemon.serverIdleTimeout: expected positive number'],
+    [{ discovery: { wait: '3s' } }, 'discovery.wait: expected number'],
+    [{ discovery: { wait: 0 } }, 'discovery.wait: expected positive number'],
     [{ sources: 'cursor' }, 'sources: expected "auto", false, or a list of framework ids and file paths'],
     [{ sources: true }, 'sources: expected "auto", false, or a list of framework ids and file paths'],
     [{ sources: [1] }, 'sources[0]: expected string'],

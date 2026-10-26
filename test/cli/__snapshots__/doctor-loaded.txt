@@ -1,8 +1,8 @@
 servers   2 ok · 1 needs auth (docs) · 1 untrusted (local)
   local: untrusted
-    next: via trust <tmp>/project/.mcp.json
+    next: ask the user to run this in a terminal: via trust <tmp>/project/.mcp.json
   docs: needs auth
-    next: via auth login docs
+    next: ask the user to run this in a terminal: via auth login docs
 
 frameworks still injecting MCP schemas:
   claude-code   1 server · size unknown

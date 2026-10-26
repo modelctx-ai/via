@@ -255,7 +255,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   // 2. Dry run: what would be sent, nothing else.
   const needsConfirm = tool.destructive && server.confirm !== 'never' && !options.yes;
   if (options.dryRun) {
-    return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, await app.redactValue(parsed.args), needsConfirm)), stderr: '', warnings };
+    return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, await app.redactValue(parsed.args), needsConfirm, parsed.extraFields)), stderr: '', warnings };
   }
 
   // 3. Dangerous tools need --yes (the deny check already happened during resolution).
@@ -383,7 +383,7 @@ function addDisagreeHint(stderr: string, format: string, upstreamText: string): 
 
 // Dry run -----------------------------------------------------------------------------------
 
-function renderDryRun(app: App, target: ToolTarget, args: Record<string, unknown>, needsConfirm: boolean): string {
+function renderDryRun(app: App, target: ToolTarget, args: Record<string, unknown>, needsConfirm: boolean, extraFields: readonly string[]): string {
   const { tool, entry } = target;
   const { transport } = entry.server;
   // Scheme and host only: a URL's path and query may carry credentials (output.md, "错误").
@@ -398,10 +398,12 @@ function renderDryRun(app: App, target: ToolTarget, args: Record<string, unknown
     where = `stdio ${transport.command}`;
   }
   if (app.options.format === 'json') {
-    return `${JSON.stringify({ dryRun: true, tool: tool.ref, rawName: tool.rawName, server: entry.server.name, transport: where, args, ...(needsConfirm ? { requires: '--yes' } : {}) }, null, 2)}\n`;
+    return `${JSON.stringify({ dryRun: true, tool: tool.ref, rawName: tool.rawName, server: entry.server.name, transport: where, args, ...(needsConfirm ? { requires: '--yes' } : {}), ...(extraFields.length > 0 ? { extraFields } : {}) }, null, 2)}\n`;
   }
   const lines = ['dry run: nothing was sent', `tool: ${tool.ref}`, `raw name: ${tool.rawName}`, `server: ${entry.server.name} (${where})`];
   if (needsConfirm) lines.push('requires: --yes (destructive tool)');
+  // Fields the tool does not declare, written as flags: what `--verbose` and `--json` look like once sent (arguments.md, "JSON 输入").
+  if (extraFields.length > 0) lines.push(`extra fields: ${extraFields.map(visibleText).join(', ')}`);
   const keys = Object.keys(args);
   if (keys.length === 0) lines.push('args: {}');
   else lines.push('args:', ...JSON.stringify(args, null, 2).split('\n').map((l) => `  ${l}`));

@@ -68,6 +68,11 @@ export function extractGlobals(argv: readonly string[]): { options: GlobalOption
       rest.push(token);
       continue;
     }
+    // `--json` is `-o json` (cli.md): a tool's own `json` parameter is written `--p.json`.
+    if (token === '--json') {
+      options.format = 'json';
+      continue;
+    }
     const flag = FLAGS[token];
     if (flag) {
       options[flag] = true;

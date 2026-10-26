@@ -22,7 +22,7 @@ describe('exit codes (output.md, "退出码")', () => {
 
 describe('error formatting', () => {
   it('prints the reason, then the next command (output.md example)', () => {
-    expect(formatError(authRequiredError('linear'), 'text')).toBe('error: linear requires auth\nnext: via auth login linear\n');
+    expect(formatError(authRequiredError('linear'), 'text')).toBe('error: linear requires auth\nnext: ask the user to run this in a terminal: via auth login linear\n');
   });
 
   it('prints detail lines between the reason and next:', () => {
@@ -79,8 +79,8 @@ describe('error formatting', () => {
     expect(notFoundError('tool', '$(touch x) y', [], '$(touch x)   y').next).toBe(`via find ${quote('$(touch x) y', '<query>')}`);
     expect(notFoundError('tool', 'github  isue read', [], 'github  isue read').next).toBe('via find github isue read');
     expect(notFoundError('tool', '--yes', [], '--yes').next).toBe('via find <query>');
-    expect(authRequiredError('a b').next).toBe(`via auth login ${quote('a b')}`);
-    expect(authRequiredError('--yes').next).toBe('via auth login <provider>');
+    expect(authRequiredError('a b').next).toBe(`ask the user to run this in a terminal: via auth login ${quote('a b')}`);
+    expect(authRequiredError('--yes').next).toBe('ask the user to run this in a terminal: via auth login <provider>');
   });
 
   it('internal errors use exit code 7', () => {

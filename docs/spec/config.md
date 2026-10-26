@@ -18,7 +18,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 - 框架配置中的 `env`、`headers` 原样继承，包括其中的明文值；`via doctor` 对明文值告警。
 - 同一框架的项目级配置整条覆盖它的用户级配置（框架自己的优先级），这不算冲突；只有不同框架之间才记录冲突。冲突项记在 server 的 `conflicts` 里，列出被忽略的来源；内容完全相同的重复定义不算冲突。
 - 覆盖层只写了部分字段时只改这些字段：`env`、`headers`、`rename` 按键合并，`args` 整体替换，`noise` 追加去重，其余标量字段后者覆盖。覆盖层给出的传输方式与来源不同（对 HTTP server 写了 `command`，或对 stdio server 写了 `url`）时，整体替换传输定义，不继承另一种传输的字段。
-- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`output.*`、`daemon.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
+- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`output.*`、`daemon.*`、`discovery.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
 - 覆盖层里没有任何来源定义的 server（只有 `timeout` 之类设置，没有 `command` 或 `url`）被忽略并给出告警，通常是框架那边已经删掉了它。
 
 `sources` 的细节：
@@ -66,7 +66,22 @@ deny: ["^github/.*:delete$"]  # 正则，匹配 provider/资源:动作，deny �
 | `output.cellWidth` | 字符数 | `80` | 表格单元格截断宽度 |
 | `daemon.idleTimeout` | 秒 | `600` | daemon 空闲退出时间 |
 | `daemon.serverIdleTimeout` | 秒 | `300` | 单个 stdio server 空闲停止时间 |
+| `discovery.wait` | 秒 | `3` | 经 daemon 时，`via`、`via find`、`via prompt` 对单个 server 的等待上限，见[下文](#discovery) |
 | `search.semantic` | 映射 \| `false` | 未设置 | `via find` 的可选 embedding 检索，**只在用户配置里生效**，见[下文](#searchsemantic) |
+
+### `discovery`
+
+```yaml
+discovery:
+  wait: 3        # 秒；默认 3
+```
+
+`via`、`via find`、`via prompt` 并行向全部 server 要工具目录（[discovery.md](discovery.md#缓存)）。`discovery.wait` 是**经 daemon 时**它们对单个 server 的等待上限，独立于 server 的 `timeout`（后者是调用的上限，默认 60 秒）：到点还没有结果的 provider 标 `starting`，命令照常输出，daemon 在后台以 server 的 `timeout` 为上限继续连接并写缓存。
+
+- 不超过该 server 的 `timeout`；`--timeout` 在命令行上覆盖它。必须是正数（`invalid-field`）。
+- 进程内模式（`VIA_NO_DAEMON=1`）没有后台，不读这个字段，上限仍是 `min(server 的 timeout, 10 秒)`（理由见 discovery.md）。
+- `via sync`、`via <provider>` 与调用不受它影响，等 server 的 `timeout`。
+- 项目配置里也可以写（它只改变等多久，不改变连接谁）。
 
 ### `search.semantic`
 

@@ -12,12 +12,18 @@ provider 就是配置里的 server，按名字原样列出，不做分类：模�
 
 ### 缓存
 
-- 缓存键：server 定义的哈希（命令、参数、URL、相关 env 名，不含凭证值）+ 身份（鉴权主体的稳定标识，无法获得时用凭证引用本身的哈希）。
+- 缓存键：server 定义的哈希（命令、参数、`cwd`、URL，以及 `env` 与 `headers` 的名和写法）+ 身份（鉴权主体的稳定标识，无法获得时用凭证引用本身的哈希）。
 - 位置：用户缓存目录下的 `catalog/`，权限 0700。
 - TTL 默认 24 小时；无状态协议（`2026-07-28`）的 server 可以在 `tools/list` 结果里给出 `ttlMs`，取与 24 小时中较短者（`ttlMs` 为 `0` 或缺省视为没有给出提示，沿用 24 小时；提示随缓存保存，所以进程内模式和 daemon 一致）。daemon 在线时订阅 `notifications/tools/list_changed`（无状态协议里是 `subscriptions/listen` 流上的同名事件）实时刷新：收到通知后重新拉取该 server 的 `tools/list`，同时更新 daemon 内存里的副本和这里的磁盘缓存，下一次浏览、`find` 或调用就能看到变化（[daemon.md](daemon.md#daemon-持有的状态)）。
 - `via sync [provider]` 强制刷新。
-- 进程内模式（0.1）下，缓存是 `tools/list` 的唯一来源：`via <provider>` 只读取、必要时只拉取该 provider；`via`、`via find`、`via prompt` 并行处理全部 server，单个 server 的拉取超时取 `min(server 的 timeout, 10 秒)`（`--timeout` 覆盖），拉起 stdio server 与握手的时间也算在内，所以卡在握手里的 server 不会拖住整条命令。拉取失败不中止：该 provider 仍然列出，标记 `needs auth`、`failed` 或 `untrusted`（[浏览视图](#via)）。
+- 进程内模式（0.1）下，缓存是 `tools/list` 的唯一来源：`via <provider>` 只读取、必要时只拉取该 provider，等待上限是 server 的 `timeout`（`--timeout` 覆盖）。拉取失败不中止：该 provider 仍然列出，标记 `needs auth`、`starting`、`failed` 或 `untrusted`（[浏览视图](#via)）。
+- **发现类命令的等待**：`via`、`via find`、`via prompt` 并行处理全部 server，单个 server 的等待上限独立于调用的 `timeout`，拉起 stdio server 与握手的时间也算在内，所以卡在握手里的 server 不会拖住整条命令。等到点还没有结果、也没有确定性失败的 provider 标记为 `starting`，不阻塞其他 provider。`--timeout` 在两种模式下都覆盖这里的等待。
+  - **经 daemon**：默认 3 秒（`discovery.wait`，[config.md](config.md#discovery)；不超过该 server 的 `timeout`）。到点后 CLI 照常打印，daemon 不放弃：它以 server 的 `timeout`（给了 `--timeout` 则以它）为上限继续连接、拉取，成功后写入磁盘缓存和内存副本，下一条命令直接命中。拉取期间到达的、针对同一 server 的请求（另一条 `via`、`via find`、`via sync`）加入同一次拉取，不会再起一个进程。确定性失败（见[浏览视图](#via)）立刻返回，不等到点。daemon 的 `list` 请求为此带 `waitMs`（[daemon.md](daemon.md#cli-与-daemon-的协议)）。
+  - **进程内模式**（`VIA_NO_DAEMON=1`，或 daemon 不可用而回退）：没有后台，到点的拉取会被放弃，子进程随命令结束，缓存仍是空的，再等 3 秒不会让下一条命令受益。所以上限保持 `min(server 的 timeout, 10 秒)`，不压到 3 秒：10 秒是「慢 server 拖住整条命令」与「正常的冷启动（`npx` 首次下载）被误判」之间的老折中，压低只会让进程内模式下几乎每个冷启动都落在 `starting`，而又没有谁去完成它。到点的仍标 `starting`（没有确定性失败），行末写 `via sync <provider>`，因为 `via sync` 等 server 的整个 `timeout` 并写缓存。
+  - `via sync` 不是发现类命令：并行拉取，每个 server 等它的 `timeout`（`--timeout` 覆盖），不受上面两个上限限制，因为它的用途就是把慢 server 预热进缓存（[getting-started.md](../guides/getting-started.md)）。
+  - `via prompt` 的 `Providers:` 行照常列出 `starting`、`failed` 的 provider：名字来自配置，不依赖目录。
 - 命中缓存时仍会在本地解析该 server 的凭证引用，缺失就按「需要鉴权」处理，并让输出脱敏知道这些值；不发起网络请求。未信任的项目级 server 不读缓存，也不拉取。
+- `env`、`headers` 的值按配置里的写法参与哈希：凭证引用（`env:`、`file:`、`keychain:`、`cmd:`）只用引用文本，不解析、不落盘它指向的值；字面量用值本身，且只进入单向哈希（同命令、同 env 名而值不同的两个 server——比如用 `MODE` 或 `FS_ROOT` 切换数据集——因此各有各的缓存文件，不会互相覆盖目录）。`catalog/<哈希>.info.json` 与 `.view.json` 沿用同一个哈希。更改键的组成时，旧文件因键不同而自然失效，不需要迁移。
 - 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt`、原始 `tools/list` 结果，以及 server 在 `initialize` 里声明的能力 `features`（`{"resources": bool, "prompts": bool, "completions": bool, "skills": bool}`，`resources`、`prompts`、`skills` 用于浏览视图的 `also:` 行，`completions` 只用于 prompt `-h` 里的补全提示（[cli.md](cli.md#补全)）；没有这一项的旧文件照常读取，只是不显示该行，刷新一次后出现）、拉取时协商出的协议 `protocol`（`{"version": "2026-07-28", "stateful": false}`，`via servers` 不连接就能显示它，stdio server 据此跳过协议探测，[daemon.md](daemon.md#协议版本与无状态连接)）和 server 给的 `ttlMs`（有的话）；这两项同样可以缺省。缓存键包含 `protocolVersion`（固定了版本时）。
 - 经 daemon 时目录的读取、凭证检查和写缓存都在 daemon 里完成（与进程内模式写同一份 `catalog/` 文件）；CLI 只收到原始工具列表，拆分和索引仍在 CLI 侧计算。
 - 校验失败且缓存超过 5 分钟时，刷新该 server 的缓存一次再校验（[arguments.md](arguments.md#schema-不可靠时)）。
@@ -62,9 +68,19 @@ playwright  21 tools
 → via <provider> to browse · via find <query> to search
 ```
 
-- 第一行：provider 数、可见工具数、异常状态（需要鉴权、连接失败）。
+- 第一行：provider 数、可见工具数、异常状态，按 `needs auth`、`starting`、`failed`、`untrusted` 的顺序，每种带 provider 名：`9 providers · 214 tools · 1 starting (slow) · 1 failed (dead)`。
 - 每个 provider 一行，按名字排序，第二列是可见工具数。
-- 需要鉴权或连接失败的 provider 仍然列出，第二列写成状态：`needs auth`、`failed`、`untrusted`。
+- 没有拿到目录的 provider 仍然列出，第二列写成状态，状态名固定为下面五个之一（代码里是导出的联合类型 `ProviderStatus`，`-o json` 的 `status` 字段用同样的名字，`ok` 表示有目录）：
+
+| 状态 | 含义 | 第二列 |
+| --- | --- | --- |
+| `needs auth` | 没有凭证，或 server 拒绝了凭证（退出码 4） | `needs auth` |
+| `starting` | 等待到点，但没有确定性失败：server 还在启动（`npx`、`uvx` 首次下载），或连接超时。daemon 仍在后台连接 | `starting · retry in a moment`；进程内模式没有后台，写 `starting · via sync <provider>` |
+| `failed` | 确定性失败：子进程退出、命令不存在或不可执行（`ENOENT`、`EACCES`）、握手被拒、HTTP 错误、连接被拒 | `failed · <原因首行>` |
+| `untrusted` | 未信任的项目级 server，没有启动也没有发请求 | `untrusted` |
+
+- `failed` 的原因取错误信息的第一行：去掉 `cannot start <provider>:` 前缀（行首已经是 provider 名），按「内容」档脱敏（[output.md](output.md#脱敏的范围)），折成一行，控制字符、双向控制符与零宽字符写成 `\uXXXX`，超过 80 个字符截断并以 `…` 结尾。完整信息见 `via doctor`。
+- `starting` 的意思是「稍后重试」：agent 读到它不应放弃这个 provider。`failed` 才是需要人看一眼的问题。超时一律归为 `starting`（连接超时、请求超时），不论是 daemon 里的还是进程内的；只有明确的失败才是 `failed`。
 
 ### `via <provider>`
 
@@ -124,6 +140,15 @@ issue:search   query, [owner], [repo]                  Search issues
 
 结果默认 10 条，每条一行，格式同资源视图但带 provider 前缀，大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。
 
+有 provider 没有拿到目录时，结果照常输出（退出码 0），stderr 分两行警告，因为这两种情况的处理不同（`starting` 稍后重试，其余需要看一眼）：
+
+```text
+warning: 1 provider still starting: slow (retry in a moment)
+warning: 1 provider could not be searched: dead (see via, via doctor)
+```
+
+`still starting` 一行列出 `starting` 的 provider，括号里经 daemon 时是 `retry in a moment`，进程内模式是 `no daemon keeps connecting: via sync <provider…>`；`could not be searched` 一行列出其余的（`needs auth`、`failed`、`untrusted`）。某一类没有时不出现那一行；provider 名按字母序，复数按个数（`1 provider`、`2 providers`）。
+
 ### 同义词扩展（默认开启，确定性）
 
 agent 的查询是自然语言（「删除工单」「合并 PR」），用词常与工具名不同。第 4 级的 BM25 因此在查询侧做数据驱动的扩展（[ADR 0011](../adr/0011-find-synonym-expansion-and-optional-embeddings.md)），不调用模型、不联网，规则在 `data/synonyms.json`（[格式](../development/data-files.md#synonymsjson)）：
@@ -152,3 +177,17 @@ agent 的查询是自然语言（「删除工单」「合并 PR」），用词�
 ## 找不到时
 
 按段（provider、资源、动作分别）计算编辑距离，给出至多 3 个 did you mean；仍无结果时提示 `via find <关键词>`。退出码 3。
+
+**provider 找不到**时不指向 `via find`：provider 总数很少（几个到十几个），直接列出来比再跑一条命令便宜，而 agent 常把 server 叫 `gh` 写成 `github`，编辑距离够不着：
+
+```console
+$ via github issue:read --owner acme --repo api --issue-number 1 --method get
+error: no such provider: github
+providers: el · fs · gh · slow
+next: via
+```
+
+- `providers:` 一行按字母序列出全部 provider（每个词按[可粘贴的命令行](output.md#可粘贴的命令行)引用），超过 12 个时只列前 12 个，后面写 `… N more · via`。有 did you mean 时它在 `providers:` 之前（`did you mean: gh`）。
+- `next:` 是 `via <最接近的 provider>`（有 did you mean 时；内置子命令的近似拼写如 `via sevrers` 同理）或 `via`，两者都是立刻能运行、能看到下一步的命令；不再是 `via find <输入>`。
+- 没有配置任何 server 时仍是 `error: no such provider: gh (no servers are configured)`，`next: via servers`。输入的名字作为文本回显（控制字符写成转义），不会进入 `next:`。
+- 资源与工具找不到的规则不变（did you mean 或 `via find <provider> <词>`）。资源之后多出的词见 [cli.md](cli.md#资源之后的词)。

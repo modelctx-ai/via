@@ -11,5 +11,5 @@ export { loadConfig } from '../config/load';
 export { createLazyCredentialResolver } from '../config/lazy-resolver';
 export { fileCursors, FallbackBackend, InProcessBackend } from './backend';
 export { CatalogCache } from './catalog-cache';
-export { buildProvider, buildProviderTable, providerInput, statusOf } from './directory';
+export { buildProvider, buildProviderTable, failureReason, providerInput, statusOf } from './directory';
 export { ViewCache } from './view-cache';

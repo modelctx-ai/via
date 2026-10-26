@@ -1,0 +1,17 @@
+15 providers · 231 tools · 1 needs auth (linear) · 1 starting (notion) · 2 failed (exa, slack)
+cloudflare    4 tools
+context7      2 tools
+exa           failed · the process exited before the MCP handshake finished
+filesystem    14 tools
+github        54 tools
+gmail         8 tools
+google-drive  6 tools
+linear        needs auth
+notion        starting · retry in a moment
+playwright    22 tools
+postgres      1 tool
+puppeteer     7 tools
+slack         failed · cannot run slack-mcp (ENOENT)
+sqlite        6 tools
+tavily        4 tools
+→ via <provider> to browse · via find <query> to search

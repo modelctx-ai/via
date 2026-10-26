@@ -211,7 +211,7 @@ describe('requests', () => {
     const conn = await h.connect();
     const server = stdioServer({ trusted: false, untrustedPaths: ['/p/.via.yaml'] });
     const response = await conn.request({ type: 'call', ...target(server), rawName: 'pid', args: {} });
-    expect(response).toMatchObject({ ok: false, error: { exitCode: 5, next: 'via trust /p/.via.yaml' } });
+    expect(response).toMatchObject({ ok: false, error: { exitCode: 5, next: 'ask the user to run this in a terminal: via trust /p/.via.yaml' } });
     expect((await h.daemon['sessions'].status()).length).toBe(0);
   });
 

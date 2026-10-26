@@ -1,6 +1,7 @@
 // parseToolArgs: command line -> merged argument object -> completion -> local validation.
 import type { McpTool } from '../../catalog/types';
 import { completeAlternatives } from './complete';
+import { isCommonFlag } from './common-flags';
 import { allowsBoolean, convertValue, isArrayTarget, isBooleanOnly, targetOf, type Target } from './convert';
 import { describeJsonFailure, parseJson, type JsonResult } from './json';
 import { buildToolArgsError, formatWarnings, pointerOf, problemsFromAjv, type Problem, unknownArgument } from './report';
@@ -11,7 +12,7 @@ import { formatUsage } from './help';
 import { shellWords } from '../../render/shell';
 
 type Resolution =
-  | { kind: 'ok'; path: string[]; pos: Pos; negate: boolean }
+  | { kind: 'ok'; path: string[]; pos: Pos; negate: boolean; /** The first segment is not declared (the schema takes extra fields). */ extraRoot: boolean }
   | { kind: 'unknown'; problem: Problem }
   | { kind: 'ambiguous'; typed: string; names: string[] };
 
@@ -74,6 +75,10 @@ class Parser {
   private stdinUsed = false;
   private positionalParam: string | undefined;
   private positionalSeen = false;
+  /** Undeclared top-level keys written as `--name`, in command-line order (`--dry-run` lists them). */
+  private readonly extraFields: string[] = [];
+  /** One warning per common flag that went out as an extra field. */
+  private readonly extraWarnings: string[] = [];
 
   constructor(
     private readonly tool: McpTool,
@@ -116,7 +121,7 @@ class Parser {
 
     completeAlternatives(this.model, this.args);
 
-    const warnings: string[] = [];
+    const warnings: string[] = [...this.extraWarnings];
     let validated = false;
     if (this.options.validate && this.tool.inputSchema) {
       const result = await (this.options.compile ?? compileSchema)(this.tool.inputSchema, this.ctx.ref);
@@ -145,7 +150,7 @@ class Parser {
       throw buildToolArgsError(this.problems, formatUsage(this.tool, this.ctx, { maxOptional: 8 }), shellWords(this.ctx.refWords ?? this.ctx.ref), this.redact);
     }
     // Echoed values (`got`) were redacted where they were written; the rest of a warning is ours.
-    return { args: this.args, warnings, validated };
+    return { args: this.args, warnings, validated, extraFields: this.extraFields };
   }
 
   // Problems --------------------------------------------------------------------------------
@@ -233,7 +238,8 @@ class Parser {
       const eq = body.indexOf('=');
       let name = eq < 0 ? body : body.slice(0, eq);
       const inline = eq < 0 ? undefined : body.slice(eq + 1);
-      if (name.startsWith('p.')) name = name.slice(2);
+      const prefixed = name.startsWith('p.');
+      if (prefixed) name = name.slice(2);
 
       const res = this.resolve(name);
       if (res.kind !== 'ok') {
@@ -247,6 +253,7 @@ class Parser {
         continue;
       }
 
+      if (res.extraRoot) this.noteExtra(name, prefixed);
       const target = targetOf(this.model, res.pos);
       if (res.negate) {
         if (inline !== undefined) this.add(0, this.model.displayArg(res.path), 'takes no value', 'value', pointerOf(res.path));
@@ -297,11 +304,25 @@ class Parser {
     await this.assign(path, targetOf(this.model, this.model.child(this.root, this.positionalParam)), token);
   }
 
+  /**
+   * `--name` is not a parameter of the tool and goes out as an extra field. A flag that other CLIs
+   * share (`--verbose`, `--limit`…) is almost certainly a mistake: say so, once, and name the way to
+   * keep it (`--p.<name>`). Only the flag's name is echoed, never its value (arguments.md, "JSON 输入").
+   */
+  private noteExtra(typed: string, prefixed: boolean): void {
+    const key = typed.split('.')[0]!;
+    if (!this.extraFields.includes(key)) this.extraFields.push(key);
+    if (prefixed || !isCommonFlag(key) || !/^[A-Za-z0-9_-]+$/.test(key)) return;
+    const warning = `--${key} is not a parameter of ${this.ctx.ref}; it was sent as an extra field (write --p.${key} to silence this)`;
+    if (!this.extraWarnings.includes(warning)) this.extraWarnings.push(warning);
+  }
+
   /** Resolve `filter.state` / `issue-number` / `no-draft` to schema property names. */
   private resolve(name: string): Resolution {
     const segs = name.split('.');
     let pos: Pos = this.root;
     const path: string[] = [];
+    let extraRoot = false;
     for (let i = 0; i < segs.length; i++) {
       const seg = segs[i]!;
       const last = i === segs.length - 1;
@@ -319,15 +340,16 @@ class Parser {
       if (hit) {
         path.push(hit.orig);
         pos = this.model.child(pos, hit.orig);
-        if (negate) return { kind: 'ok', path, pos, negate };
+        if (negate) return { kind: 'ok', path, pos, negate, extraRoot: false };
         continue;
       }
       const extra = seg !== '' && seg !== '__proto__' && (!this.options.validate || this.model.allowsExtra(pos));
       if (!extra) return { kind: 'unknown', problem: unknownArgument(this.model, path, seg === '' ? name : seg) };
       path.push(seg);
       pos = this.model.child(pos, seg);
+      if (i === 0) extraRoot = true;
     }
-    return { kind: 'ok', path, pos, negate: false };
+    return { kind: 'ok', path, pos, negate: false, extraRoot };
   }
 
   // Values ----------------------------------------------------------------------------------
