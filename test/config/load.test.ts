@@ -85,6 +85,7 @@ describe('the sample tree (one config per framework)', () => {
     expect(config.deny.map(String)).toEqual(['/^github\\/.*:delete$/', '/^notion\\/page:(delete|move)$/', '/^proj\\/.*:delete$/']);
     expect(config.output).toEqual({ budget: 2048, cellWidth: 80 });
     expect(config.daemon).toEqual({ idleTimeout: 300, serverIdleTimeout: 300 });
+    expect(config.discovery).toEqual({ wait: 3 });
   });
 
   it('reports the problems of the sample tree without failing', async () => {

@@ -111,6 +111,18 @@ frameworks still injecting MCP schemas:
 secrets: exa 的 EXA_API_KEY 在 ~/.cursor/mcp.json 中为明文
 ```
 
+`via doctor` 之后再跑一次 `via sync`，把每个 server 的工具目录预热进缓存：
+
+```console
+$ via sync
+exa         12 tools
+github      42 tools
+linear      needs auth: …
+playwright  21 tools
+```
+
+`npx -y …`、`uvx …` 这类 server 第一次启动要下载包，常要几秒到几十秒。不预热的话，第一条 `via` 或 `via find` 遇到它们时只等 3 秒就先输出，慢的 provider 标成 `starting · retry in a moment`（`failed` 才表示真的起不来，后面带原因）。daemon 在后台继续连并写缓存，过几秒再跑就正常了；没有 daemon 时（`VIA_NO_DAEMON=1`）后台不存在，标记是 `starting · via sync <provider>`。缓存 24 小时后过期，慢 server 再次冷启动时会遇到同样的事，`via sync <provider>` 随时可以重新预热。
+
 ## 3. 补齐鉴权
 
 框架通过 OAuth 拿到的 token 存在框架私有的位置，via 不读取，需要自己授权一次：

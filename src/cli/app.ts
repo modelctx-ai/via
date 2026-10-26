@@ -21,7 +21,11 @@ import { fail } from './failure';
 import { VERSION } from './help';
 import type { GlobalOptions } from './options';
 
-/** Per-server ceiling when listing many servers at once, so one slow server cannot stall `via`. */
+/**
+ * Per-server ceiling when listing many servers at once in this process, so one slow server cannot
+ * stall `via`. Through the daemon the wait is `discovery.wait` instead (3 seconds), because the daemon
+ * goes on connecting after the command has printed (discovery.md, "缓存").
+ */
 export const BROWSE_TIMEOUT_MS = 10_000;
 
 export type { Listing };
@@ -42,7 +46,12 @@ export interface LoadedProviders {
   /** Search terms of the tools whose build came from (or went to) the cache, for `SearchIndex`. */
   terms: { get(tool: CatalogTool): DocTerms | undefined };
   statuses: Record<string, ProviderStatus>;
+  /** The line after the status in the root view: why a provider `failed`, what to do about one that is `starting`. Redacted. */
+  details: Record<string, string>;
+  /** Every provider whose list did not come back, with `statuses` saying which way (`needs-auth`, `starting`, `failed`, `untrusted`). */
   failures: Array<{ entry: ProviderEntry; error: unknown }>;
+  /** Whether a daemon served the run: a provider that is `starting` then goes on connecting after this command ends. */
+  background: boolean;
 }
 
 export class App {
@@ -288,20 +297,36 @@ export class App {
 
   /**
    * The tools of one server: from the cache when fresh, else from the server (and then cached).
-   * `refresh` skips the cache read. Throws ClientError.
+   * `refresh` skips the cache read. `many`: one of several fetched at once, so the wait is capped.
+   * `discovery`: a browse (`via`, `via find`, `via prompt`) that does not wait for a slow server (below). Throws ClientError.
    */
-  async listing(entry: ProviderEntry, options: { refresh?: boolean; many?: boolean; have?: number } = {}): Promise<Listing> {
+  async listing(entry: ProviderEntry, options: { refresh?: boolean; many?: boolean; discovery?: boolean; have?: number } = {}): Promise<Listing> {
     const { server } = entry;
     if (!server.trusted) throw (await import('../client/errors')).untrustedServer(server);
-    const timeoutMs = this.listTimeoutMs(server, options.many ?? false);
-    return (await this.backend()).listing(server, { timeoutMs, refresh: options.refresh ?? false, ...(options.have !== undefined ? { have: options.have } : {}) });
+    const many = options.many ?? false;
+    const timeoutMs = this.listTimeoutMs(server, many);
+    const discovery = options.discovery ?? false;
+    // Discovery commands do not wait for the server's whole `timeout`: a daemon answers after `discovery.wait`
+    // (or `--timeout`) and keeps connecting behind it; this process has nothing to keep it going, so it uses `timeoutMs`.
+    let background: { waitMs: number; timeoutMs: number } | undefined;
+    if (discovery && !this.daemonOff) {
+      const own = this.options.timeoutMs;
+      background = { waitMs: own ?? Math.min((await this.config()).discovery.wait * 1000, server.timeout * 1000), timeoutMs: own ?? server.timeout * 1000 };
+    }
+    return (await this.backend()).listing(server, {
+      timeoutMs,
+      ...(background ? { background } : {}),
+      refresh: options.refresh ?? false,
+      ...(options.have !== undefined ? { have: options.have } : {}),
+    });
   }
 
   /** Fetch several providers in parallel; failures become statuses instead of aborting. */
   async loadProviders(entries: readonly ProviderEntry[], options: { refresh?: boolean } = {}): Promise<LoadedProviders> {
     const config = await this.config();
-    const [{ buildCatalog, providerInput, statusOf }, views] = await Promise.all([this.deps(), this.viewCache()]);
+    const [{ buildCatalog, failureReason, providerInput, statusOf }, views] = await Promise.all([this.deps(), this.viewCache()]);
     const statuses: Record<string, ProviderStatus> = {};
+    const details: Record<string, string> = {};
     const failures: LoadedProviders['failures'] = [];
     // The build inputs do not depend on the tool list, so they are known before it is fetched; the
     // build we already have tells which list to ask the backend about (it may then skip sending it).
@@ -310,9 +335,11 @@ export class App {
       entries.map(async (entry, i) => {
         try {
           const have = options.refresh ? undefined : views.peek(entry.server, early[i]!);
-          return { entry, listing: await this.listing(entry, { refresh: options.refresh ?? false, many: true, ...(have !== undefined ? { have } : {}) }) };
+          return { entry, listing: await this.listing(entry, { refresh: options.refresh ?? false, many: true, discovery: true, ...(have !== undefined ? { have } : {}) }) };
         } catch (error) {
-          statuses[entry.name] = statusOf(error);
+          const status = statusOf(error);
+          statuses[entry.name] = status;
+          if (status === 'failed') details[entry.name] = failureReason(await this.redactText(error instanceof Error ? error.message : String(error)), entry.name);
           failures.push({ entry, error });
           return { entry, listing: undefined };
         }
@@ -337,7 +364,11 @@ export class App {
       for (const [tool, known] of views.write(r.entry.server, inputs[i]!, r.listing, built)) written.set(tool, known);
     }
     const terms = { get: (tool: CatalogTool): DocTerms | undefined => written.get(tool) ?? restored.get(tool.provider)?.get(tool) };
-    return { catalog, terms, statuses, failures };
+    const background = this.backendReady?.mode === 'daemon';
+    for (const [name, status] of Object.entries(statuses)) {
+      if (status === 'starting') details[name] = background ? 'retry in a moment' : `via sync ${name}`;
+    }
+    return { catalog, terms, statuses, details, failures, background };
   }
 
   /**

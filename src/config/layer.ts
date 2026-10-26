@@ -18,6 +18,8 @@ export interface ConfigLayerData {
   deny: string[];
   output: { budget?: number; cellWidth?: number };
   daemon: { idleTimeout?: number; serverIdleTimeout?: number };
+  /** `discovery.wait`: seconds a discovery command waits for one server (daemon mode). */
+  discovery: { wait?: number };
   /** `search.semantic`: the validated fields, `false` to switch it off, absent when not set. */
   search: { semantic?: SemanticLayer | false };
 }
@@ -26,7 +28,7 @@ export interface ConfigLayerData {
 export type SemanticLayer = Pick<SemanticSearchConfig, 'url' | 'model' | 'auth'> &
   Partial<Pick<SemanticSearchConfig, 'timeout' | 'indexTimeout' | 'dimensions'>>;
 
-const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'output', 'daemon', 'search']);
+const TOP_LEVEL = new Set(['sources', 'servers', 'deny', 'output', 'daemon', 'discovery', 'search']);
 const SERVER_FIELDS = new Set(['command', 'args', 'env', 'cwd', 'url', 'headers', 'auth', 'alias', 'rename', 'disabled', 'exclusive', 'confirm', 'timeout', 'concurrency', 'budget', 'noise', 'roots', 'protocolVersion']);
 
 const typeName = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'list' : typeof v);
@@ -391,7 +393,7 @@ function serverDef(r: Reporter, name: string, v: unknown): ServerDef | undefined
  */
 export function validateLayer(raw: unknown, file: string | undefined): { data: ConfigLayerData; diagnostics: ConfigDiagnostic[] } {
   const r = new Reporter(file);
-  const data: ConfigLayerData = { servers: new Map(), deny: [], output: {}, daemon: {}, search: {} };
+  const data: ConfigLayerData = { servers: new Map(), deny: [], output: {}, daemon: {}, discovery: {}, search: {} };
   if (raw === null || raw === undefined) return { data, diagnostics: r.diagnostics };
   if (!isPlainObject(raw)) {
     r.add('error', 'invalid-field', '(root)', `expected a map at the top level, got ${typeName(raw)}`);
@@ -441,6 +443,16 @@ export function validateLayer(raw: unknown, file: string | undefined): { data: C
           else r.add('warning', 'unknown-field', `daemon.${k}`, 'unknown field');
         }
         break;
+      case 'discovery':
+        if (!isPlainObject(value)) {
+          r.invalid('discovery', 'map');
+          break;
+        }
+        for (const [k, v] of ownEntries(value)) {
+          if (k === 'wait') data.discovery.wait = num(r, 'discovery.wait', v, 'number');
+          else r.add('warning', 'unknown-field', `discovery.${k}`, 'unknown field');
+        }
+        break;
       case 'search':
         if (value === null) break;
         if (!isPlainObject(value)) {
@@ -459,7 +471,7 @@ export function validateLayer(raw: unknown, file: string | undefined): { data: C
         else if (!TOP_LEVEL.has(key)) r.add('warning', 'unknown-field', key, 'unknown field');
     }
   }
-  for (const group of [data.output, data.daemon] as Array<Record<string, number | undefined>>) {
+  for (const group of [data.output, data.daemon, data.discovery] as Array<Record<string, number | undefined>>) {
     for (const key of Object.keys(group)) if (group[key] === undefined) delete group[key];
   }
   return { data, diagnostics: r.diagnostics };

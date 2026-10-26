@@ -32,6 +32,7 @@ function config(servers: ServerConfig[], diagnostics: LoadedConfig['diagnostics'
     deny: [],
     output: { budget: 8192, cellWidth: 80 },
     daemon: { idleTimeout: 600, serverIdleTimeout: 300 },
+    discovery: { wait: 3 },
     diagnostics,
     files: [],
   };

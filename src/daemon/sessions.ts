@@ -7,7 +7,7 @@ import type { McpTool } from '../catalog/types';
 import { CATALOG_TTL_MS, CatalogCache, effectiveTtl } from '../cli/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
 import type { CredentialResolver, ServerConfig } from '../config/types';
-import type { DetachedCall, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, CompletionRef, CompletionResult, GetPromptResult, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
+import type { DetachedCall, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, CompletionRef, CompletionResult, GetPromptResult, ListedTools, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
 import type { OAuthStore } from '../client/oauth/store';
@@ -90,6 +90,8 @@ interface Entry {
   refreshAgain: boolean;
   /** A newer definition of the same server replaced this one; drop it once it is idle. */
   retired: boolean;
+  /** The `tools/list` being fetched from the server, so a second request joins it instead of starting another. */
+  listing?: Promise<ListedTools>;
 }
 
 export interface SessionManagerOptions {
@@ -127,10 +129,15 @@ export class SessionManager {
 
   // Operations --------------------------------------------------------------------------
 
-  /** `tools/list`: this daemon's copy while it is fresh, else the disk cache, else the server. */
+  /**
+   * `tools/list`: this daemon's copy while it is fresh, else the disk cache, else the server. With
+   * `waitMs` (discovery commands) the answer comes after at most that long: a server that has not
+   * finished by then, or whose attempt ran out of time, is `pending` and the fetch goes on in the
+   * background (up to `timeoutMs`), writing the cache when it succeeds, so the next command finds it.
+   */
   async list(
     target: ServerTarget,
-    options: { timeoutMs: number; refresh: boolean; have?: number; onWarning?: (message: string) => void },
+    options: { timeoutMs: number; waitMs?: number; refresh: boolean; have?: number; onWarning?: (message: string) => void },
   ): Promise<ListResult> {
     const server = await this.admit(target);
     await this.prime(server, options.timeoutMs);
@@ -162,13 +169,53 @@ export class SessionManager {
         delete entry.tools;
         delete entry.fetchedAt;
       }
-      let ttlMs: number | undefined;
-      const tools = await entry.session.listTools({ timeoutMs: options.timeoutMs, onTtl: (ms) => void (ttlMs = ms), ...(options.onWarning ? { onWarning: options.onWarning } : {}) });
-      this.store(entry, tools, ttlMs);
-      return { tools, fetchedAt: entry.fetchedAt!, fromCache: false, ...(entry.features ? { features: entry.features } : {}), ...(entry.protocol ? { protocol: entry.protocol } : {}) };
+      // Warnings belong to the request that is waiting: once it has been answered there is nobody to tell.
+      let waiting = true;
+      const onWarning = options.onWarning;
+      const warn = onWarning ? (message: string): void => void (waiting && onWarning(message)) : undefined;
+      const fetching = entry.listing ?? this.fetchTools(entry, options.timeoutMs, warn);
+      if (options.waitMs === undefined) return await fetching.finally(() => void (waiting = false));
+      let timer: NodeJS.Timeout | undefined;
+      const waited = new Promise<'waited'>((resolve) => {
+        timer = setTimeout(() => resolve('waited'), options.waitMs);
+      });
+      try {
+        const done = await Promise.race([fetching, waited]);
+        if (done !== 'waited') return done;
+      } catch (error) {
+        // Ran out of time connecting: not a failure that is certain, the same as the wait running out.
+        if (!(error instanceof ClientError && error.kind === 'timeout')) throw error;
+      } finally {
+        clearTimeout(timer);
+        waiting = false;
+      }
+      entry.log?.event(`the tool list is not ready after ${Math.round(options.waitMs / 100) / 10}s: answering "still starting" and going on in the background`);
+      fetching.then(
+        (tools) => entry.log?.event(`the tool list arrived after the wait: ${tools.tools.length} tools, cached`),
+        (error: unknown) => entry.log?.error(`listing the tools failed after the wait: ${error instanceof Error ? (error.message.split('\n')[0] ?? '').slice(0, 300) : 'unknown error'}`),
+      );
+      return { pending: true };
     } finally {
       this.end(entry);
     }
+  }
+
+  /** Ask the server for its tools and keep the answer (memory and disk). Shared by every request that arrives meanwhile. */
+  private fetchTools(entry: Entry, timeoutMs: number, onWarning: ((message: string) => void) | undefined): Promise<ListedTools> {
+    this.begin(entry);
+    let ttlMs: number | undefined;
+    const run = entry.session
+      .listTools({ timeoutMs, onTtl: (ms) => void (ttlMs = ms), ...(onWarning ? { onWarning } : {}) })
+      .then((tools): ListedTools => {
+        this.store(entry, tools, ttlMs);
+        return { tools, fetchedAt: entry.fetchedAt!, fromCache: false, ...(entry.features ? { features: entry.features } : {}), ...(entry.protocol ? { protocol: entry.protocol } : {}) };
+      })
+      .finally(() => {
+        entry.listing = undefined;
+        this.end(entry);
+      });
+    entry.listing = run;
+    return run;
   }
 
   /** `tools/call`. The raw result comes back with resolved credentials replaced by `***`. */

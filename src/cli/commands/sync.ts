@@ -14,11 +14,11 @@ export async function syncCommand(app: App, argv: readonly string[]): Promise<nu
   const results = await Promise.all(
     chosen.map(async (entry) => {
       try {
-        const { tools } = await app.listing(entry, { refresh: true, many: true });
+        const { tools } = await app.listing(entry, { refresh: true });
         return { entry, row: [entry.name, `${tools.length} ${tools.length === 1 ? 'tool' : 'tools'}`], code: ExitCode.Ok as number };
       } catch (error) {
         const info = await toErrorInfo(error);
-        const label = { 'needs-auth': 'needs auth', error: 'failed', untrusted: 'untrusted' }[statusOf(error)];
+        const label = { 'needs-auth': 'needs auth', starting: 'failed', failed: 'failed', untrusted: 'untrusted' }[statusOf(error)];
         return { entry, row: [entry.name, `${label}: ${app.redact.scan(info.message)}`], code: info.code as number };
       }
     }),

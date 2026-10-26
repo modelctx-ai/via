@@ -27,6 +27,8 @@ export const DEFAULTS = {
   confirm: 'destructive',
   output: { budget: 8192, cellWidth: 80 },
   daemon: { idleTimeout: 600, serverIdleTimeout: 300 },
+  /** Seconds a discovery command (`via`, `via find`, `via prompt`) waits for one server when a daemon keeps connecting behind it. */
+  discovery: { wait: 3 },
   semantic: { timeout: 3, indexTimeout: 30 },
 } as const;
 
@@ -72,6 +74,7 @@ export interface LoadedConfig {
   deny: RegExp[];
   output: { budget: number; cellWidth: number };
   daemon: { idleTimeout: number; serverIdleTimeout: number };
+  discovery: { wait: number };
   /** Optional features of `via find`; `semantic` is set only by the user config (security.md). */
   search?: { semantic?: SemanticSearchConfig };
   diagnostics: ConfigDiagnostic[];
@@ -280,6 +283,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   const seenDeny = new Set<string>();
   const output = { budget: DEFAULTS.output.budget, cellWidth: DEFAULTS.output.cellWidth };
   const daemon = { idleTimeout: DEFAULTS.daemon.idleTimeout, serverIdleTimeout: DEFAULTS.daemon.serverIdleTimeout };
+  const discovery = { wait: DEFAULTS.discovery.wait };
   const search: LoadedConfig['search'] = {};
   for (const layer of layers) {
     for (const [i, pattern] of layer.data.deny.entries()) {
@@ -313,6 +317,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     }
     Object.assign(output, layer.data.output);
     Object.assign(daemon, layer.data.daemon);
+    Object.assign(discovery, layer.data.discovery);
     const wanted = layer.data.search.semantic;
     if (wanted !== undefined) {
       if (layer.origin.scope !== 'user' && layer.origin.scope !== 'cli') {
@@ -329,7 +334,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     }
   }
 
-  return { servers, deny, output, daemon, search, diagnostics, files };
+  return { servers, deny, output, daemon, discovery, search, diagnostics, files };
 }
 
 function finalize(

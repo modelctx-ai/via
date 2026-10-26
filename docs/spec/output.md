@@ -176,6 +176,16 @@ via 打印的命令行是给人和 agent 复制粘贴的：`next:` 提示（含�
 
 不在保证范围内：csh 与 tcsh（单引号里的 `!` 仍触发历史展开）；终端或编辑器自己对粘贴内容的处理；batch 文件里的 `%`。每个平台上 via 只按自己运行的平台引用，从 Linux 容器里复制到 Windows 的命令不保证。
 
+## 浏览与搜索里没有拿到目录的 provider
+
+`via`、`via find`、`via prompt` 并行向全部 server 要目录，个别 provider 拿不到时命令不失败（退出码 0），而是把它标出来（[discovery.md](discovery.md#浏览视图)）。状态只有五个：`ok`、`needs auth`、`starting`、`failed`、`untrusted`；这里约定它们在 stderr 与退出码上的表现。
+
+- **`starting`**（等待到点，没有确定性失败）和 **`failed`**（确定性失败）不混用：`starting` 稍后重试即可，`failed` 要看一眼。agent 读到 `starting` 不应当放弃这个 provider。
+- `via` 的状态列：`failed · <原因首行>`、`starting · retry in a moment`（进程内模式是 `starting · via sync <provider>`）。`failed` 的原因是上游错误文本，按「内容」档脱敏，去掉 `cannot start <provider>:` 前缀，折成一行，最多 80 个字符。
+- `via` 第一行汇总里每种状态一段 `N <状态> (名字…)`，顺序固定：`needs auth`、`starting`、`failed`、`untrusted`。
+- `via find` 的 stderr 分两行警告，某一类没有就不出现，各自的退出码影响为零：`warning: N provider(s) still starting: <名字…> (<提示>)` 与 `warning: N provider(s) could not be searched: <名字…> (see via, via doctor)`。`N provider` 单数时不加 `s`；名字按字母序。
+- `via prompt` 的 `Providers:` 行照常列出这两类 provider。
+
 ## 退出码
 
 | 退出码 | 含义 |

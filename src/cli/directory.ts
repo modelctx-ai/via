@@ -13,6 +13,8 @@ import {
 } from '../catalog';
 import type { LoadedConfig, ServerConfig } from '../config';
 import { ExitCode } from '../render/exit-codes';
+import { sanitizeText } from '../render/sanitize';
+import { visibleText } from '../render/shell';
 
 export interface ProviderEntry {
   /** Provider name on the command line: normalized alias or server name. */
@@ -83,12 +85,33 @@ export function matchingDeny(tool: CatalogTool, deny: readonly RegExp[]): string
   return findDenyRule(tool, deny);
 }
 
-/** How a failed listing shows up in `via` (discovery.md, "浏览视图"). */
+/**
+ * How a listing that did not come back shows up in `via` (discovery.md, "浏览视图"). Running out of
+ * time (the wait of a discovery command, or a daemon that is still connecting) is `starting`: nothing
+ * is known to be wrong. Everything else that is not a login or trust problem is `failed`.
+ */
 export function statusOf(error: unknown): Exclude<ProviderStatus, 'ok'> {
   if (error instanceof Error && error.name === 'ClientError') {
-    const code = (error as Error & { exitCode?: number }).exitCode;
+    const { exitCode: code, kind } = error as Error & { exitCode?: number; kind?: string };
     if (code === ExitCode.Auth) return 'needs-auth';
     if (code === ExitCode.Denied && /untrusted/.test(error.message)) return 'untrusted';
+    if (kind === 'timeout') return 'starting';
   }
-  return 'error';
+  return 'failed';
+}
+
+/** Longest reason shown after `failed ·` in the root view. */
+const MAX_REASON = 80;
+
+/**
+ * The first line of why a provider failed, for the row of `via`: without the `cannot start <provider>:`
+ * lead (the row says which provider), control characters dropped, folded to one line, cut. `text` is the
+ * error message after redaction: the cut must come last, or it could leave the start of a credential behind.
+ */
+export function failureReason(text: string, provider: string): string {
+  const first = text.split(/\r?\n/)[0] ?? '';
+  // Bidi and zero-width characters (text from the server's stderr can hold them) become visible escapes.
+  const folded = visibleText(sanitizeText(first).replace(/\s+/g, ' ').trim());
+  const bare = folded.startsWith(`cannot start ${provider}: `) ? folded.slice(`cannot start ${provider}: `.length) : folded;
+  return bare.length > MAX_REASON ? `${bare.slice(0, MAX_REASON - 1)}…` : bare;
 }

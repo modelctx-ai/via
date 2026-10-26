@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PROVIDER_STATUSES,
   renderFind,
   renderProvider,
   renderResource,
@@ -21,8 +22,23 @@ function provider(name: string) {
 
 describe('via (root view)', () => {
   it('lists one row per provider with its tool count', async () => {
-    const entries = rootEntries(all.providers, { linear: 'needs-auth', slack: 'error' });
+    const entries = rootEntries(all.providers, { linear: 'needs-auth', slack: 'failed' });
     await expect(`${renderRoot(entries)}\n`).toMatchFileSnapshot('./__snapshots__/root.txt');
+  });
+
+  it('tells a provider that is starting from one that failed, with the reason after the status', async () => {
+    const entries = rootEntries(
+      all.providers,
+      { linear: 'needs-auth', slack: 'failed', notion: 'starting', exa: 'failed' },
+      { slack: 'cannot run slack-mcp (ENOENT)', notion: 'retry in a moment', exa: 'the process exited before the MCP handshake finished' },
+    );
+    await expect(`${renderRoot(entries)}\n`).toMatchFileSnapshot('./__snapshots__/root-starting.txt');
+    const first = renderRoot(entries).split('\n')[0]!;
+    expect(first).toContain('1 needs auth (linear) · 1 starting (notion) · 2 failed (exa, slack)');
+  });
+
+  it('exports the status names as one list', () => {
+    expect([...PROVIDER_STATUSES]).toEqual(['ok', 'needs-auth', 'starting', 'failed', 'untrusted']);
   });
 
   it('sorts providers by name whatever order they were loaded in', () => {

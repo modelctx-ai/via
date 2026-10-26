@@ -66,15 +66,24 @@ export class DaemonBackend implements Backend {
 
   constructor(private readonly options: DaemonBackendOptions) {}
 
-  async listing(server: ServerConfig, { timeoutMs, refresh, have }: ListingOptions): Promise<Listing> {
+  async listing(server: ServerConfig, { timeoutMs: ownTimeoutMs, background, refresh, have }: ListingOptions): Promise<Listing> {
+    // A discovery command waits `waitMs`; the daemon goes on up to the server's own limit.
+    const timeoutMs = background?.timeoutMs ?? ownTimeoutMs;
+    const waitMs = background?.waitMs;
     // Say which list we already have a build of, if the cache file that would supply its tools is there.
     const disk = !refresh && have !== undefined ? this.options.cache?.read(server) : undefined;
     const known = disk !== undefined && disk.fetchedAt === have ? have : undefined;
     const response = await this.send(
-      { type: 'list', ...this.target(server), timeoutMs, ...(refresh ? { refresh: true } : {}), ...(known !== undefined ? { have: known } : {}) },
-      { deadlineMs: timeoutMs + DEADLINE_SLACK_MS, onEvent: (event) => this.onLog(event) },
+      { type: 'list', ...this.target(server), timeoutMs, ...(waitMs !== undefined ? { waitMs } : {}), ...(refresh ? { refresh: true } : {}), ...(known !== undefined ? { have: known } : {}) },
+      { deadlineMs: (waitMs ?? timeoutMs) + DEADLINE_SLACK_MS, onEvent: (event) => this.onLog(event) },
     );
     const result = unwrap<ListResult>(response);
+    if ('pending' in result) {
+      // Not a failure: the daemon is still connecting and will have written the cache by the time it is done.
+      const err = new ClientError({ exitCode: ExitCode.Upstream, message: `${server.provider} is still starting`, next: `via ${server.provider}` }, true);
+      err.kind = 'timeout';
+      throw err;
+    }
     if (!('unchanged' in result)) {
       // The daemon wrote its cache file before answering: its length identifies this list for the
       // prebuilt-catalog cache, as it does for a list read from the file here.
@@ -83,7 +92,7 @@ export class DaemonBackend implements Backend {
     }
     // The daemon's list is the one in the cache file we just read (the daemon wrote it): the tools,
     // if anyone asks for them, are parsed from there instead of coming over the socket.
-    if (!disk || disk.fetchedAt !== result.fetchedAt) return this.listing(server, { timeoutMs, refresh: true });
+    if (!disk || disk.fetchedAt !== result.fetchedAt) return this.listing(server, { timeoutMs: ownTimeoutMs, ...(background ? { background } : {}), refresh: true });
     const features = result.features ?? disk.features;
     const protocol = result.protocol ?? disk.protocol;
     return {

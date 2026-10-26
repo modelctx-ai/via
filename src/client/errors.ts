@@ -34,7 +34,7 @@ const SKILLS_EXTENSION_ID = 'io.modelcontextprotocol/skills';
 /** `timeoutMs` ran out while connecting to `server`, or waiting for its answer (exit code 6, retryable). */
 export function timedOut(server: ServerConfig, phase: Phase, timeoutMs: number): ClientError {
   const seconds = formatSeconds(timeoutMs);
-  return new ClientError(
+  const err = new ClientError(
     {
       exitCode: ExitCode.Upstream,
       message: phase === 'connect' ? `timed out after ${seconds}s connecting to ${server.provider}` : `${server.provider} did not answer within ${seconds}s`,
@@ -42,6 +42,8 @@ export function timedOut(server: ServerConfig, phase: Phase, timeoutMs: number):
     },
     true,
   );
+  err.kind = 'timeout';
+  return err;
 }
 
 export function notFoundServer(name: string, known: readonly string[]): ClientError {
