@@ -1,4 +1,7 @@
 import { didYouMean, editDistance, closeness } from './edit-distance';
+import { defaultSplitRules } from './rules';
+import { singularizeName } from './singularize';
+import { splitToolName } from './split';
 import type { Catalog, CatalogTool, ProviderCatalog, ResourceGroup } from './types';
 
 /** Input is lenient: case-insensitive, `-` and `_` equivalent (cli.md). */
@@ -81,9 +84,9 @@ export function resolveTarget(provider: ProviderCatalog, input: string): Resolve
     if (group) {
       const tool = group.tools.find((t) => t.verb === verb);
       if (tool) return { kind: 'tool', tool };
-      return { kind: 'not-found', suggestions: suggestInResource(group, verb) };
+      return { kind: 'not-found', suggestions: suggestFor(provider, group.name, verb, group) };
     }
-    return { kind: 'not-found', suggestions: suggestTools(provider, resName, verb) };
+    return { kind: 'not-found', suggestions: suggestFor(provider, resName, verb) };
   }
 
   const resource = provider.resources.find((r) => r.name === arg);
@@ -102,14 +105,48 @@ export function resolveTarget(provider: ProviderCatalog, input: string): Resolve
   }
   if (prefixed) return { kind: 'resource', resource: prefixed };
 
-  return { kind: 'not-found', suggestions: didYouMean(arg, allNames(provider)) };
+  // `list-todos` is a way to write `todo:list`: read it with the split rules, then suggest like `todo:list`.
+  const split = splitToolName(arg, { providerNames: [provider.provider] }, defaultSplitRules());
+  const parsed = split.kind === 'resource' ? suggestFor(provider, split.resource, split.verb) : [];
+  return { kind: 'not-found', suggestions: [...new Set([...parsed, ...didYouMean(arg, allNames(provider))])].slice(0, 3) };
 }
 
-function suggestInResource(group: ResourceGroup, verb: string): string[] {
-  const verbs = group.tools.map((t) => t.verb!);
-  const close = didYouMean(verb, verbs);
-  const names = close.length > 0 ? close : verbs.slice(0, 3);
-  return names.map((v) => `${group.name}:${v}`);
+/** Leaf tools of the provider whose name, singularised, is `resource`: `secrets` for the resource `secret` (discovery.md). */
+export function sameNameLeaves(provider: ProviderCatalog, resource: string): CatalogTool[] {
+  const rules = defaultSplitRules();
+  const want = singularizeName(resource, rules);
+  return provider.leaves.filter((t) => {
+    // `name` is what the tool is called now; the split name is what it is called before a clash with a
+    // resource moved it to its raw name (`acme-search` was `search`).
+    const split = t.leafSingleRef.slice(t.provider.length + 1);
+    return singularizeName(t.name, rules) === want || singularizeName(split, rules) === want;
+  });
+}
+
+/**
+ * Did-you-mean names for `resource:verb` that does not exist (discovery.md, "找不到时"), at most 3.
+ * In this order, the first group that is not empty and, after it, the groups below it:
+ *
+ * 1. verbs of the resource that are a typo away from `verb`. A word that is itself a verb of the
+ *    verb table (`get`, `set`) is a different action, not a typo, however close it is;
+ * 2. leaf tools whose singularised name is the resource (`secrets` for `secret:list`): the tool that
+ *    lists a resource is often named for the collection and has no verb, so no edit distance reaches it;
+ * 3. the other verbs of the resource, in `tools/list` order, destructive ones last;
+ * 4. when the resource does not exist, names close to both parts (they can share no more than a spelling).
+ *
+ * Groups 2 to 4 are left out when group 1 is not empty: a typo is answered with what was meant.
+ */
+function suggestFor(provider: ProviderCatalog, resWord: string, verb: string, found?: ResourceGroup): string[] {
+  const rules = defaultSplitRules();
+  const resource = singularizeName(resWord, rules);
+  const group = found ?? provider.resources.find((r) => r.name === resource);
+  const tools = group?.tools ?? [];
+  const typos = rules.verbs.has(verb) ? [] : didYouMean(verb, tools.map((t) => t.verb!)).map((v) => tools.find((t) => t.verb === v)!);
+  if (typos.length > 0) return typos.map((t) => t.name);
+  const others = [...tools.filter((t) => !t.destructive), ...tools.filter((t) => t.destructive)];
+  const names = [...sameNameLeaves(provider, resource), ...others].map((t) => t.name);
+  if (!group) names.push(...suggestTools(provider, resWord, verb));
+  return [...new Set(names)].slice(0, 3);
 }
 
 /** Per-segment distance over `resource:verb` names; both segments must be close. */

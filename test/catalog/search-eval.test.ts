@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SearchIndex } from '../../src/catalog';
+import { buildCatalog, SearchIndex } from '../../src/catalog';
 import { evaluate, formatReport, loadEvalQueries } from '../../scripts/lib/search-eval';
-import { catalogFixture } from '../helpers/fixtures';
+import { catalogFixture, fixtureNames, loadTools } from '../helpers/fixtures';
 
 // Retrieval quality of `via find` over the fixture servers (docs/spec/discovery.md, "搜索"): the
 // same natural-language queries against the lexical baseline and the default (synonym expansion).
@@ -40,9 +40,9 @@ describe('find retrieval quality', () => {
   });
 
   it('keeps the measured floors', () => {
-    expect(after.recall1).toBeGreaterThanOrEqual(0.65);
+    expect(after.recall1).toBeGreaterThanOrEqual(0.74);
     expect(after.recall5).toBeGreaterThanOrEqual(0.96);
-    expect(after.mrr).toBeGreaterThanOrEqual(0.78);
+    expect(after.mrr).toBeGreaterThanOrEqual(0.84);
     // Queries that already worked lexically keep working.
     expect(after.byGroup.direct!.recall1).toBe(1);
   });
@@ -57,9 +57,29 @@ describe('find retrieval quality', () => {
     expect(a.recall1).toBeGreaterThanOrEqual(b.recall1);
     expect(a.recall5).toBeGreaterThanOrEqual(b.recall5);
     expect(a.mrr).toBeGreaterThanOrEqual(b.mrr);
-    expect(a.recall1).toBeGreaterThanOrEqual(0.66);
+    expect(a.recall1).toBeGreaterThanOrEqual(0.76);
     expect(a.recall5).toBeGreaterThanOrEqual(0.86);
-    expect(a.mrr).toBeGreaterThanOrEqual(0.77);
+    expect(a.mrr).toBeGreaterThanOrEqual(0.82);
     expect(a.byGroup.direct!.recall1).toBe(1);
+  });
+});
+
+// jobs.json is a server named after the plural of its resource. Before the provider scope rule, the
+// provider name flattened the idf of `job` and tools that only mention jobs outranked the tool
+// named by the query (measured then: recall@1 45.5%, recall@5 81.8%, MRR 0.609).
+describe('find retrieval quality: provider named after a resource (discovery.md, "搜索")', () => {
+  const withJobs = buildCatalog([
+    ...fixtureNames('tools').map((provider) => ({ provider, tools: loadTools('tools', provider) })),
+    { provider: 'jobs', tools: loadTools('other', 'jobs') },
+  ]);
+  const scope = loadEvalQueries(join(process.cwd(), 'test', 'fixtures', 'search', 'provider-scope.json'));
+
+  it('puts the tool the query names first', () => {
+    const known = new Set(withJobs.providers.flatMap((p) => p.tools.map((t) => t.ref)));
+    for (const q of scope) for (const ref of q.expect) expect(known.has(ref), `${q.q} -> ${ref}`).toBe(true);
+    const report = evaluate(new SearchIndex(withJobs), scope);
+    console.log(formatReport('provider-scope', report));
+    expect(report.misses).toEqual([]);
+    expect(report.recall1).toBe(1);
   });
 });

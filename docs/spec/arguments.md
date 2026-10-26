@@ -19,8 +19,9 @@
 ### 参数名
 
 - 同时接受 snake_case、camelCase 和 kebab-case，统一写成 kebab 即可：`--issue-number` 对应 `issue_number`，`--pull-number` 对应 `pullNumber`。
-- 帮助、签名、报错中一律显示 kebab-case。
+- 帮助、签名、报错中一律显示 kebab-case；例外是数组条目的字段，它们只能写在 JSON 里，显示原名（见[报错](#校验与报错)）。
 - 归一化后两个参数同名时，两者都必须用原名指定，并在 `-h` 中提示。
+- 归一化后为空（名字里没有字母和数字，如 `_`、`__`）的参数没有 kebab-case 写法，保留原名，写成 `--_`：`usage:`、`-h` 的参数行、资源视图与 `find` 的签名（`[_]`）、调用示例、报错与 did you mean 都用这一个写法，解析器也接受它（`--_ x`、`--_=x`）。`-- x` 不是写法：`--` 之后的词是位置参数，会报 `unexpected argument "x"`。
 
 ### 从文件或 stdin 读取
 
@@ -49,7 +50,7 @@
 - 其他命令行工具共有的全局 flag（`--verbose`、`--limit`、`--format`、`--debug` 等，表在 `data/common-flags.json`，[格式](../development/data-files.md#common-flagsjson)）几乎不会是用户想传给工具的参数，所以不能悄悄发出去：这类 flag 在上一条的规则下被当作额外字段发送时（工具没有声明它，且不是以 `--p.` 开头写的），stderr 多一行 `warning: --verbose is not a parameter of gh issue:read; it was sent as an extra field (write --p.verbose to silence this)`，退出码与调用不变。同一个 flag 只警告一次；警告只写 flag 名，不写值；`-o json` 下警告仍是 stderr 上的一行文本；`--no-validate` 时（未声明的参数同样被发出）也警告。要真的发送这个字段就写 `--p.verbose`，这是静默的写法。`-o json` 是 `--json` 的别名，所以 `--json` 不会成为额外字段；工具自己有 `json` 参数时写 `--p.json`。`--dry-run` 把这类字段另列一行（[cli.md](cli.md#--dry-run-的输出)）。工具的 schema 封闭（`additionalProperties: false`）时不适用：照旧报 `unknown argument`，附 did you mean。
 - JSON 解析失败时退出码 2，报错指出参数名和出错位置，并提示可以改用 `@文件`。
 - 合并顺序：先取 `--args`，再按命令行顺序应用其余参数；同一路径后写的覆盖先写的，对象之间做深合并。例如 `--filter '{"state":"open","label":"bug"}' --filter.state closed` 的结果是 `{"state":"closed","label":"bug"}`。
-- 帮助中 object、array 参数显示为 `--filter <json>`，有声明字段的 object 额外列出 `--filter.<field>` 写法。
+- 帮助中 object、array 参数显示为 `--filter <json>`，有声明字段的 object 额外列出 `--filter.<field>` 写法，对象数组列出条目的字段（[帮助](#帮助)）。
 - `via batch` 每行的 `args` 就是这里的 `--args` 基础对象，没有命令行参数可叠加，也不展开 `@文件` 与 `-`（[cli.md](cli.md#via-batch)）。
 - `--dry-run` 打印合并后的完整参数 JSON，用于确认最终发给上游的内容。
 - shell 中内联 JSON 用单引号包裹；内容较长或带单引号时，用 `@文件` 或 heredoc（`--args - <<'JSON' … JSON`）。
@@ -78,20 +79,24 @@ Get issue details
   --issue-number   <num>
   --method         get: Get issue details · get_comments: Get issue comments · …
 example: via github issue:read --owner text --repo text --issue-number 1 --method get
+full text: via github issue:read -h --full
 alias: issue_read · read-only
 ```
 
 - 必填参数在前，显示类型、默认值、enum 可选值和截断后的描述。
 - usage 行超过 120 列时按 80 列折行，续行缩进 9 格，每个参数不拆开；错误信息里的 usage 最多列出 8 个可选参数，其余写成 `[…]`，完整列表见 `-h`。
-- 类型写法：string `<str>`、number/integer `<num>`、object/array `<json>`、boolean 只写开关；enum 直接写 `a|b|c`（超过 60 个字符时退回类型，完整列表放在参数行）。与全局选项重名的参数显示为 `--p.<name>`。
+- 类型写法：string `<str>`、number/integer `<num>`、object `<json>`、boolean 只写开关；enum 直接写 `a|b|c`（超过 60 个字符时退回类型，完整列表放在参数行）。标量数组（元素是 string、number、integer、boolean，可以几种并列）写元素类型加 `[]`：`<str[]>`、`<num[]>`、`<(str|num)[]>`，因为它既可以重复传参、也可以整体写 JSON，写 `<json>` 会只提示后一种；对象数组、tuple、嵌套数组和没有声明元素类型的数组仍写 `<json>`。与全局选项重名的参数显示为 `--p.<name>`。
 - 参数行列有描述、默认值或需要说明的参数；**必填参数总是有一行**，没有描述时只写类型或可选值（`--issue-number   <num>`、`--method   get|get_comments`，布尔写 `bool`），这样 `-h` 回答得了「这个参数要什么」，不必回头读 usage 行。可选参数没有可说的就不单独成行。多行描述压成一行，列表项以 ` · ` 连接，放不下时以 ` · …` 结尾。标量数组注明「repeat the flag or pass a JSON array」。
-- 末尾显示原始名、只读或危险标记；其上一行是[调用示例](#调用示例)。
+- **对象的字段**：有声明字段的 object 在参数行下列出 `--filter.<field>` 写法；元素是有声明字段的 object 的数组（`--items <json>`，只能整体写 JSON）在参数行下缩进两格列出条目的字段，参数行末尾写 `JSON array of objects with keys:`。两者每个字段一行：类型、必填时的 `required`、描述、`default`。数组条目的字段名**写 schema 里的原名**（`todoId`，不是 `todo-id`）：它们在 JSON 里，via 不改写 JSON 里的键，也不做 kebab 归一化。字段超过 12 个时只列前 12 个，其余写成 `… N more`（object 的 `--filter.…` 行写 `N more fields`）。更深一层的 object、数组只写 `json`。
+- **截断与全文**：默认的 `-h` 把工具描述截成第一行（最长 160 个字符），参数与字段的描述截到约 72 个字符，`one of:` 列表截到约 72 个字符；工具描述的其余部分（常含「仅在用户明确要求时」之类的约束）和被截掉的参数描述只在 `-h --full` 与 `-h -o json` 里。**发生了截断**（上述任何一处、或字段数超过上限）时，`example:` 行之后、`alias:` 行之前多一行 `full text: via <规范写法> -h --full`，没有截断时不出现；`via prompts <provider> <名称> -h` 同样（写成 `via prompts <provider> <名称> -h --full`）。列表项开头的说明行（以 `:` 结尾）在压成一行时被省略，不算截断。
+- **`--full`**（全局选项，[cli.md](cli.md#全局选项)：「关闭截断」）用在 `-h` 上：输出完整的工具描述，保留换行与段落（连续空行并成一行，每行去掉行尾空白；描述有多行时与参数行之间空一行）；参数与字段的描述全文，多行描述的后续行对齐在第一行之下，`default:`、`one of:` 等放在最后一行，`one of:` 列出全部值；字段数不设上限；不再输出 `full text:` 行。`-h -o json` 本来就是全文，`--full` 对它没有影响。工具自己有名为 `full` 的参数时，照旧写 `--p.full`。
+- 末尾显示原始名、只读或危险标记；其上一行是[调用示例](#调用示例)，再上一行是 `full text:`（有截断时）。
 
 ### 调用示例
 
 `-h` 在 `alias:` 行之前给出一行 `example:`，是按 `inputSchema` 生成、可以直接粘贴运行的调用（`via prompts <provider> <名称> -h` 同样有，写的是 prompt 的参数）。agent 读了它就知道嵌套对象、对象数组、tuple 该怎么写，不必再去翻映射规则；这行文字会进入 agent 的上下文，所以只给一条、尽量短（上例约 25 个 token）。错误信息里的 `usage:` 不带它。`via find` 的结果下面也带这一行（缩进两格，`-o json` 里是 `example` 字段，[discovery.md](discovery.md#搜索)），用的是同一个函数：为了不在搜索时读 schema，它的结果存在[预构建缓存](discovery.md#预构建缓存)里，所以两处的文字必须一致（测试逐工具比较）。
 
-- **选哪些参数**：所有必填参数，之后补可选参数，直到共 3 个；必填参数已有 3 个以上时只写必填。可选参数的值是空容器（`'{}'`、`'[]'`，没有教学意义），或补上它会让整行超过 200 个字符时，跳过。没有参数的工具不显示。必填参数连一个可写的值都没有，或只写必填就超过 400 个字符时，整行不显示。
+- **选哪些参数**：所有必填参数，之后补可选参数，直到共 3 个；必填参数已有 3 个以上时只写必填。**没有可取的值的可选参数跳过**：没有声明 `type`（也没有 `enum`/`const`/`examples`/`default`）的参数只能写成 `text`（真实 server 里常见的 `_`：「Ignored.」），没有教学意义，不补进示例；只有这类可选参数的工具，示例只写必填参数，没有必填参数时不显示。必填的这类参数照写（缺了调用会失败）。可选参数的值是空容器（`'{}'`、`'[]'`，没有教学意义），或补上它会让整行超过 200 个字符时，跳过。没有参数的工具不显示。必填参数连一个可写的值都没有，或只写必填就超过 400 个字符时，整行不显示。
 - **取什么值**：`enum`/`const` 的第一个值；其次 `examples` 的第一个、`default`（长度超过 60 字符的不用；boolean 不用 `default`，直接写开关）；都没有时按类型生成：string 写 `text`（有 `format` 时写该格式的合法值：`date-time`、`date`、`time`、`email`、`uri`、`hostname`、`ipv4`），integer/number 取 `minimum`（`exclusiveMinimum` 加 1；不超过 `maximum`，默认 1），boolean 写 `--flag`。
 - **写成什么形态**，与[映射规则](#映射规则)一致：
   - 声明了字段的 object：点号路径，只写必填字段（没有必填字段时写第一个声明的字段），最多嵌套 3 层：`--filter.state open --filter.range.from 2026-01-15`；
@@ -174,7 +179,7 @@ next: via github issue:list -h
 
 规则：
 
-- 参数名一律用 kebab-case 的命令行写法（`--filter.state`、`--labels[1]`），而不是 JSON Pointer；参数来自 `--args` 时同样换算成这种写法。
+- 参数名一律用 kebab-case 的命令行写法（`--filter.state`、`--labels[1]`），而不是 JSON Pointer；参数来自 `--args` 时同样换算成这种写法。数组下标之后的字段只能整体写在 JSON 里，保留 JSON 原名（`--items[0].todoId`），与 `-h` 里条目字段的写法一致。
 - `(got …)` 中的值超过 40 个字符时截断；值命中已解析的凭证时显示为 `***`。
 - 有更接近的合法值时附 did you mean（枚举值、参数名都适用），最多给一个。
 - anyOf / oneOf 无法匹配时，列出各分支需要的字段，而不是逐条罗列每个分支的失败原因。
@@ -226,7 +231,7 @@ $ via github issue:read --owner acme --repo api --issue-number 1 --method get \
 | `tool` | 规范写法，如 `github issue:read` |
 | `rawName` | 原始名 |
 | `description` | 工具描述（有则写） |
-| `readOnly`、`destructive` | 为真时才写 |
+| `readOnly`、`destructive`、`destructiveBy` | 为真时才写；`destructiveBy` 在 `destructive` 为真时写，值为 `server`、`inferred` 或 `config` |
 | `inputSchema` | 输入 schema；工具没有声明时为 `{"type": "object"}` |
 | `outputSchema` | 输出 schema（有则写） |
 
@@ -278,16 +283,20 @@ $ via github issue:read --owner acme --repo api --issue-number 1 --method get \
 
 ## 危险操作
 
-- 工具 annotations 中 `destructiveHint: true` 的工具需要 `--yes` 才会执行；缺少时退出码为 5，并说明原因：
+- 需要 `--yes` 的工具有三种来源，`destructive` 为真时由 `destructiveBy` 区分：`server`（工具 annotations 中 `destructiveHint: true`）、`inferred`（via 按名字推断，见下）、`config`（用户在 `confirm.tools` 里列出，[config.md](config.md#confirm)）。缺少 `--yes` 时退出码为 5，并说明原因：
 
   ```console
   error: gh file:delete is destructive and was not run
   next: rerun with --yes to confirm
   ```
+
+  推断出来的和配置要求的在第一行里说明来源，`next:` 不变：`error: gh secret:delete is destructive (inferred from its name; the server gave no hint) and was not run`、`error: gh archive-task needs confirmation (the via config requires it) and was not run`。
+- **按名字推断**：很多 server 不写任何注解，只靠 `destructiveHint: true` 会让 `delete_*` 之类的工具不加 `--yes` 就执行。工具不是只读（`readOnlyHint` 不是 `true`）且**没有声明 `destructiveHint`** 时，把原始名切词（与命名规则同一个 `tokenize`，`getHTTP` 切成 get、http；不看规范写法、`rename` 或动词表，所以拆分规则变化不影响结果），任一词（整词，小写比较）在 `data/destructive.json` 的破坏性词表里，就按破坏性处理：`delete_secrets`、`secretDelete`、`remove-member` 命中，`list_deleted_items`、`dropbox_search` 不命中。显式声明永远优先：`destructiveHint: false` 不推断，`readOnlyHint: true` 不推断也不要求确认；只写了 `readOnlyHint: false` 而没有 `destructiveHint` 的工具仍会推断（MCP 对这种工具的默认就是破坏性，via 只在名字佐证时采用）。不采用 MCP 的「没声明就算破坏性」的原因见 [ADR 0030](../adr/0030-infer-destructive-from-names.md)。
+- 推断是 via 的猜测，所以不冒充 server 的声明：`[destructive?]`（资源视图与 `find`）、`destructive? (inferred from the name; needs --yes)`（`-h`）、`-o json` 的 `destructiveBy: "inferred"`；server 声明的仍是 `[destructive]` 与 `destructive (needs --yes)`，`destructiveBy: "server"`；`confirm.tools` 要求的是 `[confirm]`、`needs --yes (confirm in the via config)`、`"config"`。`destructive` 布尔值对三种来源都为真，旧的消费者读它不受影响；`destructiveBy` 只在 `destructive` 为真时出现。
 - `readOnlyHint: true` 的工具不算破坏性，即使同时声明了 `destructiveHint: true`：MCP 规定 `destructiveHint` 只在 `readOnlyHint` 为 false 时有意义。这样的工具按只读处理：不需要 `--yes`，帮助与视图只标 `read-only`，超时或连接错误后照常自动重试一次（见下文「调用过程」）。
-- 可在配置中按 server 设置 `confirm: never` 关闭这一检查。
+- 可在配置中按 server 设置 `confirm: never` 关闭 server 声明的和 via 推断的检查，或用 `confirm: { tools, except }` 指定哪些工具必须确认、哪些豁免（[config.md](config.md#confirm)）。
 - `readOnlyHint` 在帮助和资源视图中标注，方便 agent 判断。
-- `--dry-run` 只打印解析结果：规范写法、目标 server、最终参数（凭证打码），不发起调用，退出码 0。
+- `--dry-run` 只打印解析结果：规范写法、目标 server、最终参数（凭证打码），不发起调用，退出码 0；需要 `--yes` 而没给时多一行 `requires: --yes (…)`，括号里写来源（`destructive tool`、`destructive tool, inferred from its name`、`confirm in the via config`）。`via batch`、`via serve` 的每次调用走同一条路径（`executeCall`），判断相同。
 - 配置中的 `deny` 规则命中的工具在浏览和 `find` 结果中不可见，直接调用也会被拒绝，退出码 5。
 
 ## 调用过程

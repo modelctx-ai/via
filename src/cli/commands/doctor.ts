@@ -25,7 +25,7 @@ export async function doctorCommand(app: App): Promise<number> {
       try {
         const { tools, protocol } = await app.listing(entry, { refresh: true, many: true });
         const warning = await loginStoreWarning(app, server);
-        return { ...base, status: 'ok', toolCount: tools.length, ...(protocol ? { protocol } : {}), schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), ...(warning ? { warning } : {}) };
+        return { ...base, status: 'ok', toolCount: tools.length, ...(protocol ? { protocol } : {}), schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), toolNameBytes: tools.reduce((n, t) => n + Buffer.byteLength(t.name, 'utf8'), 0), ...(warning ? { warning } : {}) };
       } catch (error) {
         const probe: ServerProbe = { ...base, status: probeStatus(statusOf(error)), message: app.redact.scan(error instanceof Error ? error.message : String(error)) };
         const next = error instanceof ClientError || error instanceof CredentialError ? error.next : undefined;
@@ -47,6 +47,7 @@ export async function doctorCommand(app: App): Promise<number> {
     probes,
     catalogWarnings: table.warnings,
     home: app.io.home,
+    env: app.io.env,
     proxy: describeProxy(proxySettings(app.io.env)),
     logs: { dir, ...(used ?? {}) },
     host: { kind: host, windowsSideFiles },

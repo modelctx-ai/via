@@ -1,0 +1,11 @@
+servers   2 ok
+
+frameworks still injecting MCP schemas:
+  cursor        1 server · ~2k tokens/turn
+    hint: In the Customize sidebar, find the server and turn off its toggle; on the command line run: agent mcp disable <name>
+
+frameworks deferring MCP schemas (only tool names are injected):
+  claude-code   1 server · ~11 tokens/turn
+    hint: Start with --strict-mcp-config to load an empty MCP config, or disable servers one by one in /mcp
+
+secrets: no plaintext credentials found

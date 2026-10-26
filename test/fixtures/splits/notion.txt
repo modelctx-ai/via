@@ -16,8 +16,8 @@ notion-create-comment                     →  comment:create
 notion-get-comments                       →  comment:get
 notion-update-comment                     →  comment:update
 notion-delete-comment                     →  comment:delete
-notion-set-comment-reaction               →  set-comment-reaction  (leaf)
-notion-set-discussion-resolved            →  set-discussion-resolved  (leaf)
+notion-set-comment-reaction               →  comment-reaction:set
+notion-set-discussion-resolved            →  discussion-resolved:set
 notion-create-view                        →  view:create
 notion-update-view                        →  view:update
 notion-create-folder                      →  folder:create

@@ -102,6 +102,15 @@ class Builder {
     return undefined;
   }
 
+  /**
+   * Whether the schema gives the parameter a value worth showing: a type, or an `enum`/`const`/`examples`/`default`
+   * to take it from. A parameter with none of them (`_`, "Ignored.") can only be written as `text`.
+   */
+  informative(position: Pos): boolean {
+    const pos = this.pick(position);
+    return this.types(pos).length > 0 || this.fixed(pos) !== undefined;
+  }
+
   private types(pos: Pos): string[] {
     const { types } = this.model.typeInfoPos(pos);
     return TYPE_ORDER.filter((t) => types.has(t));
@@ -245,6 +254,8 @@ export function formatCallExample(tool: McpTool, ctx: ToolArgsContext): string |
   for (const param of params) {
     if (!param.required && shown >= MAX_PARAMS) break;
     const pos = props.get(param.name) ?? [];
+    // An optional parameter that says nothing about its value would only be written as `text`: it teaches nothing.
+    if (!param.required && !withHints.informative(pos)) continue;
     const words = withHints.words([param.name], pos, 1) ?? without.words([param.name], pos, 1);
     if (!words) {
       if (param.required) return undefined;

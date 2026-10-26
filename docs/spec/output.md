@@ -67,7 +67,7 @@
 | `-o text`（默认） | 上述紧凑渲染 | agent 阅读 |
 | `-o json` | 清理后的 JSON，仍受预算约束 | 管道给 `jq` |
 | `-o raw` | 上游原始 content，不做任何处理（仍脱敏）；不受预算约束，不产生游标 | 排查问题 |
-| `--full` | 关闭截断，可与任意格式组合 | 需要完整结果时 |
+| `--full` | 关闭截断，可与任意格式组合 | 需要完整结果时；`-h --full` 给出未截断的工具描述（[arguments.md](arguments.md#帮助)） |
 
 浏览视图（`via`、`via <provider>`、`via <provider> <resource>`）与 `via find` 是 via 自己生成的目录，不经过上面的渲染流水线（没有预算与游标），但同样接受 `-o`：
 
@@ -159,7 +159,7 @@ next: ask the user to run this in a terminal: via auth login linear
 
   `arg` 是命令行写法，`path` 是 JSON Pointer，`rule` 是失败的 schema 关键字（`required`、`type`、`enum`、`maximum`、`pattern`、`additionalProperties` 等，JSON 解析失败为 `json`）。`got` 遵循与文本输出相同的截断与脱敏规则。
 
-`-h` 加 `-o json` 输出工具详情（`tool`、`rawName`、`description`、`readOnly`、`destructive`、`inputSchema`、`outputSchema`），格式与用途见 [arguments.md](arguments.md#schema-快照校验)；它是 `--schema-snapshot` 读取的快照文件。
+`-h` 加 `-o json` 输出工具详情（`tool`、`rawName`、`description`、`readOnly`、`destructive`、`destructiveBy`、`inputSchema`、`outputSchema`），格式与用途见 [arguments.md](arguments.md#schema-快照校验)；它是 `--schema-snapshot` 读取的快照文件。
 
 ## server 向用户提问（elicitation）
 

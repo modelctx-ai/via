@@ -48,7 +48,7 @@ export const SERVE_TOOLS: Tool[] = [
   {
     name: 'via_call',
     description:
-      'Run one tool. It neither searches nor lists: get the name and parameters from via_find or via_browse first. Example: {"tool": "gh/issue:read", "args": {"owner": "acme", "repo": "api", "issue_number": 1}}. tool has no spaces; every tool parameter goes inside args. A destructive tool needs yes: true (else exit 5). On failure follow the next: line. For a slow job pass detach: true, then use via_tasks.',
+      'Run one tool. It neither searches nor lists: get the name and parameters from via_find or via_browse first. Example: {"tool": "gh/issue:read", "args": {"owner": "acme", "repo": "api", "issue_number": 1}}. tool has no spaces; every tool parameter goes inside args. A tool marked destructive (by the server, or inferred from a name like delete) needs yes: true (else exit 5). On failure follow the next: line. For a slow job pass detach: true, then use via_tasks.',
     inputSchema: object(
       {
         tool: str('"<provider>/<resource>:<verb>" or "<provider>/<leaf-tool>", e.g. "linear/issue:create"'),

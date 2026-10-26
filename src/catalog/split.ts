@@ -11,13 +11,17 @@ export type SplitResult =
   | { kind: 'resource'; resource: string; verb: string; /** Name to use if the tool falls back to a leaf. */ leafName: string }
   | { kind: 'leaf'; leafName: string };
 
-/** Drop words equal to a provider name from the start or end of the token list. */
-function stripProviderWords(tokens: string[], names: readonly string[]): string[] {
+/**
+ * Drop words equal to a provider name from the start or end of the token list. `trailing` is what
+ * was dropped from the end, in name order: the provider words that stood after the other words.
+ */
+export function stripProviderWords(tokens: string[], names: readonly string[]): { tokens: string[]; trailing: string[] } {
   const sequences = names
     .map((n) => tokenize(n))
     .filter((s) => s.length > 0)
     .sort((a, b) => b.length - a.length);
   let current = tokens;
+  let trailing: string[] = [];
   let changed = true;
   while (changed) {
     changed = false;
@@ -28,11 +32,12 @@ function stripProviderWords(tokens: string[], names: readonly string[]): string[
         changed = true;
       } else if (seq.every((w, i) => current[current.length - seq.length + i] === w)) {
         current = current.slice(0, current.length - seq.length);
+        trailing = [...seq, ...trailing];
         changed = true;
       }
     }
   }
-  return current;
+  return { tokens: current, trailing };
 }
 
 /** Index range [start, end] of the verb chain (`create or update`) that contains `index`. */
@@ -66,7 +71,7 @@ export function splitToolName(rawName: string, options: SplitOptions, rules: Spl
   const all = tokenize(rawName);
   if (all.length === 0) return { kind: 'leaf', leafName: rawName.toLowerCase() };
 
-  const tokens = stripProviderWords(all, options.providerNames);
+  const { tokens, trailing } = stripProviderWords(all, options.providerNames);
   const leafName = tokens.join('-');
 
   const verbRange = findVerb(tokens, rules);
@@ -75,7 +80,14 @@ export function splitToolName(rawName: string, options: SplitOptions, rules: Spl
   const [start, end] = verbRange;
   const verb = tokens.slice(start, end + 1).join('-');
   const resourceWords: string[] = [];
-  for (const word of [...tokens.slice(0, start), ...tokens.slice(end + 1)]) {
+  // Only a verb (chain) is left and the provider name stood after it in the plural: it names the
+  // resource the verb acts on, so it is kept (`close_todos` on `todos` -> `todo:close`). A provider
+  // word in front of the verb is a namespace and a singular one is a brand; both stay dropped
+  // (`notion-search`, `search_exa` are leaves) (naming.md, rule 2).
+  const last = trailing[trailing.length - 1];
+  const keep = tokens.length === end - start + 1 && last !== undefined && singularize(last, rules) !== last;
+  const objects = keep ? trailing : [];
+  for (const word of [...tokens.slice(0, start), ...tokens.slice(end + 1), ...objects]) {
     const singular = singularize(word, rules);
     if (resourceWords[resourceWords.length - 1] !== singular) resourceWords.push(singular);
   }

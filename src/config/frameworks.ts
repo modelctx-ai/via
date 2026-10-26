@@ -31,6 +31,12 @@ export interface FrameworkDef {
   name: string;
   configs: FrameworkConfigFile[];
   disableHint: string;
+  /**
+   * The framework loads only tool names at session start and fetches a tool's schema on demand.
+   * `fullWhenEnv`: the environment variable (a value from `values`, lowercase, compared case-insensitively)
+   * that switches it back to full injection.
+   */
+  deferredSchemas?: { fullWhenEnv?: { name: string; values: string[] } };
   /** `YYYY-MM-DD` of the last check against the official documentation or source; null when never checked. */
   verifiedAt: string | null;
   /** Official documentation and source URLs the entry was checked against. */

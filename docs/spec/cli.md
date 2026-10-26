@@ -42,7 +42,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 
 - **恰好是该资源的一个动词** → 等价于 `via <provider> <resource>:<verb> [参数…]`：`via gh issue read --issue-number 1` 就是 `via gh issue:read --issue-number 1`。动词按与工具引用相同的宽松规则匹配（大小写、`-` 与 `_` 等价），但只认完整的动词，不认前缀；资源仍接受唯一前缀。输出严格：调用的元信息行本来就以规范写法开头（`· gh issue:read · …`）；`-h` 没有元信息行，stderr 先输出一行 `· gh issue:read`（输入已是规范写法 `issue:read` 时不输出，[见下](#工具引用的写法)）。`--dry-run`、`--yes`、`-o` 等全局选项、本地校验与 `deny` 都与冒号写法一致：被 `deny` 隐藏的动词是退出码 5，不是「多余的词」。
 - **以 `-` 开头** → 是选项。浏览视图认的选项是全局选项（`--all`、`-o`、`-h` 等，via 先取走）；其余一律退出码 2，`error: unknown option --bogus`，`next: via <provider> <resource>`，不再静默忽略。
-- **其他任何词** → 退出码 2，不执行、不浏览，`error: unexpected argument "reed"`。该资源下有相近的动词时附 `did you mean: gh issue:read`（最多 3 个），`next:` 为 `via gh issue:read -h`；写成原始工具名（`issue_read`）或把 `资源:动作` 写在资源之后（`issue:read`）的，同样列出对应的规范写法而不接受：只有一种多词写法，错误里给出的就是能直接运行的那一种。没有相近动词时列出该资源的动词（`verbs of gh issue: read · write · list`，最多 8 个），`next:` 为 `via gh issue`。
+- **其他任何词** → 退出码 2，不执行、不浏览，`error: unexpected argument "reed"`。该资源下有相近的动词时附 `did you mean: gh issue:read`（最多 3 个），`next:` 为 `via gh issue:read -h`；有单数化之后名字等于该资源的叶子工具（`secrets` 之于 `secret`）时，它也列在候选里（[discovery.md](discovery.md#找不到时)）；写成原始工具名（`issue_read`）或把 `资源:动作` 写在资源之后（`issue:read`）的，同样列出对应的规范写法而不接受：只有一种多词写法，错误里给出的就是能直接运行的那一种。没有任何候选时列出该资源的动词（`verbs of gh issue: read · write · list`，最多 8 个），`next:` 为 `via gh issue`。
 - 资源与动词同名（`search:search`）时，资源之后的第一个词按动词解释，所以 `via gh search search cats` 调用 `search:search`，`via gh search cats` 是退出码 2。叶子工具占了资源名（[naming.md](naming.md) 规则 7）时，该名字解析为叶子工具，其后的词是它的参数，不适用本节。
 
 ## 为什么是这种形状
@@ -417,7 +417,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | --- | --- |
 | `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)）；浏览视图、`via find`、`via servers` 支持 `json`，`raw` 在它们上退出码 2 |
 | `--json` | `-o json` 的别名（模型对 `--json` 的先验很强）。工具自己有名为 `json` 的参数时写 `--p.json` |
-| `--full` | 关闭截断 |
+| `--full` | 关闭截断；用在工具或 prompt 的 `-h` 上时输出完整的工具描述与参数描述（[arguments.md](arguments.md#帮助)） |
 | `--all` | 浏览视图不截断条目；`via <provider> -h --all` 另列出全部工具的用法 |
 | `--yes` | 确认执行危险工具 |
 | `--dry-run` | 只解析并打印将要发出的调用，不执行（输出格式见下） |
@@ -435,7 +435,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 
 ### `--dry-run` 的输出
 
-校验照常进行，通过后在 stdout 输出规范写法、原始名、目标 server（HTTP 只写 scheme 与主机）和最终参数；已解析的凭证值打码。不发起调用，退出码 0。`deny` 命中仍然退出码 5；危险工具缺少 `--yes` 时不报错，而是多一行 `requires: --yes (destructive tool)`。`-o json` 时输出同样字段的 JSON 对象（`dryRun`、`tool`、`rawName`、`server`、`transport`、`args`，可选 `requires`、`extraFields`）。
+校验照常进行，通过后在 stdout 输出规范写法、原始名、目标 server（HTTP 只写 scheme 与主机）和最终参数；已解析的凭证值打码。不发起调用，退出码 0。`deny` 命中仍然退出码 5；需要 `--yes` 的工具缺少它时不报错，而是多一行 `requires: --yes (destructive tool)`；工具是 via 推断的破坏性写成 `requires: --yes (destructive tool, inferred from its name)`，`confirm.tools` 要求的写成 `requires: --yes (confirm in the via config)`（[arguments.md](arguments.md#危险操作)）。`-o json` 时输出同样字段的 JSON 对象（`dryRun`、`tool`、`rawName`、`server`、`transport`、`args`，可选 `requires`、`destructiveBy`、`extraFields`）。
 
 工具没有声明、却以 `--名字` 发出去的顶层字段（根 schema 允许额外字段时才可能，[arguments.md](arguments.md#json-输入)）单独标出：`args:` 之前多一行 `extra fields: json, verbose`（按命令行出现的顺序；`-o json` 为 `"extraFields": ["verbose"]`），没有这类字段时不出现。`--p.verbose` 写法发出的字段也列在里面，只是不再告警。`--args` 与 `via batch` 的 `args` 里的字段不算：它们是整段 JSON，不是 flag。
 

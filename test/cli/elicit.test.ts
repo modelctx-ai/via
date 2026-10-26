@@ -48,7 +48,7 @@ describe('no terminal: the question is declined and the call says so', () => {
       [
         'error: ask asked for user input ("Really delete it?") and no terminal was available to answer',
         'the server then said: not confirmed (decline)',
-        `next: ask the user to run this in a terminal: via ask elicit-confirm --what ${shellQuote('delete it')}`,
+        `next: ask the user to run this in a terminal: via ask elicit:confirm --what ${shellQuote('delete it')}`,
         '',
       ].join('\n'),
     );
@@ -59,7 +59,7 @@ describe('no terminal: the question is declined and the call says so', () => {
     const r = await sb.via(['ask', 'elicit-confirm', '-o', 'json']);
     expect(r.code).toBe(5);
     expect(JSON.parse(r.stderr)).toEqual({
-      error: { code: 5, message: 'ask asked for user input ("Really proceed?") and no terminal was available to answer', next: 'ask the user to run this in a terminal: via ask elicit-confirm' },
+      error: { code: 5, message: 'ask asked for user input ("Really proceed?") and no terminal was available to answer', next: 'ask the user to run this in a terminal: via ask elicit:confirm' },
     });
   });
 
@@ -87,7 +87,7 @@ describe('no terminal: the question is declined and the call says so', () => {
     expect(r.asked).toEqual([]);
     expect(r.code).toBe(5);
     expect(r.stderr).toContain('error: line 1: ask asked for user input');
-    expect(r.stderr).toContain(`next: ask the user to run this in a terminal: via call ask elicit-confirm --args ${shellQuote('{}')}`);
+    expect(r.stderr).toContain(`next: ask the user to run this in a terminal: via call ask elicit:confirm --args ${shellQuote('{}')}`);
   });
 
   it('shows the server\'s text with control characters visible and credentials redacted', async () => {

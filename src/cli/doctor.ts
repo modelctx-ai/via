@@ -29,6 +29,8 @@ export interface ServerProbe {
   warning?: { message: string; next?: string };
   /** Length of the serialized `tools/list` result, for the tokens/turn estimate. */
   schemaBytes?: number;
+  /** UTF-8 bytes of the tool names in that list, for the estimate of a framework that defers schemas. */
+  toolNameBytes?: number;
 }
 
 export interface DoctorInput {
@@ -55,6 +57,11 @@ export interface DoctorInput {
    * something to say; absent: not reported.
    */
   host?: { kind: HostKind; windowsSideFiles?: readonly string[] };
+  /**
+   * The environment of this process, read for the `deferredSchemas.fullWhenEnv` condition of a framework
+   * (data-files.md, "frameworks"). Absent: no variable is set.
+   */
+  env?: Readonly<Record<string, string | undefined>>;
   /** Whether this `via doctor` runs inside the sandbox (ADR 0027); the line is shown only when `sandbox.enabled`. */
   sandboxed?: boolean;
 }
@@ -271,6 +278,22 @@ function environment(input: DoctorInput): string[][] {
 
 // frameworks ---------------------------------------------------------------------------------
 
+/**
+ * A framework that defers schemas loads only tool names at session start (one line per tool,
+ * `mcp__<server>__<tool>`); the estimate is that text, at the same bytes-per-token ratio.
+ */
+function deferredBytes(probe: ServerProbe): number | undefined {
+  if (probe.toolNameBytes === undefined || probe.toolCount === undefined) return undefined;
+  return probe.toolNameBytes + probe.toolCount * (`mcp__${probe.server}__`.length + 1);
+}
+
+/** The condition that makes a deferring framework inject full schemas anyway, as `NAME=value`; undefined when it does not hold. */
+function fullInjectionReason(framework: FrameworkDef | undefined, env: DoctorInput['env']): string | undefined {
+  const cond = framework?.deferredSchemas?.fullWhenEnv;
+  const value = cond ? env?.[cond.name]?.trim() : undefined;
+  return cond && value !== undefined && cond.values.includes(value.toLowerCase()) ? `${cond.name}=${value}` : undefined;
+}
+
 function formatTokens(bytes: number): string {
   const tokens = Math.round(bytes / BYTES_PER_TOKEN);
   if (tokens < 1000) return `~${tokens} tokens/turn`;
@@ -297,20 +320,31 @@ function frameworkServers(servers: readonly ServerConfig[]): Map<string, Set<str
 function renderFrameworks(input: DoctorInput): string[] {
   const members = frameworkServers(input.config.servers);
   if (members.size === 0) return ['frameworks: no MCP servers found in framework configs'];
-  const bytesOf = new Map(input.probes.filter((p) => p.schemaBytes !== undefined).map((p) => [p.server, p.schemaBytes!]));
+  const probeOf = new Map(input.probes.map((p) => [p.server, p]));
   const known = input.frameworks.map((f) => f.id);
   const ids = [...known.filter((id) => members.has(id)), ...[...members.keys()].filter((id) => !known.includes(id)).sort()];
   const width = Math.max(...ids.map((id) => displayWidth(id)));
-  const lines = ['frameworks still injecting MCP schemas:'];
+  const injecting: string[] = [];
+  const deferring: string[] = [];
   for (const id of ids) {
+    const framework = input.frameworks.find((f) => f.id === id);
+    const reason = fullInjectionReason(framework, input.env);
+    const deferred = framework?.deferredSchemas !== undefined && reason === undefined;
     const names = [...members.get(id)!];
-    const measured = names.filter((n) => bytesOf.has(n));
-    const size = measured.length === 0 ? 'size unknown' : formatTokens(measured.reduce((n, name) => n + bytesOf.get(name)!, 0));
-    lines.push(`  ${padEndWidth(id, width)}   ${plural(names.length, 'server')} · ${size}`);
-    const hint = input.frameworks.find((f) => f.id === id)?.disableHint;
-    if (hint) lines.push(`    hint: ${hint}`);
+    const sizes = names.flatMap((n) => {
+      const probe = probeOf.get(n);
+      const bytes = probe === undefined ? undefined : deferred ? deferredBytes(probe) : probe.schemaBytes;
+      return bytes === undefined ? [] : [bytes];
+    });
+    const size = sizes.length === 0 ? 'size unknown' : formatTokens(sizes.reduce((a, b) => a + b, 0));
+    const lines = deferred ? deferring : injecting;
+    lines.push(`  ${padEndWidth(id, width)}   ${plural(names.length, 'server')} · ${size}${reason ? ` (${reason})` : ''}`);
+    if (framework?.disableHint) lines.push(`    hint: ${framework.disableHint}`);
   }
-  return lines;
+  const groups: string[][] = [];
+  if (injecting.length > 0) groups.push(['frameworks still injecting MCP schemas:', ...injecting]);
+  if (deferring.length > 0) groups.push(['frameworks deferring MCP schemas (only tool names are injected):', ...deferring]);
+  return groups.flatMap((g, i) => (i === 0 ? g : ['', ...g]));
 }
 
 // secrets ------------------------------------------------------------------------------------

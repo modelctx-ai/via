@@ -306,13 +306,16 @@ export class SchemaModel {
     let pos: Pos = [this.root];
     let out = '--';
     let first = true;
+    // Below an array index the value is written as JSON, so field names keep their JSON spelling (`--items[0].todoId`).
+    let inJson = false;
     for (const seg of segments) {
       if (typeof seg === 'number') {
         out += `[${seg}]`;
         pos = this.items(pos, seg);
+        inJson = true;
         continue;
       }
-      const name = this.nameIndex(pos).show(seg);
+      const name = inJson ? seg : this.nameIndex(pos).show(seg);
       if (first) out += rootFlagName(name);
       else out += `.${name}`;
       first = false;

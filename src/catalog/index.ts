@@ -21,6 +21,7 @@ export { compileSynonyms, defaultSynonyms, expandQuery, stemCandidates, type Syn
 export {
   resolveProvider,
   resolveTarget,
+  sameNameLeaves,
   normalizeInput,
   type ResolveProviderResult,
   type ResolveTargetResult,
@@ -30,6 +31,7 @@ export {
   renderRoot,
   renderProvider,
   renderResource,
+  resourceTools,
   renderFind,
   rootEntries,
   rootJson,

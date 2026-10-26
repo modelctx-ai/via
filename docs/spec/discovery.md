@@ -98,7 +98,7 @@ commit         get · list
 - 每个资源一行，动作内联，按资源名排序；一行内的动作按 `tools/list` 中的先后顺序排列。
 - 叶子工具在资源行之后：`tools: search · fetch`，按 `tools/list` 顺序，超过 12 个时截断并提示 `--all`。
 - 资源行数超过一屏（默认 20 行）时截断，提示 `… N more · via <provider> --all`，位于叶子工具行之前。
-- 危险动作可以加标记（如 `delete!`），只读资源不加标记。
+- 需要 `--yes` 的动作加标记（如 `delete!`），不区分来源（server 声明的、推断的、配置要求的；区分在资源视图与 `-h` 里），只读资源不加标记。
 - server 声明了 MCP 资源、prompt 或技能（`2026-07-28` 且声明了 `io.modelcontextprotocol/skills`）时，叶子工具行之后多一行 `also: via resources <provider> · via prompts <provider> · via skills <provider>`（只列出声明了的）。这是 agent 发现这几类内容的唯一入口，所以 `via prompt` 的说明文本不需要提它们。
 - 最后一行提示下一步：`→ via <provider> <resource> for signatures`。
 - **`-o json`**：`{"provider", "resources": [{"name", "verbs": [...]}], "tools": [...], "also": {"resources", "prompts", "skills"}}`。`resources` 与 `verbs` 的顺序同文本，`tools` 是叶子工具名，`also` 是三个布尔值（server 是否声明了这类内容，与文本的 `also:` 行同源）。JSON 是完整的：文本视图为一屏而做的截断（`… N more`、`--all`）不适用，也没有 `!` 标记（危险与否在资源视图的 `destructive` 字段里）。`→` 提示写 stderr。
@@ -130,14 +130,16 @@ issue:search   query, [owner], [repo]                  Search issues
 - 签名最多显示 6 个参数，必填参数一个不省略，其余可选参数以 `…` 表示，完整参数用 `-h` 查看。
 - **类型与枚举**（让 `find` 或这一屏之后不必再 `-h`）：参数名之后写 schema 声明的类型，口径与 `-h` 的 `usage:` 行一致（`<str>`、`<num>`、`<json>`、枚举）：
   - 枚举（`enum`、`const`，或全是常量的 `anyOf`/`oneOf`，值都是字符串、数字或布尔，且 `a|b` 连起来不超过 60 个字符）写 `method=get|get_comments`，可选的写 `[state=open|closed]`；
-  - 数字（`integer`、`number`）写 `issue-number:num`；数组与对象写 `labels:json`；几种类型并列写 `id:str|num`（顺序同 schema）；
+  - 数字（`integer`、`number`）写 `issue-number:num`；对象写 `filter:json`；几种类型并列写 `id:str|num`（顺序同 schema）；
+  - 数组：元素是标量（string、number、integer、boolean）的写元素类型加 `[]`：`todo-ids:str[]`、`ns:num[]`、`flags:bool[]`，元素有几种标量时加括号 `x:(str|num)[]`，可空的数组（`array | null`）同样。不写 `:json`，因为这类参数既可以重复传参（`--todo-ids a --todo-ids b`）、也可以整体写 JSON，`:json` 只提示后一种。不用 `str…`：`…` 在签名里已表示「还有参数」；`[str]` 会与可选参数的方括号混在一起（`[todo-ids:[str]]`）。`str[]` 与 `usage:` 行的 `<str[]>` 是同一个写法，只比 `json` 多一个字符，超过 60 列时照常退回不带类型的写法。对象数组、tuple、嵌套数组和没有声明元素类型的数组仍写 `labels:json`；
   - 布尔：可选的写 `[draft?]`（给了就是开），必填的写 `force:bool`（`?` 在这里表示「可选」，所以必填的不用）；
   - 普通字符串，以及 schema 没说类型的参数，只写名字：`owner` 就是 `owner:str`，不重复；
   - 引用在本地的 `$ref` 照常展开。枚举值里的换行与控制字符写成可见的 `\uXXXX`。
   - 整个签名（含括号与 `…`）超过 60 列时退回不带类型的写法，所有参数仍照原规则显示；所以同一屏里的行可以两种写法并存。必填参数一个不省略的规则不变。
   - 类型来自[预构建缓存](#预构建缓存)，浏览仍然不读 schema。
-- **`-o json`**：数组，每项 `{"ref", "provider", "resource", "verb", "rawName", "signature": {"required": [...], "optional": [...]}, "description", "readOnly", "destructive"}`。`ref` 是规范写法（`gh issue:read`），`signature` 是**完整**的参数名（kebab-case，必填在前，不受 6 个的限制，也不带类型），`description` 是完整的描述文字，`readOnly`/`destructive` 是布尔（两者都声明时 `destructive` 为假，同 `[read-only]` 的规则）。字符串按「内容」档脱敏（[output.md](output.md#脱敏的范围)）。`→` 提示写 stderr。叶子工具（`via find` 的结果里可能有）的 `resource` 与 `verb` 为 `null`。
-- 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后，两者都声明时只标 `[read-only]`（[arguments.md](arguments.md#危险操作)）。
+- **`-o json`**：数组，每项 `{"ref", "provider", "resource", "verb", "rawName", "signature": {"required": [...], "optional": [...]}, "description", "readOnly", "destructive"}`。`ref` 是规范写法（`gh issue:read`），`signature` 是**完整**的参数名（kebab-case，必填在前，不受 6 个的限制，也不带类型），`description` 是完整的描述文字，`readOnly`/`destructive` 是布尔（两者都声明时 `destructive` 为假，同 `[read-only]` 的规则）；`destructive` 为真时多一个字段 `destructiveBy`：`server`（声明了 `destructiveHint`）、`inferred`（server 没声明，via 按原始名里的词推断）、`config`（`confirm.tools`），为假时不出现。三种来源的 `destructive` 都是 `true`，只读 `destructive` 的消费者不受影响。字符串按「内容」档脱敏（[output.md](output.md#脱敏的范围)）。`→` 提示写 stderr。叶子工具（`via find` 的结果里可能有，资源视图里的同名叶子也在内，排在数组末尾）的 `resource` 与 `verb` 为 `null`。
+- **同名的叶子工具**：叶子工具的名字单数化之后（逐词，规则同[单数化](naming.md#单数化)）等于这个资源名时，它排在资源自己的工具之后，同样一行（`secrets` 之于资源 `secret`）。列出一个资源的工具常常是个叶子（`secrets` 列出，`secret:delete` 删除），它没有动词，不在任何资源下，不写这一行就看不到。这一行没有 `:`，第一列照样可以直接复制（`via todos secrets`）。叶子被资源挤到原始名时（`acme-search` 之于资源 `search`），按拆分时的叶子名比较，显示现在的名字。这只是提示：资源与叶子在命名上仍是两个名字，解析不变。
+- 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后，两者都声明时只标 `[read-only]`；via 推断的标 `[destructive?]`，`confirm.tools` 要求的标 `[confirm]`（[arguments.md](arguments.md#危险操作)）。
 
 ## 搜索
 
@@ -146,10 +148,17 @@ issue:search   query, [owner], [repo]                  Search issues
 1. 规范写法完全匹配；
 2. 规范写法前缀匹配；
 3. 规范写法包含查询；
-4. 多词查询按 BM25 对名称、描述、参数名打分，名称命中权重最高；
+4. 多词查询按 BM25 对名称、描述、参数名打分，名称命中权重最高；provider 名按下面的[范围规则](#provider-名与资源词相同)处理，名称完全由查询词组成的工具另加分；
 5. 空查询按规范写法顺序列出全部工具。
 
 1–3 是三个层级，所有命中它们的工具排在只命中 BM25 的工具之前；同一层级内按 BM25 分数、再按规范写法排序，保证结果确定。查询大小写不敏感，`/` 视同空格、`_` 视同 `-`，所以 `github/issue:read` 与 `github issue:read` 等价；省略 provider 的 `issue:read` 同样算完全匹配。BM25 比较时，查询词与索引词都先单数化，`issues` 能命中 `issue`；描述中的停用词（`data/stopwords.json`）不进索引。
+
+### provider 名与资源词相同
+
+server 常以它所操作的资源的复数命名（`jobs` 的工具 `create_job`、`jobs`、`close_jobs`），这时每个工具的规范写法都带 provider 前缀，单数化后与查询里的资源词（`job`）相同。若 provider 名照常进名称字段，这个词对该 provider 的每个工具都命中，idf 被压平，名称权重最高也就失去了区分作用，只在描述里多提了几次这个词的工具会排到真正叫这个名字的工具前面（实测：`list jobs` 的第 1 名是 `jobs issues`，叶子 `jobs` 第 6）。所以 BM25 这一级有两条规则，都是通用的，不针对任何 server：
+
+- **provider 名是范围，不是词**：provider 名的词（单数化后；`google-drive` 是 `google`、`drive`）不进该 provider 工具的名称字段索引，工具原始名里的 provider 前缀或后缀也不进（`jobs_create_job` 只索引 `create`、`job`）；但工具自己的规范名或原始名里另外含有这个词时照常索引（资源 `job:create`、叶子 `jobs`、`list_acme_accounts` 里的 `acme`）。查询词若等于某个 provider 名的词，该 provider 的所有工具各得一份相同的加分（名称字段命中，idf 取「这个 provider 的工具数」），所以 `github create issue` 仍偏向 github，同时这个词照常按工具自己的名称、描述、参数名计分。文档长度仍计入 provider 名的词，长度归一化不变。
+- **名称被查询覆盖**：工具原始名的每个词（去掉开头的 provider 名；末尾的 provider 名保留，因为它是品牌还是资源——`close_jobs` 对 `jobs`——由拆分规则决定，而这条规则不能依赖拆分）都在查询里（或是查询词的同义词 / 词形还原结果）时，每个词在 BM25 分数上加 `0.3 + 0.25 × ln(1 + (N − df + 0.5) / (df + 0.5))`，其中 `N` 是工具总数，`df` 是原始名里有这个词的工具数。第一项不随 `df` 变化：同一个 server 里叫这个词的工具越多，第二项越小，而单个 server 里资源词几乎出现在所有描述里，文档 idf 接近 0，只靠第二项压不过描述里提到该词的工具。`list jobs` 覆盖叶子 `jobs`，`create job` 覆盖 `create_job`（不论拆成 `job:create` 还是别的写法），不覆盖 `create_topic`。加分只在第 4 级内改变分数，不跨越第 1–3 级；它只看原始名，所以工具是叶子还是 `resource:verb`、动词表怎样变，都不改变谁得到加分（`rename` 也不影响）。
 
 结果默认 10 条，每条一行，格式同资源视图（含[类型与枚举](#via-provider-resource)）但带 provider 前缀；每条下面缩进两格带一行 `example:`，就是 `-h` 会给的那一行（同一个函数生成，遵守[调用示例](arguments.md#调用示例)的全部规则，包括 Windows 分支），所以大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。没有示例的工具（没有参数，或必填参数写不出安全的值）不带这一行。
 
@@ -182,7 +191,7 @@ agent 的查询是自然语言（「删除工单」「合并 PR」），用词�
 - **口语填充词**（`i`、`want`、`please`…）在查询侧丢弃，除非查询只剩它们。
 - **不变的部分**：第 1–3 级的规范写法匹配、并列规则（同层级按分数、再按规范写法）、空查询都不变；同义词只改变第 4 级的分数，不会让工具越过规范写法命中的工具，也不影响任何规范名。
 
-效果用 `npm run eval:search` 衡量：`test/fixtures/search/eval.json` 是 98 条自然语言查询到期望规范名的集合（调参用），`heldout.json` 是之后另写、从未用于调参的 30 条，对 `test/fixtures/tools/` 的 15 个 server 报告 recall@1、recall@5 与 MRR；回归测试断言不低于词法基线，并锁定实测下限。
+效果用 `npm run eval:search` 衡量：`test/fixtures/search/eval.json` 是 98 条自然语言查询到期望规范名的集合（调参用），`heldout.json` 是之后另写、从未用于调参的 30 条，对 `test/fixtures/tools/` 的 15 个 server 报告 recall@1、recall@5 与 MRR；回归测试断言不低于词法基线，并锁定实测下限。`provider-scope.json` 是 12 条 provider 名等于资源复数的查询（[范围规则](#provider-名与资源词相同)），在 15 个 server 之外再加虚构的 `test/fixtures/other/jobs.json` 上评测，要求全部排第 1。
 
 ### embedding 检索（可选，默认关闭）
 
@@ -199,7 +208,16 @@ agent 的查询是自然语言（「删除工单」「合并 PR」），用词�
 
 ## 找不到时
 
-按段（provider、资源、动作分别）计算编辑距离，给出至多 3 个 did you mean；仍无结果时提示 `via find <关键词>`。退出码 3。
+按段（provider、资源、动作分别）计算编辑距离，给出至多 3 个 did you mean；仍无结果时提示 `via find <关键词>`。退出码 3。`next:` 指向第一个候选的 `-h`。
+
+**资源与动作找不到**时（`资源:动作`，或 `list-todos` 这样的「动词-名词」写法：按[拆分规则](naming.md)解析成 `资源:动作`，之后同样处理），候选按下面的顺序排，取前 3 个；第 1 项不为空时只给第 1 项，笔误就回答它想写的那个：
+
+1. 资源下与输入的动作只差一个笔误的动作（`issue:raed` → `issue:read`）。输入的动作本身是动词表里的动词时（`get`、`set`）是另一个动作，不是笔误，不进这一项；
+2. 单数化之后名字等于这个资源的**叶子工具**（`todo:list`、`todo:get`、`todos:list`、`list-todos` 都指向叶子 `todos`）：列出对象的工具常常是个没有动词的叶子，编辑距离够不着它；
+3. 资源下的其他动作，按 `tools/list` 的顺序，标了 `destructiveHint` 的排在最后；
+4. 资源不存在时，才用按段编辑距离近的 `资源:动作`。只靠拼写相近、或者只共享 provider 词的名字不会排到资源词相同的候选前面。
+
+输入里的资源词先单数化再比较（`secrets:list` 与 `secret:list` 一样）。资源之后多出的词（`via todos secret list`）同样先列出这个叶子工具（[cli.md](cli.md#资源之后的词)）。
 
 **provider 找不到**时不指向 `via find`：provider 总数很少（几个到十几个），直接列出来比再跑一条命令便宜，而 agent 常把 server 叫 `gh` 写成 `github`，编辑距离够不着：
 

@@ -1,0 +1,13 @@
+notes           →  notes  (leaf)
+create_note     →  note:create
+update_note     →  note:update
+close_notes     →  note:close
+complete_notes  →  note:complete
+reopen_notes    →  note:reopen
+search_notes    →  note:search
+secrets         →  secrets  (leaf)
+set_secret      →  secret:set
+delete_secrets  →  secret:delete
+builds          →  builds  (leaf)
+run_builds      →  build:run
+confirm_builds  →  build:confirm

@@ -1,6 +1,6 @@
 # 数据文件
 
-规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`stopwords`、`noise`、`columns`、`synonyms`、`common-flags` 的 schema 已经提供，测试会逐个校验。
+规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`stopwords`、`destructive`、`noise`、`columns`、`synonyms`、`common-flags` 的 schema 已经提供，测试会逐个校验。
 
 ## verbs.json
 
@@ -8,14 +8,15 @@
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "verbs": [
     "get", "list", "create", "update", "delete", "search", "send", "run",
     "fetch", "read", "write", "add", "remove", "merge", "trigger", "query",
     "move", "duplicate", "restore", "cancel", "navigate", "click",
     "push", "call", "describe", "batch", "enable", "disable", "fork",
     "resolve", "unresolve", "edit", "modify", "append", "download", "upload",
-    "install", "close"
+    "install", "close", "set", "confirm", "complete", "reopen", "assign", "unassign",
+    "approve", "reject"
   ],
   "conjunctions": ["or", "and"],
   "singularExceptions": ["data", "news", "series", "status", "analytics"],
@@ -42,6 +43,21 @@
 - 只作用于工具描述的索引，不影响名称与参数名：那些位置上的词都值得检索。
 - 动词表里的词不需要写在这里：同一个词在多个工具里重复出现时，索引自然把它摊薄。
 - 新增词时在 `test/data.test.ts` 的约束下保持单个小写词，且不要与动词表重复。
+
+## destructive.json
+
+没有声明 `destructiveHint` 的工具里，哪些按名字推断为破坏性（[危险操作](../spec/arguments.md#危险操作)，[ADR 0030](../adr/0030-infer-destructive-from-names.md)）。
+
+```json
+{
+  "version": 1,
+  "words": ["delete", "remove", "destroy", "drop", "purge", "erase", "wipe", "revoke", "truncate", "prune"]
+}
+```
+
+- 用原始工具名切词（与命名规则同一个 `tokenize`）后整词比较，所以 `deleted`、`dropbox` 不命中；每个词是单个小写字母数字词。
+- 词表**保守**：一个词只有在「名字里出现它几乎就意味着数据丢失或权限收回」时才收，常见的无害用法（`clear`、`reset`、`close`、`archive`、`cancel`、`disable`、`kill`）不收。新增词要在 ADR 0030 的表里写明理由和已知的误报，改动写进 `CHANGELOG.md` 并说明会让哪些工具开始要 `--yes`。
+- 改动词表会改变目录预构建缓存里的标记，缓存键里的规则指纹随 `data/*.json` 变化，旧缓存自动失效。
 
 ## noise.json
 
@@ -136,7 +152,7 @@
     { "path": "~/.config/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["linux"] },
     { "path": "%APPDATA%/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["win32"] }
   ],
-  "disableHint": "运行命令 MCP: List Servers，选中 server 后选择 Disable",
+  "disableHint": "Run the command MCP: List Servers, select the server, then choose Disable",
   "verifiedAt": "2026-10-20",
   "sources": ["https://code.visualstudio.com/docs/agents/reference/mcp-configuration"],
   "notes": "只读取 mcp.json；旧版 settings.json 中的 mcp.servers 不读取。"
@@ -151,10 +167,12 @@
 | `configs[].scope` | `user` 或 `project`；`project` 级的 stdio 命令受[信任规则](../spec/security.md#项目级配置的信任)约束 |
 | `configs[].platforms` | 可选，`linux`、`darwin`、`win32` 的子集；缺省表示所有平台。同一框架在不同系统上路径不同时，写成多条 |
 | `configs[].dollarVariables` | 可选，`true` 表示该框架会展开值里的裸 `$NAME`（Gemini CLI），整值为 `$NAME` 时转成 `env:NAME`；其他框架里 `$NAME` 保持字面值。只在官方文档写明时才设置 |
-| `disableHint` | `via doctor` 显示的关闭方法 |
+| `disableHint` | `via doctor` 显示的关闭方法。**英文**，一两句，写成可以照做的步骤（命令、菜单、配置键）；`<name>` 这类占位符也用英文。会原样进入 CLI 输出，而 via 的输出全是英文；schema 拒绝含中日韩字符的值 |
+| `deferredSchemas` | 可选，只给**确认**默认延迟加载 MCP 工具 schema（会话开始时只注入工具名，用到时再取 schema）的框架设置；官方文档没有写明的不要设。`{}` 表示延迟加载且 via 看不到任何能关掉它的开关 |
+| `deferredSchemas.fullWhenEnv` | 可选，`{ "name": "ENABLE_TOOL_SEARCH", "values": ["false"] }`：`via doctor` 进程的环境里 `name` 的值（去掉首尾空白、忽略大小写）等于 `values` 之一时，该框架实际是全量注入。`name` 为大写环境变量名，`values` 全部小写。只读 via 进程自己的环境，不读也不写任何框架配置 |
 | `verifiedAt` | 最近一次对照官方文档或源码核对的日期（`YYYY-MM-DD`）；从未核对过时为 `null`，表示条目依据文档编写，此时不得有 `sources` |
 | `sources` | 可选，核对时依据的官方文档和源码链接（`https://`）；`verifiedAt` 不为 `null` 时必须填写 |
-| `notes` | 可选，已知的缺口，如暂不读取的位置 |
+| `notes` | 可选，已知的缺口，如暂不读取的位置。只给维护者看，不进入 CLI 输出 |
 
 同一框架的多个配置文件中，`project` 级覆盖 `user` 级（整条 server 定义替换，不做字段合并），这不算冲突。同一作用域内有多个文件时（如 Devin 的 `.devin/mcp_config.local.json` 与 `.devin/mcp_config.json`），列表里靠前的优先，所以优先级高的写在前面；同一文件的不同写法（Amp 的 `settings.json` 与 `settings.jsonc`）都列出，显式指定该框架时只要其中一个存在就不告警。各框架 server 条目的写法差异（`type`/`transport`、`url`/`serverUrl`、Codex 的 `bearer_token_env_var` 等）由统一的规范化代码处理，不放在数据文件里；见 [config.md](../spec/config.md#框架配置的规范化)。
 

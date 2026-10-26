@@ -5,7 +5,7 @@
     { "path": ".gemini/settings.json", "format": "jsonc", "pointer": "/mcpServers", "scope": "project", "dollarVariables": true },
     { "path": "~/.gemini/settings.json", "format": "jsonc", "pointer": "/mcpServers", "scope": "user", "dollarVariables": true }
   ],
-  "disableHint": "运行 gemini mcp disable <名称>（加 --session 仅限本次会话），或把 server 名加入 settings.json 的 mcp.excluded",
+  "disableHint": "Run: gemini mcp disable <name> (add --session to limit it to this session), or add the server name to mcp.excluded in settings.json",
   "verifiedAt": "2026-10-20",
   "sources": [
     "https://geminicli.com/docs/tools/mcp-server/",

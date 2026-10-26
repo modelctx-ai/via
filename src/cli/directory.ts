@@ -73,6 +73,10 @@ export function providerInput(entry: ProviderEntry, tools: McpTool[], config: Lo
     deny: withDeny ? config.deny : [],
   };
   if (server.name !== entry.name) input.aliases = [server.name];
+  // Patterns were compiled and screened when the config loaded (load.ts, `checkedPatterns`).
+  if (server.confirmTools || server.confirmExcept) {
+    input.confirm = { tools: (server.confirmTools ?? []).map((p) => new RegExp(p)), except: (server.confirmExcept ?? []).map((p) => new RegExp(p)) };
+  }
   return input;
 }
 

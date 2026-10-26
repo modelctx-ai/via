@@ -342,6 +342,14 @@ describe('schema dialect and reliability (arguments.md, "校验范围" / "schema
     expect((await failure(s, ['--filter', '{}'])).issues).toEqual([{ arg: '--filter.state', message: 'required' }]);
     expect((await failure(s, ['--pages', '[{"title":"a"},{}]'])).issues).toEqual([{ arg: '--pages[1].title', message: 'required' }]);
   });
+
+  it('fields below an array index keep their JSON names', async () => {
+    const s = {
+      type: 'object',
+      properties: { buildItems: { type: 'array', items: { type: 'object', properties: { todoId: { type: 'string' } }, required: ['todoId'] } } },
+    };
+    expect((await failure(s, ['--build-items', '[{}]'])).issues).toEqual([{ arg: '--build-items[0].todoId', message: 'required' }]);
+  });
 });
 
 describe('missing values and unreadable bases', () => {

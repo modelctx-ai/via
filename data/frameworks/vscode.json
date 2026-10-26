@@ -7,7 +7,7 @@
     { "path": "~/Library/Application Support/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["darwin"] },
     { "path": "%APPDATA%/Code/User/mcp.json", "format": "jsonc", "pointer": "/servers", "scope": "user", "platforms": ["win32"] }
   ],
-  "disableHint": "运行命令 MCP: List Servers，选中 server 后选择 Disable；全局关闭 MCP 可把设置 chat.mcp.access 设为 none",
+  "disableHint": "Run the command MCP: List Servers, select the server, then choose Disable; to turn MCP off globally set chat.mcp.access to none",
   "verifiedAt": "2026-10-20",
   "sources": [
     "https://code.visualstudio.com/docs/agents/reference/mcp-configuration",

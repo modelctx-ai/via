@@ -48,7 +48,7 @@
     { "q": "query a database", "group": "synonym", "expect": ["notion data-source:query"] },
     { "q": "schedule a meeting", "group": "synonym", "expect": ["notion calendar-event:create"] },
     { "q": "retrieve the content of a page", "group": "synonym", "expect": ["notion fetch"] },
-    { "q": "react with an emoji", "group": "synonym", "expect": ["slack reaction:add", "notion set-comment-reaction"] },
+    { "q": "react with an emoji", "group": "synonym", "expect": ["slack reaction:add", "notion comment-reaction:set"] },
     { "q": "send a message to a channel", "group": "synonym", "expect": ["slack post-message"] },
     { "q": "respond in a thread", "group": "synonym", "expect": ["slack reply-to-thread"] },
     { "q": "read channel messages", "group": "synonym", "expect": ["slack channel-history:get"] },

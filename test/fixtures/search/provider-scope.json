@@ -1,0 +1,17 @@
+{
+  "description": "Queries over test/fixtures/tools plus test/fixtures/other/jobs.json, a server whose name (`jobs`) is the plural of the resource its tools work on. Each query names a resource word that is also the provider name; `expect` is the tool of that server the query asks for. Guards the provider scope rule (discovery.md, \"搜索\"): the provider's name must not flatten the idf of the resource word, and a tool named by the query must outrank tools that only mention the word.",
+  "queries": [
+    { "q": "create job", "group": "direct", "expect": ["jobs job:create"] },
+    { "q": "list jobs", "group": "direct", "expect": ["jobs jobs"] },
+    { "q": "list all jobs", "group": "direct", "expect": ["jobs jobs"] },
+    { "q": "read job", "group": "direct", "expect": ["jobs jobs"] },
+    { "q": "show a job", "group": "synonym", "expect": ["jobs jobs"] },
+    { "q": "get job", "group": "synonym", "expect": ["jobs jobs"] },
+    { "q": "create topic", "group": "direct", "expect": ["jobs topic:create"] },
+    { "q": "list topics", "group": "direct", "expect": ["jobs topics"] },
+    { "q": "delete secret", "group": "direct", "expect": ["jobs secret:delete"] },
+    { "q": "list secrets", "group": "direct", "expect": ["jobs secrets"] },
+    { "q": "close job", "group": "direct", "expect": ["jobs job:close"] },
+    { "q": "make a new job", "group": "synonym", "expect": ["jobs job:create"] }
+  ]
+}

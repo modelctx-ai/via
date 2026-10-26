@@ -17,6 +17,10 @@ export interface ServerDef {
   disabled?: boolean;
   exclusive?: boolean;
   confirm?: 'destructive' | 'never';
+  /** `confirm: { tools }`: deny-style patterns of tools that need `--yes` (config.md, "confirm"). */
+  confirmTools?: string[];
+  /** `confirm: { except }`: deny-style patterns of tools that do not. Only the user config and the CLI may set it. */
+  confirmExcept?: string[];
   timeout?: number;
   concurrency?: number;
   budget?: number;

@@ -5,7 +5,7 @@
     { "path": ".agents/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
     { "path": "~/.gemini/config/mcp_config.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
   ],
-  "disableHint": "在 mcp_config.json 对应条目中设置 \"disabled\": true，或用 disabledTools 屏蔽单个工具；IDE 的 MCP Servers 面板中可用开关",
+  "disableHint": "Set \"disabled\": true on the entry in mcp_config.json, or block single tools with disabledTools; the MCP Servers panel in the IDE has a toggle per server",
   "verifiedAt": "2026-10-20",
   "sources": [
     "https://antigravity.google/docs/mcp?tab=cli",

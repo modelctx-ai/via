@@ -6,7 +6,7 @@
     { "path": ".github/mcp.json", "format": "json", "pointer": "/mcpServers", "scope": "project" },
     { "path": "~/.copilot/mcp-config.json", "format": "json", "pointer": "/mcpServers", "scope": "user" }
   ],
-  "disableHint": "在会话中运行 /mcp disable <名称>",
+  "disableHint": "In a session, run: /mcp disable <name>",
   "verifiedAt": "2026-10-20",
   "sources": [
     "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers",

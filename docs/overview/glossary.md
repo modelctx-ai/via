@@ -41,5 +41,5 @@
 | **日志（log）** | daemon 与各 server 的运行记录（stdio 子进程的 stderr、连接与协议事件、每次调用一行），在用户缓存目录的 `logs/` 下，按大小轮转、写盘前脱敏，`via daemon logs` 查看（[daemon.md](../spec/daemon.md#日志)）。 |
 | **进程内模式** | 不经 daemon、在 CLI 进程内直连 server 的运行方式。 |
 | **独占 server** | 锁定文件、端口或浏览器 profile，无法与框架中的同名实例并存的 server，配置为 `exclusive: true`。 |
-| **危险工具** | annotations 中 `destructiveHint: true` 的工具，调用需要 `--yes`。 |
+| **危险工具** | 调用需要 `--yes` 的工具：annotations 中 `destructiveHint: true` 的，server 没有声明时名字含破坏性词（`data/destructive.json`）的（「推断」），以及用户在 `confirm.tools` 里点名的（[arguments.md](../spec/arguments.md#危险操作)）。 |
 | **网关类 server** | 自身代理多个上游的 MCP server（如 Asterlane），对 via 而言与普通 server 无异。 |

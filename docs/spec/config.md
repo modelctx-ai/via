@@ -18,7 +18,7 @@ via 读取各框架的 MCP 配置但从不写入（[ADR 0003](../adr/0003-read-o
 - 框架配置中的 `env`、`headers` 原样继承，包括其中的明文值；`via doctor` 对明文值告警。
 - 同一框架的项目级配置整条覆盖它的用户级配置（框架自己的优先级），这不算冲突；只有不同框架之间才记录冲突。冲突项记在 server 的 `conflicts` 里，列出被忽略的来源；内容完全相同的重复定义不算冲突。
 - 覆盖层只写了部分字段时只改这些字段：`env`、`headers`、`rename` 按键合并，`args` 整体替换，`noise` 追加去重，其余标量字段后者覆盖。覆盖层给出的传输方式与来源不同（对 HTTP server 写了 `command`，或对 stdio server 写了 `url`）时，整体替换传输定义，不继承另一种传输的字段。
-- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`output.*`、`daemon.*`、`discovery.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
+- `deny` 取各层的并集（项目配置只能追加，不能撤销用户配置的规则）；`confirm.tools` 同样取并集，`confirm.except` 与 `confirm: never` 只读用户配置与命令行覆盖；`output.*`、`daemon.*`、`discovery.*` 逐字段覆盖；`search.semantic` 只读用户配置与命令行覆盖，整段替换而不是逐字段合并（见下文）。
 - `commands.deny`、`commands.hide` 取各层的并集，`commands.allow`、`commands.show` 取交集（项目配置只能收窄）；`sandbox.*` 只读用户配置与命令行覆盖，逐字段覆盖（见下文）。
 - 覆盖层里没有任何来源定义的 server（只有 `timeout` 之类设置，没有 `command` 或 `url`）被忽略并给出告警，通常是框架那边已经删掉了它。
 
@@ -191,7 +191,7 @@ sandbox:
 | `rename` | 全部 | 单个工具的规范写法覆盖，如 `{ list_my_issues: "issue:list-mine" }` |
 | `disabled` | 全部 | `true` 时对 via 隐藏这个 server（不影响框架） |
 | `exclusive` | stdio | 独占资源；启动失败时提示可能与框架实例冲突 |
-| `confirm` | 全部 | `destructive`（默认）或 `never` |
+| `confirm` | 全部 | `destructive`（默认）或 `never`，或 `{ tools: […], except: […] }`，见 [`confirm`](#confirm) |
 | `timeout` | 全部 | 调用超时，秒，默认 60；包括排队与建立会话的时间（[arguments.md](arguments.md#调用过程)），建立会话本身也以它为上限 |
 | `concurrency` | 全部 | 同一 server 的并发上限，默认 4；`via batch` 同样遵守，超出的排队 |
 | `budget` | 全部 | 覆盖输出预算 |
@@ -267,6 +267,7 @@ via 自己发出的 HTTP 请求——连接 HTTP 的 MCP server、OAuth（登录
 - 文件不存在、无法读取或无法解析时跳过该文件并给出诊断，不影响其他来源。诊断信息不引用文件内容，避免泄露凭证。
 - `deny` 中无效的正则被忽略并报错（其余规则照常编译）。因为无效的 deny 规则意味着本应隐藏的工具会可见，诊断为 error 级，调用方应当停下来让用户修复，而不是继续运行：CLI 对任何带 error 级诊断的配置都拒绝执行命令（`via doctor`、`via servers` 除外，它们负责展示诊断），退出码 2（[cli.md](cli.md#配置错误)）。
 - `deny` 中会让 via 卡死的正则（嵌套量词等，见「deny」的正则安全）同样被忽略，诊断为 error 级 `unsafe-deny`，处理方式与无效正则相同。
+- `confirm.tools` 里无效或不安全的正则同样被忽略，诊断为 error 级 `invalid-confirm`、`unsafe-confirm`（丢掉它会让用户要求确认的工具不再确认，所以失败关闭，CLI 停止执行）；`confirm.except` 里的只是 warning 级（丢掉它只会多要一次确认）。项目配置里的 `confirm: never` 与 `confirm.except` 被忽略并告警 `confirm-forbidden`（见 [`confirm`](#confirm)）。
 - 框架配置里命令行是 `via serve` 的 stdio 条目（`serve` 之前的某个词去掉目录与 `.exe`、`.cmd`、`.bat`、`.js`、`.mjs`、`.cjs` 扩展名后是 `via`，或是 `@modelctx-ai/via` 包名，可带 `@版本`）是 via 自己，读进目录会让 via 拉起自己。这样的条目被忽略，给出 info 级诊断 `self-reference`：`servers.<名字>: runs via serve, which is via itself; left out of the catalog`（[ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)）。
 - `commands.deny`、`commands.hide` 里不认识的子命令名同样是 error 级诊断（`unknown-command`，见 [`commands`](#commands)）。
 - 加载结果同时返回全部诊断，供 `via doctor` 和 `via servers` 展示；诊断分 `error`、`warning`、`info` 三级。
@@ -306,6 +307,27 @@ via 自己的 `config.yaml` 每条命令都要读，而加载 YAML 库并解析�
   - `via servers` 不执行 `cmd:`（它不连接任何 server，且助手可能很慢或要求指纹确认），不把 `cmd:` 引用算作缺失；`via doctor` 和真正使用 server 时才执行。
 - 配置里写的字面量值长度不足 8 个字符时不进入脱敏列表，避免把 `1`、`on` 之类的短值（它们多半是开关而不是凭证）在输出里全部替换成 `***`。`env:`、`file:`、`keychain:`、`cmd:` 解析出的值不论长短都进入脱敏列表；短值只在输出的内容部分替换，不改写结构（[脱敏的范围](output.md#脱敏的范围)）。
 - 解析结果只存在于 daemon（或进程内模式下的当前进程）内存中，不写盘。
+
+## confirm
+
+`servers.<name>.confirm` 决定哪些工具需要 `--yes`（[arguments.md](arguments.md#危险操作)）。默认（`destructive`）：server 声明了 `destructiveHint: true` 的，和没声明任何破坏性注解但名字含破坏性词的（`data/destructive.json`，[ADR 0030](../adr/0030-infer-destructive-from-names.md)）。写法：
+
+```yaml
+servers:
+  tasks:
+    confirm: never              # 不检查 server 声明的和 via 推断的
+  other:
+    confirm:
+      tools: ["archive", "^other/page:move$"]   # 这些也要 --yes
+      except: ["_cache$"]                        # 这些不要
+```
+
+- 字符串 `destructive`、`never` 照旧。映射形式有 `tools` 和 `except` 两个正则列表，匹配写法与 [`deny`](#deny) 完全相同：同样对规范写法 `provider/资源:动作`、原始名 `provider/原始名`、默认规范写法、叶子写法四种逐一匹配，任一命中即算，JavaScript 正则、区分大小写、不隐含锚定，`provider` 是 CLI 上的名字，同样的正则安全检查和 256 个字符的上限（名字过长时 `tools` 视为命中、`except` 视为不命中，失败关闭）。
+- `tools`：命中的工具需要 `--yes`，不论 server 怎么声明（包括声明了 `destructiveHint: false` 或 `readOnlyHint: true` 的；只读工具仍按只读重试）。`except`：命中的工具不需要 `--yes`，不论是 server 声明的还是推断的。同时命中两者按 `tools` 算。
+- `never` 关闭 server 声明的和推断的检查，但 `tools` 列出的仍然要确认：`never` 是「不要再为这个 server 的注解和猜测问我」，`tools` 是点名。
+- **合并**：`tools`、`except` 各层取并集（`except` 只来自用户配置与命令行）；字符串形式（`destructive`、`never`）逐层覆盖，与映射形式互不清空。
+- **项目配置只能收紧**：项目配置里的 `tools` 照常生效（只会多要确认，与 `deny` 相同，不需要 `via trust`）；`confirm: never` 与 `except` 会让仓库替用户去掉一道确认，所以只读用户配置与命令行覆盖，项目配置里的被忽略并告警（`confirm-forbidden`：`servers.<name>.confirm.except is only read from the user config; it was ignored …`）。这与 `search.semantic`、`sandbox` 的处理一致（[security.md](security.md#项目级配置的信任)）。框架配置没有 `confirm` 字段。
+- 命中结果体现在所有视图里：`[confirm]` 标记、`-o json` 的 `destructiveBy: "config"`、`--dry-run` 的 `requires:` 行；错误信息写 `needs confirmation (the via config requires it)`。
 
 ## deny
 

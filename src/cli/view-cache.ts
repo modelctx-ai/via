@@ -24,7 +24,7 @@ import { stringHash } from '../hash';
 import { cacheKey } from './catalog-cache';
 
 /** Bumped when the file layout changes. */
-const VIEW_VERSION = 5;
+const VIEW_VERSION = 6;
 
 /** The call examples in a file are written for one platform's quoting (arguments.md, "调用示例"): a file from the other kind is a miss. */
 const PLATFORM_KIND = process.platform === 'win32' ? 'win' : 'posix';
@@ -91,6 +91,7 @@ function computeInputsHash(input: ProviderInput): string {
       aliases: input.aliases ?? [],
       rename: input.rename ?? {},
       deny: (input.deny ?? []).map((re) => [re.source, re.flags]),
+      confirm: input.confirm ? { tools: input.confirm.tools.map((re) => [re.source, re.flags]), except: input.confirm.except.map((re) => [re.source, re.flags]) } : null,
     }),
   );
 }

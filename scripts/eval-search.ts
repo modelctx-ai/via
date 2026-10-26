@@ -6,17 +6,25 @@ import { basename, join } from 'node:path';
 import { buildCatalog, SearchIndex, type McpTool } from '../src/catalog';
 import { evaluate, formatReport, loadEvalQueries } from './lib/search-eval';
 
-const dir = join(process.cwd(), 'test', 'fixtures', 'tools');
-const catalog = buildCatalog(
-  readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
-    .sort()
-    .map((f) => ({ provider: basename(f, '.json'), tools: (JSON.parse(readFileSync(join(dir, f), 'utf8')) as { tools: McpTool[] }).tools })),
-);
-for (const [name, file] of [['tuning set', 'eval.json'], ['held-out set', 'heldout.json']] as const) {
-  const queries = loadEvalQueries(join(process.cwd(), 'test', 'fixtures', 'search', file));
-  const before = evaluate(new SearchIndex(catalog, undefined, { synonyms: false }), queries);
-  const after = evaluate(new SearchIndex(catalog), queries);
+const fixtures = join(process.cwd(), 'test', 'fixtures');
+const dir = join(fixtures, 'tools');
+const files = readdirSync(dir)
+  .filter((f) => f.endsWith('.json'))
+  .sort()
+  .map((f) => join(dir, f));
+const providers = (list: string[]) =>
+  list.map((f) => ({ provider: basename(f, '.json'), tools: (JSON.parse(readFileSync(f, 'utf8')) as { tools: McpTool[] }).tools }));
+const catalog = buildCatalog(providers(files));
+// A server whose name is the plural of its resource (discovery.md, "搜索"), searched among all the others.
+const withJobs = buildCatalog(providers([...files, join(fixtures, 'other', 'jobs.json')]));
+for (const [name, file, target] of [
+  ['tuning set', 'eval.json', catalog],
+  ['held-out set', 'heldout.json', catalog],
+  ['provider-scope set', 'provider-scope.json', withJobs],
+] as const) {
+  const queries = loadEvalQueries(join(fixtures, 'search', file));
+  const before = evaluate(new SearchIndex(target, undefined, { synonyms: false }), queries);
+  const after = evaluate(new SearchIndex(target), queries);
   console.log(`== ${name} (${file}) ==`);
   console.log(formatReport('lexical baseline (synonyms off)', before));
   console.log(formatReport('default (synonym expansion)', after));

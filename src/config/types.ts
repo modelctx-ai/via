@@ -98,6 +98,10 @@ export interface ServerConfig {
   disabled: boolean;
   exclusive: boolean;
   confirm: "destructive" | "never";
+  /** `confirm.tools` patterns that compiled (config.md, "confirm"): tools that need `--yes` whatever the server says. Absent when none. */
+  confirmTools?: string[];
+  /** `confirm.except` patterns that compiled: tools that never need `--yes`. Absent when none. */
+  confirmExcept?: string[];
   /** Call timeout in seconds; default 60. */
   timeout: number;
   /** Concurrent requests per server; default 4. */

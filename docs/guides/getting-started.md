@@ -103,10 +103,12 @@ $ via doctor
 servers   9 ok · 1 needs auth (linear)
 
 frameworks still injecting MCP schemas:
-  claude-code   6 servers · ~41k tokens/turn
-    hint: 启动时用 --strict-mcp-config 加载空配置，或在 /mcp 中逐个禁用；默认已用 tool search 延迟加载 schema，设 ENABLE_TOOL_SEARCH=false 才会全量注入
   cursor        3 servers · ~12k tokens/turn
-    hint: 侧栏 Customize 中找到对应 server，关闭开关；命令行用 agent mcp disable <名称>
+    hint: In the Customize sidebar, find the server and turn off its toggle; on the command line run: agent mcp disable <name>
+
+frameworks deferring MCP schemas (only tool names are injected):
+  claude-code   6 servers · ~1.1k tokens/turn
+    hint: Start with --strict-mcp-config to load an empty MCP config, or disable servers one by one in /mcp
 
 secrets: exa 的 EXA_API_KEY 在 ~/.cursor/mcp.json 中为明文
 ```
@@ -157,7 +159,7 @@ $ via find "create issue"   # 跨 provider 搜索
 ## 5. 交给 agent
 
 ```bash
-via prompt                  # 打印一段约 190 token 的说明和 provider 列表
+via prompt                  # 打印一段约 207 token 的说明和 provider 列表
 via prompt --out AGENTS.md  # 或写到你指定的文件
 ```
 
