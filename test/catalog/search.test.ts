@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildCatalog, SearchIndex, type McpTool } from '../../src/catalog';
+import { buildCatalog, docTerms, SearchIndex, type McpTool } from '../../src/catalog';
 import { normalizeQuery } from '../../src/catalog/search';
-import { catalogFixture } from '../helpers/fixtures';
+import { catalogFixture, loadTools } from '../helpers/fixtures';
 
 const catalog = catalogFixture('tools');
 const index = new SearchIndex(catalog);
@@ -87,6 +87,61 @@ describe('SearchIndex ranking (discovery.md, "搜索")', () => {
 
   it('is deterministic', () => {
     expect(refs('create comment')).toEqual(refs('create comment'));
+  });
+});
+
+describe('SearchIndex: a provider named after its resource (discovery.md, "搜索")', () => {
+  // jobs.json: server `jobs`, tools `create_job` -> job:create, `jobs` (leaf), `close_jobs`, `create_topic`, ...
+  // whose descriptions and parameters mention jobs throughout.
+  const jobs = new SearchIndex(buildCatalog([{ provider: 'jobs', tools: loadTools('other', 'jobs') }]));
+  const raw = (q: string, n = 1) => jobs.search(q, { limit: n }).map((h) => h.tool.rawName);
+
+  it('ranks the tool named by the query first, whatever its split', () => {
+    expect(raw('create job')).toEqual(['create_job']);
+    expect(raw('list jobs')).toEqual(['jobs']);
+    expect(raw('read job')).toEqual(['jobs']);
+    expect(raw('create topic')).toEqual(['create_topic']);
+    expect(raw('delete secrets')).toEqual(['delete_secrets']);
+  });
+
+  it('does not index the provider name in the name field of its tools', () => {
+    const weightsOf = (rawName: string) => {
+      const tool = jobs.search(rawName, { limit: 50 }).find((h) => h.tool.rawName === rawName)!.tool;
+      const terms = docTerms(tool);
+      return new Map(Array.from({ length: terms.pairs.length / 2 }, (_, i) => [terms.pairs[2 * i] as string, terms.pairs[2 * i + 1] as number]));
+    };
+    // `job` is the resource and the raw name (4 + 4) and the description (1): not the provider (4).
+    expect(weightsOf('create_job').get('job')).toBe(9);
+    // `secrets` only mentions jobs in its description.
+    expect(weightsOf('secrets').get('job')).toBe(1);
+  });
+
+  it('still lets a provider word in the query scope the search to that provider', () => {
+    const all = new SearchIndex(
+      buildCatalog([
+        { provider: 'jobs', tools: loadTools('other', 'jobs') },
+        { provider: 'github', tools: loadTools('tools', 'github') },
+      ]),
+    );
+    // github has a `job-log` tool; the query word `job` is also the name of the jobs provider.
+    expect(all.search('read job', { limit: 1 })[0]!.tool.provider).toBe('jobs');
+    expect(all.search('github read issue', { limit: 1 })[0]!.tool.ref).toBe('github issue:read');
+  });
+
+  it('indexes a provider word that the tool name has besides the provider prefix', () => {
+    const small = new SearchIndex(
+      buildCatalog([
+        {
+          provider: 'acme',
+          tools: [
+            { name: 'acme_list_widgets', description: 'Lists them.' },
+            { name: 'acme_widgets_acme', description: 'Other.' },
+            { name: 'list_acme_accounts', description: 'Lists accounts.' },
+          ],
+        },
+      ]),
+    );
+    expect(small.search('list accounts', { limit: 1 })[0]!.tool.rawName).toBe('list_acme_accounts');
   });
 });
 

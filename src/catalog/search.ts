@@ -1,6 +1,7 @@
 import type { CatalogRules } from './provider';
 import { defaultCatalogRules } from './provider';
 import { singularize } from './singularize';
+import { stripProviderWords } from './split';
 import { defaultSynonyms, expandQuery, type Synonyms } from './synonyms';
 import { tokenize } from './tokenize';
 import type { Catalog, CatalogTool, ProviderCatalog } from './types';
@@ -9,6 +10,8 @@ import type { Catalog, CatalogTool, ProviderCatalog } from './types';
 const K1 = 1.2;
 const B = 0.75;
 const FIELD_WEIGHT = { name: 4, param: 2, description: 1 } as const;
+// A tool whose name words are all in the query gets this share of their summed idf (over tool names) on top of its BM25 score.
+const NAME_COVERED = 0.25;
 // Reciprocal rank fusion constant for hybrid ranking (discovery.md, "语义检索").
 const RRF_K = 60;
 // Semantic candidates beyond the requested limit that take part in fusion.
@@ -52,6 +55,8 @@ export interface DocTerms {
 interface Doc {
   tool: CatalogTool;
   length: number;
+  /** The distinct words of the tool part of the canonical form (`job:create` -> job, create). */
+  nameWords: string[];
   forms: string[];
 }
 
@@ -79,7 +84,13 @@ function termsOf(text: string, ignoreStopwords: boolean, rules: CatalogRules): s
   return out;
 }
 
-/** The terms a tool is indexed under: provider, name and raw name (weight 4), parameter names (2), description (1). */
+/**
+ * The terms a tool is indexed under: name and raw name (weight 4), parameter names (2), description (1).
+ * The provider's own words are not among them (they are the same for every tool of the provider and
+ * would stop the resource word that equals them from telling the tools apart): a query word that
+ * names the provider is scored in `SearchIndex#providerScores`. Words the tool's name or raw name
+ * contains besides the provider prefix or suffix (`create_todo` for `todos`) are indexed as usual.
+ */
 export function docTerms(tool: CatalogTool, rules: CatalogRules = defaultCatalogRules()): DocTerms {
   const tf = new Map<string, number>();
   let length = 0;
@@ -89,17 +100,25 @@ export function docTerms(tool: CatalogTool, rules: CatalogRules = defaultCatalog
       length += weight;
     }
   };
-  bump(termsOf(`${tool.provider} ${tool.name} ${tool.rawName}`, false, rules), FIELD_WEIGHT.name);
+  const rawWords = stripProviderWords(tokenize(tool.rawName), [tool.provider]).map((w) => singularize(w, rules.split));
+  bump([...termsOf(tool.name, false, rules), ...rawWords], FIELD_WEIGHT.name);
+  // The provider's words still count towards the length, as when they were indexed: only their postings are gone.
+  length += FIELD_WEIGHT.name * termsOf(tool.provider, false, rules).length;
   bump(termsOf(tool.params.map((p) => p.name).join(' '), false, rules), FIELD_WEIGHT.param);
   bump(termsOf(tool.description, true, rules), FIELD_WEIGHT.description);
   return { length, pairs: [...tf].flat() };
 }
 
-/** Inverted index over a catalog: provider, resource, verb, raw name, description, parameter names. */
+/** Inverted index over a catalog: resource, verb, raw name, description, parameter names; the provider as a scope (`providerScores`). */
 export class SearchIndex {
   private readonly docs: Doc[] = [];
   /** term -> `[docId, tf, docId, tf, ...]`, in doc order (flat: one array per term, not one per posting). */
   private readonly postings = new Map<string, number[]>();
+  /** provider word -> ids of the docs of the providers named by it. */
+  private readonly providerDocs = new Map<string, number[]>();
+  private readonly providerWords = new Map<string, string[]>();
+  /** name word -> number of tools whose canonical name has it. */
+  private readonly nameDf = new Map<string, number>();
   private avgLength = 1;
   private readonly rules: CatalogRules;
   private readonly synonymsOption: Synonyms | false | undefined;
@@ -129,7 +148,19 @@ export class SearchIndex {
   private add(tool: CatalogTool, provider: ProviderCatalog, known: DocTerms | undefined): void {
     const { length, pairs } = known ?? docTerms(tool, this.rules);
     const id = this.docs.length;
-    this.docs.push({ tool, length, forms: [normalizeQuery(tool.ref), normalizeQuery(tool.name)] });
+    const nameWords = [...new Set(this.terms(tool.name, false))];
+    this.docs.push({ tool, length, nameWords, forms: [normalizeQuery(tool.ref), normalizeQuery(tool.name)] });
+    for (const word of nameWords) this.nameDf.set(word, (this.nameDf.get(word) ?? 0) + 1);
+    let words = this.providerWords.get(tool.provider);
+    if (!words) {
+      words = [...new Set(this.terms(tool.provider, false))];
+      this.providerWords.set(tool.provider, words);
+    }
+    for (const word of words) {
+      const ids = this.providerDocs.get(word);
+      if (ids) ids.push(id);
+      else this.providerDocs.set(word, [id]);
+    }
     for (let i = 0; i < pairs.length; i += 2) {
       const term = pairs[i] as string;
       const list = this.postings.get(term);
@@ -217,6 +248,47 @@ export class SearchIndex {
     }
   }
 
+  /**
+   * A query word that is a word of a provider's name (`todo` for `todos`, `drive` for `google-drive`)
+   * scores every tool of that provider alike, as a name-field hit with the idf of "tools of this
+   * provider". It is a scope, not evidence about which of the provider's tools is meant: the word
+   * still scores through the tools' own names and descriptions in `accumulate`, where its idf is not
+   * flattened by the provider's name.
+   */
+  private providerScores(terms: readonly string[], into: Map<number, number>): void {
+    for (const term of terms) {
+      const ids = this.providerDocs.get(term);
+      if (!ids) continue;
+      const idf = Math.log(1 + (this.docs.length - ids.length + 0.5) / (ids.length + 0.5));
+      const tf = FIELD_WEIGHT.name;
+      for (const id of ids) {
+        const norm = tf * (K1 + 1) / (tf + K1 * (1 - B + (B * this.docs[id]!.length) / this.avgLength));
+        into.set(id, (into.get(id) ?? 0) + idf * norm);
+      }
+    }
+  }
+
+  /**
+   * A tool whose name is made of query words only (`list jobs` for the tool `jobs`, `create job` for
+   * `job:create`) is what the query names. BM25 cannot see that when the word is in most descriptions
+   * and parameter names of the provider: saturation leaves a name hit and a passing mention almost
+   * equal, its idf is near 0, and long parameter lists lower the score of the tool that was named.
+   * The bonus therefore weighs each name word by how few tool names have it, not by how few
+   * documents mention it.
+   */
+  private nameCovered(queryWords: readonly string[], scores: Map<number, number>): void {
+    const words = new Set(queryWords);
+    for (const [id, score] of scores) {
+      const name = this.docs[id]!.nameWords;
+      if (name.length === 0 || !name.every((w) => words.has(w))) continue;
+      const rarity = name.reduce((sum, w) => {
+        const df = this.nameDf.get(w)!;
+        return sum + Math.log(1 + (this.docs.length - df + 0.5) / (df + 0.5));
+      }, 0);
+      scores.set(id, score + NAME_COVERED * rarity);
+    }
+  }
+
   private bm25(normalizedQuery: string): Map<number, number> {
     const syn = this.synonyms();
     const significant = [...new Set(this.terms(normalizedQuery, true))];
@@ -226,8 +298,10 @@ export class SearchIndex {
       if (kept.length > 0) terms = kept;
     }
     const scores = new Map<number, number>();
+    this.providerScores(terms, scores);
     if (!syn) {
       for (const term of terms) this.accumulate(term, 1, scores);
+      this.nameCovered(this.terms(normalizedQuery, false), scores);
       return scores;
     }
     // Each query term scores as before; where it has synonyms or stems, a doc counts the better of
@@ -250,6 +324,7 @@ export class SearchIndex {
       }
       for (const [id, s] of best) scores.set(id, (scores.get(id) ?? 0) + s);
     }
+    this.nameCovered([...this.terms(normalizedQuery, false), ...concepts.flatMap((c) => c.alts.flatMap((a) => a.terms))], scores);
     return scores;
   }
 }

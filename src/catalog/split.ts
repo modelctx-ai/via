@@ -12,7 +12,7 @@ export type SplitResult =
   | { kind: 'leaf'; leafName: string };
 
 /** Drop words equal to a provider name from the start or end of the token list. */
-function stripProviderWords(tokens: string[], names: readonly string[]): string[] {
+export function stripProviderWords(tokens: string[], names: readonly string[]): string[] {
   const sequences = names
     .map((n) => tokenize(n))
     .filter((s) => s.length > 0)
