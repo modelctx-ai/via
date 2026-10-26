@@ -1,0 +1,234 @@
+{
+  "tools": [
+    {
+      "name": "notes",
+      "description": "List notes, newest first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ]
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "create_note",
+      "description": "Create a note.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Note title."
+          },
+          "body": {
+            "type": "string",
+            "description": "Note text."
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "update_note",
+      "description": "Change the title or text of a note.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Note id."
+          },
+          "title": {
+            "type": "string",
+            "description": "New title."
+          },
+          "body": {
+            "type": "string",
+            "description": "New text."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "close_notes",
+      "description": "Close notes by id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    },
+    {
+      "name": "complete_notes",
+      "description": "Mark notes as done.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    },
+    {
+      "name": "reopen_notes",
+      "description": "Reopen closed notes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    },
+    {
+      "name": "search_notes",
+      "description": "Search notes by text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Words to look for."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "secrets",
+      "description": "List the names of stored secrets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "set_secret",
+      "description": "Store a secret value under a name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Secret name."
+          },
+          "value": {
+            "type": "string",
+            "description": "Secret value."
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "delete_secrets",
+      "description": "Delete secrets by name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "names"
+        ]
+      }
+    },
+    {
+      "name": "builds",
+      "description": "List recent builds.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "run_builds",
+      "description": "Start builds for a commit.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "commit": {
+            "type": "string",
+            "description": "Commit id."
+          }
+        },
+        "required": [
+          "commit"
+        ]
+      }
+    },
+    {
+      "name": "confirm_builds",
+      "description": "Confirm builds that wait for approval.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    }
+  ]
+}

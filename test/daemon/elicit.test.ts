@@ -181,7 +181,7 @@ describe('through the CLI and a real daemon', () => {
       [
         'error: ask asked for user input ("Really proceed?") and no terminal was available to answer',
         'the server then said: not confirmed (decline)',
-        'next: ask the user to run this in a terminal: via ask elicit-confirm',
+        'next: ask the user to run this in a terminal: via ask elicit:confirm',
         '',
       ].join('\n'),
     );

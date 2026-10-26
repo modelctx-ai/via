@@ -7,7 +7,7 @@
 按顺序执行：
 
 1. **切词**：按 `_`、`-`、`.` 和驼峰切词，统一小写。
-2. **去 provider 词**：去掉与 provider 名（及其别名）相同的词，不论在开头还是结尾（`linear_create_issue`、`web_search_exa`）。
+2. **去 provider 词**：去掉与 provider 名（及其别名）相同的词，不论在开头还是结尾（`linear_create_issue`、`web_search_exa`）。比较是逐词精确相等，不做单数化：provider `todos` 不会去掉 `todo`。一个例外（[ADR 0029](../adr/0029-provider-word-as-resource-and-same-name-leaf.md)）：去掉之后剩下的只有动词（链）、没有任何资源词，并且去掉的词里有位于结尾的、末词是复数形式的 provider 词时，把这些结尾的 provider 词保留下来作为资源词（`close_todos` 在 `todos` 下是 `todo:close`，不是叶子 `close`；`search_docs` 在 `docs` 下是 `doc:search`）。开头的 provider 词是命名空间，单数的 provider 词是品牌名，它们都照常去掉（`notion-search`、`acme_search`、`search_exa` 仍是叶子 `search`）。
 3. **找动作**：
    - 首词在动词表中则取首词；
    - 否则末词在动词表中则取末词，兼容 `issue_create` 这类写法；
@@ -18,7 +18,9 @@
 6. **冲突**：两个工具拆出相同的 `资源:动作` 时，两者都退回为叶子工具，避免歧义。
 7. **叶子与资源同名**：叶子工具的名字与某个资源相同时，资源保留这个名字，叶子改用原始名的 kebab-case（`acme_search` 去掉 provider 词后是 `search`，改为 `acme-search`）。原始名本身就是这个名字时（`search` 与拆成 `search:batch` 的 `batch_search`），叶子没有别的名字可用，于是**资源让出名字**：该资源下的工具全部按规则 6 退回为叶子工具（`batch-search`），叶子保留 `search`。退回后若又出现同名，按本条再处理一次，直到没有冲突。用户 `rename` 到该资源的工具不退回，资源随之保留。
 
-动词表放在 `data/verbs.json`（格式见[数据文件](../development/data-files.md#verbsjson)），至少包括 get、list、create、update、delete、search、send、run、fetch、read、write、add、remove、merge、trigger、query、move、duplicate、restore、cancel、navigate、click。
+动词表放在 `data/verbs.json`（格式见[数据文件](../development/data-files.md#verbsjson)），至少包括 get、list、create、update、delete、search、send、run、fetch、read、write、add、remove、merge、trigger、query、move、duplicate、restore、cancel、navigate、click，以及状态变更类的 set、confirm、complete、reopen、assign、unassign、approve、reject。
+
+叶子工具的名字单数化之后等于某个资源名时（叶子 `secrets`，资源 `secret`），两者描述的是同一个对象：浏览该资源时会提示这个叶子，资源下找不到的名字会优先指向它（[discovery.md](discovery.md#via-provider-resource)、[discovery.md](discovery.md#找不到时)）。这只是提示，不改变任何名字的解析。
 
 ### 单数化
 
@@ -48,6 +50,9 @@
 | `notion-create-pages` | notion | `notion page:create` |
 | `notion-calendar-list-events` | notion | `notion calendar-event:list` |
 | `notion-search` | notion | `notion search`（叶子） |
+| `close_todos` | todos | `todos todo:close` |
+| `create_todo` | todos | `todos todo:create` |
+| `todos` | todos | `todos todos`（叶子） |
 | `web_search_exa` | exa | `exa web:search` |
 | `browser_navigate` | playwright | `playwright browser:navigate` |
 | `sequentialthinking` | sequential-thinking | `sequential-thinking sequentialthinking`（叶子） |

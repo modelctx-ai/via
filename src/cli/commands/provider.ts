@@ -1,5 +1,5 @@
 // `via <provider> [<resource>|<tool>] …` and `via call <provider>/<ref> …` (cli.md, "解析顺序").
-import { providerHint, providerJson, renderProvider, renderResource, resourceHint, toolListing } from '../../catalog';
+import { providerHint, providerJson, renderProvider, renderResource, resourceHint, resourceTools, toolListing } from '../../catalog';
 import { ExitCode } from '../../render/exit-codes';
 import { shellWords } from '../../render/shell';
 import type { App } from '../app';
@@ -70,7 +70,7 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
     rejectRaw(app, [typedProvider, typedTarget]);
     noteCanonical(app, [typedProvider, typedTarget], [visible.provider, target.group.name]);
     if (app.options.format === 'json') {
-      await writeJson(app, target.group.tools.map((t) => toolListing(t)));
+      await writeJson(app, resourceTools(visible, target.group).map((t) => toolListing(t)));
       app.err(`${resourceHint(visible, target.group)}\n`);
       return ExitCode.Ok;
     }

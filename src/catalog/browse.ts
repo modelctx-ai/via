@@ -1,3 +1,4 @@
+import { sameNameLeaves } from './resolve';
 import { formatSignature, shortDescription, signatureLists, SIGNATURE_MAX_PARAMS } from './signature';
 import type { CatalogTool, ProviderCatalog, ResourceGroup } from './types';
 import type { SearchHit } from './search';
@@ -211,9 +212,17 @@ export function toolListing(tool: CatalogTool, options: { example?: boolean } = 
   };
 }
 
+/**
+ * What the resource view lists: the resource's tools, then the leaf tools named for the resource
+ * (`secrets` under `secret`), which have no verb and so are in no resource (discovery.md).
+ */
+export function resourceTools(provider: ProviderCatalog, group: ResourceGroup): CatalogTool[] {
+  return [...group.tools, ...sameNameLeaves(provider, group.name)];
+}
+
 /** `via <provider> <resource>` — one row per tool: verb, signature, short description. */
 export function renderResource(provider: ProviderCatalog, group: ResourceGroup): string {
-  const lines = toolRows((t) => t.name, group.tools);
+  const lines = toolRows((t) => t.name, resourceTools(provider, group));
   lines.push(resourceHint(provider, group));
   return lines.join('\n');
 }

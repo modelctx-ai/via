@@ -29,7 +29,7 @@
     { "q": "ask a question about a library", "group": "synonym", "expect": ["context7 library-doc:get", "context7 library-id:resolve"] },
     { "q": "list all documents", "group": "synonym", "expect": ["linear document:list", "google-drive file:list"] },
     { "q": "update the issue status", "group": "synonym", "expect": ["linear issue:update", "github issue:write"] },
-    { "q": "react to a message", "group": "synonym", "expect": ["slack reaction:add", "notion set-comment-reaction"] },
+    { "q": "react to a message", "group": "synonym", "expect": ["slack reaction:add", "notion comment-reaction:set"] },
     { "q": "creating a new comment", "group": "phrase", "expect": ["linear comment:create", "notion comment:create"] }
   ]
 }
