@@ -19,6 +19,8 @@ calls:
 via:
   - run: via github
   - run: via github pull-request
+  # 0.4-dev (#34)：保留这条 -h。上一步 `via github pull-request` 里 `pull-request:read` 的签名超过 60 列，退回了不带枚举的写法，
+  # method 的取值（get、get_files、get_reviews …）看不到；资源视图也没有 example: 行。
   - run: via github pull-request:read -h
   - run: via github pull-request:read --method get --owner acme --repo api --pull-number 482
   - run: via github pull-request:read --method get_files --owner acme --repo api --pull-number 482

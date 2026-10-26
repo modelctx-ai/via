@@ -1,6 +1,6 @@
 # bench：token 基准的任务集与回放 server
 
-比较同一组任务在四种方式下放进模型上下文的 token：原生 MCP 注入、`via`、[mcp2cli](https://github.com/knowsuchagency/mcp2cli)、[mcpc](https://github.com/apify/mcpc)。方法与口径见 [测试与评测](../docs/development/testing.md#token-基准)；结果在 [results/](results/)：0.1（原生、via、mcp2cli）是 [0.1.md](results/0.1.md)，0.4 加上 mcpc 一列后是 [0.4-tokens.md](results/0.4-tokens.md)。
+比较同一组任务在四种方式下放进模型上下文的 token：原生 MCP 注入、`via`、[mcp2cli](https://github.com/knowsuchagency/mcp2cli)、[mcpc](https://github.com/apify/mcpc)。方法与口径见 [测试与评测](../docs/development/testing.md#token-基准)；结果在 [results/](results/)：0.1（原生、via、mcp2cli）是 [0.1.md](results/0.1.md)，0.4 加上 mcpc 一列后是 [0.4-tokens.md](results/0.4-tokens.md)；#34 之后的重跑是 [0.4-tokens-after-34.md](results/0.4-tokens-after-34.md)。
 
 任务文件与回放 server 是通用的，不绑定基准：[agent 评测](#agent-评测)（让模型在原生 MCP、mcp2cli、mcpc、via 四种环境里完成同一批任务）直接复用它们。
 

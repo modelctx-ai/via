@@ -28,6 +28,7 @@ calls:
 
 via:
   - run: via linear
+  # 0.4-dev (#34)：这个任务没有 -h，无需改动：资源视图的签名 `[state], [limit:num], [cursor]` 够写出 my-issue:list。
   - run: via linear my-issue
   - run: via linear my-issue:list --state "In Progress" --limit 10
   - run: via linear issue

@@ -33,6 +33,8 @@ via:
   - run: via github
   - run: via github issue
   - run: via github issue:list --owner acme --repo api --state OPEN --labels bug --order-by CREATED_AT --direction ASC --per-page 10
+  # 0.4-dev (#34)：保留这条 -h。上一步 `via github issue` 的签名 `method, owner, repo, issue-number, [page], …` 一旦带上类型与枚举
+  # 就超过 60 列，退回了不带类型的写法，method 的取值（get|get_comments|…）看不到；资源视图也没有 example: 行。
   - run: via github issue:read -h
   - run: via github issue:read --method get --owner acme --repo api --issue-number 214
   - run: via github issue-comment

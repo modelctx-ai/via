@@ -27,6 +27,7 @@ calls:
 via:
   - run: via linear
   - run: via linear team:list --query Platform
+  # 0.4-dev (#34)：这个任务没有 -h，无需改动：资源视图的签名 `title, team, [description], …` 够写出 issue:create。
   - run: via linear issue
   - run: >-
       via linear issue:create --title "Rate limiter fails closed when Redis is down" --team Platform --description "Every request returns 500 while Redis is unreachable. The limiter should fail open and log a warning." --priority 2 --assignee me --labels Bug

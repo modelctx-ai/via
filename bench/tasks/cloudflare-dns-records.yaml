@@ -29,9 +29,12 @@ calls:
 via:
   - run: via cloudflare
   - run: via cloudflare whoami
+  # 0.4-dev (#34)：保留这两条 -h（search、execute）。cloudflare 只有叶子工具，`via cloudflare` 只列名字，没有资源视图，
+  # 前一步也不是 find；--code 与 execute 的可选 --account-id 要靠 -h 才知道。
   - run: via cloudflare search -h
   - run: >-
       via cloudflare search --code "return Object.entries(spec.paths).filter(([p]) => p.includes('dns_records')).map(([p, v]) => ({ path: p, methods: Object.keys(v) }))"
+  # 0.4-dev (#34)：同上，前一步是 search 的结果，不是 execute 的用法。
   - run: via cloudflare execute -h
   - run: >-
       via cloudflare execute --account-id 023e105f4ecef8ad9ca31a8372d0c353 --code "const zones = await cloudflare.zones.list({ name: 'acme.test' }); return await cloudflare.dns.records.list({ zone_id: zones.result[0].id });"
