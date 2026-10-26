@@ -102,6 +102,7 @@
 
 ### Fixed
 
+- 校验报错里数组条目的字段保留 JSON 原名（[arguments.md](docs/spec/arguments.md#校验与报错)）：此前写成 kebab-case（`--items[0].todo-id`），而这些字段只能整体写在 JSON 里，要写的键是 `todoId`；现在写 `--items[0].todoId`，与 `-h` 里条目字段的写法一致。数组下标之前的部分照旧是 kebab-case。不涉及动词表与规范写法。
 - 名字里没有字母和数字的参数（`_`、`__`）保留原名（[arguments.md](docs/spec/arguments.md#参数名)）：此前 kebab 化后是空串，usage 写 `[-- <value>]`、`-h` 的参数行写 `--`、签名写 `[]`，照着写 `-- x` 会报 `unexpected argument "x"`（退出码 2），实际能用的是 `--_`。现在 usage、`-h`、资源视图与 `find` 的签名（`[_]`，`-o json` 的 `signature` 同）、调用示例与报错都写 `--_`，解析器本来就接受 `--_ x`、`--_=x`。名字有 kebab 写法的参数不变。不涉及动词表与规范写法。
 - 调用示例不再补进没有可取值的可选参数（[arguments.md](docs/spec/arguments.md#调用示例)）：没有声明 `type`、也没有 `enum`/`const`/`examples`/`default` 的可选参数（真实 server 里常见的 `_`：「Ignored.」）只能写成 `text`，此前会占掉「补可选参数到共 3 个」的名额（`--_ text --reason text`）。现在跳过它们；只有这类可选参数的工具，示例只写必填参数，没有必填参数时不显示。必填的这类参数照写。`-h` 与 `via find` 的示例仍是同一个函数的结果；预构建缓存的文件版本升到 6（旧文件作废后重建）。不涉及动词表与规范写法。
 

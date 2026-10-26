@@ -19,7 +19,7 @@
 ### 参数名
 
 - 同时接受 snake_case、camelCase 和 kebab-case，统一写成 kebab 即可：`--issue-number` 对应 `issue_number`，`--pull-number` 对应 `pullNumber`。
-- 帮助、签名、报错中一律显示 kebab-case。
+- 帮助、签名、报错中一律显示 kebab-case；例外是数组条目的字段，它们只能写在 JSON 里，显示原名（见[报错](#校验与报错)）。
 - 归一化后两个参数同名时，两者都必须用原名指定，并在 `-h` 中提示。
 - 归一化后为空（名字里没有字母和数字，如 `_`、`__`）的参数没有 kebab-case 写法，保留原名，写成 `--_`：`usage:`、`-h` 的参数行、资源视图与 `find` 的签名（`[_]`）、调用示例、报错与 did you mean 都用这一个写法，解析器也接受它（`--_ x`、`--_=x`）。`-- x` 不是写法：`--` 之后的词是位置参数，会报 `unexpected argument "x"`。
 
@@ -179,7 +179,7 @@ next: via github issue:list -h
 
 规则：
 
-- 参数名一律用 kebab-case 的命令行写法（`--filter.state`、`--labels[1]`），而不是 JSON Pointer；参数来自 `--args` 时同样换算成这种写法。
+- 参数名一律用 kebab-case 的命令行写法（`--filter.state`、`--labels[1]`），而不是 JSON Pointer；参数来自 `--args` 时同样换算成这种写法。数组下标之后的字段只能整体写在 JSON 里，保留 JSON 原名（`--items[0].todoId`），与 `-h` 里条目字段的写法一致。
 - `(got …)` 中的值超过 40 个字符时截断；值命中已解析的凭证时显示为 `***`。
 - 有更接近的合法值时附 did you mean（枚举值、参数名都适用），最多给一个。
 - anyOf / oneOf 无法匹配时，列出各分支需要的字段，而不是逐条罗列每个分支的失败原因。
