@@ -157,7 +157,7 @@ $ via find "create issue"   # 跨 provider 搜索
 ## 5. 交给 agent
 
 ```bash
-via prompt                  # 打印一段约 175 token 的说明和 provider 列表
+via prompt                  # 打印一段约 190 token 的说明和 provider 列表
 via prompt --out AGENTS.md  # 或写到你指定的文件
 ```
 

@@ -58,6 +58,22 @@ describe('env:', () => {
     }
   });
 
+  it('every failed reference hands its next: to the person (ask the user: …), whichever kind it is', async () => {
+    const dir = tempDir();
+    const resolver = createCredentialResolver({ home: dir, env: {}, loadKeyring: keyring({}).loader });
+    const refs = ['env:MISSING_KEY', 'env:1BAD', 'file:~/nope', 'file:', 'keychain:via/none', 'keychain:nonsense', 'cmd:/no/such/dir/via-no-such-helper', 'cmd:'];
+    for (const ref of refs) {
+      const error = await failure(resolver.resolve(ref, user));
+      expect(error.next, ref).toMatch(/^ask the user: \S/);
+      expect(error.next, ref).not.toMatch(/^ask the user: ask the user/);
+    }
+    // project-scoped cmd: is refused before anything runs
+    const project = await failure(resolver.resolve('cmd:op read x', { scope: 'project', path: '/repo/.via.yaml' }));
+    expect(project.next).toMatch(/^ask the user: move this server definition to /);
+    // the original wording stays, behind the lead-in
+    expect((await failure(resolver.resolve('env:MISSING_KEY', user))).next).toBe('ask the user: export MISSING_KEY=<value>, or point the reference at another source (file:, keychain:)');
+  });
+
   it('names the variable to set when it is missing or empty', async () => {
     const resolver = createCredentialResolver({ env: { EMPTY: '' } });
     for (const name of ['MISSING_KEY', 'EMPTY']) {
