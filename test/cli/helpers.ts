@@ -145,6 +145,8 @@ export interface RunOptions {
   readLine?: (printed: { stdout: string; stderr: string }) => Promise<string | undefined>;
   /** Stands in for the browser; the default opens nothing. */
   openUrl?: (url: string) => Promise<{ opened: boolean; reason?: string }>;
+  /** How via starts itself again (the daemon, the sandbox); default: this test process's own command. */
+  daemonCommand?: { command: string; args: string[] };
 }
 
 export interface Sandbox {
@@ -264,6 +266,7 @@ export function makeSandbox(env: Record<string, string> = { GH_TOKEN: FAKE_TOKEN
         readStdin: async () => options.stdin ?? '',
         openUrl: options.openUrl ?? (async () => ({ opened: false, reason: 'tests do not open browsers' })),
         now: () => options.now ?? 1_800_000_000_000,
+        ...(options.daemonCommand ? { daemonCommand: options.daemonCommand } : {}),
       });
       return { code, stdout, stderr, asked, combined };
     },

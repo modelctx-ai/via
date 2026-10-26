@@ -60,7 +60,8 @@ export async function promptCommand(app: App, argv: readonly string[]): Promise<
   const { entries } = await app.table();
   const { catalog } = await app.loadProviders(entries);
   const skill = flags.skill === true;
-  const block = skill ? renderSkill({ catalog }) : renderPromptBlock({ catalog });
+  const visible = (command: string): boolean => app.commandVisible(command);
+  const block = skill ? renderSkill({ catalog, visible }) : renderPromptBlock({ catalog, visible });
 
   if (typeof flags.check !== 'string' && typeof flags.out !== 'string') {
     app.out(`${block}\n`);

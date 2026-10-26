@@ -6,6 +6,7 @@ import type { App } from '../app';
 import { buildProviderTable, statusOf } from '../directory';
 import { describeProxy, proxySettings } from '../../proxy';
 import { renderDoctor, type ServerProbe } from '../doctor';
+import { SANDBOX_MARKER } from '../policy';
 import { detectHost, windowsSidePaths } from '../../platform/host';
 import { readFileSync } from 'node:fs';
 
@@ -49,6 +50,7 @@ export async function doctorCommand(app: App): Promise<number> {
     proxy: describeProxy(proxySettings(app.io.env)),
     logs: { dir, ...(used ?? {}) },
     host: { kind: host, windowsSideFiles },
+    sandboxed: app.io.env[SANDBOX_MARKER] === '1',
   });
   app.out(`${out.text}\n`);
   return out.exitCode;

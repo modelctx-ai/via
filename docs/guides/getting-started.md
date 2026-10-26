@@ -162,3 +162,45 @@ via prompt --out AGENTS.md  # 或写到你指定的文件
 ```
 
 把这段说明放进 agent 的说明文件后，按 `via doctor` 的提示在框架中关闭 MCP 注入。过渡期两边可以并存，详见 [与 agent 框架集成](agent-integration.md)。
+
+## 6. 可选：收窄命令、放进沙箱
+
+两项都写在用户配置 `~/.config/via/config.yaml` 里，默认都不开。
+
+**只给 agent 需要的子命令**（[config.md](../spec/config.md#commands)）：
+
+```yaml
+commands:
+  deny: [serve, daemon]   # 禁止：运行时退出码 5
+  hide: [doctor, sync]    # 隐藏：不出现在 via -h、via prompt、via serve 的工具列表里，仍可运行
+```
+
+也可以反过来写 `allow`（只允许这些）、`show`（只显示这些）。改完之后重跑 `via prompt --out AGENTS.md`，说明块会跟着去掉被隐藏的命令。这只是 via 一侧的约定；要让 agent 绝对用不到某条命令，在 agent 框架的权限设置里禁止它。
+
+**让 via 在沙箱里运行**（[config.md](../spec/config.md#sandbox)）：先装 [srt](https://github.com/anthropics/sandbox-runtime)（`npm install -g @anthropic-ai/sandbox-runtime`；Linux 还要 `bubblewrap` 和 `socat`），再写：
+
+```yaml
+sandbox:
+  enabled: true
+  policy:
+    network:
+      allowedDomains: [api.githubcopilot.com, mcp.linear.app, registry.npmjs.org]
+    filesystem:
+      allowWrite: ["."]           # server 可以写当前目录
+      denyRead: [~/.ssh, ~/.aws]
+```
+
+之后每条 `via …` 都等于 `srt via …`：via 和它启动的 stdio server 只能写 `allowWrite` 里的目录（外加 via 自己的缓存），只能连 `allowedDomains` 里的域名，改不了 via 的配置。确认一下：
+
+```console
+$ via doctor | grep sandbox
+sandbox   srt · the settings in sandbox.policy · this check ran inside it
+```
+
+要知道的几件事：
+
+- 网络默认全部拒绝。HTTP server、OAuth 的授权服务器、`npx`/`uvx` 下载包的地址都要写进 `allowedDomains`，否则会报连不上。
+- 沙箱里不用 daemon，stdio server 每条命令都重新启动，慢的 server 会明显变慢。
+- `via auth`、`via trust`、`via daemon` 默认在沙箱外运行（`sandbox.exclude`）。
+- 它不是凭证隔离：server 能读到 via 能读到的东西。需要隔离凭证时仍然用网关。
+

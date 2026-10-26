@@ -9,6 +9,8 @@ via 与 agent 以同一用户、在同一个 shell 环境中运行，因此**只
 | 凭证出现在输出或日志里 | 已解析的凭证值在所有输出中精确匹配替换为 `***`；脱敏保持结构：内容里任何长度的凭证都替换，键、协议字段与 via 自己写的文字只扫描 8 个字符以上的凭证（[输出规范](output.md#脱敏的范围)）；协议消息不携带凭证。日志（[daemon.md](daemon.md#日志)）：每一行写盘前用同一个脱敏器，stdio 子进程的 stderr 按行处理（凭证切在两个数据块之间也能认出）并按内容处理（任何长度的凭证）；日志不记录参数值、调用结果、资源内容、elicitation 的问题与答案；控制字符与转义序列写成可见的转义，日志里的一行永远只是一行；日志与缓存同目录同权限（0700/0600，Windows 靠用户目录的 ACL），两周没写过的被清理 |
 | agent 读取配置文件拿到凭证 | 配置只存引用；推荐 `keychain:`；`via doctor` 对明文值告警 |
 | 误调用破坏性工具 | `destructiveHint` 工具需要 `--yes`；`deny` 正则规则，deny 优先 |
+| agent 用到不想让它用的子命令（`via serve`、`via daemon stop`…） | `commands.deny` / `commands.allow` 拒绝（退出码 5），`commands.hide` / `commands.show` 不在帮助、`via prompt`、`via serve` 里列出；项目配置只能收窄。只在 via 一侧生效，见[边界说明](#边界说明)（[ADR 0028](../adr/0028-restrict-and-hide-subcommands.md)） |
+| stdio server、`cmd:` 助手写到不该写的地方、连到不该连的主机 | 可选的 `sandbox`：via 连同它派生的进程在 srt 一类沙箱程序里运行，按用户写的策略限制写入与网络；沙箱里写不了 via 的配置与信任记录；只读用户配置，开启后失败关闭（[config.md](config.md#sandbox)、[ADR 0027](../adr/0027-run-via-inside-a-sandbox-program.md)） |
 | 不可信仓库里的项目配置 | 项目级配置中的 stdio 命令和 HTTP 端点首次使用前需 `via trust`（默认在终端确认；`--yes` 需要显式路径加环境变量开启，agent 说明里要求不要自己运行）；`cmd:` 凭证引用只允许出现在用户配置中，信任也不能放行 |
 | 其他本地用户访问 daemon | socket 权限 0600、目录 0700，CLI 连接前检查属主与权限位，握手需要 0600 令牌文件里的随机令牌（Node 取不到 `SO_PEERCRED`，用这三项代替对端 uid 校验，见 [daemon.md](daemon.md#socket-安全)）。Windows：管道名由每次启动的令牌派生，令牌文件在用户目录里（见 [daemon.md](daemon.md#windows)） |
 | Windows 上经 `cmd.exe` 的命令注入（参数里的 `&`、`\|`、`%VAR%`） | 命令名只从 `PATH` 解析、不找当前目录；`.cmd` / `.bat` 的每个词放进双引号，含 `"`、`%`、换行的参数拒绝而不转义；打开浏览器不经 `cmd.exe`（见下） |
@@ -134,5 +136,6 @@ via 在 POSIX 上靠文件模式（目录 0700、文件 0600）保护信任记�
 - `deny` 只匹配工具引用。MCP 资源与 prompt 的列出、读取（`via resources`、`via read`、`via prompts`）协议上都是只读的，不受 `deny` 与 `--yes` 约束。一个 server 通过资源暴露的内容多少，取决于 server 本身和用户给它的 `roots`；需要整个隐藏时用 `disabled`。资源内容和 prompt 消息同工具输出一样是数据，via 不解释它们。
 - `deny` 只在 via 一侧生效。agent 可以绕过 via 直接访问上游，需要不可绕过的限制时，使用上游提供的只读端点（如 Linear 的 `/mcp/readonly`）、最小权限的 token，或网关。
 - via 不修改任何框架配置，也不代替框架做权限判断。
-- via 不限制 stdio server 子进程：它们由 via 以用户身份启动，拥有用户的全部文件与网络权限，`env` 里注入的凭证对它们可见；`via trust` 只决定「运行与否」。给单个不可信 server 加一层进程级沙箱的方案还在讨论，只是提议，没有实现（[ADR 0026](../adr/0026-sandbox-stdio-server-processes.md)）；即使将来实现，它也不是凭证隔离。
+- 默认不限制 stdio server 子进程：它们由 via 以用户身份启动，拥有用户的全部文件与网络权限，`env` 里注入的凭证对它们可见；`via trust` 只决定「运行与否」。开启 [`sandbox`](config.md#sandbox) 后，via 连同这些子进程在沙箱程序里运行（[ADR 0027](../adr/0027-run-via-inside-a-sandbox-program.md)），写入与网络受用户策略的限制；但它们与 via 在**同一个**沙箱里，via 能读的（凭证引用指向的文件、OAuth 记录、环境变量）它们也能读，所以它**不是凭证隔离**。沙箱防的是 via 运行的 server，不是与用户同权限的 agent：agent 可以设置 `VIA_SANDBOXED=1` 让 via 跳过沙箱，也可以直接运行 server 的命令。
+- `commands` 与 `deny` 一样只在 via 一侧生效：它决定 via 运行和列出哪些子命令，agent 仍可以改配置文件或绕过 via。不可绕过的限制放在 agent 框架的权限设置里（例如不放行 `via serve`、`via trust`）；开启 `sandbox` 时，沙箱里写不了 via 的配置目录。
 - `via serve` 不扩大能力：每个元工具调用就是一条 CLI 命令，`deny`、`--yes`、脱敏照常生效，`via trust` 与 `via auth` 没有对应的工具，参数无法变成命令行选项（[cli.md](cli.md#via-serve)）。它只在 stdio 上服务拉起它的那个进程，不监听端口，也不做调用方鉴权或审计；需要这些时仍然用网关（[ADR 0002](../adr/0002-standalone-client-not-gateway.md)）。

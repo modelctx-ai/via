@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUNDLED_FRAMEWORKS, type LoadedConfig, type ServerConfig } from '../../src/config';
 import { BYTES_PER_TOKEN, renderDoctor, type ServerProbe } from '../../src/cli/doctor';
 import { makeTree } from '../helpers/config';
+import { emptyPolicy } from '../../src/config/policy';
 import { portablePaths } from '../helpers/portable';
 import { FAKE_SECRET } from '../helpers/render';
 
@@ -33,6 +34,7 @@ function config(servers: ServerConfig[], diagnostics: LoadedConfig['diagnostics'
     output: { budget: 8192, cellWidth: 80 },
     daemon: { idleTimeout: 600, serverIdleTimeout: 300 },
     discovery: { wait: 3 },
+    ...emptyPolicy(),
     diagnostics,
     files: [],
   };
@@ -47,6 +49,17 @@ describe('renderDoctor', () => {
     const out = renderDoctor({ config: config([server('github'), server('exa')]), frameworks: BUNDLED_FRAMEWORKS, probes: [probe('github'), probe('exa')] });
     expect(out.exitCode).toBe(0);
     await expect(`${out.text}\n`).toMatchFileSnapshot('./__snapshots__/doctor-healthy.txt');
+  });
+
+  it('a sandbox line when it is on, and a commands line when commands are restricted; neither otherwise', () => {
+    const plain = renderDoctor({ config: config([server('github')]), frameworks: BUNDLED_FRAMEWORKS, probes: [probe('github')] }).text;
+    expect(plain).not.toMatch(/^(sandbox|commands) /m);
+    const restricted = config([server('github')]);
+    restricted.sandbox = { enabled: true, command: ['srt', '--debug'], exclude: ['auth'], policy: { file: '/home/u/.config/via/srt.json' } };
+    restricted.commands = { deny: new Set(['serve']), hide: new Set(['daemon', 'batch']), allow: new Set(['find', 'call']) };
+    const lines = (sandboxed: boolean) => renderDoctor({ config: restricted, frameworks: BUNDLED_FRAMEWORKS, probes: [probe('github')], home: '/home/u', sandboxed }).text.split('\n').filter((l) => /^(sandbox|commands) /.test(l));
+    expect(lines(true)).toEqual(['sandbox   srt --debug · ~/.config/via/srt.json · this check ran inside it', 'commands  allow: find, call · deny: serve · hide: daemon, batch']);
+    expect(lines(false)[0]).toBe('sandbox   srt --debug · ~/.config/via/srt.json · via doctor ran outside it (sandbox.exclude), so the checks above did too');
   });
 
   it('reports where the logs are after the proxy, with their size, "none yet" before there are any, and nothing when not asked', async () => {

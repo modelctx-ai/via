@@ -5,6 +5,8 @@ import type { Catalog } from '../catalog';
 
 export interface PromptInput {
   catalog: Catalog;
+  /** Built-ins to mention; the rest are refused or hidden by `commands` (ADR 0028). Default: all. */
+  visible?: (command: string) => boolean;
 }
 
 /**
@@ -55,11 +57,23 @@ function providerList(providers: readonly string[]): string {
   return lines.join('\n');
 }
 
+/**
+ * The instructions without the lines of built-ins that are not shown: `via find`'s line goes, and
+ * the sentence about `via more`. The line about `via trust` stays: it tells the agent not to run it.
+ */
+function instructions(visible: (command: string) => boolean): string {
+  const lines = PROMPT_INSTRUCTIONS.split('\n');
+  return lines
+    .filter((line) => visible('find') || !line.startsWith('- `via find'))
+    .map((line) => (visible('more') ? line : line.replace('- `via more <cursor>` continues truncated output. ', '- ')))
+    .join('\n');
+}
+
 /** Instructions plus provider list: the managed block's contents, without the markers. */
 export function renderPrompt(input: PromptInput): string {
   const providers = input.catalog.providers.map((p) => p.provider);
   const summary = providers.length === 0 ? `${LABEL}none configured yet (run via doctor)` : providerList(providers);
-  return `${PROMPT_INSTRUCTIONS}\n\n${summary}`;
+  return `${input.visible ? instructions(input.visible) : PROMPT_INSTRUCTIONS}\n\n${summary}`;
 }
 
 /** The full block, markers included: exactly what `via prompt` prints and what `--out` splices in. */

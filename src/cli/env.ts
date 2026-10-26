@@ -31,6 +31,11 @@ export interface CliEnv {
   interrupt?: AbortSignal;
   /** How to start `via daemon run` detached: the executable and the arguments before the subcommand. */
   daemonCommand: { command: string; args: string[] };
+  /**
+   * Whether `stdout`, `stderr` and `readStdin` are this process's own, so a child (the sandbox, ADR 0027)
+   * can be given them as they are. False when output is captured (`via serve`, tests).
+   */
+  inheritStdio?: boolean;
 }
 
 /** `isatty` on demand: `node:tty` pulls in `net` and `stream`, which a browse command never needs. */
@@ -85,6 +90,7 @@ export function makeEnv(overrides: Partial<CliEnv> = {}): CliEnv {
     ask: askOnTerminal,
     now: Date.now,
     daemonCommand: selfCommand(),
+    inheritStdio: overrides.stdout === undefined && overrides.stderr === undefined && overrides.readStdin === undefined,
   };
   // Own properties of `overrides` replace the defaults (descriptors are copied so a getter stays lazy).
   Object.defineProperties(env, Object.getOwnPropertyDescriptors(overrides));

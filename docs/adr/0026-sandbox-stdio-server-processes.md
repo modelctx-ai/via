@@ -1,6 +1,6 @@
 # 0026. 用进程级沙箱包裹 daemon 派生的 stdio server 子进程
 
-- 状态：提议中
+- 状态：被 ADR-0027 取代
 - 日期：2026-10-26
 
 > 这是提议，还没有任何实现，也没有加依赖。接受之前，本文的配置字段只是草案，不进 [config.md](../spec/config.md)；接受时再随实现把规范写进 spec，并按[流程](README.md#流程)更新状态。讨论见 [issue #38](https://github.com/modelctx-ai/via/issues/38)。

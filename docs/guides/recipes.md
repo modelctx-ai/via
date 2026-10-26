@@ -66,3 +66,45 @@ via github issue:write --method create --owner acme --repo api --title "x" --dry
 ```
 
 `--dry-run` 打印规范写法、目标 server 和最终参数（凭证打码），不发起调用。
+
+## 只让 agent 看到几条命令
+
+```yaml
+# ~/.config/via/config.yaml
+commands:
+  show: [find, call, more]   # 帮助、via prompt、via serve 只列这三条（provider 语法照常可用）
+  deny: [serve, trust]       # 这两条直接拒绝
+```
+
+```bash
+via -h                       # 只剩 find、call、more 与 provider 语法
+via prompt --out AGENTS.md   # 说明块随之收窄
+via serve                    # 退出码 5：serve 被禁止了
+```
+
+没有 `deny: [serve]` 时，`via serve` 的工具列表同样只剩 `via_browse`、`via_find`、`via_call`、`via_more`。
+
+项目里的 `.via.yaml` 也能写 `commands`，但只能再收紧，不能把用户配置禁止的命令放出来。
+
+## 在沙箱里跑一个来路不明的 server
+
+```yaml
+# ~/.config/via/config.yaml
+servers:
+  some-tool:
+    command: npx
+    args: [-y, "@someone/server"]
+sandbox:
+  enabled: true
+  policy:
+    network: { allowedDomains: [registry.npmjs.org, api.example.com] }
+    filesystem: { allowWrite: ["./out"] }
+```
+
+```bash
+via some-tool                # 在 srt 里运行：只能写 ./out，只能连上面两个域名
+VIA_SANDBOXED=1 via doctor   # 人在排查时绕开沙箱（via 以为自己已经在沙箱里）；不要写进 agent 的环境
+```
+
+策略也可以放在单独的 JSON 文件里（`policy: ~/.config/via/srt.json`，格式同 srt 的 settings），via 每次读取并追加它自己需要的几项。
+

@@ -8,6 +8,7 @@ import type { OAuthStore } from '../client/oauth/store';
 import type { SchemaCompiler } from './args';
 import { pathContext, userCacheDir } from '../config/paths';
 import type { CredentialResolver, LoadedConfig, ServerConfig } from '../config';
+import { emptyPolicy, isVisible, refusedBy, restrictsCommands, type Policy } from '../config/policy';
 import { lazyRedactor, redactValue, type Redactor } from '../render/redact';
 import { formatError, type ErrorInfo } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
@@ -18,7 +19,8 @@ import type { ViewCache } from './view-cache';
 import type { TaskRecords } from './task-record';
 import type { CliEnv } from './env';
 import { fail } from './failure';
-import { VERSION } from './help';
+import { filterHelp, HELP, VERSION } from './help';
+import { matchBuiltin } from './builtins';
 import type { GlobalOptions } from './options';
 
 /**
@@ -71,7 +73,30 @@ export class App {
   constructor(
     readonly io: CliEnv,
     readonly options: GlobalOptions,
+    /** `commands` and `sandbox`, read before dispatch (run.ts). */
+    readonly policy: Policy = emptyPolicy(),
   ) {}
+
+  // Commands the configuration restricts (ADR 0028) -------------------------------------
+
+  /** Whether a built-in is shown in help, `via prompt`, `via serve` and the hints of the views. */
+  commandVisible(command: string): boolean {
+    return isVisible(this.policy.commands, command);
+  }
+
+  /** `via -h` and `via help`, without the commands that are refused or hidden. */
+  helpText(): string {
+    return restrictsCommands(this.policy.commands) ? filterHelp(HELP, (name) => this.commandVisible(name)) : HELP;
+  }
+
+  /** A `next:` naming a refused command is no next step: it is left out rather than sending the reader into a refusal. */
+  private dropRefusedNext(info: ErrorInfo): ErrorInfo {
+    const word = /^via\s+(\S+)/.exec(info.next ?? '')?.[1];
+    const command = word === undefined ? undefined : matchBuiltin(word);
+    if (command === undefined || refusedBy(this.policy.commands, command) === undefined) return info;
+    const { next: _dropped, ...rest } = info;
+    return rest;
+  }
 
   // Output ------------------------------------------------------------------------------
 
@@ -405,7 +430,7 @@ export class App {
   async report(error: unknown): Promise<number> {
     // Only a failure needs this module.
     const { toErrorInfo } = await import('./error-info');
-    const info = await toErrorInfo(error);
+    const info = this.dropRefusedNext(await toErrorInfo(error));
     this.err(await this.redactText(formatError(info, this.options.format, this.redact)));
     return info.code;
   }

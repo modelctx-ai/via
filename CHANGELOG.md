@@ -8,6 +8,19 @@
 
 ### Added
 
+- 可选的沙箱：`sandbox`（[#38](https://github.com/modelctx-ai/via/issues/38)，[ADR 0027](docs/adr/0027-run-via-inside-a-sandbox-program.md)，[config.md](docs/spec/config.md#sandbox)、[security.md](docs/spec/security.md)、[daemon.md](docs/spec/daemon.md#无-daemon-模式)）：
+  - 在用户配置里写 `sandbox: { enabled: true }` 之后，`via <参数…>` 由 via 改为启动 `srt --settings <文件> -- <node> <via> <参数…>`，原样返回它的退出码：裸 `via` 等价于 `srt via`。`command` 可以换成任何接受这条命令行的程序（默认 `srt`，可带自己的选项）；`policy` 是交给它的设置（srt 的 settings 格式），写成映射或一个 JSON 文件的路径，via 不校验字段；`exclude` 是在沙箱外运行的子命令，默认 `auth`、`trust`、`daemon`。`help` 与 `-h` 的固定用法也在外面。
+  - **不依赖 srt 的包**：`package.json` 不变，没有可选依赖，不加载 srt 的库接口。
+  - via 在 `policy` 之上追加：`filesystem.allowWrite` 加缓存目录与 OAuth 文件目录，`filesystem.denyWrite` 加用户配置目录与 `trust.json`（沙箱里关不掉沙箱、信任不了项目）；设置写在缓存目录的 `sandbox/settings-<哈希>.json`（0600）。
+  - 沙箱里的 via 带 `VIA_NO_DAEMON=1`（srt 让 daemon 活不过一条命令）和 `VIA_SANDBOXED=1`（不再包裹自己）：**开启后每条命令都是进程内模式**，stdio server 每次重新启动。srt 默认拒绝全部网络，HTTP server、OAuth、包注册表的域名要写进 `policy`。
+  - 失败关闭：沙箱程序找不到是退出码 6（`next: ask the user: srt is not installed …`），`policy` 文件读不出是退出码 2；不会退回到不加沙箱运行。项目配置里的 `sandbox` 被忽略并告警（`sandbox-forbidden`）。
+  - `via doctor` 在开启时多一行 `sandbox`。不是凭证隔离：server 与 via 在同一个沙箱里。
+  - 验证范围：自动测试用一个记录参数的假 srt；另在 Linux 上用真实的 srt 0.0.81 与 bubblewrap 0.9.0 手工跑过：浏览、调用 stdio server、`via doctor` 都在沙箱里完成，server 写不了 `allowWrite` 之外的文件和 via 的配置，HTTP server 只在域名写进 `allowedDomains` 后才连得上。macOS（Seatbelt）没有验证。
+- 子命令的禁止与隐藏：`commands`（[ADR 0028](docs/adr/0028-restrict-and-hide-subcommands.md)，[config.md](docs/spec/config.md#commands)、[cli.md](docs/spec/cli.md#被配置限制的子命令)、[output.md](docs/spec/output.md#退出码)）：
+  - `deny` 禁止、`allow` 只允许、`hide` 隐藏、`show` 只显示某些内置子命令。被禁止的在连接任何东西之前拒绝，退出码 5，`next: via help`；别处指向它的 `next:` 不再输出。被隐藏（或被禁止）的不出现在 `via -h`、`via help`、`via prompt` 的说明（`find` 那一行、`via more` 那半句）、`via serve` 的 `tools/list` 和 provider 视图的 `also:` 行；隐藏的仍可运行。
+  - `deny`、`hide` 各层取并集，`allow`、`show` 取交集，项目配置只能收窄。`deny`、`hide` 里写错的名字是 error 级诊断（`unknown-command`），除 `via doctor`、`via servers`、`via help` 外的命令都拒绝执行。`help` 不能被限制；`daemon run` 不受约束；provider 语法不受约束。
+  - 没有任何限制时，帮助、`via prompt` 与 `via serve` 的输出一字不差。`via doctor` 有限制时多一行 `commands`。
+  - 读取时机：每条命令先只读用户与项目配置的文本，没有出现 `commands` 或 `sandbox` 就不解析 YAML，冷启动不变。不涉及动词表与规范写法。
 - 发布 #34 之后的 token 基准重跑（[0.4-tokens-after-34.md](bench/results/0.4-tokens-after-34.md)，[#34](https://github.com/modelctx-ai/via/issues/34)）：via 合计 14,731 → 15,509 token（仍约 native 的 4%，mcp2cli 16%、mcpc 15%；其中 144 来自说明文字变长），命令数 52 → 52。逐条检查了任务里每一条 `-h`，没有一条能去掉：4 条面对的是叶子工具（前面只有 provider 视图，没有签名），3 条的资源视图签名因超过 60 列退回了不带类型与枚举的写法（`issue:read` 与 `pull-request:read` 的 `method`、`notion page:update` 的 `command`）；各任务 yaml 里用注释写明了理由。`via find` 的 `example:` 行在 `cross-issue-to-pr` 里让两次 `find` 各多约 166 和 231 token，这个任务本来没有 `-h`，所以是净增加。README 的 4% 不变。不涉及动词表与规范写法。
 - 发布 2026-10-26 的 agent 评测报告（[eval-2026-10-26-deepseek-flash.md](bench/results/eval-2026-10-26-deepseek-flash.md)）：deepseek-flash、effort medium，9 个任务 × 10 次。native 68/90、via 66/90、mcp2cli 67/90、mcpc 68/90。门槛 1 不成立，三组对比的 Wilson 区间都重叠。mcp2cli 一列是同日第二次运行，第一次因本机回放收到 HTTP 502 而作废。原始 JSON 不在仓库里。不涉及动词表与规范写法。
 - agent 评测的原始 JSON（`bench/results/eval-*.json`，每次调用和模型原文）不进仓库，`.gitignore` 排除；可以提交的是同名 `.md` 报告，以及原来的 token / 拆分 / 性能结果。登录拦截只拒绝 `via auth`、`mcp2cli --oauth`、`mcpc login` 和 `--mcp` / `mcpc connect` 指向回放 server 以外的地址，不再把工具参数里的 `https://`（如 `https://docs.acme.test/`）当成另一次登录。mcp2cli 的说明多一句：别名已经建好，用 `@name --search` 再调用，不要自己传 `--mcp`。沙箱设置 `NO_PROXY=*`，避免 HTTP 代理把本机回放答成 502。不涉及动词表与规范写法。
@@ -17,7 +30,7 @@
   - 快速上手的 Windows 一节新增「推荐姿势」（agent 与 via 都装在 WSL2 内，Windows 侧框架配置在 `sources` 里按 `/mnt/c/…` 显式列出，`.wslconfig` 的 `localhostForwarding` 与 VM 空闲关闭对 OAuth 回调、daemon 的影响，没有 WSL 时用 Git Bash 并设 `MSYS_NO_PATHCONV`），以及可选的 `scripts/windows/via.cmd`（转发到 `wsl.exe -e via …`；不在 npm 包里，没有对应的子命令；**未在真实 Windows 上验证**，待测清单写在同一节）。
   - `via doctor` 在 Windows 上固定多一行 `platform`，提示 PowerShell 5.1 会丢掉 `--args '{…}'` 的内层双引号、改用 `--args @文件`（不探测 PowerShell 版本）；在 WSL 内读了 `/mnt/<盘符>/…` 下的配置文件时，提示跨文件系统读取的冷启动代价并列出文件。只提示，不改变退出码；其他环境的输出不变。
   - `.gitattributes` 让 `*.cmd` 以 CRLF 检出。
-- ADR 0026 提议：用进程级沙箱包裹 daemon 派生的 stdio server 子进程（[#38](https://github.com/modelctx-ai/via/issues/38)，[ADR 0026](docs/adr/0026-sandbox-stdio-server-processes.md)，状态为提议中）。只是文档：没有新增依赖、命令或配置字段；[security.md](docs/spec/security.md) 的边界说明、[路线图](docs/roadmap.md)（g1）和[待定问题](docs/open-questions.md)已指向它。
+- ADR 0026 提议：用进程级沙箱包裹 daemon 派生的 stdio server 子进程（[#38](https://github.com/modelctx-ai/via/issues/38)，[ADR 0026](docs/adr/0026-sandbox-stdio-server-processes.md)）。之后被 [ADR 0027](docs/adr/0027-run-via-inside-a-sandbox-program.md) 取代，见上面的 `sandbox`。
 - 浏览类命令区分 `starting` 与 `failed`，并且不再为慢 server 等满 10 秒（[#30](https://github.com/modelctx-ai/via/issues/30)、[discovery.md](docs/spec/discovery.md#缓存)、[config.md](docs/spec/config.md#discovery)、[output.md](docs/spec/output.md#浏览与搜索里没有拿到目录的-provider)、[daemon.md](docs/spec/daemon.md#cli-与-daemon-的协议)、[getting-started.md](docs/guides/getting-started.md)）：
   - **新状态 `starting`**：等待到点但没有确定性失败。`failed` 只用于确定性失败（子进程退出、命令不存在、握手被拒、HTTP 错误），行末带原因首行：`dead  failed · cannot run xyz (ENOENT)`（去掉 `cannot start <provider>:` 前缀，脱敏、折成一行、最多 80 个字符）。此前超时也显示为不带原因的 `failed`。状态名是导出的联合类型 `ProviderStatus`（`ok`、`needs-auth`、`starting`、`failed`、`untrusted`），内部原来的 `error` 改名为 `failed`。**`via` 第一行汇总与状态列变了**：多一段 `N starting (…)`，顺序 `needs auth`、`starting`、`failed`、`untrusted`；`failed` 行多出 ` · <原因>`，逐行解析 `via` 输出的脚本需要跟着改。
   - **等待独立于调用的 `timeout`**：`via`、`via find`、`via prompt` 经 daemon 时对单个 server 只等 `discovery.wait`（新的顶层配置字段，默认 3 秒，不超过 server 的 `timeout`，`--timeout` 覆盖）。到点的 provider 标 `starting · retry in a moment`，不阻塞其他 provider；daemon 在后台以 server 的 `timeout` 为上限继续连接并写缓存，同一 server 此间到达的请求加入同一次拉取。冷目录下一个启动要 14 秒的 server 不再让第一条 `via` 花 10 秒。daemon 协议：`list` 请求多可选的 `waitMs`，应答多一种 `{ pending: true }`。
@@ -84,6 +97,7 @@
 
 ### Fixed
 
+- 打包后的 `dist/via.js` 设置了 `HTTPS_PROXY`/`HTTP_PROXY` 时，每个 HTTP server 都报 `cannot start <provider>: ProxyAgent is not a constructor`：undici 是 CommonJS，打进包里后它的分块只有默认导出，源码里按具名导出取 `ProxyAgent` 拿到的是 `undefined`（测试跑的是源码，所以没有发现）。现在两种形状都能取到；`dist.test.ts` 加了经代理调用的用例。srt 总会给沙箱里的进程设置代理变量，所以这也是 `sandbox` 下 HTTP server 能用的前提。
 - OAuth 登录丢掉回调里的 `iss`（RFC 9207）。Linear、Notion、Cloudflare 的授权服务器都声明 `authorization_response_iss_parameter_supported`，浏览器回到 `http://127.0.0.1:29842/callback` 时查询串里有 `iss`，页面也已经显示 “Signed in”，但 via 只留下 `code` 和 `state`。交给 SDK 换令牌时 `iss` 是空的，于是报 `Issuer mismatch in authorization response (RFC 9207): expected "…", received undefined`（退出码 6），授权码并没有拿去换令牌。现在回调（本地监听和 `--manual` 粘贴的 URL）保留 `iss` 并传给令牌交换；缺了或对不上仍拒绝，且浏览器改到拒绝之后才显示 “Signed in”（[auth.md](docs/spec/auth.md#流程)）。不涉及动词表与规范写法。
 - `via sync` 不再受浏览类命令 10 秒上限的约束（[#30](https://github.com/modelctx-ai/via/issues/30)、[cli.md](docs/spec/cli.md)）：并行拉取，每个 server 等它自己的 `timeout`（`--timeout` 覆盖），否则它救不了启动要十几秒的 server。`via doctor` 不变（仍是 10 秒上限，超时记为 `error`）。
 - 目录缓存键现在包含 `env` 与 `headers` 的**字面量值**（[#29](https://github.com/modelctx-ai/via/issues/29)、[discovery.md](docs/spec/discovery.md#缓存)）：此前键里只有 env 名，命令与 env 名相同、值不同的两个 server（用 `MODE`、`DATABASE_URL`、`FS_ROOT` 切换数据集或根目录）共用同一个 `catalog/<哈希>.json`，`via <a>` 会显示 `<b>` 的目录，`via sync <b>` 还会改掉 `<a>` 的目录。字面量值只进入单向哈希，不落盘；凭证引用（`env:`、`file:`、`keychain:`、`cmd:`）仍只哈希引用文本，不解析。`.info.json`、`.view.json` 与 `tasks/` 记录目录沿用同一个哈希。旧缓存因键不同而自然失效（下一次浏览重新拉取一次），不需要迁移。

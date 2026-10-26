@@ -27,6 +27,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 
 ### 解析顺序
 
+0. 在此之前，配置里的 [`commands`](#被配置限制的子命令) 决定这条子命令能不能运行，[`sandbox`](config.md#sandbox) 决定它是不是在沙箱里重新运行。
 1. 第一个参数先匹配内置子命令；匹配不上则按 provider 解析。
 2. provider 之后的第一个参数：
    - 含 `:` → 工具引用，其后全部是工具参数；
@@ -104,6 +105,14 @@ via <provider> -h                         provider 视图，前面加上 server 
     - `--check <文件>`：整份内容与当前输出一致时退出码 0，stderr 输出 `· <文件> is up to date`；文件不存在或内容过期时退出码 1，`next:` 为 `via prompt --skill --out <文件>`；文件不是 via 写的时退出码 5（不拿别人的文件当作过期）。
     - `--replace` 与 `--skill` 同用时退出码 2：技能文件本来就整份写入。
     - 文件内容在 `--check` 里按忽略末尾空白的全文比较；provider 列表也在其中，所以增删 server 之后同样会过期。
+
+### 被配置限制的子命令
+
+用户或项目配置的 [`commands`](config.md#commands) 可以禁止、只允许、隐藏或只显示某些内置子命令（[ADR 0028](../adr/0028-restrict-and-hide-subcommands.md)）：
+
+- **禁止**（`deny`，或不在 `allow` 里）：在连接任何 server、启动沙箱之前拒绝，退出码 5，`error: via serve is turned off in the via config (commands.deny)`（或 `… is not among the commands the via config allows (commands.allow)`），`next: via help`。`via serve -h`、`via help serve` 同样拒绝。其他错误的 `next:` 指向被禁止的命令时，那一行不输出。
+- **隐藏**（`hide`，或不在 `show` 里；被禁止的也算）：不出现在 `via -h` 与 `via help` 的用法行和 `commands:` 行、`via prompt` 的说明（`find` 那一行，`via more` 那半句）、`via serve` 的 `tools/list`、provider 视图的 `also:` 行。仍可运行，`via help <命令>` 仍显示它的用法。没有任何限制时，帮助与说明一字不差。
+- `help` 不能被限制；`daemon run` 是内部入口，不受约束；provider 语法（`via`、`via <provider> …`）不是内置子命令，不受约束。
 
 ### MCP 资源与 prompt 命令
 
@@ -285,6 +294,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 `via serve` 在 stdin/stdout 上运行一个 MCP server（只有 stdio 传输，不监听端口），供没有 shell 的 agent 在框架里当作普通 stdio server 登记，例如 `{"command": "via", "args": ["serve"]}`。stdin 关闭时退出；不接受参数，带参数时报用法错误（退出码 2）。设计理由见 [ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)，任务、技能与补全的工具见 [ADR 0024](../adr/0024-via-serve-tasks-skills-and-completion.md)。
 
 - **能力**：只声明 `tools`。工具列表固定为下表九个，不随目录变化，不发 `tools/list_changed`。`initialize` 的 `instructions` 说明怎么用这些工具，以及输出里的 CLI 写法与工具的对应关系。
+- **被 `commands` 隐藏或禁止的子命令**（[见上](#被配置限制的子命令)）：对应的元工具（`via_find` 对 `find`，`via_call` 对 `call`，`via_more` 对 `more`，其余同名；`via_browse` 对 provider 语法，不受限制）不出现在 `tools/list` 里，`instructions` 不变。直接调用一个被隐藏的元工具照常运行；被禁止的由 CLI 拒绝，退出码 5。
 - **每次调用就是一次 CLI 命令**：按下表拼出命令行，在 `via serve` 进程里执行（环境变量、工作目录、用户目录与 `via serve` 进程相同；stdin 为空，不交互，`interactive` 为假），捕获 stdout 与 stderr。daemon、缓存、凭证解析、`deny`、危险操作确认、本地校验、渲染、预算、游标、脱敏与元信息行都与命令行完全相同；`via serve` 自己不连接任何 MCP server。
 
 | 工具 | 参数 | 执行的命令 |

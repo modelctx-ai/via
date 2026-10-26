@@ -14,6 +14,8 @@ export type DiagnosticCode =
   | 'server-undefined'
   | 'cmd-forbidden'
   | 'search-forbidden'
+  | 'sandbox-forbidden'
+  | 'unknown-command'
   | 'invalid-deny'
   | 'unsafe-deny'
   | 'unknown-source'
