@@ -38,7 +38,7 @@
       }
     }
   },
-  "viaPromptBytes": 862,
+  "viaPromptBytes": 926,
   "mcp2cli": {
     "version": "3.8.0",
     "fixedBytes": 16331
@@ -78,10 +78,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 7891,
-        "totalBytes": 8753,
-        "totalTokens": 2188,
+        "totalBytes": 8817,
+        "totalTokens": 2204,
         "steps": [
           {
             "command": "via github",
@@ -274,10 +274,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 5274,
-        "totalBytes": 6136,
-        "totalTokens": 1534,
+        "totalBytes": 6200,
+        "totalTokens": 1550,
         "steps": [
           {
             "command": "via github",
@@ -440,10 +440,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 7100,
-        "totalBytes": 7962,
-        "totalTokens": 1991,
+        "totalBytes": 8026,
+        "totalTokens": 2007,
         "steps": [
           {
             "command": "via github",
@@ -601,10 +601,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 2302,
-        "totalBytes": 3164,
-        "totalTokens": 791,
+        "totalBytes": 3228,
+        "totalTokens": 807,
         "steps": [
           {
             "command": "via linear",
@@ -753,10 +753,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 5507,
-        "totalBytes": 6369,
-        "totalTokens": 1592,
+        "totalBytes": 6433,
+        "totalTokens": 1608,
         "steps": [
           {
             "command": "via linear",
@@ -947,10 +947,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 6179,
-        "totalBytes": 7041,
-        "totalTokens": 1760,
+        "totalBytes": 7105,
+        "totalTokens": 1776,
         "steps": [
           {
             "command": "via notion",
@@ -1148,10 +1148,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 9195,
-        "totalBytes": 10057,
-        "totalTokens": 2514,
+        "totalBytes": 10121,
+        "totalTokens": 2530,
         "steps": [
           {
             "command": "via playwright",
@@ -1335,10 +1335,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 3420,
-        "totalBytes": 4282,
-        "totalTokens": 1071,
+        "totalBytes": 4346,
+        "totalTokens": 1087,
         "steps": [
           {
             "command": "via cloudflare",
@@ -1515,10 +1515,10 @@
         ]
       },
       "via": {
-        "fixedBytes": 862,
+        "fixedBytes": 926,
         "sessionBytes": 6832,
-        "totalBytes": 7694,
-        "totalTokens": 1924,
+        "totalBytes": 7758,
+        "totalTokens": 1940,
         "steps": [
           {
             "command": "via find \"get linear issue\"",
@@ -1698,7 +1698,7 @@
     "id": "total",
     "title": "total",
     "native": 382379,
-    "via": 15365,
+    "via": 15509,
     "mcp2cli": 60152,
     "mcpc": 57691
   }
