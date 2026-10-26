@@ -193,7 +193,8 @@ describe('-h --full (arguments.md, "帮助")', () => {
 describe('the keys of an array of objects (arguments.md, "帮助")', () => {
   const ctx = ctxOf('board build:run', 'build_run');
 
-  it('lists them under the parameter, with the JSON spelling, requirement and description', () => {
+  // The example writes JSON, which has no pasteable form on Windows (arguments.md, "调用示例").
+  it.skipIf(process.platform === 'win32')('lists them under the parameter, with the JSON spelling, requirement and description', () => {
     expect(formatToolHelp(board('build_run', RUN, { description: 'Run builds' }), ctx)).toMatchInlineSnapshot(`
       "usage: via board build:run --items <json> [--todo-ids <str[]>] [--_ <value>]
 

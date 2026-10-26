@@ -61,7 +61,8 @@ describe('a parameter named _', () => {
 });
 
 describe('the example of find and of -h', () => {
-  it('leaves out optional parameters that say nothing, the same in both', async () => {
+  // The example writes JSON, which has no pasteable form on Windows (arguments.md, "调用示例").
+  it.skipIf(process.platform === 'win32')('leaves out optional parameters that say nothing, the same in both', async () => {
     const { sb } = await setup();
     const help = (await sb.via(['gh', 'build:run', '-h'])).stdout;
     const example = /^example: (.*)$/m.exec(help)![1]!;

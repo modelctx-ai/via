@@ -22,7 +22,8 @@ afterEach(() => {
 });
 
 describe('ViewCache, parameter names and types', () => {
-  it('reads back the signature and the example that were built', async () => {
+  // The example writes JSON, which has no pasteable form on Windows (arguments.md, "调用示例").
+  it.skipIf(process.platform === 'win32')('reads back the signature and the example that were built', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'via-view-params-'));
     dirs.push(dir);
     const server = httpServer('http://127.0.0.1:1/board', { name: 'board', provider: 'board' });
