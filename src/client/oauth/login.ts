@@ -187,6 +187,7 @@ export async function performLogin(options: LoginOptions): Promise<LoginResult> 
     },
   });
 
+  let accepted = false;
   try {
     await provider.loadPrior();
     const challenge = await probeChallenge(target.url, options.fetch);
@@ -240,14 +241,16 @@ export async function performLogin(options: LoginOptions): Promise<LoginResult> 
       );
     }
     try {
-      await sdk.auth(provider, { ...common, authorizationCode: response.code! });
+      await sdk.auth(provider, { ...common, authorizationCode: response.code!, ...(response.iss ? { iss: response.iss } : {}) });
     } catch (error) {
       throw loginFailure(error, target);
     }
     const record = await provider.load(true);
     if (!record?.tokens || !provider.lastSet) throw new LoginFailedError(`${target.provider}: the login was not saved`, 6, 'via doctor');
+    accepted = true;
     return { record, set: provider.lastSet };
   } finally {
+    await loopback?.finish(accepted);
     await loopback?.close();
   }
 }

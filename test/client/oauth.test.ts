@@ -239,6 +239,7 @@ describe('redirect handling', () => {
     expect(parseRedirect('  "http://127.0.0.1:5000/callback?code=abc&state=xyz"  ')).toEqual({ code: 'abc', state: 'xyz' });
     expect(parseRedirect('?code=abc&state=xyz')).toEqual({ code: 'abc', state: 'xyz' });
     expect(parseRedirect('code=abc&state=xyz')).toEqual({ code: 'abc', state: 'xyz' });
+    expect(parseRedirect('http://127.0.0.1:5000/callback?code=abc&state=xyz&iss=https%3A%2F%2Fmcp.notion.com')).toEqual({ code: 'abc', state: 'xyz', iss: 'https://mcp.notion.com' });
     expect(parseRedirect('http://x/callback?error=access_denied&error_description=no')).toEqual({ error: 'access_denied', errorDescription: 'no' });
     expect(parseRedirect('')).toBeUndefined();
     expect(parseRedirect('hello')).toBeUndefined();
@@ -260,9 +261,12 @@ describe('redirect handling', () => {
       });
     });
     expect(rebinding).toBe(404);
-    const ok = await fetch(`${loop.redirectUrl}?code=good&state=s`);
+    const pending = fetch(`${loop.redirectUrl}?code=good&state=s&iss=${encodeURIComponent('https://mcp.notion.com')}`);
+    await expect(loop.response).resolves.toEqual({ code: 'good', state: 's', iss: 'https://mcp.notion.com' });
+    await loop.finish(true);
+    const ok = await pending;
     expect(ok.status).toBe(200);
-    await expect(loop.response).resolves.toEqual({ code: 'good', state: 's' });
+    expect(await ok.text()).toContain('Signed in');
   });
 });
 
@@ -323,6 +327,57 @@ describe('callback ports', () => {
     const manual: LoginIO = { ...io(srv), showUrl: (url) => urls.push(url), readLine: async () => (await srv.approve(urls[0]!)) };
     await performLogin({ target: { provider: 'linear', url: srv.url }, store: createMemoryOAuthStore(), manual: true, timeoutMs: 5000, io: manual, callbackPorts: [29870, 29871] });
     expect(srv.state.registrations[0]?.redirect_uris).toEqual(['http://127.0.0.1:29870/callback']);
+  });
+});
+
+describe('RFC 9207 iss on the authorization response', () => {
+  it('logs in when the callback carries the issuer the server said it would send', async () => {
+    const srv = await mockServer({ iss: true });
+    let landed: Promise<{ text: string }> | undefined;
+    const { record } = await performLogin({
+      target: { provider: 'notion', url: srv.url },
+      store: createMemoryOAuthStore(),
+      manual: false,
+      timeoutMs: 10_000,
+      io: { ...io(srv), openUrl: async (url) => ((landed = srv.browse(url)), { opened: true }) },
+      now: () => T0,
+    });
+    expect(record.tokens?.access_token).toBeTruthy();
+    expect(srv.state.tokenRequests).toHaveLength(1);
+    expect((await landed)?.text).toContain('Signed in');
+  });
+
+  it('does not redeem the code when the server advertises iss but the callback omits it', async () => {
+    const srv = await mockServer({ iss: 'omit' });
+    let landed: Promise<{ text: string }> | undefined;
+    const error = await performLogin({
+      target: { provider: 'notion', url: srv.url },
+      store: createMemoryOAuthStore(),
+      manual: false,
+      timeoutMs: 10_000,
+      io: { ...io(srv), openUrl: async (url) => ((landed = srv.browse(url)), { opened: true }) },
+      now: () => T0,
+    }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 6 });
+    expect((error as Error).message).toContain('Issuer mismatch in authorization response (RFC 9207)');
+    expect((error as Error).message).toContain('received undefined');
+    expect(srv.state.tokenRequests).toHaveLength(0);
+    expect((await landed)?.text).toContain('Authorization failed');
+  });
+
+  it('does not redeem the code when iss names a different authorization server', async () => {
+    const srv = await mockServer({ iss: 'https://evil.example' });
+    const error = await performLogin({
+      target: { provider: 'notion', url: srv.url },
+      store: createMemoryOAuthStore(),
+      manual: false,
+      timeoutMs: 10_000,
+      io: io(srv),
+      now: () => T0,
+    }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'LoginFailedError', exitCode: 6 });
+    expect((error as Error).message).toContain('received "https://evil.example"');
+    expect(srv.state.tokenRequests).toHaveLength(0);
   });
 });
 

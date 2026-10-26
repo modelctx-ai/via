@@ -10,6 +10,7 @@ import { injectedTool, nativeToolName, resultText } from '../harness/native';
 import { splitCommand } from '../harness/shell';
 import type { ReplayTool } from '../replay-server.mjs';
 import type { EvalEnv } from './env';
+import { rejectAuthCommand } from './auth-guard';
 import { SHELL_TOOL, shellTool, type CliProgram } from './prompts';
 import type { ToolDef } from './types';
 
@@ -101,6 +102,8 @@ export function cliTools(program: CliProgram, exec: Exec, env: EvalEnv): AgentTo
       if (words[0] !== program) return refuse(`error: only \`${program}\` commands can be run (got \`${words[0] ?? ''}\`)`);
       const operator = words.find((w) => SHELL_OPERATORS.has(w));
       if (operator !== undefined) return refuse(`error: \`${operator}\` is shell syntax and there is no shell; run one \`${program}\` command per call`);
+      const blocked = rejectAuthCommand(program, words, Object.values(env.urls));
+      if (blocked !== undefined) return refuse(blocked);
 
       const unmatchedBefore = env.unmatched();
       const result = await exec(words.slice(1));

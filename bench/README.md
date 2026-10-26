@@ -16,7 +16,7 @@
 | `harness/` | 基准的实现：加载与校验、沙箱、原生与命令序列的测量、报告；`runners.ts` 是两个脚本共用的 `via` / `mcp2cli` / `mcpc` 运行器 |
 | `eval/` | agent 评测的实现：模型循环、四种条件的工具、成功判定、汇总与报告 |
 | `vendor/mcp2cli/`、`vendor/mcpc/` | 两个对照程序的 skill 原文（对照列的「说明文本」），附来源与许可（MIT、Apache-2.0） |
-| `results/` | 结果：token 基准 `<版本>.md/.json`（0.4 起为 `<版本>-tokens.md/.json`），agent 评测 `eval-<日期>.md/.json`，拆分统计 `<版本>-split.md` |
+| `results/` | 要提交的结果：token 基准 `<版本>.md/.json`（0.4 起为 `<版本>-tokens.md/.json`），性能 `perf-*.md`，拆分统计 `<版本>-split.md/.json`。agent 评测的 `.md` 是可以提交的报告；旁边的 `eval-*.json` 是当次运行的原始记录，已在 `.gitignore` 里，不上传 |
 
 脚本入口是 `scripts/bench-tokens.ts`（token 基准）和 `scripts/bench-eval.ts`（agent 评测）。
 
@@ -53,7 +53,7 @@ $ npm run bench:tokens -- --task triage --show --no-mcp2cli --no-mcpc   # 只跑
 $ uv tool install mcp2cli==3.8.0      # 版本见 suite.yaml
 ```
 
-对照一列用 mcp2cli 的 `bake` 为每个 server 建一个别名（`@github`、`@linear` ……，属于一次性配置，不计入），命令里用别名；说明文本是 `vendor/mcp2cli/SKILL.md` 加一行告诉 agent 有哪些别名（`Servers: @github @linear …`，对应 `via prompt` 里的 Providers 一行）。
+对照一列用 mcp2cli 的 `bake` 为每个 server 建一个别名（`@github`、`@linear` ……，属于一次性配置，不计入），命令里用别名；说明文本是 `vendor/mcp2cli/SKILL.md` 加一段别名说明（`Servers: @github @linear …`，并写明别名已经建好）。
 
 ### mcpc 一列
 
@@ -219,7 +219,40 @@ $ npm run bench:eval -- --task triage --condition via,native --trials 1   # 先�
 $ npm run bench:eval -- --fake-model              # 不要密钥：脚本化的模型，只验证流水线
 ```
 
-没有 `ANTHROPIC_API_KEY`（或 `ANTHROPIC_AUTH_TOKEN`）时，`bench:eval` 打印说明后以退出码 2 结束，不会调用任何东西。真实评测花钱：每个 native 请求要带约 11k token 的工具定义，先用 `--trials 1 --task` 估算。
+没有 `ANTHROPIC_API_KEY`（或 `ANTHROPIC_AUTH_TOKEN`）时，`bench:eval` 打印说明后以退出码 2 结束，不会调用任何东西。真实评测花钱：每个 native 请求要带约 11k token 的工具定义，先用 `--trials 1 --task` 估算。脚本只读进程环境，不加载 `.env`。
+
+### 稳定复现
+
+两件事分开。
+
+`npm run bench:tokens` 和 `npm run bench:eval -- --fake-model` 可以复现。任务、录制、回放 server 和命令序列都在仓库里，不访问模型。元信息行里的耗时、端口和沙箱路径会归一。`--fake-model` 走完同一条流水线，成功率必然是 100%，只说明流水线还能跑，不是评测结果，也不能写入 `bench/results/`。
+
+真实模型的一次评测不能逐次得到同一组数字。请求里没有温度，也没有 seed。能对齐的是配置，所以模型、思考强度、次数和并发都写在命令里，不靠默认值。网关和密钥放在仓库外的环境文件里（权限 600），例如 `~/.config/via/eval.env`。不要把密钥写进仓库、结果文件或会提交的文本。
+
+这次评测的配置：
+
+| 项 | 值 |
+| --- | --- |
+| 网关 | `ANTHROPIC_BASE_URL=https://rightapi.ai`（Right Code 的 Messages 接口） |
+| 密钥 | 只设 `ANTHROPIC_AUTH_TOKEN`。同时设 `ANTHROPIC_API_KEY` 时 SDK 会再带一把 `x-api-key`，这个网关按 bearer 使用 |
+| 模型 | `--model deepseek-flash` |
+| 思考强度 | `--effort medium`（请求里的 `output_config.effort`。DeepSeek 的 Anthropic 兼容接口认这个字段） |
+| 次数 | `--trials 10`（9 个任务 × 4 个条件 = 360 次） |
+| 并发 | `--concurrency 2` |
+| 对照 | PATH 上的 mcp2cli 3.8.0、mcpc 0.7.0，与 `suite.yaml` 里 vendored skill 的版本一致。不一致时仍会跑，stderr 打一行 |
+
+```console
+$ npm run build
+$ set -a && source ~/.config/via/eval.env && set +a && unset ANTHROPIC_API_KEY
+$ npm run bench:eval -- \
+    --model deepseek-flash --effort medium \
+    --trials 10 --concurrency 2 \
+    --out bench/results/eval-<日期>-deepseek-flash
+```
+
+在仓库根目录跑，先 `npm run build`。mcp2cli 或 mcpc 不在 PATH 上时该条件跳过，门槛比较标为不完整。API 或 harness 出错的运行算未成功，所以 429 和断连会拉低成功率；并发比上表更高之前，先看结果里有没有这类失败。`.md` 和 `.json` 在整个进程结束时才写入，中途停掉不会留下半份结果。
+
+报告记下模型、effort（传了才有）、试验次数、轮数上限、输出上限、是否开了提示缓存、via 的版本号、Node 版本、挂载的 server、实际跑过的条件，以及两个对照的版本。不记 base URL、并发、git commit 和 SDK 版本。要按同一次配置再跑，以本节的命令为准。结论只对 `deepseek-flash` 在 `--effort medium` 下的那一次运行成立。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -242,10 +275,24 @@ $ npm run bench:eval -- --fake-model              # 不要密钥：脚本化的�
 
 1. **native**：全部挂载 server 的 `tools/list`（取自回放 server，不是手写的）按 `mcp__<server>__<工具>` 暴露为模型工具，模型的调用经官方 MCP SDK client 转发给回放 server。
 2. **via**：模型只有一个 `shell` 工具，说明文本是当次沙箱里 `via prompt` 的输出。命令按 POSIX 风格切词，作为 `dist/via.js` 的 argv 在沙箱 HOME 里运行（`sources: false`，配置只有这些回放 server；与 token 基准相同，进程内模式，不留后台 daemon），返回 stdout、stderr 和退出码。
-3. **mcp2cli**：同一个 `shell` 工具，只能运行 `mcp2cli …`；说明文本是 `vendor/mcp2cli/SKILL.md` 原文加一行 `Servers: @github @linear …`（对应 `via prompt` 的 Providers 一行）。每次运行先为每个 server 做一次 `bake create`（一次性配置，不计入）。
+3. **mcp2cli**：同一个 `shell` 工具，只能运行 `mcp2cli …`；说明文本是 `vendor/mcp2cli/SKILL.md` 原文加一段别名说明（`Servers: @github @linear …`，并写明别名已经建好，用 `@name --search` 再 `@name <command>`，不要自己传 `--mcp`、`--oauth` 或别的 server 地址）。每次运行先为每个 server 做一次 `bake create`（一次性配置，不计入）。
 4. **mcpc**：同一个 `shell` 工具，只能运行 `mcpc …`；说明文本是 `vendor/mcpc/SKILL.md` 原文加一行 `Servers (entries of ./mcp.json, not connected yet): github linear …`。沙箱工作目录里有 `mcp.json`，模型自己 `mcpc connect ./mcp.json:<server> @<名字>` 建会话（这些命令和它们的输出像其他命令一样计入 token 与轮数）；运行结束时关闭它建的全部会话。
 
 `shell` 工具没有真实的 shell：不是 `via` / `mcp2cli` 开头的命令、`|` `&&` `;` `>` 之类的 shell 语法、没闭合的引号，都直接拒绝（退出码 127，计一次错误调用）。
+
+真实评测在第一个任务之前先做登录校验（`--fake-model` 不做）。对挂载的、并且用户配置里有凭证的 server 跑 `via auth status`：OAuth 已登录或还能刷新就通过；还没登录就在这里执行一次 `via auth login <provider>`，等浏览器里批准后再查一次状态。凭证对不上（例如 bearer 的环境变量缺失）则直接退出码 4，不开始评测。没有配凭证的 server 只用本地回放，不登录。
+
+任务进行中不再打开登录页。`via auth`、`mcp2cli --oauth`、`mcpc login` / `mcpc logout`，以及 `--mcp` / `mcpc connect` 指向本次回放 server 以外的地址，都以退出码 127 拒绝。工具参数里的 URL（例如打开 `https://docs.acme.test/`）不是连接目标，不拒绝。过期的回调标签页不能补救；要重新登录就停掉这次评测，再跑一次。
+
+### 哪些结果进仓库
+
+| 文件 | 进仓库 |
+| --- | --- |
+| `results/<版本>.md/.json`、`results/<版本>-tokens.md/.json`、`results/<版本>-split.md/.json`、`results/perf-*.md` | 要。这是已发布的 token、拆分和性能结果，JSON 是汇总，没有模型逐次调用 |
+| `results/eval-<日期>.md` | 可以。这是一份评测的报告（总览、门槛、各任务）。只有决定把这次运行当作发布结果时才提交 |
+| `results/eval-<日期>.json` | 不要。这是原始记录：每次运行的命令、模型原文和 token。体积大，而且含本机回放端口。`.gitignore` 已排除 `bench/results/eval-*.json` |
+
+`eval-2026-10-26-deepseek-flash` 是本地的一次 deepseek-flash 运行，不是默认模型，门槛 1 也不成立。报告可以留在本机对照；原始 JSON 不上传。
 
 ### 系统提示
 

@@ -135,12 +135,12 @@ via 比 0.1 的 14,210 多出的 521 token 主要来自说明块变长（`via pr
 
 ```console
 $ npm run build
-$ export ANTHROPIC_API_KEY=...                      # 也支持 ANTHROPIC_BASE_URL
-$ npm run bench:eval -- --trials 10                 # 写 bench/results/eval-<日期>.md 与 .json
+$ export ANTHROPIC_API_KEY=...                      # 或 ANTHROPIC_AUTH_TOKEN；网关用 ANTHROPIC_BASE_URL
+$ npm run bench:eval -- --trials 10 --effort medium # 写 bench/results/eval-<日期>.md 与 .json
 $ npm run bench:eval -- --fake-model                # 不需要密钥：只验证流水线，不衡量任何模型
 ```
 
-没有密钥时 `bench:eval` 给出说明并以退出码 2 结束。选项（`--trials`、`--task`、`--condition`、`--model`、`--max-turns`、`--concurrency`、`--out` 等）、四种条件的工具与系统提示、每次运行的记录项见 [bench/README.md](../../bench/README.md#agent-评测)。模型默认值在 `bench/eval/anthropic.ts`，用 `--model` 换；结论只对评测所用的模型成立，换模型要重跑。`@anthropic-ai/sdk` 是 devDependency，via 本身不依赖它。
+没有密钥时 `bench:eval` 给出说明并以退出码 2 结束。脚本只读进程环境，不加载 `.env`。真实评测开始前先校验用户配置里已有凭证的 server（见 [bench/README.md](../../bench/README.md#四种条件)）：该登录的在第一个任务之前登录并复查，任务进行中拒绝再开登录或访问回放 server 以外的地址。`--fake-model` 不碰凭证。选项（`--trials`、`--task`、`--condition`、`--model`、`--max-turns`、`--concurrency`、`--out`、`--effort` 等）、四种条件的工具与系统提示、每次运行的记录项，以及怎样把同一次配置再跑一遍，见 [bench/README.md](../../bench/README.md#agent-评测) 的「稳定复现」。模型默认值在 `bench/eval/anthropic.ts`（`claude-opus-5-5`），用 `--model` 换；思考强度用 `--effort`，不传则用模型自己的默认值，报告里也不出现这一项。结论只对评测所用的模型和 effort 成立，换了就要重跑。`@anthropic-ai/sdk` 是 devDependency，via 本身不依赖它。
 
 ### 对比什么
 
@@ -187,7 +187,7 @@ mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不�
 
 - 返回值是合成的，且同一工具的返回值基本不随参数变化；它检验模型能否找到并正确调用工具，不检验真实 server 的行为差异。
 - 评测对象是「模型加说明文本加工具」整体，四个条件的说明文本篇幅和风格天然不同（native 没有文字说明，mcp2cli 与 mcpc 各是一份通用 skill，via 是一段为它写的短说明）；这正是被比较的东西，但意味着结论包含了提示的差异。
-- 模型有随机性、API 会变；每份结果记录模型、日期、effort 和次数，只对那一次成立。
+- 模型有随机性、API 会变。请求不设温度或 seed，同一次配置再跑也不会得到同一组数字。报告记录模型、日期、试验次数、轮数上限和（若传了）effort；base URL、并发和 git commit 不在报告里，复现配置以 [bench/README.md](../../bench/README.md#稳定复现) 的命令为准。结论只对那一次成立。
 - `--fake-model` 的输出不是结果（见 bench/README.md），不会写入 `bench/results/`。
 
 ## 性能目标

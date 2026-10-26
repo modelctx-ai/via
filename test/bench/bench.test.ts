@@ -213,7 +213,9 @@ const found = await probeMcpc('mcpc');
 
 describe('the mcpc column', () => {
   it('says what the agent is told about the servers', () => {
-    expect(serversLine('mcp2cli', ['github', 'linear'])).toBe('Servers: @github @linear');
+    expect(serversLine('mcp2cli', ['github', 'linear'])).toBe(
+      'Servers: @github @linear\nThese aliases already exist. Run `@name --search <word>` and then `@name <command>`. Do not pass --mcp, --oauth, or a server URL of your own.',
+    );
     expect(serversLine('mcpc', ['github', 'linear'])).toBe('Servers (entries of ./mcp.json, not connected yet): github linear');
   });
 

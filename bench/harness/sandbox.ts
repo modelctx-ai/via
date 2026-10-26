@@ -45,6 +45,11 @@ export function createSandbox(servers: Readonly<Record<string, string>>): Sandbo
           }
         : {}),
       NO_COLOR: '1',
+      // mcp2cli's HTTP client trusts HTTP(S)_PROXY. A proxy in front of the replay's 127.0.0.1
+      // answers 502, and every later call fails the same way. Nothing in this env is a proxy,
+      // and localhost is excluded even if a parent environment is merged in later.
+      NO_PROXY: '*',
+      no_proxy: '*',
       // The benchmark counts tokens against HTTP replays: no background process outliving its sandbox.
       VIA_NO_DAEMON: '1',
     },

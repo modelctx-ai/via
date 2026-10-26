@@ -29,7 +29,9 @@ export function shellTool(program: CliProgram): ToolDef {
       `Run one \`${program}\` command and return its stdout, stderr and exit code. ` +
       `Only \`${program}\` commands can be run. There is no shell: no pipes, redirects, variables, ` +
       `command substitution or chaining; the words of the command line are passed to \`${program}\` as they are, ` +
-      `with single and double quotes grouping words as in a POSIX shell.`,
+      `with single and double quotes grouping words as in a POSIX shell. ` +
+      `Do not log in and do not pass a server URL of your own; authentication is checked before the run, ` +
+      `and only this run's replay servers are allowed.`,
     input_schema: {
       type: 'object',
       properties: { command: { type: 'string', description: `The command line, starting with \`${program}\`.` } },

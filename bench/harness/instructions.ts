@@ -8,5 +8,8 @@
  * before any call (the agent runs, and pays for, those commands).
  */
 export function serversLine(program: 'mcp2cli' | 'mcpc', mounted: readonly string[]): string {
-  return program === 'mcp2cli' ? `Servers: ${mounted.map((s) => `@${s}`).join(' ')}` : `Servers (entries of ./mcp.json, not connected yet): ${mounted.join(' ')}`;
+  if (program === 'mcpc') return `Servers (entries of ./mcp.json, not connected yet): ${mounted.join(' ')}`;
+  // Aliases are baked before the agent starts. Say so: otherwise the model passes `--mcp @name`
+  // (not a URL) or points `--mcp` at a real server and never calls the replay.
+  return `Servers: ${mounted.map((s) => `@${s}`).join(' ')}\nThese aliases already exist. Run \`@name --search <word>\` and then \`@name <command>\`. Do not pass --mcp, --oauth, or a server URL of your own.`;
 }
