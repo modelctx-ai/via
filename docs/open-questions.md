@@ -8,3 +8,4 @@
 - [ ] **框架提示的维护方式**：各框架版本更新较快，`data/frameworks/` 靠社区贡献还是定期人工核对。
 - [ ] **并存期的状态冲突**：除 `exclusive` 提示外，是否需要主动检测框架里正在运行的同名 stdio 实例。
 - [ ] **文档语言**：是否需要英文版 README 与规范。
+- [ ] **是否进入非目标边界：stdio server 的进程级沙箱**：stdio server 子进程以用户身份运行，与「不可信仓库的项目配置」那条威胁相邻，而愿景把「凭证隔离」列为非目标。要不要为单个不可信 server 提供可选的进程级沙箱（srt，按 server 配置，默认关闭）？提议、取舍与动手前的实测清单见 [ADR 0026](adr/0026-sandbox-stdio-server-processes.md)（[issue #38](https://github.com/modelctx-ai/via/issues/38)）；有结论后接受或废弃该 ADR，并从这里移除。
