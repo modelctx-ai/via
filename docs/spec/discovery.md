@@ -12,12 +12,13 @@ provider 就是配置里的 server，按名字原样列出，不做分类：模�
 
 ### 缓存
 
-- 缓存键：server 定义的哈希（命令、参数、URL、相关 env 名，不含凭证值）+ 身份（鉴权主体的稳定标识，无法获得时用凭证引用本身的哈希）。
+- 缓存键：server 定义的哈希（命令、参数、`cwd`、URL，以及 `env` 与 `headers` 的名和写法）+ 身份（鉴权主体的稳定标识，无法获得时用凭证引用本身的哈希）。
 - 位置：用户缓存目录下的 `catalog/`，权限 0700。
 - TTL 默认 24 小时；无状态协议（`2026-07-28`）的 server 可以在 `tools/list` 结果里给出 `ttlMs`，取与 24 小时中较短者（`ttlMs` 为 `0` 或缺省视为没有给出提示，沿用 24 小时；提示随缓存保存，所以进程内模式和 daemon 一致）。daemon 在线时订阅 `notifications/tools/list_changed`（无状态协议里是 `subscriptions/listen` 流上的同名事件）实时刷新：收到通知后重新拉取该 server 的 `tools/list`，同时更新 daemon 内存里的副本和这里的磁盘缓存，下一次浏览、`find` 或调用就能看到变化（[daemon.md](daemon.md#daemon-持有的状态)）。
 - `via sync [provider]` 强制刷新。
 - 进程内模式（0.1）下，缓存是 `tools/list` 的唯一来源：`via <provider>` 只读取、必要时只拉取该 provider；`via`、`via find`、`via prompt` 并行处理全部 server，单个 server 的拉取超时取 `min(server 的 timeout, 10 秒)`（`--timeout` 覆盖），拉起 stdio server 与握手的时间也算在内，所以卡在握手里的 server 不会拖住整条命令。拉取失败不中止：该 provider 仍然列出，标记 `needs auth`、`failed` 或 `untrusted`（[浏览视图](#via)）。
 - 命中缓存时仍会在本地解析该 server 的凭证引用，缺失就按「需要鉴权」处理，并让输出脱敏知道这些值；不发起网络请求。未信任的项目级 server 不读缓存，也不拉取。
+- `env`、`headers` 的值按配置里的写法参与哈希：凭证引用（`env:`、`file:`、`keychain:`、`cmd:`）只用引用文本，不解析、不落盘它指向的值；字面量用值本身，且只进入单向哈希（同命令、同 env 名而值不同的两个 server——比如用 `MODE` 或 `FS_ROOT` 切换数据集——因此各有各的缓存文件，不会互相覆盖目录）。`catalog/<哈希>.info.json` 与 `.view.json` 沿用同一个哈希。更改键的组成时，旧文件因键不同而自然失效，不需要迁移。
 - 0.1 的「身份」只用凭证引用文本参与哈希（引用的值、字面量凭证都不会单独落盘；字面量只进入单向哈希），换一个引用即视为另一份缓存。缓存文件为 `catalog/<哈希>.json`（权限 0600），内容是 `fetchedAt`、原始 `tools/list` 结果，以及 server 在 `initialize` 里声明的能力 `features`（`{"resources": bool, "prompts": bool, "completions": bool, "skills": bool}`，`resources`、`prompts`、`skills` 用于浏览视图的 `also:` 行，`completions` 只用于 prompt `-h` 里的补全提示（[cli.md](cli.md#补全)）；没有这一项的旧文件照常读取，只是不显示该行，刷新一次后出现）、拉取时协商出的协议 `protocol`（`{"version": "2026-07-28", "stateful": false}`，`via servers` 不连接就能显示它，stdio server 据此跳过协议探测，[daemon.md](daemon.md#协议版本与无状态连接)）和 server 给的 `ttlMs`（有的话）；这两项同样可以缺省。缓存键包含 `protocolVersion`（固定了版本时）。
 - 经 daemon 时目录的读取、凭证检查和写缓存都在 daemon 里完成（与进程内模式写同一份 `catalog/` 文件）；CLI 只收到原始工具列表，拆分和索引仍在 CLI 侧计算。
 - 校验失败且缓存超过 5 分钟时，刷新该 server 的缓存一次再校验（[arguments.md](arguments.md#schema-不可靠时)）。
