@@ -20,9 +20,9 @@ describe('typed signatures', () => {
     expect(sig(schema, false)).toBe('owner, issue-number, method, [draft]');
   });
 
-  it('writes arrays and objects as :json and a union of types as :a|b', () => {
+  it('writes objects as :json, a list of scalars as :str[], and a union of types as :a|b', () => {
     const schema = { properties: { labels: { type: 'array', items: { type: 'string' } }, filter: { type: 'object', properties: { a: {} } }, id: { type: ['string', 'integer'] } } };
-    expect(sig(schema)).toBe('[labels:json], [filter:json], [id:str|num]');
+    expect(sig(schema)).toBe('[labels:str[]], [filter:json], [id:str|num]');
   });
 
   it('keeps every required parameter and cuts optional ones at six in all, typed or not', () => {

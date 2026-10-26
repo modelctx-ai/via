@@ -67,7 +67,7 @@
 | `-o text`（默认） | 上述紧凑渲染 | agent 阅读 |
 | `-o json` | 清理后的 JSON，仍受预算约束 | 管道给 `jq` |
 | `-o raw` | 上游原始 content，不做任何处理（仍脱敏）；不受预算约束，不产生游标 | 排查问题 |
-| `--full` | 关闭截断，可与任意格式组合 | 需要完整结果时 |
+| `--full` | 关闭截断，可与任意格式组合 | 需要完整结果时；`-h --full` 给出未截断的工具描述（[arguments.md](arguments.md#帮助)） |
 
 浏览视图（`via`、`via <provider>`、`via <provider> <resource>`）与 `via find` 是 via 自己生成的目录，不经过上面的渲染流水线（没有预算与游标），但同样接受 `-o`：
 

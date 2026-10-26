@@ -99,6 +99,44 @@ function literalsOf(root: JsonSchema, schema: unknown, depth = 0): unknown[] | u
   return undefined;
 }
 
+/** The schema of the items of an array schema; none for a tuple (`prefixItems`, or an array-form `items`) or an array that does not say. */
+function itemsSchemaOf(root: JsonSchema, schema: unknown, depth = 0): unknown {
+  const r = deref(root, schema);
+  if (Array.isArray(r.prefixItems) || Array.isArray(r.items)) return undefined;
+  if (isObject(r.items)) return r.items;
+  if (depth < 3) {
+    for (const key of ['anyOf', 'oneOf', 'allOf']) {
+      const list = r[key];
+      if (!Array.isArray(list)) continue;
+      for (const branch of list) {
+        const found = itemsSchemaOf(root, branch, depth + 1);
+        if (found !== undefined) return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The element type of a list of scalars, written as the argument parser accepts it (a flag repeated, or a JSON
+ * array): `str`, `num`, `bool`, or `(str|num)`. Undefined for a tuple, a list of objects or lists, and a list
+ * whose items the schema does not type, which stay `json`.
+ */
+function scalarItemLabel(root: JsonSchema, schema: unknown): string | undefined {
+  const items = itemsSchemaOf(root, schema);
+  if (items === undefined) return undefined;
+  const { types, known } = typesOf(root, items);
+  if (!known) return undefined;
+  const labels: string[] = [];
+  for (const t of types) {
+    if (t === 'null') continue;
+    const label = TYPE_LABELS[t];
+    if (label === undefined || label === 'json') return undefined;
+    if (!labels.includes(label)) labels.push(label);
+  }
+  return labels.length === 0 ? undefined : labels.length === 1 ? labels[0] : `(${labels.join('|')})`;
+}
+
 /**
  * What a signature says about a parameter besides its name, read the way the `usage:` line reads it
  * (`<str>`, `<num>`, `a|b`): `values` for an enum that fits on a line, else `type` (`num`, `bool`,
@@ -112,6 +150,10 @@ function describeParam(root: JsonSchema, schema: unknown): Pick<ParamInfo, 'type
   }
   const { types, known } = typesOf(root, schema);
   if (known && types.size > 0 && [...types].every((t) => t === 'boolean')) return { type: 'bool' };
+  if (known && [...types].filter((t) => t !== 'null').join() === 'array') {
+    const item = scalarItemLabel(root, schema);
+    if (item !== undefined) return { type: `${item}[]` };
+  }
   const labels = [...new Set([...types].map((t) => TYPE_LABELS[t]).filter((x): x is string => !!x))];
   return labels.length === 0 || (labels.length === 1 && labels[0] === 'str') ? {} : { type: labels.join('|') };
 }
@@ -119,7 +161,8 @@ function describeParam(root: JsonSchema, schema: unknown): Pick<ParamInfo, 'type
 /**
  * Top-level parameters of an input schema: required first, then optional, each group in
  * schema `properties` order. Names are kebab-cased unless two parameters would collide
- * after normalisation, in which case both keep their original names (arguments.md).
+ * after normalisation, or nothing is left of the name (`_`), in which case the original name is kept
+ * (arguments.md).
  */
 export function extractParams(schema: JsonSchema | undefined): ParamInfo[] {
   const props = schema?.properties ?? {};
@@ -132,7 +175,8 @@ export function extractParams(schema: JsonSchema | undefined): ParamInfo[] {
 
   const all = names.map((name, i): ParamInfo => {
     const k = kebabs[i]!;
-    return { name, arg: (kebabCount.get(k) ?? 0) > 1 ? name : k, required: requiredSet.has(name), ...describeParam(schema ?? {}, props[name]) };
+    // A name with no letter or digit (`_`) has no kebab-case spelling: it is written as it is, like a name that collides.
+    return { name, arg: k === '' || (kebabCount.get(k) ?? 0) > 1 ? name : k, required: requiredSet.has(name), ...describeParam(schema ?? {}, props[name]) };
   });
   return [...all.filter((p) => p.required), ...all.filter((p) => !p.required)];
 }

@@ -169,7 +169,7 @@ export async function promptsCommand(app: App, argv: readonly string[]): Promise
   if (app.options.help) {
     // The last line of a tool's help (alias, read-only, destructive) means nothing for a prompt.
     const hint = prompt.arguments?.length && (await app.cache()).read(entry.server)?.features?.completions ? 'complete: --complete <argument> lists the values the server suggests for it\n' : '';
-    app.out(`${formatToolHelp(tool, ctx).split('\n').slice(0, -1).join('\n')}\n${hint}`);
+    app.out(`${formatToolHelp(tool, ctx, { full: app.options.full }).split('\n').slice(0, -1).join('\n')}\n${hint}`);
     return ExitCode.Ok;
   }
   if (app.options.complete !== undefined) return completeArgument(app, entry, { tool, ref, refWords, rest, completionRef: { type: 'ref/prompt', name: prompt.name }, timeoutMs, started, what: `prompt ${prompt.name}` });

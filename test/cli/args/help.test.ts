@@ -19,6 +19,7 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
         '  --issue-number   <num>',
         '  --method         get: Get issue details · get_comments: Get issue comments · …',
         'example: via github issue:read --owner text --repo text --issue-number 1 --method get',
+        'full text: via github issue:read -h --full',
         'alias: issue_read · read-only',
       ].join('\n'),
     );
@@ -51,7 +52,7 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
     );
     expect(formatToolHelp(tool, { ...CTX, ref: 'acme issue:create', rawName: 'issue_create' })).toMatchInlineSnapshot(`
       "usage: via acme issue:create --title <str> [--body <str>] [--draft]
-               [--priority <num>] [--tags <json>] [--pages <json>] [--level <str>]
+               [--priority <num>] [--tags <str[]>] [--pages <json>] [--level <str>]
 
       Create an issue
         --title      Title of the issue
@@ -61,6 +62,7 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
         --tags       repeat the flag or pass a JSON array
         --level      one of: level-number-0, level-number-1, level-number-2, level-number-3, …
       example: via acme issue:create --title text --body text --draft
+      full text: via acme issue:create -h --full
       alias: issue_create"
     `);
   });

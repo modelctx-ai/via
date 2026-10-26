@@ -417,7 +417,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | --- | --- |
 | `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)）；浏览视图、`via find`、`via servers` 支持 `json`，`raw` 在它们上退出码 2 |
 | `--json` | `-o json` 的别名（模型对 `--json` 的先验很强）。工具自己有名为 `json` 的参数时写 `--p.json` |
-| `--full` | 关闭截断 |
+| `--full` | 关闭截断；用在工具或 prompt 的 `-h` 上时输出完整的工具描述与参数描述（[arguments.md](arguments.md#帮助)） |
 | `--all` | 浏览视图不截断条目；`via <provider> -h --all` 另列出全部工具的用法 |
 | `--yes` | 确认执行危险工具 |
 | `--dry-run` | 只解析并打印将要发出的调用，不执行（输出格式见下） |

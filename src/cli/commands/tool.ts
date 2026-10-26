@@ -62,7 +62,7 @@ export async function showToolHelp(app: App, initial: ToolTarget): Promise<numbe
     app.out(`${JSON.stringify(await app.redactValue(detail), null, 2)}\n`);
     return ExitCode.Ok;
   }
-  app.out(withNewline(formatToolHelp(target.tool.def, argsContext(target.tool))));
+  app.out(withNewline(formatToolHelp(target.tool.def, argsContext(target.tool), { full: app.options.full })));
   return ExitCode.Ok;
 }
 
