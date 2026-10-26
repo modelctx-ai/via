@@ -81,6 +81,13 @@ describe('via <provider> <resource>', () => {
     await expect(`${renderResource(provider('github'), r.resource)}\n`).toMatchFileSnapshot('./__snapshots__/resource-github-issue.txt');
   });
 
+  it('ends the tools of a resource with the leaf tool of the same name, with its signature', async () => {
+    const notes = catalogFixture('other', ['notes']).providers[0]!;
+    const r = resolveTarget(notes, 'secret');
+    if (r.kind !== 'resource') throw new Error('expected a resource');
+    await expect(`${renderResource(notes, r.resource)}\n`).toMatchFileSnapshot('./__snapshots__/resource-notes-secret.txt');
+  });
+
   it('tags read-only and destructive tools after the description and keeps names copyable', () => {
     const file = resolveTarget(provider('github'), 'file');
     if (file.kind !== 'resource') throw new Error('expected a resource');

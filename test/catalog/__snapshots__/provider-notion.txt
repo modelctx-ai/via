@@ -7,8 +7,10 @@ calendar-coworker-event  list
 calendar-event           list · create · update · cancel!
 calendar-resource        list
 comment                  create · get · update · delete!
+comment-reaction         set
 data-source              update · query
 database                 create · delete!
+discussion-resolved      set
 enabled-skill            get · update
 favorite-page            list
 file-download-url        get
@@ -16,8 +18,6 @@ file-upload              create
 folder                   create · update
 group                    get
 meeting-note             query
-memory                   search
-message-to-session       send
-… 15 more · via notion --all
-tools: search · fetch · set-comment-reaction · set-discussion-resolved · check-mcp-next-steps · convert-page-to-skill · spawn-session · stop-session · wait-session · show-advanced-analysis-next-steps
+… 17 more · via notion --all
+tools: search · fetch · check-mcp-next-steps · convert-page-to-skill · spawn-session · stop-session · wait-session · show-advanced-analysis-next-steps
 → via notion <resource> for signatures

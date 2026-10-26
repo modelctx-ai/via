@@ -34,6 +34,7 @@
 | [0026](0026-sandbox-stdio-server-processes.md) | 用进程级沙箱包裹 daemon 派生的 stdio server 子进程（`sandbox`，默认关闭，srt 可选依赖） | 被 ADR-0027 取代 |
 | [0027](0027-run-via-inside-a-sandbox-program.md) | 可选地把整个 via 放进沙箱程序里运行（`sandbox`，默认关闭，裸 `via` 等价于 `srt via`，不依赖 srt 的包） | 已接受 |
 | [0028](0028-restrict-and-hide-subcommands.md) | 在配置里禁止、只允许、隐藏或只显示某些子命令（`commands`） | 已接受 |
+| [0029](0029-provider-word-as-resource-and-same-name-leaf.md) | 复数的 provider 词可以是资源；与资源同名的叶子工具在浏览和 did you mean 里被找到 | 已接受 |
 | [0030](0030-infer-destructive-from-names.md) | 没有声明破坏性注解的工具按名字推断，并允许用户点名要求确认 | 已接受 |
 
 ## 流程

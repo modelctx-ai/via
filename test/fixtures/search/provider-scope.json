@@ -11,6 +11,7 @@
     { "q": "list topics", "group": "direct", "expect": ["jobs topics"] },
     { "q": "delete secret", "group": "direct", "expect": ["jobs secret:delete"] },
     { "q": "list secrets", "group": "direct", "expect": ["jobs secrets"] },
+    { "q": "close job", "group": "direct", "expect": ["jobs job:close"] },
     { "q": "make a new job", "group": "synonym", "expect": ["jobs job:create"] }
   ]
 }

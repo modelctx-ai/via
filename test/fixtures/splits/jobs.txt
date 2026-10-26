@@ -3,9 +3,9 @@ create_topic    →  topic:create
 jobs            →  jobs  (leaf)
 topics          →  topics  (leaf)
 projects        →  projects  (leaf)
-close_jobs      →  close  (leaf)
-complete_jobs   →  complete  (leaf)
-reopen_jobs     →  reopen  (leaf)
+close_jobs      →  job:close
+complete_jobs   →  job:complete
+reopen_jobs     →  job:reopen
 update_job      →  job:update
 message_job     →  message-job  (leaf)
 message_topic   →  message-topic  (leaf)
@@ -14,11 +14,11 @@ unschedule_job  →  unschedule-job  (leaf)
 schedules       →  schedules  (leaf)
 delete_topics   →  topic:delete
 secrets         →  secrets  (leaf)
-set_secret      →  set-secret  (leaf)
+set_secret      →  secret:set
 delete_secrets  →  secret:delete
 run_builds      →  build:run
 cancel_builds   →  build:cancel
-confirm_builds  →  confirm-builds  (leaf)
+confirm_builds  →  build:confirm
 merge_builds    →  build:merge
 pull_requests   →  pull-requests  (leaf)
 issues          →  issues  (leaf)

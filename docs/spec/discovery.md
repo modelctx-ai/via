@@ -137,7 +137,8 @@ issue:search   query, [owner], [repo]                  Search issues
   - 引用在本地的 `$ref` 照常展开。枚举值里的换行与控制字符写成可见的 `\uXXXX`。
   - 整个签名（含括号与 `…`）超过 60 列时退回不带类型的写法，所有参数仍照原规则显示；所以同一屏里的行可以两种写法并存。必填参数一个不省略的规则不变。
   - 类型来自[预构建缓存](#预构建缓存)，浏览仍然不读 schema。
-- **`-o json`**：数组，每项 `{"ref", "provider", "resource", "verb", "rawName", "signature": {"required": [...], "optional": [...]}, "description", "readOnly", "destructive"}`。`ref` 是规范写法（`gh issue:read`），`signature` 是**完整**的参数名（kebab-case，必填在前，不受 6 个的限制，也不带类型），`description` 是完整的描述文字，`readOnly`/`destructive` 是布尔（两者都声明时 `destructive` 为假，同 `[read-only]` 的规则）；`destructive` 为真时多一个字段 `destructiveBy`：`server`（声明了 `destructiveHint`）、`inferred`（server 没声明，via 按原始名里的词推断）、`config`（`confirm.tools`），为假时不出现。三种来源的 `destructive` 都是 `true`，只读 `destructive` 的消费者不受影响。字符串按「内容」档脱敏（[output.md](output.md#脱敏的范围)）。`→` 提示写 stderr。叶子工具（`via find` 的结果里可能有）的 `resource` 与 `verb` 为 `null`。
+- **`-o json`**：数组，每项 `{"ref", "provider", "resource", "verb", "rawName", "signature": {"required": [...], "optional": [...]}, "description", "readOnly", "destructive"}`。`ref` 是规范写法（`gh issue:read`），`signature` 是**完整**的参数名（kebab-case，必填在前，不受 6 个的限制，也不带类型），`description` 是完整的描述文字，`readOnly`/`destructive` 是布尔（两者都声明时 `destructive` 为假，同 `[read-only]` 的规则）；`destructive` 为真时多一个字段 `destructiveBy`：`server`（声明了 `destructiveHint`）、`inferred`（server 没声明，via 按原始名里的词推断）、`config`（`confirm.tools`），为假时不出现。三种来源的 `destructive` 都是 `true`，只读 `destructive` 的消费者不受影响。字符串按「内容」档脱敏（[output.md](output.md#脱敏的范围)）。`→` 提示写 stderr。叶子工具（`via find` 的结果里可能有，资源视图里的同名叶子也在内，排在数组末尾）的 `resource` 与 `verb` 为 `null`。
+- **同名的叶子工具**：叶子工具的名字单数化之后（逐词，规则同[单数化](naming.md#单数化)）等于这个资源名时，它排在资源自己的工具之后，同样一行（`secrets` 之于资源 `secret`）。列出一个资源的工具常常是个叶子（`secrets` 列出，`secret:delete` 删除），它没有动词，不在任何资源下，不写这一行就看不到。这一行没有 `:`，第一列照样可以直接复制（`via todos secrets`）。叶子被资源挤到原始名时（`acme-search` 之于资源 `search`），按拆分时的叶子名比较，显示现在的名字。这只是提示：资源与叶子在命名上仍是两个名字，解析不变。
 - 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后，两者都声明时只标 `[read-only]`；via 推断的标 `[destructive?]`，`confirm.tools` 要求的标 `[confirm]`（[arguments.md](arguments.md#危险操作)）。
 
 ## 搜索
@@ -207,7 +208,16 @@ agent 的查询是自然语言（「删除工单」「合并 PR」），用词�
 
 ## 找不到时
 
-按段（provider、资源、动作分别）计算编辑距离，给出至多 3 个 did you mean；仍无结果时提示 `via find <关键词>`。退出码 3。
+按段（provider、资源、动作分别）计算编辑距离，给出至多 3 个 did you mean；仍无结果时提示 `via find <关键词>`。退出码 3。`next:` 指向第一个候选的 `-h`。
+
+**资源与动作找不到**时（`资源:动作`，或 `list-todos` 这样的「动词-名词」写法：按[拆分规则](naming.md)解析成 `资源:动作`，之后同样处理），候选按下面的顺序排，取前 3 个；第 1 项不为空时只给第 1 项，笔误就回答它想写的那个：
+
+1. 资源下与输入的动作只差一个笔误的动作（`issue:raed` → `issue:read`）。输入的动作本身是动词表里的动词时（`get`、`set`）是另一个动作，不是笔误，不进这一项；
+2. 单数化之后名字等于这个资源的**叶子工具**（`todo:list`、`todo:get`、`todos:list`、`list-todos` 都指向叶子 `todos`）：列出对象的工具常常是个没有动词的叶子，编辑距离够不着它；
+3. 资源下的其他动作，按 `tools/list` 的顺序，标了 `destructiveHint` 的排在最后；
+4. 资源不存在时，才用按段编辑距离近的 `资源:动作`。只靠拼写相近、或者只共享 provider 词的名字不会排到资源词相同的候选前面。
+
+输入里的资源词先单数化再比较（`secrets:list` 与 `secret:list` 一样）。资源之后多出的词（`via todos secret list`）同样先列出这个叶子工具（[cli.md](cli.md#资源之后的词)）。
 
 **provider 找不到**时不指向 `via find`：provider 总数很少（几个到十几个），直接列出来比再跑一条命令便宜，而 agent 常把 server 叫 `gh` 写成 `github`，编辑距离够不着：
 

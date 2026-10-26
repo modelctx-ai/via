@@ -319,7 +319,7 @@ describe('via serve and a server that asks the user something', () => {
     const r = await call(client, 'via_call', { tool: 'ask/elicit-confirm', args: {} });
     expect(r).toMatchObject({ isError: true, exitCode: 5 });
     expect(r.texts.join('')).toContain('error: ask asked for user input ("Really proceed?") and no terminal was available to answer');
-    expect(r.texts.join('')).toContain(`next: ask the user to run this in a terminal: via ask elicit-confirm --args ${shellQuote('{}')}`);
+    expect(r.texts.join('')).toContain(`next: ask the user to run this in a terminal: via ask elicit:confirm --args ${shellQuote('{}')}`);
   });
 });
 

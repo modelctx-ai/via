@@ -19,3 +19,8 @@ export function singularize(word: string, rules: SingularRules): string {
   if (w.endsWith('s') && !/(ss|us|is)$/.test(w)) return w.slice(0, -1);
   return w;
 }
+
+/** A kebab-case name with every word singularised (`mcp-servers` -> `mcp-server`): how a resource name is written. */
+export function singularizeName(name: string, rules: SingularRules): string {
+  return name.split('-').map((w) => singularize(w, rules)).join('-');
+}

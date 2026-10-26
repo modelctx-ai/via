@@ -42,7 +42,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 
 - **恰好是该资源的一个动词** → 等价于 `via <provider> <resource>:<verb> [参数…]`：`via gh issue read --issue-number 1` 就是 `via gh issue:read --issue-number 1`。动词按与工具引用相同的宽松规则匹配（大小写、`-` 与 `_` 等价），但只认完整的动词，不认前缀；资源仍接受唯一前缀。输出严格：调用的元信息行本来就以规范写法开头（`· gh issue:read · …`）；`-h` 没有元信息行，stderr 先输出一行 `· gh issue:read`（输入已是规范写法 `issue:read` 时不输出，[见下](#工具引用的写法)）。`--dry-run`、`--yes`、`-o` 等全局选项、本地校验与 `deny` 都与冒号写法一致：被 `deny` 隐藏的动词是退出码 5，不是「多余的词」。
 - **以 `-` 开头** → 是选项。浏览视图认的选项是全局选项（`--all`、`-o`、`-h` 等，via 先取走）；其余一律退出码 2，`error: unknown option --bogus`，`next: via <provider> <resource>`，不再静默忽略。
-- **其他任何词** → 退出码 2，不执行、不浏览，`error: unexpected argument "reed"`。该资源下有相近的动词时附 `did you mean: gh issue:read`（最多 3 个），`next:` 为 `via gh issue:read -h`；写成原始工具名（`issue_read`）或把 `资源:动作` 写在资源之后（`issue:read`）的，同样列出对应的规范写法而不接受：只有一种多词写法，错误里给出的就是能直接运行的那一种。没有相近动词时列出该资源的动词（`verbs of gh issue: read · write · list`，最多 8 个），`next:` 为 `via gh issue`。
+- **其他任何词** → 退出码 2，不执行、不浏览，`error: unexpected argument "reed"`。该资源下有相近的动词时附 `did you mean: gh issue:read`（最多 3 个），`next:` 为 `via gh issue:read -h`；有单数化之后名字等于该资源的叶子工具（`secrets` 之于 `secret`）时，它也列在候选里（[discovery.md](discovery.md#找不到时)）；写成原始工具名（`issue_read`）或把 `资源:动作` 写在资源之后（`issue:read`）的，同样列出对应的规范写法而不接受：只有一种多词写法，错误里给出的就是能直接运行的那一种。没有任何候选时列出该资源的动词（`verbs of gh issue: read · write · list`，最多 8 个），`next:` 为 `via gh issue`。
 - 资源与动词同名（`search:search`）时，资源之后的第一个词按动词解释，所以 `via gh search search cats` 调用 `search:search`，`via gh search cats` 是退出码 2。叶子工具占了资源名（[naming.md](naming.md) 规则 7）时，该名字解析为叶子工具，其后的词是它的参数，不适用本节。
 
 ## 为什么是这种形状

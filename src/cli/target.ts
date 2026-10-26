@@ -5,6 +5,7 @@ import {
   normalizeInput,
   resolveProvider,
   resolveTarget,
+  sameNameLeaves,
   type Catalog,
   type CatalogTool,
   type ProviderCatalog,
@@ -122,7 +123,8 @@ export function resolveVerbWord(
   const named = group.tools.find((t) => normalizeInput(t.rawName) === verb);
   const written = verb.includes(':') ? resolveTarget(visible, word) : undefined;
   const close = didYouMean(verb, group.tools.map((t) => t.verb!)).map((v) => group.tools.find((t) => t.verb === v)!);
-  const suggestions = [...new Set([...(named ? [named] : []), ...(written?.kind === 'tool' ? [written.tool] : []), ...close])].slice(0, 3);
+  // A leaf tool named for the resource (`secrets` for `secret`) is where a word such as `list` usually leads.
+  const suggestions = [...new Set([...(named ? [named] : []), ...(written?.kind === 'tool' ? [written.tool] : []), ...close, ...sameNameLeaves(visible, group.name)])].slice(0, 3);
   const shown = word.length > ECHO_MAX ? `${word.slice(0, ECHO_MAX - 1)}…` : word;
   const message = `unexpected argument "${visibleText(shown)}"`;
   if (suggestions.length > 0) {

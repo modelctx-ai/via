@@ -100,7 +100,7 @@ export function docTerms(tool: CatalogTool, rules: CatalogRules = defaultCatalog
       length += weight;
     }
   };
-  const rawWords = stripProviderWords(tokenize(tool.rawName), [tool.provider]).map((w) => singularize(w, rules.split));
+  const rawWords = stripProviderWords(tokenize(tool.rawName), [tool.provider]).tokens.map((w) => singularize(w, rules.split));
   bump([...termsOf(tool.name, false, rules), ...rawWords], FIELD_WEIGHT.name);
   // The provider's words still count towards the length, as when they were indexed: only their postings are gone.
   length += FIELD_WEIGHT.name * termsOf(tool.provider, false, rules).length;

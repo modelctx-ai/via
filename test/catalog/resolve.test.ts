@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCatalog, resolveProvider, resolveTarget, didYouMean, editDistance, type McpTool } from '../../src/catalog';
+import { buildCatalog, resolveProvider, resolveTarget, sameNameLeaves, didYouMean, editDistance, type McpTool } from '../../src/catalog';
 import { catalogFixture } from '../helpers/fixtures';
 
 const catalog = catalogFixture('tools');
@@ -117,6 +117,73 @@ describe('resolveTarget (cli.md, "解析顺序")', () => {
   it('suggests close resources and tools for a bare unknown word', () => {
     expect(target('github', 'isue')).toEqual({ kind: 'not-found', suggestions: ['issue'] });
     expect(target('notion', 'serch')).toEqual({ kind: 'not-found', suggestions: ['search'] });
+  });
+});
+
+describe('resolveTarget: did you mean for a resource that has a leaf tool of the same name', () => {
+  const notes = catalogFixture('other', ['notes']);
+  const ask = (input: string) => {
+    const r = resolveTarget(notes.providers[0]!, input);
+    return r.kind === 'not-found' ? r.suggestions : r;
+  };
+
+  it('puts the leaf tool first, then the other verbs of the resource', () => {
+    expect(ask('note:list')).toEqual(['notes', 'note:create', 'note:update']);
+    expect(ask('note:get')).toEqual(['notes', 'note:create', 'note:update']);
+    expect(ask('secret:list')).toEqual(['secrets', 'secret:set', 'secret:delete']);
+  });
+
+  it('reads a plural resource word as the resource', () => {
+    expect(ask('secrets:list')).toEqual(['secrets', 'secret:set', 'secret:delete']);
+    expect(ask('builds:read')).toEqual(['builds', 'build:run', 'build:confirm']);
+  });
+
+  it('reads verb-noun spellings with the split rules', () => {
+    expect(ask('list-notes')).toEqual(['notes', 'note:create', 'note:update']);
+    expect(ask('list_notes')).toEqual(['notes', 'note:create', 'note:update']);
+    expect(ask('get-secret')).toEqual(['secrets', 'secret:set', 'secret:delete']);
+  });
+
+  it('answers a typo in the verb with that verb first', () => {
+    expect(ask('note:updat')).toEqual(['note:update']);
+    expect(ask('note:serch')).toEqual(['note:search']);
+  });
+
+  it('adds names close by spelling only when the resource does not exist', () => {
+    expect(ask('ticket:list')).toEqual([]);
+    expect(ask('nte:create')).toEqual(['note:create']);
+  });
+
+  it('puts tools marked destructive after the others of the resource', () => {
+    const tools: McpTool[] = [
+      { name: 'delete_notes', annotations: { destructiveHint: true } },
+      { name: 'create_note' },
+      { name: 'update_note' },
+    ];
+    const p = buildCatalog([{ provider: 'acme', tools }]).providers[0]!;
+    const r = resolveTarget(p, 'note:list');
+    expect(r).toEqual({ kind: 'not-found', suggestions: ['note:create', 'note:update', 'note:delete'] });
+  });
+
+  it('finds the leaf of a resource that does not exist', () => {
+    const p = buildCatalog([{ provider: 'acme', tools: [{ name: 'builds' }, { name: 'run_job' }] }]).providers[0]!;
+    expect(resolveTarget(p, 'build:list')).toEqual({ kind: 'not-found', suggestions: ['builds'] });
+  });
+
+  it('does not change what resolves', () => {
+    const r = resolveTarget(notes.providers[0]!, 'notes');
+    expect(r.kind === 'tool' && r.tool.rawName).toBe('notes');
+    const s = resolveTarget(notes.providers[0]!, 'secret');
+    expect(s.kind).toBe('resource');
+  });
+});
+
+describe('sameNameLeaves', () => {
+  it('matches the leaf by its name singularised word by word, also under the name before a clash', () => {
+    const p = buildCatalog([{ provider: 'acme', tools: [{ name: 'list_search' }, { name: 'acme_search' }, { name: 'mcp_servers' }, { name: 'add_mcp_server' }] }]).providers[0]!;
+    expect(sameNameLeaves(p, 'search').map((t) => t.name)).toEqual(['acme-search']);
+    expect(sameNameLeaves(p, 'mcp-server').map((t) => t.name)).toEqual(['mcp-servers']);
+    expect(sameNameLeaves(p, 'issue')).toEqual([]);
   });
 });
 

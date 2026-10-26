@@ -81,3 +81,43 @@ describe('splitToolName: rules', () => {
     expect(canon('check_mcp_next_steps', 'x')).toBe('check-mcp-next-steps (leaf)');
   });
 });
+
+describe('splitToolName: a plural provider word after a bare verb is the resource (naming.md, rule 2)', () => {
+  it('keeps the provider word the verb acts on', () => {
+    expect(canon('close_todos', 'todos')).toBe('todo:close');
+    expect(canon('complete_todos', 'todos')).toBe('todo:complete');
+    expect(canon('todos_close_todos', 'todos')).toBe('todo:close');
+    expect(canon('search_docs', 'docs')).toBe('doc:search');
+  });
+
+  it('keeps the same resource for the singular spelling, which is not a provider word', () => {
+    expect(canon('create_todo', 'todos')).toBe('todo:create');
+    expect(canon('close_todo', 'todos')).toBe('todo:close');
+  });
+
+  it('still drops a provider word in front of the verb, or a singular one', () => {
+    expect(canon('todos_close', 'todos')).toBe('close (leaf)');
+    expect(canon('notion-search', 'notion')).toBe('search (leaf)');
+    expect(canon('acme_search', 'acme')).toBe('search (leaf)');
+    expect(canon('search_exa', 'exa')).toBe('search (leaf)');
+    expect(canon('todos', 'todos')).toBe('todos (leaf)');
+  });
+
+  it('keeps the leaf name the rules give when the tool falls back to a leaf', () => {
+    const r = splitToolName('close_todos', { providerNames: ['todos'] }, rules);
+    expect(r).toEqual({ kind: 'resource', resource: 'todo', verb: 'close', leafName: 'close' });
+  });
+});
+
+describe('splitToolName: verbs for state changes', () => {
+  it.each([
+    ['set_secret', 'secret:set'],
+    ['confirm_builds', 'build:confirm'],
+    ['complete_todos', 'todo:complete'],
+    ['reopen_todos', 'todo:reopen'],
+    ['assign_issue', 'issue:assign'],
+    ['approve_requests', 'request:approve'],
+  ])('%s -> %s', (raw, expected) => {
+    expect(canon(raw, 'acme')).toBe(expected);
+  });
+});
