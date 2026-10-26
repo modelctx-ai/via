@@ -154,7 +154,7 @@ via prompt --skill --out <目录>/via/SKILL.md   # 改写成 SKILL.md，给按�
 
 块里先说明 via 是什么，再要求 agent 需要外部工具时优先用 `via`，而不是它已经挂载的 MCP 工具。这份说明只维护一处：Claude Code 可以在 CLAUDE.md 里用 `@AGENTS.md` 引入，不必再攒一份。
 
-没有 shell 的 agent（Claude Desktop、IDE 聊天面板）改为只挂一个 `via serve`，拿到九个元工具（`via_browse`、`via_find`、`via_call` 等，约 1,150 token），行为与命令行完全一致：
+没有 shell 的 agent（Claude Desktop、IDE 聊天面板）改为只挂一个 `via serve`，拿到九个元工具（`via_browse`、`via_find`、`via_call` 等，约 1,480 token），行为与命令行完全一致：
 
 ```json
 { "mcpServers": { "via": { "command": "via", "args": ["serve"] } } }

@@ -1,43 +1,43 @@
-via_browse [read-only]: List providers, the resources and verbs of a provider, the verbs of a resource with signatures, or the usage of one tool.
-  path (string): Empty for all providers, or "<provider>", "<provider> <resource>", "<provider> <resource>:<verb>"
+via_browse [read-only]: Discover what exists: "" lists providers, "gh" its resources, "gh issue" a resource's verbs with signatures, "gh issue:read" the usage of one tool (nothing is run). Example: {"path": "gh issue"}. Words are separated by spaces, never "/".
+  path (string): "", "<provider>", "<provider> <resource>" or "<provider> <resource>:<verb>", as printed
 
-via_find [read-only]: Search tools across all providers.
-  query* (string): What the tool should do, e.g. "create issue"
-  limit (integer): Results to show (default 10)
+via_find [read-only]: Search the tools of all providers by what they do. Example: {"query": "create issue"}. Results carry signatures and an example: line to adapt. Plain words, not a regex or an exact name.
+  query* (string): What the tool should do
+  limit (integer): Default 10
 
-via_call: Call a tool. Read its usage with via_browse first. Tools marked destructive need yes: true.
-  tool* (string): "<provider>/<resource>:<verb>", e.g. "linear/issue:create"
-  args (object): Tool arguments by their original names
+via_call: Run one tool. It neither searches nor lists: get the name and parameters from via_find or via_browse first. Example: {"tool": "gh/issue:read", "args": {"owner": "acme", "repo": "api", "issue_number": 1}}. tool has no spaces; every tool parameter goes inside args. A destructive tool needs yes: true (else exit 5). On failure follow the next: line. For a slow job pass detach: true, then use via_tasks.
+  tool* (string): "<provider>/<resource>:<verb>" or "<provider>/<leaf-tool>", e.g. "linear/issue:create"
+  args (object): Object (not a JSON string) of the tool's parameters, by schema name
   yes (boolean): Confirm a destructive tool
   detach (boolean): Return the task id at once instead of waiting
   timeout (number): Seconds to wait (default 60)
 
-via_more [read-only]: Continue output that was truncated, with the cursor from its "via more <cursor>" hint.
-  cursor* (string): The cursor
+via_more [read-only]: Continue output that ended with "next: via more c7f2". Example: {"cursor": "c7f2"}. A cursor lasts 30 minutes (then exit 3: rerun the call) and cannot page a new query.
+  cursor* (string): The code after "via more"
 
-via_resources [read-only]: List the MCP resources and templates of a provider, or complete a template variable.
-  provider* (string): Provider name
-  template (string): Listed URI template to complete
-  args (object): Variable values typed so far
-  complete (string): Variable to complete (with template)
+via_resources [read-only]: List a provider's MCP resources and URI templates (via_browse shows an also: line when it has any); with template and complete, suggest values for a variable. Example: {"provider": "gh"}.
+  provider* (string): Provider
+  template (string): Listed URI template
+  args (object): Variables typed so far (strings)
+  complete (string): Variable to complete (needs template)
 
-via_read [read-only]: Read an MCP resource of a provider.
-  provider* (string): Provider name
-  uri* (string): Resource URI, with template placeholders filled in
+via_read [read-only]: Read one MCP resource. Example: {"provider": "gh", "uri": "file:///project/README.md"}. uri comes from via_resources, placeholders filled in; a file path is not one.
+  provider* (string): Provider
+  uri* (string): Resource URI
 
-via_prompts [read-only]: List the MCP prompts of a provider, get one, or complete an argument.
-  provider* (string): Provider name
+via_prompts [read-only]: List a provider's MCP prompts; with name get that prompt, with name and complete suggest values for an argument. Example: {"provider": "gh", "name": "greet_user", "args": {"name": "Ada"}}.
+  provider* (string): Provider
   name (string): Prompt name; omit to list
-  args (object): Prompt arguments (strings)
-  complete (string): Argument to complete, the others in args (with name)
+  args (object): Prompt arguments; every value a string
+  complete (string): Argument to complete (needs name)
 
-via_skills [read-only]: List the skills of a provider, read one, or one of its files.
-  provider* (string): Provider name
+via_skills [read-only]: List a provider's skills; with name read its SKILL.md, with name and file another file it names. Example: {"provider": "gh", "name": "refunds"}.
+  provider* (string): Provider
   name (string): Skill name; omit to list
   file (string): File of the skill; omit for SKILL.md
 
-via_tasks: List the tasks of a provider, or wait for, check or cancel one.
-  provider (string): Provider name; alone, lists its tasks
+via_tasks: Follow a job started by via_call with detach: true, or one that timed out (exit 6). Example: {"task": "gh/job/1"} waits for the result (exit 6 at the timeout: the job keeps running, call again). provider alone lists tasks; action is "status" or "cancel".
+  provider (string): Provider; alone, lists its tasks
   task (string): Task id as printed ("gh/job/1"), or "job/1" with provider
-  action (status|cancel): Omit to wait
+  action (status|cancel): Omit to wait for the result
   timeout (number): Seconds to wait (default 30)
