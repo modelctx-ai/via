@@ -40,7 +40,7 @@ describe('via servers', () => {
     const out = JSON.parse(r.stdout) as { servers: Array<Record<string, any>>; diagnostics: unknown[] };
     expect(out.servers.map((x) => x.provider)).toEqual(['gh', 'query', 'local', 'off']);
     const gh = out.servers[0]!;
-    expect(gh).toMatchObject({ name: 'gh', status: 'ok', transport: { type: 'http', origin: new URL(srv.url).origin }, auth: { method: 'bearer', usable: true }, source: { scope: 'user', path: '~/.config/via/config.yaml' } });
+    expect(gh).toMatchObject({ name: 'gh', status: 'ok', transport: { type: 'http', origin: new URL(srv.url).origin }, auth: { method: 'bearer', usable: true }, source: { scope: 'user', path: expect.stringMatching(/^~[\\/]\.config[\\/]via[\\/]config\.yaml$/) } });
     expect(gh.protocol).toMatchObject({ version: expect.any(String), stateful: expect.any(Boolean), pinned: false });
     expect(gh.tools).toBeGreaterThan(0);
     expect(out.servers[1]).toMatchObject({ transport: { type: 'http', origin: 'https://q.example.com' }, tools: null, protocol: null });
