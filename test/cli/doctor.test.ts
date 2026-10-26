@@ -198,7 +198,7 @@ describe('renderDoctor', () => {
     const s = server('acme', { trusted: false, untrustedPaths: ['/work/.via.yaml'] });
     const out = renderDoctor({ config: config([s]), frameworks: [], probes: [] });
     expect(out.text).toContain('1 untrusted (acme)');
-    expect(out.text).toContain('next: via trust /work/.via.yaml');
+    expect(out.text).toContain('next: ask the user to run this in a terminal: via trust /work/.via.yaml');
     expect(out.exitCode).toBe(5);
   });
 

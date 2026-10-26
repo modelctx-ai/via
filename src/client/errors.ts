@@ -4,7 +4,8 @@
 import { CredentialError, type ServerConfig } from '../config/types';
 import type { ErrorInfo } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
-import { shellWord, shellWords } from '../render/shell';
+import { askToRun, askUser } from '../render/ask';
+import { shellArg, shellWord, shellWords } from '../render/shell';
 import { sanitizeText } from '../render/sanitize';
 import { ClientError } from './client-error';
 import { urlElicitationsOf } from './elicit';
@@ -63,7 +64,8 @@ export function untrustedServer(server: ServerConfig): ClientError {
   return new ClientError({
     exitCode: ExitCode.Denied,
     message: `${server.provider} is defined in an untrusted project config${paths.length > 0 ? ` (${paths.join(', ')})` : ''}; ${what}`,
-    next: path && paths.length === 1 ? `via trust ${shellWord(path)}` : 'via trust',
+    // Trusting a project's config is the person's decision, made at a terminal (security.md, "via trust").
+    next: askToRun(path && paths.length === 1 ? `via trust ${shellWord(path)}` : 'via trust'),
   });
 }
 
@@ -190,7 +192,10 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
   if (sdkCode(err) === 'ERA_NEGOTIATION_FAILED' && (err as { cause?: unknown }).cause instanceof Error) return mapError((err as { cause: Error }).cause, ctx);
   const { server } = ctx;
   const provider = server.provider;
-  const loginNext = `via auth login ${provider}`;
+  // Logging in needs a browser or a terminal: for the person, not for the agent (output.md, "错误").
+  const loginNext = askToRun(`via auth login ${shellArg(provider, { placeholder: 'provider', positional: true })}`);
+  // A static credential the server rejected: nothing to log in to, somebody has to look at the credential.
+  const rejectedNext = askUser(`the credentials of ${clean(provider, ctx)} were refused; check servers.${clean(server.name, ctx)}.auth in the via config (the token may be wrong, expired or missing a scope)`);
   // A proxy variable that cannot be used (config.md, "代理"): the environment's mistake, not the server's.
   if (err instanceof Error && err.name === 'ProxyConfigError') {
     return new ClientError({ exitCode: ExitCode.Usage, message: `cannot reach ${provider}: ${clean(err.message, ctx)}`, next: 'fix the proxy variable, or unset it (via doctor shows what is in effect)' });
@@ -237,7 +242,7 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
     return new ClientError({
       exitCode: ExitCode.Auth,
       message: clean(err.message, ctx),
-      next: err.next ?? loginNext,
+      next: err.next ?? (server.auth.type === 'oauth' ? loginNext : askUser(`fix the credential reference in servers.${clean(server.name, ctx)}.auth of the via config`)),
     });
   }
 
@@ -250,7 +255,7 @@ export function mapError(err: unknown, ctx: ErrorContext): ClientError {
         : hasCredentials
           ? `${provider} rejected the credentials (HTTP 401)`
           : `${provider} requires auth`;
-    return new ClientError({ exitCode: ExitCode.Auth, message: reason, next: loginNext });
+    return new ClientError({ exitCode: ExitCode.Auth, message: reason, next: hasCredentials && server.auth.type !== 'oauth' ? rejectedNext : loginNext });
   }
 
   if (isTimeout(err)) return timedOut(server, ctx.phase, ctx.timeoutMs);
@@ -340,12 +345,22 @@ function startupFailure(err: unknown, ctx: ErrorContext): ClientError {
   const status = httpStatus(err);
   let reason: string;
   let spawnFailedToFindCommand = false;
+  // What only a person can fix says so in `next:`; what may pass on its own points at `via doctor` (output.md, "错误").
+  let next = 'via doctor';
 
   if (server.transport.type === 'stdio') {
     const code = errnoCode(err);
     if (code === 'ENOENT' || code === 'EACCES' || code === 'ENOTDIR') {
       spawnFailedToFindCommand = code === 'ENOENT';
-      reason = `cannot run ${server.transport.command} (${code})`;
+      const program = clean(server.transport.command, ctx);
+      reason = `cannot run ${program} (${code})`;
+      next = askUser(
+        code === 'ENOENT'
+          ? `${program} is not installed (needed by ${provider})`
+          : code === 'EACCES'
+            ? `${program} is not executable by this user (needed by ${provider}); its permissions need fixing`
+            : `${program} cannot be found: a part of its path is not a directory (needed by ${provider})`,
+      );
     } else if (isConnectionClosed(err)) {
       reason = `the process exited before the MCP handshake finished${stderrSuffix(ctx)}`;
     } else {
@@ -365,7 +380,7 @@ function startupFailure(err: unknown, ctx: ErrorContext): ClientError {
     message += '; it may conflict with a same-named server still running in an agent framework';
   }
   const transient = isConnectionClosed(err) || networkCode(err) !== undefined || isFetchFailure(err);
-  return new ClientError({ exitCode: ExitCode.Upstream, message, next: 'via doctor' }, transient);
+  return new ClientError({ exitCode: ExitCode.Upstream, message, next }, transient);
 }
 
 // Helpers -------------------------------------------------------------------------------------

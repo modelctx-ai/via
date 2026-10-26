@@ -145,15 +145,17 @@ servers:
 
   ```console
   error: linear requires auth
-  next: via auth login linear
+  next: ask the user to run this in a terminal: via auth login linear
   ```
+
+  登录需要浏览器或终端交互，是用户的事，所以 `next:` 用 `ask the user to run this in a terminal`（判定表见 [output.md](output.md#错误)）。已配置的是 bearer / headers 凭证而服务端拒绝（401、403）时，`auth login` 帮不上忙，`next:` 改写 `ask the user: the credentials of linear were refused; check servers.linear.auth in the via config (…)`。
 
 - 凭证缺失（如环境变量未设置、钥匙串无条目、`cmd:` 命令失败）时不发起调用，直接说明缺哪一项、可以用哪种写法补上，退出码 4。`cmd:` 失败时只说明程序名与原因（退出状态、超时、输出为空等），不显示命令的任何输出（[config.md](config.md#凭证引用)）。
 - 需要登录：`auth: oauth` 的 server（机器授权除外，见[OAuth client credentials](#oauth-client-credentials)）没有登录记录时不发起任何网络请求，退出码 4，输出上面的两行；登录已失效（refresh token 被拒绝或不存在且 access token 已过期）时第一行写作 `linear requires auth (the saved login expired)`。调用过程永远不会弹出浏览器，也不会等待终端输入：登录只发生在 `via auth login`。
 - 目录缓存命中时，OAuth server 仍然要求有登录记录（与 bearer 缺凭证时一致），不读取过期时间，不发请求；机器授权要求的是凭据能解析，而不是记录。
-- 配置为 `auth: none` 的 HTTP server 收到 401 时，`next:` 仍是 `via auth login <provider>`；该命令会说明需要把 `servers.<name>.auth` 设为 `oauth`（或 bearer）。
+- 配置为 `auth: none` 的 HTTP server 收到 401 时，`next:` 仍是 `ask the user to run this in a terminal: via auth login <provider>`；该命令会说明需要把 `servers.<name>.auth` 设为 `oauth`（或 bearer）。
 - stdio 子进程的 stderr 不转发（可能回显凭证）；启动失败时，脱敏后取最后一行放进错误信息。
-- `via` 顶层视图和 `via servers` 中标出需要鉴权的 provider；`via servers` 的鉴权列对 OAuth 写 `oauth (logged in, expires in 54m)`、`oauth (access token expired, refreshable)`、`oauth (expired)` 或 `oauth (not logged in)`，`via doctor` 对未登录或已失效的 OAuth server 报 `needs auth` 并给出 `next: via auth login <provider>`。
+- `via` 顶层视图和 `via servers` 中标出需要鉴权的 provider；`via servers` 的鉴权列对 OAuth 写 `oauth (logged in, expires in 54m)`、`oauth (access token expired, refreshable)`、`oauth (expired)` 或 `oauth (not logged in)`，`via doctor` 对未登录或已失效的 OAuth server 报 `needs auth` 并给出 `next: ask the user to run this in a terminal: via auth login <provider>`。
 
 ## 常见 server 的鉴权
 

@@ -46,6 +46,7 @@
 - 是否解析由 schema 决定，不由值的外观决定。只有 schema 不允许字符串的位置才会把 `{…}`、`[…]` 当作 JSON；允许字符串的位置一律原样传入，避免把用户想传的 JSON 文本意外改成对象。
 - schema 同时允许 string 和 object/array（如 `type: ["string", "object"]`）时，值以 `{` 或 `[` 开头且能解析为 JSON 才按 JSON 处理，否则按字符串。需要强制原样传入时，用 `--args` 整体给出。
 - 根对象允许任意字段（未声明 `properties`，或 `additionalProperties` 不为 `false`）时，未声明的 `--key value` 不报错，值按上一条「schema 宽松」的规则处理；`-h` 中提示「accepts extra fields」。
+- 其他命令行工具共有的全局 flag（`--verbose`、`--limit`、`--format`、`--debug` 等，表在 `data/common-flags.json`，[格式](../development/data-files.md#common-flagsjson)）几乎不会是用户想传给工具的参数，所以不能悄悄发出去：这类 flag 在上一条的规则下被当作额外字段发送时（工具没有声明它，且不是以 `--p.` 开头写的），stderr 多一行 `warning: --verbose is not a parameter of gh issue:read; it was sent as an extra field (write --p.verbose to silence this)`，退出码与调用不变。同一个 flag 只警告一次；警告只写 flag 名，不写值；`-o json` 下警告仍是 stderr 上的一行文本；`--no-validate` 时（未声明的参数同样被发出）也警告。要真的发送这个字段就写 `--p.verbose`，这是静默的写法。`-o json` 是 `--json` 的别名，所以 `--json` 不会成为额外字段；工具自己有 `json` 参数时写 `--p.json`。`--dry-run` 把这类字段另列一行（[cli.md](cli.md#--dry-run-的输出)）。工具的 schema 封闭（`additionalProperties: false`）时不适用：照旧报 `unknown argument`，附 did you mean。
 - JSON 解析失败时退出码 2，报错指出参数名和出错位置，并提示可以改用 `@文件`。
 - 合并顺序：先取 `--args`，再按命令行顺序应用其余参数；同一路径后写的覆盖先写的，对象之间做深合并。例如 `--filter '{"state":"open","label":"bug"}' --filter.state closed` 的结果是 `{"state":"closed","label":"bug"}`。
 - 帮助中 object、array 参数显示为 `--filter <json>`，有声明字段的 object 额外列出 `--filter.<field>` 写法。
@@ -59,7 +60,7 @@ schema 中的 anyOf/oneOf 分支能由已给出的字段唯一确定时，自动
 
 ### 与全局选项重名
 
-工具参数与全局选项重名时（例如参数名为 `full`、`yes`、`timeout`、`schema-snapshot`），用 `--p.full` 显式指定为工具参数；不加前缀时按全局选项处理。
+工具参数与全局选项重名时（例如参数名为 `full`、`yes`、`timeout`、`json`、`schema-snapshot`），用 `--p.full` 显式指定为工具参数；不加前缀时按全局选项处理。
 
 ## 帮助
 
@@ -72,7 +73,10 @@ usage: via github issue:read --owner <str> --repo <str> --issue-number <num>
          [--page <num>] [--per-page <num>]
 
 Get issue details
-  --method   get: Get issue details · get_comments: Get issue comments · …
+  --owner          <str>
+  --repo           <str>
+  --issue-number   <num>
+  --method         get: Get issue details · get_comments: Get issue comments · …
 example: via github issue:read --owner text --repo text --issue-number 1 --method get
 alias: issue_read · read-only
 ```
@@ -80,7 +84,7 @@ alias: issue_read · read-only
 - 必填参数在前，显示类型、默认值、enum 可选值和截断后的描述。
 - usage 行超过 120 列时按 80 列折行，续行缩进 9 格，每个参数不拆开；错误信息里的 usage 最多列出 8 个可选参数，其余写成 `[…]`，完整列表见 `-h`。
 - 类型写法：string `<str>`、number/integer `<num>`、object/array `<json>`、boolean 只写开关；enum 直接写 `a|b|c`（超过 60 个字符时退回类型，完整列表放在参数行）。与全局选项重名的参数显示为 `--p.<name>`。
-- 参数行只列有描述、默认值或需要说明的参数；多行描述压成一行，列表项以 ` · ` 连接，放不下时以 ` · …` 结尾。标量数组注明「repeat the flag or pass a JSON array」。
+- 参数行列有描述、默认值或需要说明的参数；**必填参数总是有一行**，没有描述时只写类型或可选值（`--issue-number   <num>`、`--method   get|get_comments`，布尔写 `bool`），这样 `-h` 回答得了「这个参数要什么」，不必回头读 usage 行。可选参数没有可说的就不单独成行。多行描述压成一行，列表项以 ` · ` 连接，放不下时以 ` · …` 结尾。标量数组注明「repeat the flag or pass a JSON array」。
 - 末尾显示原始名、只读或危险标记；其上一行是[调用示例](#调用示例)。
 
 ### 调用示例

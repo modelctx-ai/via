@@ -299,7 +299,7 @@ describe('calls with an OAuth server', () => {
     const call = await sb.via(['linear', 'whoami']);
     expect(call.code).toBe(4);
     expect(call.stdout).toBe('');
-    expect(call.stderr).toBe('error: linear requires auth\nnext: via auth login linear\n');
+    expect(call.stderr).toBe('error: linear requires auth\nnext: ask the user to run this in a terminal: via auth login linear\n');
     // Not a single request left the machine: no probe, no registration, no browser.
     expect(srv.state.mcp).toHaveLength(0);
     expect(srv.state.registrations).toHaveLength(0);
@@ -327,11 +327,11 @@ describe('calls with an OAuth server', () => {
     });
     expect(prompts).toBe(0);
     expect(r.code).toBe(4);
-    expect(r.stderr).toBe('error: linear requires auth (the saved login expired)\nnext: via auth login linear\n');
+    expect(r.stderr).toBe('error: linear requires auth (the saved login expired)\nnext: ask the user to run this in a terminal: via auth login linear\n');
     expect(srv.state.authorizeRequests).toHaveLength(1); // only the one from the login
     // The dead tokens were dropped: the next call does not even try, and status agrees.
     const again = await sb.via(['linear', 'whoami'], { now: T0 + 2 * HOUR });
-    expect(again.stderr).toBe('error: linear requires auth\nnext: via auth login linear\n');
+    expect(again.stderr).toBe('error: linear requires auth\nnext: ask the user to run this in a terminal: via auth login linear\n');
     expect((await sb.via(['auth', 'status', 'linear'], { now: T0 })).code).toBe(4);
     // Logging in again repairs it.
     expect((await login(sb, srv)).code).toBe(0);
@@ -371,7 +371,7 @@ describe('calls with an OAuth server', () => {
     clearInterval(forget);
     expect(r.code).toBe(4);
     expect(r.stderr).toContain('linear rejected the credentials (HTTP 401)');
-    expect(r.stderr).toContain('next: via auth login linear');
+    expect(r.stderr).toContain('next: ask the user to run this in a terminal: via auth login linear');
   });
 });
 
@@ -437,7 +437,7 @@ describe('via auth logout', () => {
     expect(oauthFiles(sb)).toEqual([]);
     expect((await sb.via(['auth', 'status', 'linear'])).code).toBe(4);
     const call = await sb.via(['linear', 'whoami']);
-    expect(call.stderr).toBe('error: linear requires auth\nnext: via auth login linear\n');
+    expect(call.stderr).toBe('error: linear requires auth\nnext: ask the user to run this in a terminal: via auth login linear\n');
     const again = await sb.via(['auth', 'logout', 'linear']);
     expect(again.code).toBe(0);
     expect(again.stdout).toBe('not logged in: linear\n');
@@ -475,7 +475,7 @@ describe('via servers and via doctor with OAuth', () => {
     const before = await sb.via(['doctor']);
     expect(before.code).toBe(4);
     expect(before.stdout).toContain('1 needs auth (linear)');
-    expect(before.stdout).toContain('next: via auth login linear');
+    expect(before.stdout).toContain('next: ask the user to run this in a terminal: via auth login linear');
     expect(srv.state.mcp).toHaveLength(0);
     await login(sb, srv);
     const after = await sb.via(['doctor'], { now: T0 });

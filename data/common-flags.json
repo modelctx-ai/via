@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "flags": [
+    "verbose", "quiet", "silent", "debug", "trace",
+    "format", "output", "output-format", "out", "json", "yaml", "csv", "table", "pretty", "raw", "compact", "jq", "template",
+    "limit", "page", "per-page", "page-size", "offset", "sort", "order", "fields", "columns", "no-headers",
+    "help", "version",
+    "force", "yes", "assume-yes", "confirm", "interactive", "non-interactive", "no-input", "no-prompt",
+    "dry-run", "dry", "no-validate", "full", "all", "timeout", "detach", "watch", "follow", "web",
+    "color", "no-color", "no-pager", "pager", "config", "profile"
+  ]
+}

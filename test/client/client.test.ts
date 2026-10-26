@@ -134,7 +134,7 @@ describe('errors', () => {
     const client = new InProcessClient([httpServer('http://127.0.0.1:1/mcp', { auth: { type: 'bearer', bearer: 'keychain:via/mock' } })], resolver);
     const err = await failure(client.listTools('mock'));
     expect(err.exitCode).toBe(4);
-    expect(err.next).toBe('via auth login mock');
+    expect(err.next).toBe('ask the user: fix the credential reference in servers.mock.auth of the via config');
   });
 
   it('untrusted server: exit 5 before spawning, pointing at via trust', async () => {
@@ -147,7 +147,7 @@ describe('errors', () => {
     ]);
     const err = await failure(client.listTools('mock'));
     expect(err.exitCode).toBe(5);
-    expect(err.next).toBe('via trust /work/repo/.via.yaml');
+    expect(err.next).toBe('ask the user to run this in a terminal: via trust /work/repo/.via.yaml');
   });
 
   it('disabled and unknown servers are not found (exit 3)', async () => {
@@ -164,7 +164,7 @@ describe('errors', () => {
     const err = await failure(client.listTools('linear'));
     expect(err.exitCode).toBe(4);
     expect(err.message).toBe('linear requires auth');
-    expect(err.next).toBe('via auth login linear');
+    expect(err.next).toBe('ask the user to run this in a terminal: via auth login linear');
   });
 
   it('a call that outlasts its timeout fails with exit 6 and the session stays usable', async () => {
@@ -218,7 +218,8 @@ describe('errors', () => {
     const err = await failure(client.listTools('mock'));
     expect(err.exitCode).toBe(6);
     expect(err.message).toBe('cannot start mock: cannot run /nonexistent/never-run (ENOENT)');
-    expect(err.next).toBe('via doctor');
+    // Only a person can install it: the next step is theirs, and `via doctor` would only repeat the sentence (output.md, "错误").
+    expect(err.next).toBe('ask the user: /nonexistent/never-run is not installed (needed by mock)');
   });
 
   it('exclusive server that dies at startup gets the framework-conflict hint', async () => {
@@ -310,7 +311,7 @@ describe('streamable http', () => {
     const err = await failure(client.listTools('linear'));
     expect(err.exitCode).toBe(4);
     expect(err.message).toBe('linear requires auth');
-    expect(err.next).toBe('via auth login linear');
+    expect(err.next).toBe('ask the user to run this in a terminal: via auth login linear');
   });
 
   it('401 with a wrong token: exit 4 and the token is not echoed', async () => {

@@ -110,15 +110,29 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 
 ## 错误
 
-错误一律写 stderr，第一行是原因，后面跟可执行的下一步：
+错误一律写 stderr，第一行是原因，后面跟下一步（agent 能执行的命令，或明说要转告用户的事，见下面的判定表）：
 
 ```console
 error: linear requires auth
-next: via auth login linear
+next: ask the user to run this in a terminal: via auth login linear
 ```
 
 - `isError` 结果：上游错误文本经清理、脱敏后输出，退出码 1，`next:` 指向该工具的 `-h`。「清理」指去掉终端转义序列和控制字符（保留换行与制表符），并受预算约束，`--full` 时不截断。
-- 传输与上游错误（退出码 6）：第一行写原因，如 `cannot start playwright: …`、`github did not answer within 60s`、`lost the connection to exa`；`next:` 超时时为 `rerun with a larger --timeout`，其余为 `via doctor`。网络错误只写 scheme 与主机（URL 的路径和查询串可能带凭证）；上游回显的文本经脱敏、清理、折成一行并限长 300 字符。`exclusive: true` 的 stdio server 启动失败时原因后追加「可能与 agent 框架中仍在运行的同名 server 冲突」（命令不存在时除外）。
+- 传输与上游错误（退出码 6）：第一行写原因，如 `cannot start playwright: …`、`github did not answer within 60s`、`lost the connection to exa`；`next:` 按下面的判定表写。网络错误只写 scheme 与主机（URL 的路径和查询串可能带凭证）；上游回显的文本经脱敏、清理、折成一行并限长 300 字符。`exclusive: true` 的 stdio server 启动失败时原因后追加「可能与 agent 框架中仍在运行的同名 server 冲突」（命令不存在时除外）。
+- **`next:` 写给谁**：一个 `next:` 要么是 agent 自己能执行的命令，要么是 agent 做不了、得转告用户的事。后者必须一眼看出来，不能写成 agent 会去试的命令（`via doctor` 对一个没安装的程序只会把同一句话再说一遍）。口径与 elicitation、`via trust` 已有的一致：
+
+  | 情形 | 谁处理 | `next:` |
+  | --- | --- | --- |
+  | stdio 命令不存在（`ENOENT`） | 用户 | `ask the user: <程序名> is not installed (needed by <provider>)` |
+  | stdio 命令不可执行（`EACCES`） | 用户 | `ask the user: <程序名> is not executable by this user (needed by <provider>); its permissions need fixing` |
+  | 命令路径的某一段不是目录（`ENOTDIR`） | 用户 | `ask the user: <程序名> cannot be found: a part of its path is not a directory (needed by <provider>)` |
+  | 项目级配置未信任（退出码 5） | 用户，在终端里 | `ask the user to run this in a terminal: via trust <路径>` |
+  | OAuth server 需要登录（没有登录记录、登录失效，或 401/403 且 `auth: oauth`），以及 `auth: none` 却收到 401 | 用户，在终端里 | `ask the user to run this in a terminal: via auth login <provider>` |
+  | bearer / headers 凭证被拒（401/403） | 用户 | `ask the user: the credentials of <provider> were refused; check servers.<name>.auth in the via config (…)`（`auth login` 对静态凭证没有用） |
+  | 超时 | 重试 | `rerun with a larger --timeout` |
+  | 进程启动后退出、连接断开、HTTP 5xx、网络不可达 | 可能是暂时的 | `via doctor` |
+
+  程序名来自用户自己的配置，回显前脱敏、清理控制字符、折成一行（同上一条）。`-o json` 的 `error.next` 是同一个字符串。凭证缺失（`CredentialError`）的 `next:` 是它自己的说明（`export NOT_SET=<value>`），没有说明时 OAuth server 用 `auth login` 的写法，其余写 `ask the user: fix the credential reference in servers.<name>.auth of the via config`。
 - 参数错误附 usage（[arguments.md](arguments.md#校验与报错)）；找不到附 did you mean（[discovery.md](discovery.md#找不到时)）。
 - `-o json` 时错误同样写 stderr，格式为 `{"error": {"code": <退出码>, "message": "…", "next": "…", "details": [...]}}`。参数校验失败时 `details` 中每条错误一个对象：
 

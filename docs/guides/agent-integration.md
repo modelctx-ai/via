@@ -14,7 +14,7 @@ MCP schema 注入上下文发生在框架内部，via 管不到。只要框架�
 $ via doctor
 servers   9 ok · 1 needs auth (linear)
   linear: needs auth
-    next: via auth login linear
+    next: ask the user to run this in a terminal: via auth login linear
 
 proxy     none
 logs      ~/.cache/via/logs (7 files, 1.2 MiB)

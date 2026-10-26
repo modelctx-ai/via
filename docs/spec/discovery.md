@@ -177,3 +177,17 @@ agent 的查询是自然语言（「删除工单」「合并 PR」），用词�
 ## 找不到时
 
 按段（provider、资源、动作分别）计算编辑距离，给出至多 3 个 did you mean；仍无结果时提示 `via find <关键词>`。退出码 3。
+
+**provider 找不到**时不指向 `via find`：provider 总数很少（几个到十几个），直接列出来比再跑一条命令便宜，而 agent 常把 server 叫 `gh` 写成 `github`，编辑距离够不着：
+
+```console
+$ via github issue:read --owner acme --repo api --issue-number 1 --method get
+error: no such provider: github
+providers: el · fs · gh · slow
+next: via
+```
+
+- `providers:` 一行按字母序列出全部 provider（每个词按[可粘贴的命令行](output.md#可粘贴的命令行)引用），超过 12 个时只列前 12 个，后面写 `… N more · via`。有 did you mean 时它在 `providers:` 之前（`did you mean: gh`）。
+- `next:` 是 `via <最接近的 provider>`（有 did you mean 时；内置子命令的近似拼写如 `via sevrers` 同理）或 `via`，两者都是立刻能运行、能看到下一步的命令；不再是 `via find <输入>`。
+- 没有配置任何 server 时仍是 `error: no such provider: gh (no servers are configured)`，`next: via servers`。输入的名字作为文本回显（控制字符写成转义），不会进入 `next:`。
+- 资源与工具找不到的规则不变（did you mean 或 `via find <provider> <词>`）。资源之后多出的词见 [cli.md](cli.md#资源之后的词)。

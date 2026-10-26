@@ -5,6 +5,7 @@ import { formatDiagnostic, isCredentialRef, type ConfigDiagnostic, type Framewor
 import type { CatalogWarning } from '../catalog';
 import type { ProtocolInfo } from '../protocol';
 import { protocolLabel } from './protocol-label';
+import { askToRun } from '../render/ask';
 import { ExitCode } from '../render/exit-codes';
 import { shortenHome } from '../config/paths';
 import { shellArg, shellWord } from '../render/shell';
@@ -147,10 +148,10 @@ function collectRows(input: DoctorInput): Row[] {
 
 /** Obvious fixes: log in for OAuth servers, `via trust <file>` for untrusted project files. */
 function defaultNext(row: Row, server: ServerConfig | undefined): string[] {
-  if (row.status === 'needs-auth' && server?.auth.type === 'oauth') return [`via auth login ${shellArg(row.provider, { placeholder: 'provider', positional: true })}`];
+  if (row.status === 'needs-auth' && server?.auth.type === 'oauth') return [askToRun(`via auth login ${shellArg(row.provider, { placeholder: 'provider', positional: true })}`)];
   if (row.status === 'untrusted') {
     const paths = server?.untrustedPaths ?? [];
-    return paths.length > 0 ? paths.map((p) => `via trust ${shellWord(p)}`) : ['via trust'];
+    return paths.length > 0 ? paths.map((p) => askToRun(`via trust ${shellWord(p)}`)) : [askToRun('via trust')];
   }
   return [];
 }

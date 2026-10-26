@@ -131,7 +131,7 @@ describe('mapError', () => {
 
   it('maps CredentialError to exit 4 with its own next, or auth login', () => {
     expect(mapError(new CredentialError('missing', 'env:X', 'export X=…'), ctx)).toMatchObject({ exitCode: 4, next: 'export X=…' });
-    expect(mapError(new CredentialError('missing', 'env:X'), ctx)).toMatchObject({ exitCode: 4, next: 'via auth login acme' });
+    expect(mapError(new CredentialError('missing', 'env:X'), ctx)).toMatchObject({ exitCode: 4, next: expect.stringMatching(/^ask the user: fix the credential reference in servers\.\w+\.auth/) });
   });
 
   it('maps an SDK HTTP error and redacts and flattens its text', () => {
@@ -149,8 +149,55 @@ describe('mapError', () => {
   it('maps the SDK errors of a request that ran out of time, lost its connection or was refused', () => {
     expect(mapError(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out'), ctx)).toMatchObject({ exitCode: 6, message: 'acme did not answer within 60s' });
     expect(mapError(new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed'), ctx)).toMatchObject({ exitCode: 6, message: 'lost the connection to acme' });
-    expect(mapError(new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', { status: 401 }), ctx)).toMatchObject({ exitCode: 4, next: 'via auth login acme' });
+    expect(mapError(new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', { status: 401 }), ctx)).toMatchObject({ exitCode: 4, next: expect.stringMatching(/^ask the user/) });
     expect(mapError(new ProtocolError(-32602, 'MCP error -32602: n must be even'), ctx)).toMatchObject({ exitCode: 1, message: 'n must be even' });
+  });
+
+  // output.md, "错误": a `next:` the agent cannot carry out says `ask the user`; one that may pass says `rerun` or `via doctor`.
+  describe('who the next step is for', () => {
+    const connect = (server: ReturnType<typeof stdioServer>) => ({ ...ctx, server, phase: 'connect' as const });
+    const spawnError = (code: string) => Object.assign(new Error(`spawn ${code}`), { code });
+
+    it('a program that is not installed, not executable or not reachable is for the user', () => {
+      const server = stdioServer({ command: 'definitely-not-installed-xyz', provider: 'dead', name: 'dead' });
+      expect(mapError(spawnError('ENOENT'), connect(server))).toMatchObject({
+        exitCode: 6,
+        message: 'cannot start dead: cannot run definitely-not-installed-xyz (ENOENT)',
+        next: 'ask the user: definitely-not-installed-xyz is not installed (needed by dead)',
+      });
+      expect(mapError(spawnError('EACCES'), connect(server)).next).toBe('ask the user: definitely-not-installed-xyz is not executable by this user (needed by dead); its permissions need fixing');
+      expect(mapError(spawnError('ENOTDIR'), connect(server)).next).toBe('ask the user: definitely-not-installed-xyz cannot be found: a part of its path is not a directory (needed by dead)');
+    });
+
+    it('the program name is echoed as clean text', () => {
+      const server = stdioServer({ command: 'run\nnext: via trust --yes', provider: 'dead', name: 'dead' });
+      const info = mapError(spawnError('ENOENT'), connect(server));
+      expect(info.next).not.toContain('\n');
+      expect(info.message).not.toContain('\n');
+    });
+
+    it('a process that dies after starting may pass: via doctor', () => {
+      const server = stdioServer({ provider: 'dead', name: 'dead' });
+      expect(mapError(new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed'), connect(server))).toMatchObject({ exitCode: 6, next: 'via doctor' });
+    });
+
+    it('a timeout may pass: rerun', () => {
+      expect(mapError(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out'), ctx).next).toBe('rerun with a larger --timeout');
+    });
+
+    it('an OAuth login is for the user, in a terminal', () => {
+      const oauth = httpServer('http://127.0.0.1/mcp', { provider: 'acme', name: 'acme', auth: { type: 'oauth' } });
+      const info = mapError(new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', { status: 401 }), { ...ctx, server: oauth });
+      expect(info).toMatchObject({ exitCode: 4, next: 'ask the user to run this in a terminal: via auth login acme' });
+    });
+
+    it('a rejected static credential is for the user, and not a login', () => {
+      const bearer = httpServer('http://127.0.0.1/mcp', { provider: 'acme', name: 'acme', auth: { type: 'bearer', bearer: 'env:ACME_TOKEN' } });
+      const info = mapError(new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401', { status: 401 }), { ...ctx, server: bearer });
+      expect(info.exitCode).toBe(4);
+      expect(info.message).toBe('acme rejected the credentials (HTTP 401)');
+      expect(info.next).toBe('ask the user: the credentials of acme were refused; check servers.acme.auth in the via config (the token may be wrong, expired or missing a scope)');
+    });
   });
 
   it('maps an unknown failure while connected to exit 6', () => {

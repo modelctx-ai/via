@@ -316,12 +316,12 @@ describe('schema dialect and reliability (arguments.md, "校验范围" / "schema
 
   it('--no-validate skips the schema check and reports validated: false', async () => {
     const r = await parse(ISSUE_LIST, ['--state', 'opened'], { validate: false });
-    expect(r).toEqual({ args: { state: 'opened' }, warnings: [], validated: false });
+    expect(r).toEqual({ args: { state: 'opened' }, warnings: [], validated: false, extraFields: [] });
   });
 
   it('a tool without an input schema accepts any arguments', async () => {
     const r = await parse(undefined, ['--a', '1', '--b', 'x']);
-    expect(r).toEqual({ args: { a: 1, b: 'x' }, warnings: [], validated: true });
+    expect(r).toEqual({ args: { a: 1, b: 'x' }, warnings: [], validated: true, extraFields: ['a', 'b'] });
   });
 
   it('validates allOf / oneOf / const / additional properties maps', async () => {

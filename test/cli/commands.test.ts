@@ -59,7 +59,7 @@ describe('untrusted project configuration', () => {
     const r = await sb.via(['evil']);
     expect(r.code).toBe(5);
     expect(r.stderr).toContain('evil is defined in an untrusted project config');
-    expect(r.stderr).toContain('next: via trust');
+    expect(r.stderr).toContain('next: ask the user to run this in a terminal: via trust');
     expect(existsSync(marker)).toBe(false);
   });
 });

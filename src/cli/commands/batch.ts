@@ -40,10 +40,13 @@ interface Finished {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /** The line was not selected by `--line` and did not run. */
+  skipped?: true;
 }
 
 export async function batchCommand(app: App, argv: readonly string[]): Promise<number> {
-  const { flags, positionals } = parseLocal('batch', argv, [{ name: 'concurrency', value: true }]);
+  const { rest, selected: asked } = takeLineOption(argv);
+  const { flags, positionals } = parseLocal('batch', rest, [{ name: 'concurrency', value: true }]);
   if (positionals.length > 0) throw usageFailure(COMMAND_USAGE.batch!, 'via batch -h');
   const concurrency = parseConcurrency(flags.concurrency);
 
@@ -51,6 +54,7 @@ export async function batchCommand(app: App, argv: readonly string[]): Promise<n
   if (lines.length === 0) {
     throw fail(ExitCode.Usage, 'no calls on stdin', 'via batch -h', ['expected one JSON object per line, for example {"tool":"gh/issue:get","args":{"id":1}}']);
   }
+  const selected = checkSelected(asked, lines);
 
   // Everything the lines share is created before any of them starts: the lazily built parts of the
   // app would otherwise be built twice, once by each line that gets there first.
@@ -67,6 +71,7 @@ export async function batchCommand(app: App, argv: readonly string[]): Promise<n
   let next = 0;
   let exitCode = 0;
   let failed = 0;
+  let skipped = 0;
 
   // Print results strictly in input order, as soon as everything before them is printed.
   const flush = (): void => {
@@ -76,7 +81,8 @@ export async function batchCommand(app: App, argv: readonly string[]): Promise<n
       app.err(app.redact.scan(entry.before));
       app.out(app.redact.scan(entry.stdout));
       app.err(app.redact.scan(entry.stderr));
-      if (entry.exitCode !== 0) failed += 1;
+      if (entry.skipped) skipped += 1;
+      else if (entry.exitCode !== 0) failed += 1;
       exitCode = Math.max(exitCode, entry.exitCode);
       next += 1;
     }
@@ -84,7 +90,7 @@ export async function batchCommand(app: App, argv: readonly string[]): Promise<n
   await Promise.all(
     lines.map((input, index) =>
       limiter.run(async () => {
-        finished[index] = await run.line(input);
+        finished[index] = selected === undefined || selected.has(input.line) ? await run.line(input) : skippedLine(input, app.options.format === 'json');
         flush();
       }),
     ),
@@ -92,10 +98,65 @@ export async function batchCommand(app: App, argv: readonly string[]): Promise<n
   flush();
 
   const count = lines.length;
-  const parts = [`${count} ${count === 1 ? 'call' : 'calls'}`, `${count - failed} ok`];
+  const parts = [`${count} ${count === 1 ? 'call' : 'calls'}`, `${count - failed - skipped} ok`];
   if (failed > 0) parts.push(`${failed} failed`);
+  if (skipped > 0) parts.push(`${skipped} skipped`);
   app.err(`· batch · ${parts.join(' · ')} · ${formatElapsed(app.io.now() - started)}\n`);
   return exitCode;
+}
+
+/**
+ * `--line <n>[,<n>…]` (repeatable): the lines to run. Taken out before the generic option parser so that
+ * repeating it adds up instead of the last one silently winning.
+ */
+function takeLineOption(argv: readonly string[]): { rest: string[]; selected: number[] | undefined } {
+  const rest: string[] = [];
+  let selected: number[] | undefined;
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i]!;
+    let value: string | undefined;
+    if (token === '--line') {
+      value = argv[i + 1];
+      i += 1;
+      if (value === undefined) throw usageFailure('--line needs line numbers, like --line 3 or --line 1,4', 'via batch -h');
+    } else if (token.startsWith('--line=')) value = token.slice('--line='.length);
+    else {
+      rest.push(token);
+      continue;
+    }
+    selected ??= [];
+    for (const part of value.split(',')) {
+      const n = Number(part);
+      if (part.trim() === '' || !Number.isInteger(n) || n < 1) {
+        throw usageFailure(`--line must be line numbers separated by commas, like 3 or 1,4 (got ${JSON.stringify(value.slice(0, 40))})`, 'via batch -h');
+      }
+      selected.push(n);
+    }
+  }
+  return { rest, selected };
+}
+
+/** Every number `--line` names must be a line that holds a call: a blank line or one past the end ran nothing, and saying so beats a quiet no-op. */
+function checkSelected(asked: readonly number[] | undefined, lines: readonly InputLine[]): Set<number> | undefined {
+  if (asked === undefined) return undefined;
+  const present = new Set(lines.map((l) => l.line));
+  const missing = [...new Set(asked.filter((n) => !present.has(n)))];
+  if (missing.length > 0) {
+    const numbers = lines.map((l) => String(l.line));
+    const shown = numbers.length > 12 ? [...numbers.slice(0, 12), `… ${numbers.length - 12} more`] : numbers;
+    throw fail(
+      ExitCode.Usage,
+      `--line ${missing.join(', ')}: ${missing.length === 1 ? 'there is no call at that line' : 'there are no calls at those lines'}; nothing was run`,
+      'via batch -h',
+      [`lines with a call: ${shown.join(' · ')}`],
+    );
+  }
+  return new Set(asked);
+}
+
+/** A line `--line` left out: no output in text, `{"line": n, "skipped": true}` in JSON. */
+function skippedLine(input: InputLine, json: boolean): Finished {
+  return { before: '', stdout: json ? `${JSON.stringify({ line: input.line, skipped: true })}\n` : '', stderr: '', exitCode: 0, skipped: true };
 }
 
 function parseConcurrency(value: string | true | undefined): number {
@@ -189,7 +250,7 @@ class LineRunner {
           // Lines run side by side with nobody to ask; a server's question is declined (ADR 0018).
           interactive: false,
           ...rerunLine(target.tool.ref, parsed.args),
-          confirmNext: 'rerun only this line with: via batch --yes',
+          confirmNext: `rerun only this line with: via batch --yes --line ${input.line}`,
           refreshListing: (entry) => this.refresh(entry),
         },
         // Output of concurrent lines must not interleave: it waits for the line's turn. In JSON the

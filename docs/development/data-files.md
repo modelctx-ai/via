@@ -1,6 +1,6 @@
 # 数据文件
 
-规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`stopwords`、`noise`、`columns`、`synonyms` 的 schema 已经提供，测试会逐个校验。
+规则类内容放在 `data/` 下，打包时内联，用户配置可以覆盖。以下格式是草案，实现时以 JSON Schema（放在 `data/schema/`）为准；`verbs`、`stopwords`、`noise`、`columns`、`synonyms`、`common-flags` 的 schema 已经提供，测试会逐个校验。
 
 ## verbs.json
 
@@ -106,6 +106,22 @@
 - `suffixes`：词形还原。查询词以 `suffix` 结尾时，去掉后缀，再依次接上 `append` 里的每个尾巴（`""` 表示什么都不接）得到候选原形；`undouble` 为真时，词干以双写辅音结尾（`running` → `runn`）也尝试去掉一个。词干至少 3 个字符；候选只有在索引词表里存在时才采用。
 - 组应当是通用英文与开发工具里的常识，不是为某个 server 写的补丁（[ADR 0007](../adr/0007-no-gateway-specific-adaptation.md)）。同义词只在查询侧生效，不影响规范名：改动这个文件**不会**改变任何 `provider resource:verb`，因此不需要写进 CHANGELOG 的「影响规范写法」，但仍写进 Unreleased，并附 `npm run eval:search` 前后对比。
 - 两套评测集的写法：`test/fixtures/search/eval.json`（调参）与 `heldout.json`（只用来估计泛化，不拿它调参）里每条是 `{ "q": 自然语言查询, "group": direct|synonym|phrase, "expect": [可接受的规范写法…] }`，按最佳名次计分。
+
+## common-flags.json
+
+其他命令行工具常见的全局 flag，供[参数映射](../spec/arguments.md#json-输入)判断「这个未声明的 `--flag` 多半不是用户想传给工具的参数」。Schema 为 `data/schema/common-flags.schema.json`。
+
+```json
+{
+  "version": 1,
+  "flags": ["verbose", "quiet", "debug", "format", "output", "limit", "page", "force", "dry-run", "no-color"]
+}
+```
+
+- `flags`：小写 kebab-case 的 flag 名，不带 `--`。命令行上的写法按[参数名](../spec/arguments.md#参数名)的规则归一化后再比较（`--dry_run`、`--noColor` 命中 `dry-run`、`no-color`），`no-` 开头的否定写法（`--no-verbose`）命中去掉 `no-` 之后的名字。
+- 只在两个条件同时成立时才用到：工具的根 schema 允许额外字段，并且这个 flag 没有被工具声明。命中时 stderr 一行警告，不改变退出码；用 `--p.<名>` 写就不警告。
+- 既有的全局选项（`--dry-run`、`--yes`、`--all`…）也在表里：via 先取走它们的规范写法，表只管拼写不同的变体（`--dry_run`）。`--json` 是 `-o json` 的别名，不会到达这里。
+- 加词时保持单个小写 kebab 词；表里的词是「模型凭习惯会写、工具又很少真的声明」的 flag，不为某个 server 补丁（[ADR 0007](../adr/0007-no-gateway-specific-adaptation.md)）。改动不影响任何规范写法，写进 CHANGELOG 的 Unreleased 即可。
 
 ## frameworks
 

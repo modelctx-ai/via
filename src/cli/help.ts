@@ -12,7 +12,7 @@ usage:
   via <provider> <resource>:<verb> -h        usage of a tool
   via <provider> <resource>:<verb> [args]    call a tool
   via find <query> [-n 10]                   search tools across providers
-  via batch [--concurrency <n>]              JSON Lines on stdin: concurrent calls, results in input order
+  via batch [--concurrency <n>] [--line <n>] JSON Lines on stdin: concurrent calls, results in input order
   via resources <provider>                   resources and resource templates of a server
   via read <provider> <uri>                  read a resource
   via prompts <provider> [<name> [args]]     prompts of a server; with a name, get that prompt
@@ -24,7 +24,7 @@ commands:
   find call more batch servers sync doctor prompt trust auth daemon resources read prompts serve skills tasks
 
 options:
-  -o text|json|raw  --full  --all  --yes  --dry-run  --no-validate  --detach  --timeout <seconds>  -h
+  -o text|json|raw  --json  --full  --all  --yes  --dry-run  --no-validate  --detach  --timeout <seconds>  -h
   --schema-snapshot <file>  --schema-mode compatible|strict
 
 docs: docs/spec/cli.md
@@ -39,7 +39,7 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   sync: 'usage: via sync [<provider>]',
   doctor: 'usage: via doctor',
   prompt: 'usage: via prompt [--skill] [--out <file> | --check <file>] [--replace]',
-  batch: 'usage: via batch [--concurrency <n>]  (JSON Lines on stdin: {"tool":"<provider>/<resource>:<verb>","args":{…}})',
+  batch: 'usage: via batch [--concurrency <n>] [--line <n>[,<n>…]]  (JSON Lines on stdin: {"tool":"<provider>/<resource>:<verb>","args":{…}})',
   auth: 'usage: via auth login <provider> [--manual] | via auth status [<provider>] | via auth logout <provider>',
   trust: 'usage: via trust [<path>] [--dry-run] | via trust <path> --yes (scripts only: needs VIA_ALLOW_NONINTERACTIVE_TRUST=1) | via trust --list | via trust --revoke <path>',
   daemon: 'usage: via daemon status|stop|run [--socket <path>] [--idle-timeout <seconds>] | via daemon logs [<provider>] [-n <lines>] [--follow] [--since <duration>]',

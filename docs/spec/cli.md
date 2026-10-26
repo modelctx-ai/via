@@ -29,10 +29,19 @@ via <provider> -h                         provider 视图，前面加上 server 
 1. 第一个参数先匹配内置子命令；匹配不上则按 provider 解析。
 2. provider 之后的第一个参数：
    - 含 `:` → 工具引用，其后全部是工具参数；
-   - 不含 `:` 且匹配某个资源 → 浏览该资源；
+   - 不含 `:` 且匹配某个资源 → 浏览该资源，资源之后若还有词，见下面的「资源之后的词」；
    - 不含 `:` 且匹配某个叶子工具或原始名 → 调用该工具；
    - 目录里资源与叶子工具不会同名（[naming.md](naming.md) 规则 7）：同名时叶子改用原始名；原始名也相同时资源让出名字。所以 provider 视图 `tools:` 行列出的每个名字都能直接调用。
 3. 都匹配不上时，不执行任何调用，输出候选或 did you mean，退出码 3。
+
+#### 资源之后的词
+
+`via <provider> <resource> <word> [参数…]`（agent 照 `gh issue list`、`kubectl get pods` 的习惯写成空格分隔）按 `<word>` 是什么处理，多余的词不会被静默丢掉：
+
+- **恰好是该资源的一个动词** → 等价于 `via <provider> <resource>:<verb> [参数…]`：`via gh issue read --issue-number 1` 就是 `via gh issue:read --issue-number 1`。动词按与工具引用相同的宽松规则匹配（大小写、`-` 与 `_` 等价），但只认完整的动词，不认前缀；资源仍接受唯一前缀。输出严格：调用的元信息行本来就以规范写法开头（`· gh issue:read · …`）；`-h` 没有元信息行，stderr 先输出一行 `· gh issue:read`（输入已是规范写法 `issue:read` 时不输出，[见下](#工具引用的写法)）。`--dry-run`、`--yes`、`-o` 等全局选项、本地校验与 `deny` 都与冒号写法一致：被 `deny` 隐藏的动词是退出码 5，不是「多余的词」。
+- **以 `-` 开头** → 是选项。浏览视图认的选项是全局选项（`--all`、`-o`、`-h` 等，via 先取走）；其余一律退出码 2，`error: unknown option --bogus`，`next: via <provider> <resource>`，不再静默忽略。
+- **其他任何词** → 退出码 2，不执行、不浏览，`error: unexpected argument "reed"`。该资源下有相近的动词时附 `did you mean: gh issue:read`（最多 3 个），`next:` 为 `via gh issue:read -h`；写成原始工具名（`issue_read`）或把 `资源:动作` 写在资源之后（`issue:read`）的，同样列出对应的规范写法而不接受：只有一种多词写法，错误里给出的就是能直接运行的那一种。没有相近动词时列出该资源的动词（`verbs of gh issue: read · write · list`，最多 8 个），`next:` 为 `via gh issue`。
+- 资源与动词同名（`search:search`）时，资源之后的第一个词按动词解释，所以 `via gh search search cats` 调用 `search:search`，`via gh search cats` 是退出码 2。叶子工具占了资源名（[naming.md](naming.md) 规则 7）时，该名字解析为叶子工具，其后的词是它的参数，不适用本节。
 
 ## 为什么是这种形状
 
@@ -48,7 +57,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 | `via find <查询> [-n 10]` | 跨 provider 搜索工具，每条结果带参数签名 |
 | `via call <provider>/<resource>:<verb> --args '{…}'` | 显式调用，参数为 JSON、`@文件` 或 `-`（stdin），供脚本使用 |
 | `via more <游标>` | 续读被截断的结果 |
-| `via batch [--concurrency <n>]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出（[见下](#via-batch)） |
+| `via batch [--concurrency <n>] [--line <n>[,<n>…]]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出；`--line` 只执行指定的行（[见下](#via-batch)） |
 | `via servers` | 列出 server、来源文件、传输方式、鉴权状态与备注 |
 | `via auth login <provider> [--manual]`<br>`via auth status [<provider>]`<br>`via auth logout <provider>` | OAuth 登录、状态、登出；`login --manual` 用于无头环境；`grant: client_credentials` 的 server 不需要登录，`login` 只验证凭据（[auth.md](auth.md)） |
 | `via trust [路径] [--dry-run]`、`via trust <路径> --yes` | 显示并信任项目级配置文件；`--list` 列出记录，`--revoke <路径>` 撤销（[security.md](security.md#via-trust)） |
@@ -329,7 +338,8 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 - 各行并发执行。同一 server 上的并发不超过它的 `concurrency`（[config.md](config.md#serversname)），超出的排队；另有全局上限 `--concurrency <n>`（默认 16，正整数），限制同时在途的行数，无论它们属于哪些 server。
 - 单条失败（解析、找不到、`deny`、危险操作、校验、上游、传输、超时）只影响该行，不中止其他行。
 - 每个 provider 的工具列表在整批中只取一次；校验失败后「缓存超过 5 分钟则刷新一次」的规则（[arguments.md](arguments.md#schema-不可靠时)）也是每个 provider 整批一次，而不是每行一次。
-- 全局选项对整批生效：`--yes` 确认所有危险工具；`--dry-run` 对每一行只打印将要发出的调用（格式见 [`--dry-run` 的输出](#--dry-run-的输出)），不发起调用；`--no-validate`、`--timeout`、`--full`、`-o` 同理。没有 `--yes` 时，危险工具所在的行以退出码 5 失败，其余行不受影响，`next:` 写 `rerun only this line with: via batch --yes`，因为重跑整批会让已成功的行再执行一遍。
+- 全局选项对整批生效：`--yes` 确认所有危险工具；`--dry-run` 对每一行只打印将要发出的调用（格式见 [`--dry-run` 的输出](#--dry-run-的输出)），不发起调用；`--no-validate`、`--timeout`、`--full`、`-o` 同理。没有 `--yes` 时，危险工具所在的行以退出码 5 失败，其余行不受影响，`next:` 写 `rerun only this line with: via batch --yes --line 3`（3 是该行的行号），因为重跑整批会让已成功的行再执行一遍；stdin 仍要给同一份输入。
+- **`--line <n>[,<n>…]`**：只执行指定的行，其余行跳过。`<n>` 是输入里的行号（与错误里的 `line N` 同一个数，空行也占行号），逗号分隔，可以重复写 `--line`（取并集）；必须是正整数。被跳过的行不解析、不解析 provider，也不连接 server，所以其中的错误不会出现。指定的行号不存在（空行，或超过最后一行）、不是正整数列表，或 `--line` 没有值时，不执行任何调用，退出码 2：`error: --line 9: there is no call at that line; nothing was run`，下一行 `lines with a call: 1 · 3 · 4`（超过 12 个时截断为 `… N more`）。其余选项（`--yes`、`--dry-run`、`--timeout`、`-o`）照常作用于被选中的行。
 - 批量不是事务：没有回滚，也不保证幂等。已发出的写入调用不会因为后面的行失败而撤销。
 
 #### 输出（text，默认）
@@ -355,7 +365,7 @@ echo: after
 
 - 成功行的元信息行与单次调用相同，在标记位置多一个 `line N`（排在 `unvalidated` 之后、`next:` 之前）。
 - 失败行没有数据；错误报告与单次调用相同（原因、补充行、`next:`），只是原因行写成 `error: line N: …`。
-- 最后一行 `· batch · N calls · K ok [· M failed] · <耗时>` 汇总整批，写 stderr。
+- 最后一行 `· batch · N calls · K ok [· M failed] [· S skipped] · <耗时>` 汇总整批，写 stderr；`N` 是所有非空行，`skipped` 是 `--line` 没有选中的行（没有 `--line` 时没有这一项）。被跳过的行 text 下什么也不输出，也不计入 `ok` 与 `failed`。
 - 元信息行在 stderr，所以只捕获 stdout 时各行的数据无法按行拆开；需要程序化处理时用 `-o json`。
 - `-o raw` 的框架与 text 相同，每行的数据是上游原始内容。
 
@@ -378,19 +388,21 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `error` | 失败时的 `{code, message, next?, details?}`，与单次 `-o json` 的 stderr 里 `error` 对象相同 |
 | `truncated`、`next` | 结果超过输出预算时：没有 `result`，`truncated` 为 `true`，`next` 是 `via more <游标>`；加 `--full` 则不截断。被截断的 JSON 不是合法 JSON，所以不会把半截结果塞进记录 |
 | `warnings` | 警告（如 `outputSchema` 不匹配），有才出现 |
+| `skipped` | `--line` 没有选中该行时为 `true`；这样的记录只有 `line` 与 `skipped` 两个字段，没有 `ok`、`exitCode` |
 | `unvalidated` | 以 `--no-validate` 跳过校验时为 `true` |
 
 `-o json` 时错误和警告都在记录里，不再写 stderr；stderr 只有 `progress:` 行和最后的汇总行。
 
 #### 退出码
 
-整体退出码取各行退出码中**数值最大**的（全部成功为 0），与 `via sync`、`via doctor` 一致。例如一行被 `deny`（5）、一行上游错误（1）时整体为 5。需要逐行判断时看每一行的退出码（`-o json` 的 `exitCode`，或 text 下的错误行）。批量本身的失败——配置有 error 级诊断、选项非法、没有输入——退出码为 2，且不执行任何调用。
+整体退出码取各行退出码中**数值最大**的（全部成功为 0；被跳过的行不计），与 `via sync`、`via doctor` 一致。例如一行被 `deny`（5）、一行上游错误（1）时整体为 5。需要逐行判断时看每一行的退出码（`-o json` 的 `exitCode`，或 text 下的错误行）。批量本身的失败——配置有 error 级诊断、选项非法、没有输入——退出码为 2，且不执行任何调用。
 
 ## 全局选项
 
 | 选项 | 作用 |
 | --- | --- |
 | `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)） |
+| `--json` | `-o json` 的别名（模型对 `--json` 的先验很强）。工具自己有名为 `json` 的参数时写 `--p.json` |
 | `--full` | 关闭截断 |
 | `--all` | 浏览视图不截断条目 |
 | `--yes` | 确认执行危险工具 |
@@ -409,7 +421,9 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 
 ### `--dry-run` 的输出
 
-校验照常进行，通过后在 stdout 输出规范写法、原始名、目标 server（HTTP 只写 scheme 与主机）和最终参数；已解析的凭证值打码。不发起调用，退出码 0。`deny` 命中仍然退出码 5；危险工具缺少 `--yes` 时不报错，而是多一行 `requires: --yes (destructive tool)`。`-o json` 时输出同样字段的 JSON 对象（`dryRun`、`tool`、`rawName`、`server`、`transport`、`args`，可选 `requires`）。
+校验照常进行，通过后在 stdout 输出规范写法、原始名、目标 server（HTTP 只写 scheme 与主机）和最终参数；已解析的凭证值打码。不发起调用，退出码 0。`deny` 命中仍然退出码 5；危险工具缺少 `--yes` 时不报错，而是多一行 `requires: --yes (destructive tool)`。`-o json` 时输出同样字段的 JSON 对象（`dryRun`、`tool`、`rawName`、`server`、`transport`、`args`，可选 `requires`、`extraFields`）。
+
+工具没有声明、却以 `--名字` 发出去的顶层字段（根 schema 允许额外字段时才可能，[arguments.md](arguments.md#json-输入)）单独标出：`args:` 之前多一行 `extra fields: json, verbose`（按命令行出现的顺序；`-o json` 为 `"extraFields": ["verbose"]`），没有这类字段时不出现。`--p.verbose` 写法发出的字段也列在里面，只是不再告警。`--args` 与 `via batch` 的 `args` 里的字段不算：它们是整段 JSON，不是 flag。
 
 ```console
 $ via gh issue_write --owner acme --repo api --title "T" --dry-run

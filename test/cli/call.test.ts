@@ -189,7 +189,8 @@ describe('exit codes and errors', () => {
     const { srv, sb } = await setup();
     const provider = await sb.via(['gj', 'issue']);
     expect(provider.code).toBe(3);
-    expect(provider.stderr).toBe('error: no such provider: gj\ndid you mean: gh\nnext: via gh -h\n');
+    // The providers are listed and the next step is one that exists (discovery.md, "找不到时").
+    expect(provider.stderr).toBe('error: no such provider: gj\ndid you mean: gh\nproviders: gh\nnext: via gh\n');
     const tool = await sb.via(['gh', 'issue:rea']);
     expect(tool.code).toBe(3);
     expect(tool.stderr).toContain('did you mean: gh issue:read');
@@ -255,7 +256,8 @@ describe('exit codes and errors', () => {
     const r = await sb.via(['gh']);
     expect(r.code).toBe(4);
     expect(r.stderr).toContain('rejected the credentials (HTTP 401)');
-    expect(r.stderr).toContain('next: via auth login gh');
+    // A bearer token that was refused is not something `via auth login` can fix.
+    expect(r.stderr).toContain('next: ask the user: the credentials of gh were refused; check servers.gh.auth in the via config');
     expect(r.stdout + r.stderr).not.toContain(wrong);
   });
 

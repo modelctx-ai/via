@@ -15,6 +15,7 @@ describe('data files validate against data/schema (data-files.md)', () => {
     ['noise.json', 'schema/noise.schema.json'],
     ['columns.json', 'schema/columns.schema.json'],
     ['synonyms.json', 'schema/synonyms.schema.json'],
+    ['common-flags.json', 'schema/common-flags.schema.json'],
   ])('%s', (file, schema) => {
     const validate = ajv.compile(read(schema) as object);
     const ok = validate(read(file));
