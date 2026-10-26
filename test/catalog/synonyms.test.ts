@@ -131,7 +131,11 @@ describe('search with synonym expansion (discovery.md, "搜索")', () => {
   });
 
   it('gives the same results with synonyms off as the lexical rules for queries without synonyms', () => {
-    expect(refs(index, 'github issue:read')).toEqual(refs(lexical, 'github issue:read'));
+    // `read` has synonyms (`get`...), so a query with it is not one of these: the name-coverage bonus (discovery.md,
+    // "provider 名与资源词相同") counts a synonym as a query word, and `linear issue:get` then enters the top 10.
+    expect(refs(index, 'github issue')).toEqual(refs(lexical, 'github issue'));
+    expect(refs(index, 'github sub-issue')).toEqual(refs(lexical, 'github sub-issue'));
+    expect(refs(index, 'github issue:read', 1)).toEqual(refs(lexical, 'github issue:read', 1));
     expect(refs(index, 'sql')).toEqual(expect.arrayContaining(['postgres query']));
   });
 

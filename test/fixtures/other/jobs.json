@@ -1,0 +1,540 @@
+{
+  "tools": [
+    {
+      "name": "create_job",
+      "description": "Create a job in a project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Project that owns the job"
+          },
+          "body": {
+            "type": "string",
+            "description": "Job details in markdown"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "User to assign the job to"
+          }
+        },
+        "required": [
+          "title",
+          "projectId"
+        ]
+      }
+    },
+    {
+      "name": "create_topic",
+      "description": "Create a new discussion topic. Create a topic to group related jobs: jobs of a topic share messages and context, and each job in the topic can be scheduled or closed on its own.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Topic title"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Project of the topic"
+          },
+          "jobIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Jobs to put in the new topic"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "jobs",
+      "description": "List jobs, newest first, with their status. Pass id to read a single job with its full body and history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job id; when set, only this job is returned"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Only jobs of this project"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "topics",
+      "description": "List discussion topics, each with the number of jobs it groups.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Only topics of this project"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "projects",
+      "description": "List projects you can access. Each project owns jobs, topics and builds; pass a project id to other tools to scope them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "close_jobs",
+      "description": "Close one or more jobs and record the reason. Closed jobs can be reopened later.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ids of the jobs to close"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the jobs are closed"
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    },
+    {
+      "name": "complete_jobs",
+      "description": "Mark jobs as completed after their work is done. Use close_jobs for jobs that are dropped.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    },
+    {
+      "name": "reopen_jobs",
+      "description": "Reopen closed jobs so work on the job can continue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    },
+    {
+      "name": "update_job",
+      "description": "Change the title, body, assignee or status of a job.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job id"
+          },
+          "title": {
+            "type": "string",
+            "description": "New title"
+          },
+          "body": {
+            "type": "string",
+            "description": "New body"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "New assignee"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "message_job",
+      "description": "Send a message to the agent that works on a job, for example to give it more context.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job id"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text"
+          }
+        },
+        "required": [
+          "jobId",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "message_topic",
+      "description": "Send a message to a topic thread. All jobs of the topic can see it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "topicId": {
+            "type": "string",
+            "description": "Topic id"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text"
+          }
+        },
+        "required": [
+          "topicId",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "schedule_job",
+      "description": "Run a job on a schedule, for example every weekday. The job is created again at each run.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job id"
+          },
+          "cron": {
+            "type": "string",
+            "description": "Cron expression"
+          }
+        },
+        "required": [
+          "jobId",
+          "cron"
+        ]
+      }
+    },
+    {
+      "name": "unschedule_job",
+      "description": "Remove the schedule of a job so it no longer runs by itself.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job id"
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      }
+    },
+    {
+      "name": "schedules",
+      "description": "List the schedules of jobs, with the next run time of each.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "delete_topics",
+      "description": "Delete topics. The jobs of a deleted topic are kept.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    },
+    {
+      "name": "secrets",
+      "description": "List the names of the secrets available to jobs. Values are never returned.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Only secrets of this project"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "set_secret",
+      "description": "Create or replace a secret that jobs of a project can read as an environment variable.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project"
+          },
+          "name": {
+            "type": "string",
+            "description": "Secret name"
+          },
+          "value": {
+            "type": "string",
+            "description": "Secret value"
+          }
+        },
+        "required": [
+          "projectId",
+          "name",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "delete_secrets",
+      "description": "Delete secrets by name. Jobs that need them fail until the secret is set again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project"
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "projectId",
+          "names"
+        ]
+      }
+    },
+    {
+      "name": "run_builds",
+      "description": "Start a build for the branch of a job. Builds check the code the job changed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job id"
+          },
+          "branch": {
+            "type": "string",
+            "description": "Branch to build"
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      }
+    },
+    {
+      "name": "cancel_builds",
+      "description": "Cancel running builds of a job.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job id"
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      }
+    },
+    {
+      "name": "confirm_builds",
+      "description": "Confirm a finished build so the job can be merged.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "description": "Build id"
+          }
+        },
+        "required": [
+          "buildId"
+        ]
+      }
+    },
+    {
+      "name": "merge_builds",
+      "description": "Merge the build of a job into the main branch.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "description": "Build id"
+          }
+        },
+        "required": [
+          "buildId"
+        ]
+      }
+    },
+    {
+      "name": "pull_requests",
+      "description": "List pull requests opened by jobs, with their review state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Only pull requests of this job"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "issues",
+      "description": "List issues linked to jobs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Only issues of this job"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "workflow_runs",
+      "description": "List workflow runs, each started for a job or a schedule.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Only runs of this job"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "agents",
+      "description": "List the agents that can work on jobs, with their state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "machines",
+      "description": "List the machines where jobs run and whether each is online.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "skills",
+      "description": "List the skills an agent can use when it works on a job.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "conversation",
+      "description": "Read the conversation of a job: messages, tool calls and results.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job id"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      }
+    },
+    {
+      "name": "attachment",
+      "description": "Download an attachment of a job or a message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Attachment id"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}
