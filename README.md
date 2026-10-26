@@ -185,6 +185,8 @@ Syntax, global options and exit codes are in the [CLI spec](docs/spec/cli.md) an
 - Configuration stores only credential references, and resolved credential values are replaced with `***` in all output.
 - Tools marked destructive require `--yes`. Tools matched by a `deny` rule are hidden from listings and cannot be called.
 - Commands and endpoints from project-level configuration (`.via.yaml`, a repository's `.mcp.json` and similar) must be approved with `via trust` in your terminal before first use. Do not let the agent run it for you.
+- `commands` in the config can refuse (`deny`, `allow`) or hide (`hide`, `show`) built-in subcommands, so the agent only sees and uses the ones you want. Like `deny`, it is enforced by via, not by the operating system.
+- Optional `sandbox`: with `sandbox: { enabled: true }`, every `via …` runs as `srt via …`, so via and the stdio servers it starts can only write and connect where your policy allows. via does not depend on srt's package; any program with the same command line works. It is not credential isolation: the servers share the sandbox with via. See [configuration](docs/spec/config.md#sandbox).
 
 The threat model is in the [security spec](docs/spec/security.md).
 
@@ -207,6 +209,7 @@ See the [vision document](docs/overview/vision.md#与相近工具的区别) for 
 | Goals, non-goals, and how via differs from mcpc, mcp2cli and similar tools | [Vision](docs/overview/vision.md) |
 | How the pieces fit together | [Architecture](docs/overview/architecture.md) |
 | Configuration fields and credential references | [Configuration](docs/spec/config.md), [authentication](docs/spec/auth.md) |
+| Restricting subcommands, running via in a sandbox | [Getting started, step 6](docs/guides/getting-started.md#6-可选收窄命令放进沙箱), [recipes](docs/guides/recipes.md) |
 | Using GitHub, Linear, Notion and Cloudflare | [Provider guides](docs/guides/providers/) |
 | What comes next | [Roadmap](docs/roadmap.md), [open questions](docs/open-questions.md) |
 | Why things are the way they are | [Architecture decision records](docs/adr/) |

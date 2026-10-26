@@ -24,9 +24,9 @@
 
 ### 指南
 
-- [快速上手](guides/getting-started.md)
+- [快速上手](guides/getting-started.md)：安装、鉴权、发现与调用、交给 agent，可选的命令限制与沙箱
 - [与 agent 框架集成](guides/agent-integration.md)：`via doctor`、`via prompt`、迁移路径、并存期注意事项
-- [组合用法](guides/recipes.md)：管道、batch、heredoc、跨 provider
+- [组合用法](guides/recipes.md)：管道、batch、heredoc、跨 provider、收窄命令、沙箱
 - Provider 示例：[GitHub](guides/providers/github.md) · [Linear](guides/providers/linear.md) · [Notion](guides/providers/notion.md) · [Cloudflare](guides/providers/cloudflare.md) · [网关类 server](guides/providers/gateways.md)
 
 ### 开发
