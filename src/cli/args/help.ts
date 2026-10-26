@@ -214,7 +214,7 @@ export function formatToolHelp(tool: McpTool, ctx: ToolArgsContext): string {
 
   const marks = [`alias: ${shellArg(ctx.rawName, { placeholder: 'name' })}`];
   if (ctx.readOnly) marks.push('read-only');
-  if (ctx.destructive) marks.push('destructive (needs --yes)');
+  if (ctx.destructive) marks.push(ctx.destructiveBy === 'inferred' ? 'destructive? (inferred from the name; needs --yes)' : ctx.destructiveBy === 'config' ? 'needs --yes (confirm in the via config)' : 'destructive (needs --yes)');
   out.push(marks.join(' · '));
   return out.join('\n');
 }

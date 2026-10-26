@@ -165,6 +165,36 @@ function findCmdRef(def: ServerDef): string | undefined {
   return undefined;
 }
 
+/**
+ * A project file can make a call need `--yes`, never skip it (security.md): `confirm: never` and
+ * `confirm.except` in a project layer are dropped with a warning.
+ */
+function onlyTightening(name: string, def: ServerDef, origin: ConfigOrigin, diagnostics: ConfigDiagnostic[]): ServerDef {
+  if (origin.scope !== 'project' && origin.scope !== 'framework-project') return def;
+  const dropNever = def.confirm === 'never';
+  const dropExcept = def.confirmExcept !== undefined;
+  if (!dropNever && !dropExcept) return def;
+  const out = { ...def };
+  const what: string[] = [];
+  if (dropNever) {
+    delete out.confirm;
+    what.push(`servers.${name}.confirm: never`);
+  }
+  if (dropExcept) {
+    delete out.confirmExcept;
+    what.push(`servers.${name}.confirm.except`);
+  }
+  const diagnostic: ConfigDiagnostic = {
+    level: 'warning',
+    code: 'confirm-forbidden',
+    message: `${what.join(' and ')} is only read from the user config; it was ignored (a project file can add confirmation, not remove it)`,
+    server: name,
+  };
+  if (origin.path) diagnostic.file = origin.path;
+  diagnostics.push(diagnostic);
+  return out;
+}
+
 /** Reject a definition holding a `cmd:` reference unless it comes from the user config or the CLI. */
 function allowedHere(name: string, def: ServerDef, origin: ConfigOrigin, diagnostics: ConfigDiagnostic[]): boolean {
   if (origin.scope === 'user' || origin.scope === 'cli') return true;
@@ -235,12 +265,13 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   for (const layer of layers) {
     for (const [name, def] of layer.data.servers) {
       if (!allowedHere(name, def, layer.origin, diagnostics)) continue;
+      const tightened = onlyTightening(name, def, layer.origin, diagnostics);
       let acc = accumulators.get(name);
       if (!acc) {
         acc = newAccumulator();
         accumulators.set(name, acc);
       }
-      applyDef(acc, def, layer.origin);
+      applyDef(acc, tightened, layer.origin);
     }
   }
 
@@ -354,6 +385,34 @@ export async function loadPolicy(files: readonly string[], options: LoadConfigOp
   return { policy: merged.policy, diagnostics };
 }
 
+/**
+ * The `confirm.tools` / `confirm.except` patterns that compile and pass the `deny` safety check (config.md, "confirm").
+ * One that does not is dropped with a diagnostic. A lost `tools` rule would leave a tool without the confirmation the
+ * user asked for, so it is an error (the CLI stops, like an invalid `deny`); a lost `except` rule only keeps a
+ * confirmation, so it warns.
+ */
+function checkedPatterns(server: string, field: 'tools' | 'except', patterns: readonly string[] | undefined, level: 'error' | 'warning', diagnostics: ConfigDiagnostic[]): string[] {
+  const out: string[] = [];
+  for (const [i, pattern] of (patterns ?? []).entries()) {
+    const shown = JSON.stringify(pattern.length > 80 ? `${pattern.slice(0, 77)}...` : pattern);
+    const path = `servers.${server}.confirm.${field}[${i}]`;
+    try {
+      new RegExp(pattern);
+    } catch (error) {
+      const why = error instanceof Error ? error.message.replace(/^Invalid regular expression: /, '') : 'syntax error';
+      diagnostics.push({ level, code: 'invalid-confirm', message: `${path}: invalid regular expression ${shown} (${why}); the rule was ignored`, server });
+      continue;
+    }
+    const unsafe = checkDenyPattern(pattern);
+    if (unsafe !== undefined) {
+      diagnostics.push({ level, code: 'unsafe-confirm', message: `${path}: regular expression ${shown} was refused: ${unsafe}; the rule was ignored`, server });
+      continue;
+    }
+    out.push(pattern);
+  }
+  return out;
+}
+
 function finalize(
   name: string,
   acc: Accumulator,
@@ -404,6 +463,10 @@ function finalize(
     origin: acc.transportOrigin ?? { scope: 'cli' },
     trusted,
   };
+  const confirmTools = checkedPatterns(name, 'tools', d.confirmTools, 'error', diagnostics);
+  const confirmExcept = checkedPatterns(name, 'except', d.confirmExcept, 'warning', diagnostics);
+  if (confirmTools.length > 0) server.confirmTools = confirmTools;
+  if (confirmExcept.length > 0) server.confirmExcept = confirmExcept;
   if (d.budget !== undefined) server.budget = d.budget;
   if (d.protocolVersion !== undefined) server.protocolVersion = d.protocolVersion;
   if (d.roots !== undefined && d.roots.length > 0) {

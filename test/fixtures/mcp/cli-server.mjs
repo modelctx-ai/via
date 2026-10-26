@@ -491,6 +491,8 @@ export function createCliServer({ state, authorization, features = [], flavor = 
       case 'stats_get':
         return { content: [{ type: 'text', text: '{"count":"many"}' }], structuredContent: { count: 'many' } };
       default:
+        // A test that swaps `state.tools` for its own list gets a plain answer for those tools.
+        if (state.tools.some((t) => t.name === name)) return { content: [{ type: 'text', text: `${name}: ok` }] };
         throw new Error(`unknown tool: ${name}`);
     }
   };

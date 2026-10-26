@@ -37,6 +37,10 @@ export interface SnapshotHead {
 const RENAMED = 1;
 const READ_ONLY = 2;
 const DESTRUCTIVE = 4;
+/** With DESTRUCTIVE: the need for `--yes` is via's inference (data/destructive.json), not the server's hint. */
+const INFERRED = 8;
+/** With DESTRUCTIVE: the need for `--yes` comes from a `confirm.tools` rule. */
+const CONFIGURED = 16;
 
 /**
  * `[index in the raw list, raw name, resource, verb, canonical name, flags, description, params, default name, leaf name, example]`,
@@ -81,7 +85,7 @@ export function snapshotProvider(
       tool.resource,
       tool.verb,
       tool.name,
-      (tool.renamed ? RENAMED : 0) | (tool.readOnly ? READ_ONLY : 0) | (tool.destructive ? DESTRUCTIVE : 0),
+      (tool.renamed ? RENAMED : 0) | (tool.readOnly ? READ_ONLY : 0) | (tool.destructive ? DESTRUCTIVE : 0) | (tool.destructiveBy === 'inferred' ? INFERRED : 0) | (tool.destructiveBy === 'config' ? CONFIGURED : 0),
       tool.description,
       tool.params.map((p): SnapshotParam => [p.name, p.arg, p.required ? 1 : 0, p.type ?? '', p.values ?? '']),
       tool.defaultSingleRef === tool.singleRef ? '' : tool.defaultSingleRef.slice(provider.provider.length + 1),
@@ -155,6 +159,7 @@ export function restoreProvider(
         params: params.map(([pname, arg, required, type, values]): ParamInfo => ({ name: pname, arg, required: required === 1, ...(type !== '' ? { type } : {}), ...(values !== '' ? { values } : {}) })),
         readOnly: (flags & READ_ONLY) !== 0,
         destructive: (flags & DESTRUCTIVE) !== 0,
+        ...((flags & DESTRUCTIVE) !== 0 ? { destructiveBy: (flags & CONFIGURED) !== 0 ? 'config' : (flags & INFERRED) !== 0 ? 'inferred' : 'server' } : {}),
         renamed: (flags & RENAMED) !== 0,
         ...(example !== '' ? { exampleArgs: example } : {}),
       } as unknown as CatalogTool;

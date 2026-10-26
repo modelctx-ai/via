@@ -162,6 +162,54 @@ describe('canonical forms', () => {
   });
 });
 
+describe('destructive tools (arguments.md, "危险操作")', () => {
+  const build = (tools: Array<{ name: string; annotations?: Record<string, boolean> }>, extra: Partial<Parameters<typeof buildProviderCatalog>[0]> = {}) =>
+    buildProviderCatalog({ provider: 'x', tools, ...extra }).tools.map((t) => [t.rawName, t.destructive, t.destructiveBy]);
+
+  it('infers from a word of the raw name only when the server declared neither hint', () => {
+    expect(
+      build([
+        { name: 'delete_secrets' },
+        { name: 'secretDelete' },
+        { name: 'remove-member' },
+        { name: 'list_deleted_items' },
+        { name: 'dropbox_search' },
+        { name: 'archive_task' },
+        { name: 'drop_note', annotations: { destructiveHint: false } },
+        { name: 'purge_cache', annotations: { readOnlyHint: true } },
+        { name: 'wipe_disk', annotations: { destructiveHint: true } },
+        { name: 'erase_all', annotations: { readOnlyHint: false } },
+      ]),
+    ).toEqual([
+      ['delete_secrets', true, 'inferred'],
+      ['secretDelete', true, 'inferred'],
+      ['remove-member', true, 'inferred'],
+      ['list_deleted_items', false, undefined],
+      ['dropbox_search', false, undefined],
+      ['archive_task', false, undefined],
+      ['drop_note', false, undefined],
+      ['purge_cache', false, undefined],
+      ['wipe_disk', true, 'server'],
+      ['erase_all', true, 'inferred'],
+    ]);
+  });
+
+  it('does not depend on rename or on how the name splits', () => {
+    expect(build([{ name: 'delete_secrets' }], { rename: { delete_secrets: 'secret:wipe-out' } })).toEqual([['delete_secrets', true, 'inferred']]);
+    expect(build([{ name: 'delete_secrets' }], { rename: { delete_secrets: 'harmless' } })).toEqual([['delete_secrets', true, 'inferred']]);
+  });
+
+  it('confirm.tools makes a tool need --yes whatever the server says; except takes it away; tools wins', () => {
+    const tools = [{ name: 'archive_task' }, { name: 'delete_secrets' }, { name: 'wipe_disk', annotations: { destructiveHint: true } }, { name: 'drop_note', annotations: { destructiveHint: false } }];
+    expect(build(tools, { confirm: { tools: [/archive_task$/, /^x\/drop-note$/], except: [/delete_secrets$/, /wipe_disk$/, /archive_task$/] } })).toEqual([
+      ['archive_task', true, 'config'],
+      ['delete_secrets', false, undefined],
+      ['wipe_disk', false, undefined],
+      ['drop_note', true, 'config'],
+    ]);
+  });
+});
+
 describe('signatures (discovery.md, "浏览视图")', () => {
   it('puts required parameters first, optional ones in brackets, names in kebab-case', () => {
     const params = extractParams({

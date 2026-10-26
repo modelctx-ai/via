@@ -435,7 +435,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 
 ### `--dry-run` 的输出
 
-校验照常进行，通过后在 stdout 输出规范写法、原始名、目标 server（HTTP 只写 scheme 与主机）和最终参数；已解析的凭证值打码。不发起调用，退出码 0。`deny` 命中仍然退出码 5；危险工具缺少 `--yes` 时不报错，而是多一行 `requires: --yes (destructive tool)`。`-o json` 时输出同样字段的 JSON 对象（`dryRun`、`tool`、`rawName`、`server`、`transport`、`args`，可选 `requires`、`extraFields`）。
+校验照常进行，通过后在 stdout 输出规范写法、原始名、目标 server（HTTP 只写 scheme 与主机）和最终参数；已解析的凭证值打码。不发起调用，退出码 0。`deny` 命中仍然退出码 5；需要 `--yes` 的工具缺少它时不报错，而是多一行 `requires: --yes (destructive tool)`；工具是 via 推断的破坏性写成 `requires: --yes (destructive tool, inferred from its name)`，`confirm.tools` 要求的写成 `requires: --yes (confirm in the via config)`（[arguments.md](arguments.md#危险操作)）。`-o json` 时输出同样字段的 JSON 对象（`dryRun`、`tool`、`rawName`、`server`、`transport`、`args`，可选 `requires`、`destructiveBy`、`extraFields`）。
 
 工具没有声明、却以 `--名字` 发出去的顶层字段（根 schema 允许额外字段时才可能，[arguments.md](arguments.md#json-输入)）单独标出：`args:` 之前多一行 `extra fields: json, verbose`（按命令行出现的顺序；`-o json` 为 `"extraFields": ["verbose"]`），没有这类字段时不出现。`--p.verbose` 写法发出的字段也列在里面，只是不再告警。`--args` 与 `via batch` 的 `args` 里的字段不算：它们是整段 JSON，不是 flag。
 

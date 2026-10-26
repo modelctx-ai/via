@@ -183,7 +183,7 @@ Syntax, global options and exit codes are in the [CLI spec](docs/spec/cli.md) an
 
 - via is not a gateway. It runs as the same user as the agent, so it lowers the chance of a credential leaking by accident but cannot stop a deliberate read. When you need isolation and auditing, put a gateway such as [Asterlane](https://github.com/komiyoo/asterlane) behind via; via treats it as an ordinary MCP server.
 - Configuration stores only credential references, and resolved credential values are replaced with `***` in all output.
-- Tools marked destructive require `--yes`. Tools matched by a `deny` rule are hidden from listings and cannot be called.
+- Tools marked destructive (declared by the server, or inferred from names like `delete` when it declares nothing) require `--yes`. Tools matched by a `deny` rule are hidden from listings and cannot be called.
 - Commands and endpoints from project-level configuration (`.via.yaml`, a repository's `.mcp.json` and similar) must be approved with `via trust` in your terminal before first use. Do not let the agent run it for you.
 - `commands` in the config can refuse (`deny`, `allow`) or hide (`hide`, `show`) built-in subcommands, so the agent only sees and uses the ones you want. Like `deny`, it is enforced by via, not by the operating system.
 - Optional `sandbox`: with `sandbox: { enabled: true }`, every `via …` runs as `srt via …`, so via and the stdio servers it starts can only write and connect where your policy allows. via does not depend on srt's package; any program with the same command line works. It is not credential isolation: the servers share the sandbox with via. See [configuration](docs/spec/config.md#sandbox).

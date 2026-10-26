@@ -183,7 +183,7 @@ via prompt --skill --out <目录>/via/SKILL.md   # 改写成 SKILL.md，给按�
 
 - via 不是网关：它与 agent 以同一用户运行，只能降低凭证意外暴露的概率，挡不住有意的读取。需要权限隔离和审计时，在 via 背后接一个网关（例如 [Asterlane](https://github.com/komiyoo/asterlane)），via 把它当作普通 MCP server。
 - 配置里只存凭证引用；解析后的凭证值在所有输出中替换为 `***`。
-- 标记为破坏性的工具需要 `--yes`；被 `deny` 规则匹配的工具不出现在列表里，也无法调用。
+- 标记为破坏性的工具（server 声明的，或 server 什么都没声明时按 `delete` 之类的名字推断的）需要 `--yes`；被 `deny` 规则匹配的工具不出现在列表里，也无法调用。
 - 项目级配置（`.via.yaml`、仓库里的 `.mcp.json` 等）中的命令和端点首次使用前需要你在终端里执行 `via trust` 确认；不要让 agent 替你运行。
 
 威胁模型见[安全模型](docs/spec/security.md)。

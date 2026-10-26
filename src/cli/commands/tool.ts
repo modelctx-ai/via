@@ -35,7 +35,7 @@ export interface ToolTarget {
 }
 
 export function argsContext(tool: CatalogTool): ToolArgsContext {
-  return { provider: tool.provider, ref: tool.ref, rawName: tool.rawName, readOnly: tool.readOnly, destructive: tool.destructive };
+  return { provider: tool.provider, ref: tool.ref, rawName: tool.rawName, readOnly: tool.readOnly, destructive: tool.destructive, ...(tool.destructiveBy ? { destructiveBy: tool.destructiveBy } : {}) };
 }
 
 export function argsIo(app: App): ToolArgsIO {
@@ -58,7 +58,7 @@ export async function showToolHelp(app: App, initial: ToolTarget): Promise<numbe
   const target = await checkSchemaSnapshot(app, initial);
   if (app.options.format === 'json') {
     const { tool } = target;
-    const detail = toolDetail(tool.def, tool.ref, { readOnly: tool.readOnly, destructive: tool.destructive });
+    const detail = toolDetail(tool.def, tool.ref, { readOnly: tool.readOnly, destructive: tool.destructive, destructiveBy: tool.destructiveBy });
     app.out(`${JSON.stringify(await app.redactValue(detail), null, 2)}\n`);
     return ExitCode.Ok;
   }
@@ -74,7 +74,7 @@ export async function showToolHelp(app: App, initial: ToolTarget): Promise<numbe
 export function providerTools(provider: ProviderCatalog): { usage: string[]; details: Record<string, unknown>[] } {
   return {
     usage: provider.tools.map((t) => formatUsage(t.def, argsContext(t))),
-    details: provider.tools.map((t) => toolDetail(t.def, t.ref, { readOnly: t.readOnly, destructive: t.destructive })),
+    details: provider.tools.map((t) => toolDetail(t.def, t.ref, { readOnly: t.readOnly, destructive: t.destructive, destructiveBy: t.destructiveBy })),
   };
 }
 
@@ -265,14 +265,15 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
   }
 
   // 2. Dry run: what would be sent, nothing else.
-  const needsConfirm = tool.destructive && server.confirm !== 'never' && !options.yes;
+  // `confirm: never` silences what the server declared and what via inferred, not a tool the user listed in `confirm.tools`.
+  const needsConfirm = tool.destructive && (server.confirm !== 'never' || tool.destructiveBy === 'config') && !options.yes;
   if (options.dryRun) {
     return { exitCode: ExitCode.Ok, stdout: await app.redactText(renderDryRun(app, target, await app.redactValue(parsed.args), needsConfirm, parsed.extraFields)), stderr: '', warnings };
   }
 
   // 3. Dangerous tools need --yes (the deny check already happened during resolution).
   if (needsConfirm) {
-    throw fail(ExitCode.Denied, `${tool.ref} is destructive and was not run`, request.confirmNext ?? 'rerun with --yes to confirm');
+    throw fail(ExitCode.Denied, `${tool.ref} ${confirmReason(tool.destructiveBy)} and was not run`, request.confirmNext ?? 'rerun with --yes to confirm');
   }
   if (matchingDeny(tool, config.deny)) throw fail(ExitCode.Denied, `${tool.ref} is denied by a deny rule`, `via ${shellWords(tool.provider)}`);
 
@@ -395,6 +396,13 @@ function addDisagreeHint(stderr: string, format: string, upstreamText: string): 
 
 // Dry run -----------------------------------------------------------------------------------
 
+/** What the refusal says about why the call needs `--yes` (arguments.md, "危险操作"): the server's hint is not the only source. */
+function confirmReason(by: CatalogTool['destructiveBy']): string {
+  if (by === 'inferred') return 'is destructive (inferred from its name; the server gave no hint)';
+  if (by === 'config') return 'needs confirmation (the via config requires it)';
+  return 'is destructive';
+}
+
 function renderDryRun(app: App, target: ToolTarget, args: Record<string, unknown>, needsConfirm: boolean, extraFields: readonly string[]): string {
   const { tool, entry } = target;
   const { transport } = entry.server;
@@ -410,10 +418,10 @@ function renderDryRun(app: App, target: ToolTarget, args: Record<string, unknown
     where = `stdio ${transport.command}`;
   }
   if (app.options.format === 'json') {
-    return `${JSON.stringify({ dryRun: true, tool: tool.ref, rawName: tool.rawName, server: entry.server.name, transport: where, args, ...(needsConfirm ? { requires: '--yes' } : {}), ...(extraFields.length > 0 ? { extraFields } : {}) }, null, 2)}\n`;
+    return `${JSON.stringify({ dryRun: true, tool: tool.ref, rawName: tool.rawName, server: entry.server.name, transport: where, args, ...(needsConfirm ? { requires: '--yes', destructiveBy: tool.destructiveBy } : {}), ...(extraFields.length > 0 ? { extraFields } : {}) }, null, 2)}\n`;
   }
   const lines = ['dry run: nothing was sent', `tool: ${tool.ref}`, `raw name: ${tool.rawName}`, `server: ${entry.server.name} (${where})`];
-  if (needsConfirm) lines.push('requires: --yes (destructive tool)');
+  if (needsConfirm) lines.push(`requires: --yes (${tool.destructiveBy === 'config' ? 'confirm in the via config' : tool.destructiveBy === 'inferred' ? 'destructive tool, inferred from its name' : 'destructive tool'})`);
   // Fields the tool does not declare, written as flags: what `--verbose` and `--json` look like once sent (arguments.md, "JSON 输入").
   if (extraFields.length > 0) lines.push(`extra fields: ${extraFields.map(visibleText).join(', ')}`);
   const keys = Object.keys(args);
