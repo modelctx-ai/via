@@ -29,3 +29,4 @@
 
 - 相关的规范文档、`CHANGELOG.md` 的 Unreleased 一节已同步更新。
 - 渲染相关改动附带快照测试；动词表、停用词表与命名规则的改动在 CHANGELOG 中写明会影响哪些规范写法。
+- 提交信息和 PR 描述不加 `Co-Authored-By`、`Claude-Session` 或 “Generated with Claude Code” 署名行。
