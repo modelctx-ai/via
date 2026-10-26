@@ -1,0 +1,12 @@
+servers   1 ok
+
+logs      ~/.cache/via/logs (1 file, 700 B)
+platform  wsl · 4 config files read from the Windows side; reads across /mnt are slow, keep the agent, via and their configs inside WSL (docs/guides/getting-started.md#windows)
+          /mnt/c/Users/u/AppData/Roaming/Claude/claude_desktop_config.json
+          /mnt/c/Users/u/.cursor/mcp.json
+          /mnt/d/work/.mcp.json
+          … 1 more
+
+frameworks: no MCP servers found in framework configs
+
+secrets: no plaintext credentials found

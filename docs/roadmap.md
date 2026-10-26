@@ -153,6 +153,15 @@ via 现在锁定 `@modelcontextprotocol/sdk` 1.32.1，它最多协商到 `2025-1
 | f4 `-h` 给出完整调用示例 | 用法里按 schema 生成一条可直接粘贴的调用示例，覆盖嵌套 object、对象数组、nullable、`$ref`、tuple；引号规则随 d6 | [arguments.md](spec/arguments.md)、[output.md](spec/output.md) |
 | f5 `via prompt` 输出 SKILL.md | 增加输出格式选项，打印带 frontmatter 的 `SKILL.md`（`name`、`description`、`allowed-tools: Bash(via:*)`），供按技能目录加载说明的 agent 使用。只写 stdout 或 `--out` 指定的文件，不自己找框架的技能目录（via 对框架配置只读，[ADR 0003](adr/0003-read-only-framework-configs.md)）；与标记块共用正文（[ADR 0013](adr/0013-agent-instructions-are-a-marked-block.md)） | [cli.md](spec/cli.md)、[agent-integration.md](guides/agent-integration.md) |
 
+## 候选（未排期）
+
+还没有进入某个版本的事项。有结论之前不算承诺，也不阻塞 0.4。
+
+| 项 | 内容 | 状态 |
+| --- | --- | --- |
+| g1 stdio server 的进程级沙箱 | 按 server 在配置里声明策略（允许的域名、可写目录），用 `@anthropic-ai/sandbox-runtime` 包裹 daemon 派生的 stdio 子进程；默认关闭，srt 作可选依赖并懒加载，不碰浏览与冷启动路径。不是凭证隔离，`env` 里的凭证仍会进入子进程。microVM 后端等 microsandbox/smolvm 出 1.0 再接 | 待定：[ADR 0026](adr/0026-sandbox-stdio-server-processes.md)（提议中）、[待定问题](open-questions.md)、[issue #38](https://github.com/modelctx-ai/via/issues/38)。接受前先做 ADR 里的实测清单 |
+| g2 Windows 的 WSL2 推荐路径实测 | 文档已写明 agent 与 via 都装在 WSL2 内、`scripts/windows/via.cmd` 垫片（[快速上手](guides/getting-started.md#windows)）；垫片与 WSL 相关的行为没有在真实 Windows 上验证过。待测：`wsl.exe` 冷/热转发延迟、VM 空闲关闭后 daemon 的行为、引号与 TTY | 待实测（[issue #37](https://github.com/modelctx-ai/via/issues/37)） |
+
 ## 不借鉴
 
 mcpc 有、via 明确不做的：

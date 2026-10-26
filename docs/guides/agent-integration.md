@@ -30,10 +30,13 @@ secrets:
     next: set servers.exa.env.EXA_API_KEY to an env:, file: or keychain: reference in your via config
 ```
 
-输出分五节（`proxy` 与 `logs` 两行同属一节），节间空一行：
+输出分五节（`proxy`、`logs` 与 Windows、WSL 上才出现的 `platform` 同属一节），节间空一行：
 
 - **servers**：按状态计数（`ok`、`needs auth`、`failed`、`untrusted`、`disabled`），非 ok 的状态列出 provider 名；探测成功的 server 各占一行写出协商出的 MCP 协议版本和连接是否有状态（`  github: MCP 2026-07-28 stateless`；`protocolVersion` 固定了版本的加 `(pinned)`，[config.md](../spec/config.md#protocolversion)）；需要鉴权、连接失败、未信任的 server 各占一行并附 `next:`（OAuth server 为 `via auth login <provider>`，未信任的项目级文件为 `via trust <路径>`，凭证缺失时用凭证解析给出的提示）。
 - **proxy**：via 自己的 HTTP 请求（MCP server、OAuth、embedding）生效的代理：`proxy     none`，或每个代理一行，用户名和密码显示为 `***@`，后面是 `NO_PROXY` 的清单（[config.md](../spec/config.md#代理)）。同一节的下一行 `logs` 写日志目录（用户缓存目录下的 `logs/`，在用户目录之下时缩写为 `~/…`）和现有的日志数与总大小（含轮转出的 `.1`–`.3`）：`logs      ~/.cache/via/logs (7 files, 1.2 MiB)`；目录还不存在（没有记录过任何日志）时写 `(none yet)`。大小用 `B`、`KiB`、`MiB`。这一行只报告位置和大小，不改变退出码；查看内容用 `via daemon logs`（[daemon.md](../spec/daemon.md#日志)）。`via doctor` 只输出文本，`-o json` 对它没有影响。
+- **platform**：只在两种环境里出现一行（其余环境没有这一行，macOS 与 Linux 的输出不变）。它是提示，不改变退出码，也不探测 PowerShell 的版本（探测要起子进程，代价不值得，所以只要在 Windows 上就固定提示）：
+  - 在 Windows 上（`process.platform` 为 `win32`）：`platform  windows · PowerShell 5.1 drops the inner quotes of --args '{…}' and cmd.exe does not group with single quotes; pass JSON as --args @file, or use PowerShell 7.3+ (docs/guides/getting-started.md#windows)`。含义见[快速上手的 Windows 一节](getting-started.md#windows)：PowerShell 5.1 向原生程序传参时吃掉内层双引号，`--args '{…}'` 到不了 via，改用 `--args @文件` 或标准输入；7.3 起没有这个问题，但 `cmd.exe` 的单引号问题与版本无关。
+  - 在 WSL 内（Linux，且设了 `WSL_DISTRO_NAME` 或 `WSL_INTEROP`，或 `/proc/version` 含 `microsoft`），并且读到了 Windows 一侧（`/mnt/<盘符>/…`）的配置文件时：`platform  wsl · 2 config files read from the Windows side; reads across /mnt are slow, keep the agent, via and their configs inside WSL (docs/guides/getting-started.md#windows)`，后面每个文件一行（缩进对齐，最多三行，其余写成 `… N more`；在用户目录之下时缩写为 `~/…`）。范围是本次加载用到的所有配置文件和 server 的定义来源，通常来自用户配置 `sources` 里显式列出的 `/mnt/…` 路径；`auto` 探测的是 Linux 一侧的路径，不会触发它。发行版里没有读任何 `/mnt/…` 的配置文件时不出现这一行。
 - **frameworks still injecting MCP schemas**：按框架归并，数据来自 server 定义所在的框架配置（`origin.framework`），以及 `conflicts` 里被忽略的其他框架定义（同名 server 在多个框架里各被注入一次）。框架里可能已经关掉的 server 无从得知，所以按「仍在注入」估算。每个框架一行：server 数与 token 估算，下一行是 `data/frameworks/` 中的 `disableHint`。
 - **secrets**：明文凭证告警，见下。
 - **config**：配置诊断（`error`、`warning`，不含 `info`；明文凭证的告警并入 secrets，不重复）和目录告警（与内置子命令重名、重复的 provider），仅在有内容时出现。项目配置里的 `cmd:`（`cmd-forbidden`）附 `next:` 说明改在用户配置里定义；信任记录损坏附 `next:` 说明删除后重新 `via trust`。

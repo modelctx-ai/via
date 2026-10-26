@@ -9,6 +9,7 @@ import { ExitCode } from '../render/exit-codes';
 import { shortenHome } from '../config/paths';
 import { shellArg, shellWord } from '../render/shell';
 import { displayWidth, padEndWidth, truncateChars } from '../render/width';
+import type { HostKind } from '../platform/host';
 
 /** Result of probing one server (done by the CLI with the client; doctor only renders). */
 export interface ServerProbe {
@@ -47,6 +48,12 @@ export interface DoctorInput {
    * directory does not exist yet. Absent: not reported.
    */
   logs?: { dir: string; files?: number; bytes?: number };
+  /**
+   * The kind of machine (guides/getting-started.md, "Windows") and, under WSL, the framework configs
+   * read from the Windows side (`/mnt/<drive>/…`). Rendered as a `platform` line only when there is
+   * something to say; absent: not reported.
+   */
+  host?: { kind: HostKind; windowsSideFiles?: readonly string[] };
 }
 
 export interface DoctorOutput {
@@ -195,9 +202,43 @@ function renderLogs(logs: NonNullable<DoctorInput['logs']>, home: string | undef
   return [`logs      ${where} (${logs.files} ${logs.files === 1 ? 'file' : 'files'}, ${formatLogSize(logs.bytes)})`];
 }
 
-/** The `proxy` and `logs` lines share one section: both say where via's own traffic and records go. */
+// platform -----------------------------------------------------------------------------------
+
+/** Where the Windows notes live; the hints point there instead of repeating them. */
+const WINDOWS_GUIDE = 'docs/guides/getting-started.md#windows';
+/** How many Windows-side files the `platform` line lists before counting the rest. */
+const WINDOWS_SIDE_FILES_SHOWN = 3;
+
+/**
+ * One `platform` line, only when the machine has a known pitfall for agents (getting-started.md,
+ * "Windows"): on Windows the quoting of PowerShell 5.1 and cmd.exe, under WSL framework configs read
+ * across `/mnt`. Hints only; the exit code is unaffected. Nothing on other hosts, so the output of
+ * macOS and Linux users stays as it was.
+ */
+function renderPlatform(host: NonNullable<DoctorInput['host']>, home: string | undefined): string[] {
+  if (host.kind === 'windows') {
+    return [
+      `platform  windows · PowerShell 5.1 drops the inner quotes of --args '{…}' and cmd.exe does not group with single quotes; pass JSON as --args @file, or use PowerShell 7.3+ (${WINDOWS_GUIDE})`,
+    ];
+  }
+  const files = host.windowsSideFiles ?? [];
+  if (host.kind !== 'wsl' || files.length === 0) return [];
+  const lines = [
+    `platform  wsl · ${plural(files.length, 'config file')} read from the Windows side; reads across /mnt are slow, keep the agent, via and their configs inside WSL (${WINDOWS_GUIDE})`,
+  ];
+  for (const file of files.slice(0, WINDOWS_SIDE_FILES_SHOWN)) lines.push(`          ${shorten(file, home)}`);
+  const rest = files.length - WINDOWS_SIDE_FILES_SHOWN;
+  if (rest > 0) lines.push(`          … ${rest} more`);
+  return lines;
+}
+
+/** The `proxy`, `logs` and `platform` lines share one section: they say where via runs and where its traffic and records go. */
 function environment(input: DoctorInput): string[][] {
-  const lines = [...(input.proxy ? renderProxy(input.proxy) : []), ...(input.logs ? renderLogs(input.logs, input.home) : [])];
+  const lines = [
+    ...(input.proxy ? renderProxy(input.proxy) : []),
+    ...(input.logs ? renderLogs(input.logs, input.home) : []),
+    ...(input.host ? renderPlatform(input.host, input.home) : []),
+  ];
   return lines.length > 0 ? [lines] : [];
 }
 
