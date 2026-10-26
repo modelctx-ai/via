@@ -45,7 +45,7 @@ describe('via -o json', () => {
     ]);
     // The same facts as the text view.
     const text = await sb.via([]);
-    for (const p of out.providers) expect(text.stdout).toMatch(p.status === 'ok' ? new RegExp(`^${p.provider}\\s+${p.tools} tools$`, 'm') : new RegExp(`^${p.provider}\\s+${p.status}$`, 'm'));
+    for (const p of out.providers) expect(text.stdout).toMatch(p.status === 'ok' ? new RegExp(`^${p.provider}\\s+${p.tools} tools$`, 'm') : new RegExp(`^${p.provider}\\s+${p.status}( · .*)?$`, 'm'));
   });
 
   it('is an empty list, with the note on stderr, when nothing is configured', async () => {
