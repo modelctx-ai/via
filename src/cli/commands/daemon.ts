@@ -49,9 +49,19 @@ function formatMegabytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * `rss 83.0 MB · anon 41.2 MB`: both figures, named, because the memory target is stated in the
+ * anonymous part (testing.md). A daemon of an older version does not report it: only `rss` then.
+ */
+function memoryLabel(s: DaemonStatus): string {
+  const rss = `rss ${formatMegabytes(s.rssBytes)}`;
+  if (s.anonBytes === undefined) return rss;
+  return `${rss} · anon ${s.anonBytes === null ? 'n/a' : formatMegabytes(s.anonBytes)}`;
+}
+
 /** The text form of `DaemonStatus`: names and counters only. */
 export function renderStatus(s: DaemonStatus): string {
-  const head = [`daemon: running`, `pid ${s.pid}`, `v${s.version}`, `up ${formatDuration(s.uptimeMs)}`, formatMegabytes(s.rssBytes)];
+  const head = [`daemon: running`, `pid ${s.pid}`, `v${s.version}`, `up ${formatDuration(s.uptimeMs)}`, memoryLabel(s)];
   head.push(s.idleExitInMs === undefined ? 'busy' : `exits when idle in ${formatDuration(s.idleExitInMs)}`);
   const lines = [head.join(' · '), `socket: ${s.socket}`];
   if (s.sessions.length === 0) lines.push('sessions: none');

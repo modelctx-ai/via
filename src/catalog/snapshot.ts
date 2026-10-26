@@ -39,12 +39,14 @@ const READ_ONLY = 2;
 const DESTRUCTIVE = 4;
 
 /**
- * `[index in the raw list, raw name, resource, verb, canonical name, flags, description, params, default name, leaf name]`,
- * params as `[name, arg, required]`; the default name (what the split rules give, which `deny` also
- * matches) is empty when it is the canonical name; the leaf name (the other spelling `deny` matches)
- * is empty when it is the canonical name too.
+ * `[index in the raw list, raw name, resource, verb, canonical name, flags, description, params, default name, leaf name, example]`,
+ * params as `[name, arg, required, type, values]` (the last two empty when the schema does not say);
+ * the default name (what the split rules give, which `deny` also matches) is empty when it is the
+ * canonical name; the leaf name (the other spelling `deny` matches) is empty when it is the canonical
+ * name too; the example is the call example of `-h` without its head, empty when there is none.
  */
-type SnapshotTool = [number, string, string | null, string | null, string, number, string, Array<[string, string, 0 | 1]>, string, string];
+type SnapshotTool = [number, string, string | null, string | null, string, number, string, SnapshotParam[], string, string, string];
+type SnapshotParam = [string, string, 0 | 1, string, string];
 
 interface SnapshotBody {
   t: SnapshotTool[];
@@ -61,11 +63,18 @@ export function snapshotProvider(
   provider: ProviderCatalog,
   source: readonly McpTool[],
   rules?: CatalogRules,
+  /** The call example of a tool, without its head (`CatalogTool#exampleArgs`); kept with the tool, which it is also set on. */
+  exampleOf?: (tool: CatalogTool) => string | undefined,
 ): { head: SnapshotHead; body: string; terms: Map<CatalogTool, DocTerms> } {
   const terms = new Map<CatalogTool, DocTerms>();
   const indexOf = new Map<McpTool, number>(source.map((tool, i) => [tool, i]));
   const body: SnapshotBody = { t: [], x: [] };
   for (const tool of provider.tools) {
+    if (exampleOf) {
+      const example = exampleOf(tool);
+      if (example === undefined) delete tool.exampleArgs;
+      else tool.exampleArgs = example;
+    }
     body.t.push([
       indexOf.get(tool.def) ?? -1,
       tool.rawName,
@@ -74,9 +83,10 @@ export function snapshotProvider(
       tool.name,
       (tool.renamed ? RENAMED : 0) | (tool.readOnly ? READ_ONLY : 0) | (tool.destructive ? DESTRUCTIVE : 0),
       tool.description,
-      tool.params.map((p) => [p.name, p.arg, p.required ? 1 : 0]),
+      tool.params.map((p): SnapshotParam => [p.name, p.arg, p.required ? 1 : 0, p.type ?? '', p.values ?? '']),
       tool.defaultSingleRef === tool.singleRef ? '' : tool.defaultSingleRef.slice(provider.provider.length + 1),
       tool.leafSingleRef === tool.singleRef ? '' : tool.leafSingleRef.slice(provider.provider.length + 1),
+      tool.exampleArgs ?? '',
     ]);
     const known = docTerms(tool, rules);
     terms.set(tool, known);
@@ -85,8 +95,11 @@ export function snapshotProvider(
   return { head: { n: source.length, count: provider.tools.length }, body: JSON.stringify(body), terms };
 }
 
-function isParams(value: unknown): value is Array<[string, string, 0 | 1]> {
-  return Array.isArray(value) && value.every((p) => Array.isArray(p) && p.length === 3 && typeof p[0] === 'string' && typeof p[1] === 'string' && (p[2] === 0 || p[2] === 1));
+function isParams(value: unknown): value is SnapshotParam[] {
+  return (
+    Array.isArray(value) &&
+    value.every((p) => Array.isArray(p) && p.length === 5 && typeof p[0] === 'string' && typeof p[1] === 'string' && (p[2] === 0 || p[2] === 1) && typeof p[3] === 'string' && typeof p[4] === 'string')
+  );
 }
 
 /** The search terms of a restored provider's tools; asking for one restores the tools. */
@@ -123,10 +136,10 @@ export function restoreProvider(
     const terms = new Map<CatalogTool, DocTerms>();
     for (let i = 0; i < parsed.t.length; i += 1) {
       const item = parsed.t[i];
-      if (!Array.isArray(item) || item.length !== 10) throw new Error('malformed prebuilt catalog');
-      const [index, rawName, resource, verb, name, flags, description, params, defaultName, leafName] = item;
+      if (!Array.isArray(item) || item.length !== 11) throw new Error('malformed prebuilt catalog');
+      const [index, rawName, resource, verb, name, flags, description, params, defaultName, leafName, example] = item;
       const known = parsed.x[i];
-      if (typeof index !== 'number' || typeof name !== 'string' || typeof description !== 'string' || typeof flags !== 'number' || typeof defaultName !== 'string' || typeof leafName !== 'string' || !isParams(params)) throw new Error('malformed prebuilt catalog');
+      if (typeof index !== 'number' || typeof name !== 'string' || typeof description !== 'string' || typeof flags !== 'number' || typeof defaultName !== 'string' || typeof leafName !== 'string' || typeof example !== 'string' || !isParams(params)) throw new Error('malformed prebuilt catalog');
       if (!Array.isArray(known) || typeof known[0] !== 'number' || !Array.isArray(known[1]) || known[1].length % 2 !== 0) throw new Error('malformed prebuilt catalog');
       const tool = {
         provider,
@@ -139,10 +152,11 @@ export function restoreProvider(
         defaultSingleRef: `${provider}/${defaultName === '' ? name : defaultName}`,
         leafSingleRef: `${provider}/${leafName === '' ? name : leafName}`,
         description,
-        params: params.map(([pname, arg, required]): ParamInfo => ({ name: pname, arg, required: required === 1 })),
+        params: params.map(([pname, arg, required, type, values]): ParamInfo => ({ name: pname, arg, required: required === 1, ...(type !== '' ? { type } : {}), ...(values !== '' ? { values } : {}) })),
         readOnly: (flags & READ_ONLY) !== 0,
         destructive: (flags & DESTRUCTIVE) !== 0,
         renamed: (flags & RENAMED) !== 0,
+        ...(example !== '' ? { exampleArgs: example } : {}),
       } as unknown as CatalogTool;
       // The definition is the raw tool at `index`: looked up when something needs the schema.
       Object.defineProperty(tool, 'def', {

@@ -1,4 +1,6 @@
-via connects to the user's MCP servers and lets you discover their tools on demand instead of loading every schema up front.
-Browse with via_browse (no path: all providers; then "<provider>", "<provider> <resource>", "<provider> <resource>:<verb>" for usage), search with via_find, call with via_call.
-Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more, "via resources|read|prompts|skills|tasks ..." are the matching via_* tools, "--complete" is complete, "--detach" is detach, "--timeout" is timeout.
+via gives you the user's MCP servers' tools on demand, without loading their schemas up front.
+Flow: via_find (or via_browse: "" lists providers, "gh" its resources, "gh issue" the verbs with signatures, "gh issue:read" one tool's usage) then via_call. Each via_find result has an example: line to adapt.
+Names: via_browse and via_find print "gh issue:read"; via_call takes "gh/issue:read" with every tool parameter inside args. A colon marks a tool; browsing it shows its usage and runs nothing.
+Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more (the cursor only), "via resources|read|prompts|skills|tasks ..." are the matching via_* tools, "--complete" is complete, "--detach" is detach, "--timeout" is timeout.
+A failure ends with a next: line; follow it. Exit 2: fix the arguments and retry. 3: not found, see the candidates. 4: the user must log in; you cannot. 5: refused (deny rule, untrusted config, or a destructive tool: pass yes: true only if the user intends it).
 A call that outlives its wait is not cancelled: continue it with via_tasks. For a long job pass detach: true to get its task id at once.

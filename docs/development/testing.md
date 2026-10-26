@@ -208,7 +208,7 @@ mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不�
 
 - **冷启动看增量，不看墙钟。** 墙钟里包含 `node` 自己的启动，它在共享的虚拟机上就在 28–43 ms 之间浮动，不由 via 控制。「`node -e 0`」必须是**同一次运行里与被测命令交替测量**的基线，不是另一次运行的数字。`--version` 与 `-h` 不设目标，只列数字。
 - **`find` 的库路径与整进程分开。** 库路径是 `restoreProvider` + `SearchIndex` + 首次查询，对应命中预构建缓存的一次性 CLI；没有预构建缓存的构建（约 55–80 ms）与常驻索引上的稳态查询（不到 1 ms）列为参考，不判定。整进程再加进程启动、50 个 provider 的缓存文件读取与渲染。
-- **daemon 内存看匿名内存。** RSS 里约 45–49 MiB 是 node 可执行文件映射进来的页，与别的 node 进程共享，不随 via 的改动变化；RssAnon（Linux 的 `/proc/<pid>/status`）才反映 daemon 自己占用的内存。55 MiB 是 0.4 的实测定的：同样的操作在当前代码上 RssAnon 是 34–49.5 MiB（0.3 复测时 27–30 MiB，之后的 SDK v2 迁移等改动抬高了它），55 MiB 比测到的最高值高约 11%。没有 `/proc` 的平台（macOS）退回 RSS，标明是 RSS，阈值为 105 MiB（RssAnon 的阈值加约 49 MiB 的文件页）。
+- **daemon 内存看匿名内存。** RSS 里约 45–49 MiB 是 node 可执行文件映射进来的页，与别的 node 进程共享，不随 via 的改动变化；RssAnon（Linux 的 `/proc/<pid>/status`）才反映 daemon 自己占用的内存。`via daemon status` 同时写出 `rss` 与 `anon`（Linux 上就是 RssAnon，其他平台 `anon n/a`），对照这一节时看 `anon`。55 MiB 是 0.4 的实测定的：同样的操作在当前代码上 RssAnon 是 34–49.5 MiB（0.3 复测时 27–30 MiB，之后的 SDK v2 迁移等改动抬高了它），55 MiB 比测到的最高值高约 11%。没有 `/proc` 的平台（macOS）退回 RSS，标明是 RSS，阈值为 105 MiB（RssAnon 的阈值加约 49 MiB 的文件页）。
 - 目标是报告，不是门禁：时间不进 vitest 断言（见下），`npm run bench:perf` 逐项打印是否达到，未达到的项不会让脚本失败。改目标要在同一个 PR 里更新这一节与结果文件。
 
 0.4 的复测与修复（[bench/results/perf-0.4.md](../../bench/results/perf-0.4.md)，Linux，Node 22，4 核虚拟机，平均负载约 1，修复前后各六次运行）：第一次复测发现浏览类命令比 v0.3.1 慢 3–5 ms，原因（浏览路径上多加载了只有失败、调用、凭证引用、游标才用的代码；预构建缓存在同一 server 两个名字时互相覆盖；`dist/` 没有 `package.json`）和修复见 [implementation.md](implementation.md#04-的冷启动回归与修复)。修复后：达到的有 `via`（中位数 +45.6 ms）、带框架配置的 `via`（+60.8）、库路径 `find`（22.9–27.5 ms）、热 daemon 的额外开销（5.6–7.2 ms）、daemon 的 RssAnon（最高 37.4–44.2 MiB）；在线上的有 `via github`（+50.6）、带框架配置的 `via find`（+78.7）、经热 daemon 的 `via`（+68–75）。**没有达到**：`via find`（无 daemon，+49–58 ms，中位数 +56.9，目标不超过 50）、经热 daemon 的 `via find`（+75–89 ms，目标 < 70）、一千个工具的整进程 `find`（+85–104 ms，目标不超过 80）；热 daemon 的两项在这台机器上 v0.3.1 也是 +68 与 +80（逐轮交替测得），目标没有改。这台共享的虚拟机上同一个构建同一条命令在多次运行里能差 9–24 ms，所以判定看多次运行的分布，比较改动前后只看同一次运行里交替的数字。
@@ -240,7 +240,7 @@ npm run bench:perf   # 加 --quick 缩短运行，--runs <n> / --warmup <n> 调�
 
 几层只为加速而存在的缓存都有不依赖时间的测试，共同要求是：命中与未命中的输出完全相同，且不会把凭证值写到磁盘。
 
-- **预构建目录**（`test/cli/view-cache.test.ts`、`test/catalog/search.test.ts`）：还原出的目录与现算的逐项相等，用它建的索引对一组查询给出同样的命中、层级与分数；同一个 server 的两个 provider 名各有一份、清除 server 的缓存时一并删除、早先的文件名被清理；原始列表（`fetchedAt`、文件长度）、规则指纹（数据文件、版本）、各构建输入（别名、`rename`、`deny`）任一变化都使旧文件作废；损坏、被改写或版本不符的文件等同于未命中；缓存文件里不含字面量凭证。
+- **预构建目录**（`test/cli/view-cache.test.ts`、`test/catalog/search.test.ts`）：还原出的目录与现算的逐项相等，用它建的索引对一组查询给出同样的命中、层级与分数；同一个 server 的两个 provider 名各有一份、清除 server 的缓存时一并删除、早先的文件名被清理；原始列表（`fetchedAt`、文件长度）、规则指纹（数据文件、版本）、各构建输入（别名、`rename`、`deny`）任一变化都使旧文件作废；损坏、被改写或版本不符的文件等同于未命中；缓存文件里不含字面量凭证。调用示例（`test/cli/view-cache-examples.test.ts`）：存下的示例与 `-h` 的 `example:` 行逐工具相等，无论是随建库写入还是后来补进由浏览建出的文件；另一类平台（`win`/`posix`）写成的文件等同于未命中。签名里的类型与枚举（`test/catalog/signature-types.test.ts`）：对全部夹具逐参数与 `usage:` 行的写法比较。
 - **配置解析缓存**（`test/config/parse-cache.test.ts`、`test/config/parse.test.ts`）：命中与直接解析的结果相等；文件改一个字节就换键；别名、转义、多行标量等表达不了的文档不写入；缓存目录里的文件不含配置里的任何字符串（用字面量令牌检查）；信任哈希仍取文件字节。
 - **cache 文件与 daemon**（`test/daemon/backend.test.ts`、`test/daemon/protocol.test.ts`）：`list` 带 `have` 时的 `unchanged` 应答、`have` 不符时照常发送、daemon 内存里不留解析后的列表，磁盘写不进去时才留。
 - **凭证解析器的延迟包装**（`test/config/lazy-resolver.test.ts`）：与真正的解析器结果一致，解析器加载之前 `track` 的秘密保留，错误原样传出。

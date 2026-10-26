@@ -38,6 +38,13 @@ export interface ParamInfo {
   /** kebab-case command-line spelling (arguments.md). */
   arg: string;
   required: boolean;
+  /**
+   * Type label as the `usage:` line writes it, when the schema says more than "a string":
+   * `num`, `bool`, `json`, `str|num`. Absent for a plain string or an unstated type.
+   */
+  type?: string;
+  /** Allowed values joined with `|` (`get|get_comments`), when the parameter is an enum that fits on a line. */
+  values?: string;
 }
 
 /** A tool after name splitting (naming.md). */
@@ -72,6 +79,12 @@ export interface CatalogTool {
   params: ParamInfo[];
   readOnly: boolean;
   destructive: boolean;
+  /**
+   * The call example of `-h` without its `example: via <ref>` head (`--owner text --repo text`),
+   * when the tool has one. Kept in the prebuilt catalog so `via find` shows it without reading the
+   * schemas; undefined for a tool built in this process before it was kept (nothing shows it then).
+   */
+  exampleArgs?: string;
   /** True when the canonical form came from a user `rename` entry. */
   renamed: boolean;
   def: McpTool;

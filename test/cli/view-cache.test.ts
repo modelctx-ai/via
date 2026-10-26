@@ -39,7 +39,7 @@ function input(provider: string, tools: McpTool[], extra: Partial<ProviderInput>
 }
 
 describe('ViewCache round trip', () => {
-  it('restores exactly the catalog that was built, and an index that ranks the same', () => {
+  it('restores exactly the catalog that was built, and an index that ranks the same', async () => {
     const dir = scratch();
     const cache = new ViewCache(dir, 'fp-1');
     const built = new Map<string, ProviderCatalog>();
@@ -52,7 +52,7 @@ describe('ViewCache round trip', () => {
       const catalog = buildProviderCatalog(inp);
       built.set(name, catalog);
       expect(cache.read(server, inp, { tools, fetchedAt: FETCHED_AT })).toBeUndefined();
-      cache.write(server, inp, { tools, fetchedAt: FETCHED_AT }, catalog);
+      await cache.write(server, inp, { tools, fetchedAt: FETCHED_AT }, catalog);
       const hit = cache.read(server, inp, { tools, fetchedAt: FETCHED_AT });
       expect(hit, name).toBeDefined();
       restored.set(name, hit!.catalog);
@@ -73,14 +73,14 @@ describe('ViewCache round trip', () => {
     }
   });
 
-  it('is deterministic: building and restoring twice writes the same file', () => {
+  it('is deterministic: building and restoring twice writes the same file', async () => {
     const tools = loadTools('tools', 'github');
     const server = httpServer('http://127.0.0.1:1/gh', { name: 'gh', provider: 'gh' });
     const inp = input('gh', tools);
     const files: string[] = [];
     for (let i = 0; i < 2; i += 1) {
       const dir = scratch();
-      new ViewCache(dir, 'fp-1').write(server, inp, { tools, fetchedAt: FETCHED_AT }, buildProviderCatalog(inp));
+      await new ViewCache(dir, 'fp-1').write(server, inp, { tools, fetchedAt: FETCHED_AT }, buildProviderCatalog(inp));
       files.push(readFileSync(viewFile(dir, server, 'gh'), 'utf8'));
     }
     expect(files[0]).toBe(files[1]);
@@ -93,24 +93,24 @@ describe('ViewCache invalidation', () => {
   const base = input('gh', tools, { aliases: ['github'], rename: { issue_read: 'ticket:get' }, deny: [/^gh\/repo/] });
   const listing = { tools, fetchedAt: FETCHED_AT };
 
-  function primed(): { cache: ViewCache; dir: string } {
+  async function primed(): Promise<{ cache: ViewCache; dir: string }> {
     const dir = scratch();
     const cache = new ViewCache(dir, 'fp-1');
-    cache.write(server, base, listing, buildProviderCatalog(base));
+    await cache.write(server, base, listing, buildProviderCatalog(base));
     expect(cache.read(server, base, listing)).toBeDefined();
     return { cache, dir };
   }
 
-  it('misses when the tool list was fetched again, or its length changed', () => {
-    const { cache } = primed();
+  it('misses when the tool list was fetched again, or its length changed', async () => {
+    const { cache } = await primed();
     expect(cache.read(server, base, { tools, fetchedAt: FETCHED_AT + 1 })).toBeUndefined();
     expect(cache.read(server, base, { tools: tools.slice(1), fetchedAt: FETCHED_AT })).toBeUndefined();
   });
 
-  it('compares the length of the raw cache file when both sides know it, and then never looks at the tools', () => {
+  it('compares the length of the raw cache file when both sides know it, and then never looks at the tools', async () => {
     const dir = scratch();
     const cache = new ViewCache(dir, 'fp-1');
-    cache.write(server, base, { tools, fetchedAt: FETCHED_AT, rawBytes: 4242 }, buildProviderCatalog(base));
+    await cache.write(server, base, { tools, fetchedAt: FETCHED_AT, rawBytes: 4242 }, buildProviderCatalog(base));
     const untouched = (rawBytes: number) => ({
       fetchedAt: FETCHED_AT,
       rawBytes,
@@ -122,8 +122,8 @@ describe('ViewCache invalidation', () => {
     expect(cache.read(server, base, untouched(4243))).toBeUndefined();
   });
 
-  it('refuses a definition that is not the tool the snapshot was made for, when it is first used', () => {
-    const { cache } = primed();
+  it('refuses a definition that is not the tool the snapshot was made for, when it is first used', async () => {
+    const { cache } = await primed();
     // Same time and length, a different tool at position 0: only possible by tampering, and caught on use.
     const swapped = tools.map((t, i) => (i === 0 ? { ...t, name: `${t.name}_v2` } : t));
     const hit = cache.read(server, base, { tools: swapped, fetchedAt: FETCHED_AT });
@@ -133,11 +133,11 @@ describe('ViewCache invalidation', () => {
     if (restored) expect(() => restored.def).toThrow(/does not match/);
   });
 
-  it('shows the size of a provider without parsing the tools, and its tools without parsing the raw list', () => {
+  it('shows the size of a provider without parsing the tools, and its tools without parsing the raw list', async () => {
     const dir = scratch();
     const cache = new ViewCache(dir, 'fp-1');
     const built = buildProviderCatalog(base);
-    cache.write(server, base, { tools, fetchedAt: FETCHED_AT, rawBytes: 99 }, built);
+    await cache.write(server, base, { tools, fetchedAt: FETCHED_AT, rawBytes: 99 }, built);
     let parsed = 0;
     const listing = {
       fetchedAt: FETCHED_AT,
@@ -159,8 +159,8 @@ describe('ViewCache invalidation', () => {
     expect(parsed).toBe(1);
   });
 
-  it('misses under another rules fingerprint (a new version, or an edited data file or catalog source)', () => {
-    const { dir } = primed();
+  it('misses under another rules fingerprint (a new version, or an edited data file or catalog source)', async () => {
+    const { dir } = await primed();
     expect(new ViewCache(dir, 'fp-2').read(server, base, listing)).toBeUndefined();
     expect(new ViewCache(dir, 'fp-1').read(server, base, listing)).toBeDefined();
   });
@@ -171,8 +171,8 @@ describe('ViewCache invalidation', () => {
     ['rename', { rename: { issue_read: 'ticket:fetch' } }],
     ['deny', { deny: [/^gh\/issue/] }],
     ['deny flags', { deny: [/^gh\/repo/i] }],
-  ])('misses when the %s changed', (_label, change) => {
-    const { cache } = primed();
+  ])('misses when the %s changed', async (_label, change) => {
+    const { cache } = await primed();
     expect(cache.read(server, { ...base, ...change }, listing)).toBeUndefined();
   });
 
@@ -182,8 +182,8 @@ describe('ViewCache invalidation', () => {
     expect(inputsHash(a)).toBe(inputsHash(b));
   });
 
-  it('ignores a file that is corrupt, from another layout, or not a snapshot of this list', () => {
-    const { dir } = primed();
+  it('ignores a file that is corrupt, from another layout, or not a snapshot of this list', async () => {
+    const { dir } = await primed();
     // A fresh instance per check: one instance reads each file once per run.
     const cache = (): ViewCache => new ViewCache(dir, 'fp-1');
     const file = viewFile(dir, server, 'gh');
@@ -196,22 +196,22 @@ describe('ViewCache invalidation', () => {
     expect(cache().read(server, base, listing)).toBeDefined();
   });
 
-  it('is cleared with the raw list of the server', () => {
-    const { dir } = primed();
+  it('is cleared with the raw list of the server', async () => {
+    const { dir } = await primed();
     new CatalogCache(dir).write(server, tools, { fetchedAt: FETCHED_AT });
     new CatalogCache(dir).clear(server);
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('keeps a build per provider name when two names share one server', () => {
+  it('keeps a build per provider name when two names share one server', async () => {
     const dir = scratch();
     const other = { ...server, name: 'gh-again', provider: 'gh-again' };
     expect(cacheKey(other)).toBe(cacheKey(server));
     const a = input('gh', tools);
     const b = input('gh-again', tools);
     const cache = new ViewCache(dir, 'fp-1');
-    cache.write(server, a, listing, buildProviderCatalog(a));
-    cache.write(other, b, listing, buildProviderCatalog(b));
+    await cache.write(server, a, listing, buildProviderCatalog(a));
+    await cache.write(other, b, listing, buildProviderCatalog(b));
     expect(readdirSync(dir).filter((n) => n.endsWith('.view.json'))).toHaveLength(2);
     // A later run finds both: neither provider rebuilds because the other wrote last.
     const later = new ViewCache(dir, 'fp-1');
@@ -219,41 +219,41 @@ describe('ViewCache invalidation', () => {
     expect(later.read(other, b, listing)?.catalog.provider).toBe('gh-again');
   });
 
-  it('clears every provider name of the server with its raw list', () => {
+  it('clears every provider name of the server with its raw list', async () => {
     const dir = scratch();
     const other = { ...server, name: 'gh-again', provider: 'gh-again' };
     const raw = new CatalogCache(dir);
     raw.write(server, tools, { fetchedAt: FETCHED_AT });
     for (const [s, name] of [[server, 'gh'], [other, 'gh-again']] as const) {
       const inp = input(name, tools);
-      new ViewCache(dir, 'fp-1').write(s, inp, listing, buildProviderCatalog(inp));
+      await new ViewCache(dir, 'fp-1').write(s, inp, listing, buildProviderCatalog(inp));
     }
     expect(readdirSync(dir).filter((n) => n.endsWith('.view.json'))).toHaveLength(2);
     raw.clear(server);
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('removes the file name an earlier version wrote, which nothing reads any more', () => {
+  it('removes the file name an earlier version wrote, which nothing reads any more', async () => {
     const dir = scratch();
     mkdirSync(dir, { recursive: true });
     const legacy = join(dir, `${cacheKey(server)}.view.json`);
     writeFileSync(legacy, '{}');
-    new ViewCache(dir, 'fp-1').write(server, base, listing, buildProviderCatalog(base));
+    await new ViewCache(dir, 'fp-1').write(server, base, listing, buildProviderCatalog(base));
     expect(readdirSync(dir).filter((n) => n.endsWith('.view.json'))).toEqual([expect.stringMatching(/^[0-9a-f]{32}\.[0-9a-f]{8}\.view\.json$/)]);
   });
 
-  it('survives a directory that cannot be written', () => {
+  it('survives a directory that cannot be written', async () => {
     const dir = scratch();
     mkdirSync(join(dir, '..'), { recursive: true });
     writeFileSync(dir, 'a file where the directory should be');
     const cache = new ViewCache(dir, 'fp-1');
-    expect(() => cache.write(server, base, listing, buildProviderCatalog(base))).not.toThrow();
+    await expect(cache.write(server, base, listing, buildProviderCatalog(base))).resolves.toBeDefined();
     expect(cache.read(server, base, listing)).toBeUndefined();
   });
 });
 
 describe('ViewCache and credentials', () => {
-  it('writes no credential value, literal or referenced, into the cache directory', () => {
+  it('writes no credential value, literal or referenced, into the cache directory', async () => {
     const SECRET = 'fake-secret-value-that-must-not-be-written';
     const TOKEN_REF = 'env:VIEW_CACHE_TEST_TOKEN';
     const tools = loadTools('tools', 'github');
@@ -270,7 +270,7 @@ describe('ViewCache and credentials', () => {
     for (const s of [server, server2]) {
       const inp = input(s.provider, tools);
       raw.write(s, tools, { fetchedAt: FETCHED_AT });
-      cache.write(s, inp, { tools, fetchedAt: FETCHED_AT }, buildProviderCatalog(inp));
+      await cache.write(s, inp, { tools, fetchedAt: FETCHED_AT }, buildProviderCatalog(inp));
     }
     const names = readdirSync(dir);
     expect(names.filter((n) => n.endsWith('.view.json'))).toHaveLength(2);

@@ -1,0 +1,38 @@
+[
+  {
+    "ref": "gh issue:read",
+    "provider": "gh",
+    "resource": "issue",
+    "verb": "read",
+    "rawName": "issue_read",
+    "signature": {"required": ["owner", "repo", "issue-number", "method"], "optional": []},
+    "description": "Get issue details",
+    "readOnly": true,
+    "destructive": false,
+    "example": "via gh issue:read --owner text --repo text --issue-number 1 --method get"
+  },
+  {
+    "ref": "gh issue:write",
+    "provider": "gh",
+    "resource": "issue",
+    "verb": "write",
+    "rawName": "issue_write",
+    "signature": {"required": ["owner", "repo", "title"], "optional": ["body"]},
+    "description": "Create or update an issue",
+    "readOnly": false,
+    "destructive": false,
+    "example": "via gh issue:write --owner text --repo text --title text"
+  },
+  {
+    "ref": "gh issue:list",
+    "provider": "gh",
+    "resource": "issue",
+    "verb": "list",
+    "rawName": "issue_list",
+    "signature": {"required": ["owner", "repo"], "optional": ["state", "per-page"]},
+    "description": "List issues",
+    "readOnly": true,
+    "destructive": false,
+    "example": "via gh issue:list --owner text --repo text --state open"
+  }
+]

@@ -38,7 +38,8 @@ provider 就是配置里的 server，按名字原样列出，不做分类：模�
 文件分两部分，命令用多少读多少：
 
 - **头**：可见工具数（`deny` 之后）。`via` 只需要这一项，不还原任何工具。
-- **体**：可见工具的规范名、`resource`/`verb`、`deny` 也会匹配的默认写法与叶子写法、签名、描述、只读/破坏性提示、参数名，以及 `via find` 用的检索词频；是一个 JSON 字符串，第一次访问工具时才解析。工具定义（schema）不存：还原出来的工具在第一次读 `def` 时才去原始缓存里取，所以浏览不会解析任何 schema，调用只解析所涉 provider 的那一份。
+- **体**：可见工具的规范名、`resource`/`verb`、`deny` 也会匹配的默认写法与叶子写法、签名（每个参数的名字、是否必填，以及[签名里的类型与枚举](#via-provider-resource)：`usage:` 行写 `<num>`、`get|list` 的那部分，建库时从各参数的 schema 读出）、描述、只读/破坏性提示、参数名、[调用示例](#搜索)，以及 `via find` 用的检索词频；是一个 JSON 字符串，第一次访问工具时才解析。工具定义（schema）不存：还原出来的工具在第一次读 `def` 时才去原始缓存里取，所以浏览不会解析任何 schema，调用只解析所涉 provider 的那一份。
+  - **调用示例只在需要时写入**：它要读整份 schema 并加载生成示例的代码，而浏览（`via`、`via <provider>`、`via <provider> <resource>`）用不到，所以由浏览建出的文件不含示例（头里的 `ex` 为 0），第一个需要示例的 `via find`（没有 `--brief`）把该 provider 的文件带着示例重写一次（`ex` 为 1），之后的 `find` 与浏览都不再读 schema。示例按运行平台的引用规则写成（[Windows 分支](arguments.md#调用示例)），文件记下是哪一类（`win` 或 `posix`），另一类的文件视为未命中。
 
 只有下列各项都与本次一致才使用，否则按原样重新计算并写回（尽力而为，写不进去不影响命令）：
 
@@ -81,6 +82,7 @@ playwright  21 tools
 
 - `failed` 的原因取错误信息的第一行：去掉 `cannot start <provider>:` 前缀（行首已经是 provider 名），按「内容」档脱敏（[output.md](output.md#脱敏的范围)），折成一行，控制字符、双向控制符与零宽字符写成 `\uXXXX`，超过 80 个字符截断并以 `…` 结尾。完整信息见 `via doctor`。
 - `starting` 的意思是「稍后重试」：agent 读到它不应放弃这个 provider。`failed` 才是需要人看一眼的问题。超时一律归为 `starting`（连接超时、请求超时），不论是 daemon 里的还是进程内的；只有明确的失败才是 `failed`。
+- **`-o json`**：`{"providers": [{"provider", "tools", "status"}]}`，顺序同文本。`status` 为 `ok`、`needs auth`、`starting`、`failed`、`untrusted`（与上表同名；目录有新的状态时在这里追加同名字符串，`ok` 不变）；`tools` 是可见工具数，状态不是 `ok` 时没有目录可数，为 `0`。字段全部来自[预构建缓存](#预构建缓存)的头，不读 schema。末尾的 `→` 提示与「没有配置任何 server」的说明写 stderr，stdout 只有 JSON。
 
 ### `via <provider>`
 
@@ -99,6 +101,7 @@ commit         get · list
 - 危险动作可以加标记（如 `delete!`），只读资源不加标记。
 - server 声明了 MCP 资源、prompt 或技能（`2026-07-28` 且声明了 `io.modelcontextprotocol/skills`）时，叶子工具行之后多一行 `also: via resources <provider> · via prompts <provider> · via skills <provider>`（只列出声明了的）。这是 agent 发现这几类内容的唯一入口，所以 `via prompt` 的说明文本不需要提它们。
 - 最后一行提示下一步：`→ via <provider> <resource> for signatures`。
+- **`-o json`**：`{"provider", "resources": [{"name", "verbs": [...]}], "tools": [...], "also": {"resources", "prompts", "skills"}}`。`resources` 与 `verbs` 的顺序同文本，`tools` 是叶子工具名，`also` 是三个布尔值（server 是否声明了这类内容，与文本的 `also:` 行同源）。JSON 是完整的：文本视图为一屏而做的截断（`… N more`、`--all`）不适用，也没有 `!` 标记（危险与否在资源视图的 `destructive` 字段里）。`→` 提示写 stderr。
 
 ### server 自述
 
@@ -108,6 +111,7 @@ server 在握手里给出的 `instructions`、`serverInfo.description`、`websit
 - 格式：先是一行标签 `from the server (its own text, not via's):`，之后每行缩进两格，依次是 `name:`（`title` 或 `name`，加 `version`）、`description:`、`website:`、`instructions:`；一行放得下的写在标签后，多行的缩进四格成块。从来没有任何一行从第 0 列开始，所以这些文字不能伪造 `next:`、`error:`、`·` 或 `→` 行。server 什么都没给时只有 `name`；连 `name` 也没有时写 `(it published no description or instructions)`。
 - 处理：先按「内容」档脱敏（[output.md](output.md#脱敏的范围)，写缓存之前就脱敏，截断不会留下半个凭证）；再截到 500 个字符（按码点，不拆代理对），被截断时加一行 `(instructions cut at 500 of 1832 characters)`；除换行与制表外的控制字符、双向控制符与零宽字符写成可见的 `\uXXXX`（`\r\n` 归一为 `\n`）。
 - 数据来源是缓存里的 `info.json`；没有（旧缓存，或写不进缓存）时 `-h` 向 server 刷新一次，失败时 stderr 警告 `could not ask <provider> what it says about itself`，仍显示 provider 视图。`-o json` 输出 `{"provider", "server": {…}}`（字段同上，已脱敏，不含 provider 视图）。
+- **`via <provider> -h --all`**：在自述与 provider 视图（此时不截断）之后，空一行，列出该 provider 全部可见工具的 `usage:` 行（与 `<资源>:<动作> -h` 的第一块相同，不含参数描述，按 `tools/list` 的顺序，长的照常折行），给上下文预算大的 agent 用一次往返换掉 N 次 `-h`。这是浏览视图里唯一读 schema 的命令（解析该 provider 的原始列表）。`-o json` 时输出工具详情的数组，每项就是那个工具的 `-h -o json`（`tool`、`rawName`、`description`、`readOnly`、`destructive`、`inputSchema`、`outputSchema`，[output.md](output.md#错误)），不含自述。没有 `--all` 时行为不变。
 - 它是 server 的数据，不是 via 的说明：via 不解释它，也不据此改变任何行为（[security.md](security.md)）。
 
 ### `via <provider> <resource>`
@@ -124,6 +128,15 @@ issue:search   query, [owner], [repo]                  Search issues
 - 每个工具一行：动作、签名、截断到 60 字符的描述（取描述的第一个非空行）。
 - 签名中必填参数在前，可选参数加方括号，参数名统一为 kebab-case；各组内按 schema 中 `properties` 的顺序。
 - 签名最多显示 6 个参数，必填参数一个不省略，其余可选参数以 `…` 表示，完整参数用 `-h` 查看。
+- **类型与枚举**（让 `find` 或这一屏之后不必再 `-h`）：参数名之后写 schema 声明的类型，口径与 `-h` 的 `usage:` 行一致（`<str>`、`<num>`、`<json>`、枚举）：
+  - 枚举（`enum`、`const`，或全是常量的 `anyOf`/`oneOf`，值都是字符串、数字或布尔，且 `a|b` 连起来不超过 60 个字符）写 `method=get|get_comments`，可选的写 `[state=open|closed]`；
+  - 数字（`integer`、`number`）写 `issue-number:num`；数组与对象写 `labels:json`；几种类型并列写 `id:str|num`（顺序同 schema）；
+  - 布尔：可选的写 `[draft?]`（给了就是开），必填的写 `force:bool`（`?` 在这里表示「可选」，所以必填的不用）；
+  - 普通字符串，以及 schema 没说类型的参数，只写名字：`owner` 就是 `owner:str`，不重复；
+  - 引用在本地的 `$ref` 照常展开。枚举值里的换行与控制字符写成可见的 `\uXXXX`。
+  - 整个签名（含括号与 `…`）超过 60 列时退回不带类型的写法，所有参数仍照原规则显示；所以同一屏里的行可以两种写法并存。必填参数一个不省略的规则不变。
+  - 类型来自[预构建缓存](#预构建缓存)，浏览仍然不读 schema。
+- **`-o json`**：数组，每项 `{"ref", "provider", "resource", "verb", "rawName", "signature": {"required": [...], "optional": [...]}, "description", "readOnly", "destructive"}`。`ref` 是规范写法（`gh issue:read`），`signature` 是**完整**的参数名（kebab-case，必填在前，不受 6 个的限制，也不带类型），`description` 是完整的描述文字，`readOnly`/`destructive` 是布尔（两者都声明时 `destructive` 为假，同 `[read-only]` 的规则）。字符串按「内容」档脱敏（[output.md](output.md#脱敏的范围)）。`→` 提示写 stderr。叶子工具（`via find` 的结果里可能有）的 `resource` 与 `verb` 为 `null`。
 - 第一列保持可直接复制的规范写法；工具的 `readOnlyHint` / `destructiveHint` 以 `[read-only]` / `[destructive]` 标在描述之后，两者都声明时只标 `[read-only]`（[arguments.md](arguments.md#危险操作)）。
 
 ## 搜索
@@ -138,7 +151,17 @@ issue:search   query, [owner], [repo]                  Search issues
 
 1–3 是三个层级，所有命中它们的工具排在只命中 BM25 的工具之前；同一层级内按 BM25 分数、再按规范写法排序，保证结果确定。查询大小写不敏感，`/` 视同空格、`_` 视同 `-`，所以 `github/issue:read` 与 `github issue:read` 等价；省略 provider 的 `issue:read` 同样算完全匹配。BM25 比较时，查询词与索引词都先单数化，`issues` 能命中 `issue`；描述中的停用词（`data/stopwords.json`）不进索引。
 
-结果默认 10 条，每条一行，格式同资源视图但带 provider 前缀，大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。
+结果默认 10 条，每条一行，格式同资源视图（含[类型与枚举](#via-provider-resource)）但带 provider 前缀；每条下面缩进两格带一行 `example:`，就是 `-h` 会给的那一行（同一个函数生成，遵守[调用示例](arguments.md#调用示例)的全部规则，包括 Windows 分支），所以大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。没有示例的工具（没有参数，或必填参数写不出安全的值）不带这一行。
+
+```console
+$ via find "read issue"
+gh issue:read   owner, repo, issue-number:num, method=get|get_comments  Get issue details [read-only]
+  example: via gh issue:read --owner text --repo text --issue-number 1 --method get
+```
+
+- `--brief` 去掉 `example:` 行，回到每条一行。
+- `-o json` 输出资源视图那样的数组（[字段](#via-provider-resource)），每项多一个 `example`（命令，不含 `example:` 标签；没有示例时不出现），`--brief` 时没有这个字段。`-o raw` 退出码 2。
+- 代价：十条结果多约 10 行，平均每行约 70 个字符（约 18 个 token），一次 `find` 多约 170 个 token；省的是一次 `-h` 往返。示例来自[预构建缓存](#预构建缓存)，缓存里已有时不读 schema，不影响冷启动；第一个不带 `--brief` 的 `find` 在缓存刷新后要把各 provider 的示例补进去（读一次 schema，每次刷新一次；实测 1,000 个工具、50 个 provider 约多 100 ms，浏览命令不受影响）。
 
 有 provider 没有拿到目录时，结果照常输出（退出码 0），stderr 分两行警告，因为这两种情况的处理不同（`starting` 稍后重试，其余需要看一眼）：
 

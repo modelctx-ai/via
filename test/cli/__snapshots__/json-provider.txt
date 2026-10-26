@@ -1,0 +1,13 @@
+{
+  "provider": "gh",
+  "resources": [
+    {"name": "code", "verbs": ["search"]},
+    {"name": "file", "verbs": ["delete"]},
+    {"name": "issue", "verbs": ["read", "write", "list"]},
+    {"name": "job", "verbs": ["run"]},
+    {"name": "pull-request", "verbs": ["list"]},
+    {"name": "stat", "verbs": ["get"]}
+  ],
+  "tools": ["request-copilot-review", "whoami", "echo-text", "sleepy", "broken-tool", "picky-tool"],
+  "also": {"resources": false, "prompts": false, "skills": false}
+}

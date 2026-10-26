@@ -60,7 +60,8 @@ describe('auto-spawn and reuse', () => {
     await d.via(['mock', 'echo', '--message', 'hi']);
     const r = await d.via(['daemon', 'status']);
     expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(new RegExp(`^daemon: running · pid \\d+ · v${VERSION.replace(/\./g, '\\.')} · up \\d+s · [\\d.]+ MB · exits when idle in \\d+m\\d+s\\nsocket: ${d.runningSocketPattern}\\nsessions: 1\\n  mock +stdio +running \\(pid \\d+\\) +${TOOLS.length} tools +1 call +idle \\d+s\\n$`));
+    expect(r.stdout).toMatch(new RegExp(`^daemon: running · pid \\d+ · v${VERSION.replace(/\./g, '\\.')} · up \\d+s · rss [\\d.]+ MB · anon ([\\d.]+ MB|n/a) · exits when idle in \\d+m\\d+s\\nsocket: ${d.runningSocketPattern}\\nsessions: 1\\n  mock +stdio +running \\(pid \\d+\\) +${TOOLS.length} tools +1 call +idle \\d+s\\n$`));
+    if (process.platform === 'linux') expect(r.stdout).toMatch(/ · anon \d+\.\d MB · /);
     expect(r.stdout).not.toContain(d.sb.home);
   });
 

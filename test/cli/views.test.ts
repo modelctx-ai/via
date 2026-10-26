@@ -105,7 +105,9 @@ describe('via find', () => {
   it('takes -n', async () => {
     const { sb } = await setup();
     const one = await sb.via(['find', 'issue', '-n', '1']);
-    expect(one.stdout.trim().split('\n')).toHaveLength(1);
+    // One result, and its example line under it.
+    expect(one.stdout.trim().split('\n').filter((l) => !l.startsWith(' '))).toHaveLength(1);
+    expect((await sb.via(['find', 'issue', '-n', '1', '--brief'])).stdout.trim().split('\n')).toHaveLength(1);
     expect((await sb.via(['find', 'issue', '--domain', 'code'])).code).toBe(2);
   });
 

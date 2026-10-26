@@ -20,7 +20,8 @@ export function rulesId(): string {
   };
   readdirSync('data').filter((n) => n.endsWith('.json')).sort().forEach((n) => files.push(join('data', n)));
   walk('src/catalog', (n) => n.endsWith('.ts'));
-  files.push('src/cli/view-cache.ts');
+  // The prebuilt catalog also keeps what these write: the call examples of `via find`.
+  files.push('src/cli/view-cache.ts', 'src/cli/args/example.ts', 'src/cli/args/schema.ts', 'src/render/shell.ts');
   const hash = createHash('sha256');
   for (const file of files) hash.update(`${file}\0`).update(readFileSync(file)).update('\0');
   const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version;

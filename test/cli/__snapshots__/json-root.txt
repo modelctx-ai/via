@@ -1,0 +1,8 @@
+{
+  "providers": [
+    {"provider": "figma", "tools": 0, "status": "untrusted"},
+    {"provider": "github", "tools": 14, "status": "ok"},
+    {"provider": "linear", "tools": 0, "status": "needs auth"},
+    {"provider": "slack", "tools": 0, "status": "failed"}
+  ]
+}

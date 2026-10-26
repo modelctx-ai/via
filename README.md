@@ -154,7 +154,7 @@ via prompt --skill --out <dir>/via/SKILL.md   # a SKILL.md instead, for agents t
 
 The block says what via is and asks the agent to prefer `via` over the MCP tools it already has. Keep one copy of it: Claude Code can pull that file in from CLAUDE.md with `@AGENTS.md` instead of keeping a second one.
 
-An agent without a shell (Claude Desktop, an IDE chat panel) mounts `via serve` as its only MCP server instead and gets nine meta-tools (`via_browse`, `via_find`, `via_call`, …, about 1,150 tokens) that behave exactly like the commands:
+An agent without a shell (Claude Desktop, an IDE chat panel) mounts `via serve` as its only MCP server instead and gets nine meta-tools (`via_browse`, `via_find`, `via_call`, …, about 1,480 tokens) that behave exactly like the commands:
 
 ```json
 { "mcpServers": { "via": { "command": "via", "args": ["serve"] } } }

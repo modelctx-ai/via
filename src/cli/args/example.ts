@@ -3,7 +3,7 @@
 // takes, and stays short because it goes into an agent's context: required parameters, then
 // optional ones up to three parameters in all.
 import { extractParams } from '../../catalog/signature';
-import type { JsonSchema, McpTool } from '../../catalog/types';
+import type { CatalogTool, JsonSchema, McpTool } from '../../catalog/types';
 import { shellQuote, shellWords } from '../../render/shell';
 import { type Pos, SchemaModel } from './schema';
 import type { ToolArgsContext } from './types';
@@ -257,4 +257,19 @@ export function formatCallExample(tool: McpTool, ctx: ToolArgsContext): string |
     shown += 1;
   }
   return shown === 0 || line.length > LINE_HARD_MAX ? undefined : line;
+}
+
+/**
+ * The example of `formatCallExample` without its `example: via <ref> ` head, for the prebuilt
+ * catalog (`via find` shows it under each result). The head is the same words `-h` writes, so
+ * the two lines are one: `example: via ${shellWords(tool.ref)} ${callExampleArgs(tool)}`.
+ */
+export function callExampleArgs(tool: CatalogTool): string | undefined {
+  try {
+    const line = formatCallExample(tool.def, { provider: tool.provider, ref: tool.ref, rawName: tool.rawName, readOnly: tool.readOnly, destructive: tool.destructive });
+    const head = `example: via ${shellWords(tool.ref)} `;
+    return line?.startsWith(head) ? line.slice(head.length) : undefined;
+  } catch {
+    return undefined;
+  }
 }

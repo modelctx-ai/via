@@ -7,6 +7,7 @@
 ```text
 via                                       状态 + 每个 provider 一行，带工具数
 via <provider> [--all]                    该 provider 的资源，动作内联列出
+via <provider> -h --all                   server 自述、provider 视图，再加全部工具的 usage 行
 via <provider> <resource>                 该资源下每个动作一行，带参数签名
 via <provider> <resource>:<verb> -h       用法
 via <provider> <resource>:<verb> [参数]   调用
@@ -54,7 +55,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 
 | 命令 | 作用 |
 | --- | --- |
-| `via find <查询> [-n 10]` | 跨 provider 搜索工具，每条结果带参数签名 |
+| `via find <查询> [-n 10] [--brief]` | 跨 provider 搜索工具，每条结果带参数签名（含类型与枚举）和一行 `example:` 调用示例；`--brief` 去掉示例行 |
 | `via call <provider>/<resource>:<verb> --args '{…}'` | 显式调用，参数为 JSON、`@文件` 或 `-`（stdin），供脚本使用 |
 | `via more <游标>` | 续读被截断的结果 |
 | `via batch [--concurrency <n>] [--line <n>[,<n>…]]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出；`--line` 只执行指定的行（[见下](#via-batch)） |
@@ -79,14 +80,15 @@ via <provider> -h                         provider 视图，前面加上 server 
 各命令的细节：
 
 - `via call`：`<provider>/<ref>` 按与命令行形式相同的规则解析（provider 与资源接受唯一前缀，原始名可用）；其后的参数交给工具参数解析器，`--args`、`@文件`、`-`（stdin）均可用。
-- `via find`：没有命中时输出 `no tools match "<查询>"`；个别 provider 无法连接时照常搜索其余的，并在 stderr 警告哪些没有被搜索。用户配置了 `search.semantic` 时，stderr 可能多一行 `· semantic …` 元信息行（退回词法排序的原因，或第一次补全 embedding 缓存），退出码不变（[discovery.md](discovery.md#embedding-检索可选默认关闭)）。
+- `via find`：每条结果下缩进两格带一行 `example:`（与 `-h` 同一个函数生成，没有示例的工具不带），`--brief` 去掉它；`-o json` 见 [discovery.md](discovery.md#搜索)。没有命中时输出 `no tools match "<查询>"`；个别 provider 无法连接时照常搜索其余的，并在 stderr 警告哪些没有被搜索。用户配置了 `search.semantic` 时，stderr 可能多一行 `· semantic …` 元信息行（退回词法排序的原因，或第一次补全 embedding 缓存），退出码不变（[discovery.md](discovery.md#embedding-检索可选默认关闭)）。
 - `via more`：只读游标，不加载配置和目录。游标先向已经在运行的 daemon 要（不会为此拉起 daemon），再看缓存目录（[daemon.md](daemon.md#daemon-持有的状态)）。
 - `via daemon`：
-  - `status`：不拉起 daemon，只询问正在运行的。输出一行概况、socket 路径和各会话（server 名、传输、`running (pid N)` / `connected` / `stopped`、目录中的工具数、调用数、空闲时间或在途数）；不含 URL、参数、凭证。socket 上没有 daemon 应答时（包括连得上却完不成握手，例如令牌不符，或 Windows 上收尾中的 daemon 的管道还被别的连接占着），再看 daemon 进程记录（[daemon.md](daemon.md#进程记录)）：有不在监听的 daemon 进程时每个一行，`daemon: starting · pid N`（还没绑定 socket）、`daemon: stopping · pid N · finishing requests in flight`（已收到 `shutdown`、删掉 socket，在处理在途请求）或 `daemon: not reachable · pid N`（socket 被删或被替换，几秒内自行退出），再加 `socket:` 一行；一个都没有才输出 `daemon: not running` 加 `socket:` 一行（完不成握手而又没有记录时，照旧报告连不上的原因）。有 daemon 应答而旁边还有别的 daemon 进程（例如上一个仍在收尾）时，概况之后追加 `also: stopping · pid N · …`。`VIA_NO_DAEMON` 打开时输出 `daemon: disabled (VIA_NO_DAEMON)`，退出码都是 0。`-o json` 输出 `{"running": true, …}`（字段同协议的 `status`）或 `{"running": false, "socket": …}`，有其他 daemon 进程时带 `processes: [{ pid, state }]`（`state` 为 `starting`、`running`、`stopping`）。
+  - `status`：不拉起 daemon，只询问正在运行的。输出一行概况（pid、版本、运行时间、内存、距空闲退出的时间；内存写作 `rss 83.0 MB · anon 41.2 MB`，`anon` 是 Linux 上 `/proc/<pid>/status` 的 `RssAnon`，也是[性能目标](../development/testing.md#性能目标)用的口径，其他平台写 `anon n/a`；不报告 `anon` 的旧版本 daemon 只写 `rss`）、socket 路径和各会话（server 名、传输、`running (pid N)` / `connected` / `stopped`、目录中的工具数、调用数、空闲时间或在途数）；不含 URL、参数、凭证。socket 上没有 daemon 应答时（包括连得上却完不成握手，例如令牌不符，或 Windows 上收尾中的 daemon 的管道还被别的连接占着），再看 daemon 进程记录（[daemon.md](daemon.md#进程记录)）：有不在监听的 daemon 进程时每个一行，`daemon: starting · pid N`（还没绑定 socket）、`daemon: stopping · pid N · finishing requests in flight`（已收到 `shutdown`、删掉 socket，在处理在途请求）或 `daemon: not reachable · pid N`（socket 被删或被替换，几秒内自行退出），再加 `socket:` 一行；一个都没有才输出 `daemon: not running` 加 `socket:` 一行（完不成握手而又没有记录时，照旧报告连不上的原因）。有 daemon 应答而旁边还有别的 daemon 进程（例如上一个仍在收尾）时，概况之后追加 `also: stopping · pid N · …`。`VIA_NO_DAEMON` 打开时输出 `daemon: disabled (VIA_NO_DAEMON)`，退出码都是 0。`-o json` 输出 `{"running": true, …}`（字段同协议的 `status`）或 `{"running": false, "socket": …}`，有其他 daemon 进程时带 `processes: [{ pid, state }]`（`state` 为 `starting`、`running`、`stopping`）。
   - `stop`：结束这个 socket 的所有 daemon 进程，返回时它们都已退出。先向应答的 daemon 发 `shutdown`，给在途请求 5 秒处理完；仍未结束就发 `shutdown`（`force`），让它放弃在途请求（关闭会话、停止 stdio 子进程）立即退出。socket 上不应答的 daemon 进程（进程记录里的 `starting`、`stopping`）收到 `SIGTERM`，同样立即退出（Windows 上 `SIGTERM` 即结束进程，它的 stdio 子进程不随之结束，见 [daemon.md](daemon.md#windows)）。全部退出后输出 `daemon: stopped (pid N[, M…])`，放弃过在途请求时追加 `, requests in flight abandoned`；这些请求的 CLI 按「连接中断」处理（只读请求在进程内重做，其余以退出码 6 报告可能已执行）。没有 daemon 时输出 `daemon: not running`，退出码 0。某个进程 5 秒后仍未退出时退出码 7，`next: kill <pid>`。`-o json` 输出 `{"running": false, "pid"?: N, "stopped": [N, …], "abandoned"?: true}`。
   - `logs [<provider>] [-n <行数>] [--follow|-f] [--since <时长>]`：打印日志（[daemon.md](daemon.md#日志)）。不带 provider 是 daemon 自己的日志（`logs/daemon.log`），带 provider（与其他命令同样的唯一前缀、大小写宽松规则，找不到退出码 3 并给出候选）是该 server 的日志（stdio 子进程的 stderr、连接与协议事件、每次调用一行）。读文件，所以 daemon 没运行时、`VIA_NO_DAEMON=1` 下都能用（后者只有 server 的日志）。先输出最后 `-n` 行（默认 50，`-n 0` 一行不输出，常与 `--follow` 同用），从旧到新，轮转出的副本（`.1` 至 `.3`）也算在内；`--since` 只保留这段时间之内的行，时长写 `30s`、`10m`、`2h`、`1d`，可以连写（`1h30m`），无法解析或为 0 时退出码 2。`--follow` 在输出之后继续等新行（每 250 毫秒查看一次文件，跟随轮转，文件还不存在时等它出现），直到被 `Ctrl-C`（或 `SIGTERM`）中断，退出码 0。内容在写入时已脱敏，输出时控制字符再转义一遍；日志不存在时 stderr 写 `· no log yet for <provider> · <路径>`，stdout 为空，退出码 0。`-o json` 输出 JSON Lines：`{"time": "<ISO>", "source": "event|error|stderr", "text": "…"}`。
   - `run`：前台运行 daemon，由 CLI 分离拉起，也可手动运行。选项 `--socket <路径>`、`--idle-timeout <秒>`（缺省取配置的 `daemon.idleTimeout`）；已有 daemon 在这个 socket 上应答时输出 `daemon: already running on <路径>` 并以 0 退出。收到 SIGTERM/SIGINT/SIGHUP 时正常退出。
 - `via servers`：每个 server 一行，依次为 provider、传输方式（HTTP 只写 scheme 与主机，stdio 只写命令）、协议（上次拉取目录时协商出的 MCP 协议版本和连接是否有状态，如 `2026-07-28 stateless`、`2025-11-25 stateful`；固定了版本的加 `(pinned)`，还没有记录时只有固定的版本，什么都没有写 `-`）、鉴权方式及凭证引用是否可解析（只写引用，不写值）、来源文件、备注（`disabled`、`untrusted`、框架间冲突、保留名冲突）；之后列出配置诊断。不连接任何 server（协议一列读的是目录缓存，缓存过期或被清掉后回到 `-`），也不执行 `cmd:` 凭证引用（[config.md](config.md#凭证引用)）。`untrusted` 的备注附 `via trust <路径>`（多个文件待确认时为 `via trust`）。配置里有 error 级诊断时照常显示，不中止。
+  - `-o json`：`{"servers": [{"name", "provider", "transport", "source", "status", "auth", "protocol", "tools", "notes"?}], "diagnostics": [{"level", "message"}]}`，顺序同文本。`transport` 是 `{"type": "stdio", "command"}`（只有命令，不含参数与 env）或 `{"type": "http", "origin"}`（只有 scheme 与主机，不含路径与查询串）；`source` 是 `{"scope", "path"?}`（路径写法同文本，家目录缩写为 `~`）；`status` 为 `ok`、`disabled`、`skipped`（保留名或重名，不进入目录）、`untrusted`；`auth` 是 `{"method", "usable", "missing"?, "login"?}`（`missing` 是解析不了的凭证引用，只有引用；`login` 是 OAuth 的登录状态）；`protocol` 是 `{"version", "stateful", "pinned"}`（读自目录缓存，只有固定版本而没有记录时没有 `stateful`），都没有时为 `null`；`tools` 是 `via` 显示的可见工具数（`deny` 之后），没有可用缓存、已禁用、未信任或被跳过时为 `null`。不含任何凭证值与 env 值；字符串按内容档脱敏（[output.md](output.md#脱敏的范围)）。`-o raw` 退出码 2。
 - `via trust`：显示并记录对项目级配置文件的信任，也能列出、撤销记录；细节、确认方式和退出码见 [security.md](security.md#via-trust)。它读取配置但不连接 server，配置里有 error 级诊断时照常工作（不执行任何工具）。确认默认在终端里完成；`--yes` 只在带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1` 时有效。
 - `via auth`：`login <provider> [--manual]`、`status [<provider>]`、`logout <provider>`，只用于 `auth: oauth` 的 HTTP server（provider 接受唯一前缀）。provider 未配置为 OAuth 退出码 2，并提示把 `servers.<name>.auth` 设为 `oauth`；项目级配置里未信任的 server 退出码 5（登录会把授权发往仓库指定的地址）。`login` 的等待时间默认 300 秒，`--timeout <秒>` 覆盖。其余行为见 [auth.md](auth.md#oauth)。
 - `via sync`：向各 server（或指定的 provider）重新拉取 `tools/list` 并更新缓存，每个 provider 一行（`gh  14 tools` 或 `linear  needs auth: …`）；并行拉取，每个 server 等它自己的 `timeout`（`--timeout` 覆盖），不受发现类命令的等待上限限制，所以它也是慢 server 的预热办法（[discovery.md](discovery.md#缓存)）；有失败时退出码取其中最大的，并在 stderr 提示 `next: via doctor`。
@@ -287,7 +289,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 
 | 工具 | 参数 | 执行的命令 |
 | --- | --- | --- |
-| `via_browse` | `path`：省略或空串、`<provider>`、`<provider> <resource>`、`<provider> <resource>:<verb>`（按空白分词，至多三个词） | `via [path…]`；有带 `:` 的词时追加 `-h`，即该工具的用法 |
+| `via_browse` | `path`：省略或空串、`<provider>`、`<provider> <resource>`、`<provider> <resource>:<verb>`（按空白分词，至多三个词） | `via [path…]`；有两个以上的词时追加 `-h`：带 `:` 的是该工具的用法，叶子工具与原始名也只显示用法（命令行上 `via gh whoami` 会调用它，而 `via_browse` 是只读的），资源照常列出 |
 | `via_find` | `query`（必填）、`limit`（正整数） | `via find <query> [-n <limit>]` |
 | `via_call` | `tool`（必填，单字符串引用）、`args`（对象）、`yes`（布尔）、`detach`（布尔）、`timeout`（正数，秒） | `via call <tool> --args <args 的 JSON，缺省 {}> [--yes] [--detach] [--timeout <秒>]` |
 | `via_more` | `cursor`（必填） | `via more <cursor>` |
@@ -301,6 +303,8 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 - **参数检查**：在拼命令行之前进行，失败时不运行任何命令，结果是 `error: <原因>` 一行，退出码 2：
   - 必填参数缺失或为空、类型不对（字符串参数不是字符串，`args` 不是对象，`yes` 不是布尔，`limit` 不是正整数）；
   - 字符串参数以 `-` 开头（它会成为一个全局选项或命令选项，例如 `--yes`、`-o raw`）。工具参数在 `args` 的 JSON 里，不受这条限制；
+  - 工具不认识的参数名。最常见的是把被调用工具的参数写在 `tool` 旁边而不是 `args` 里（那样调用会不带参数发出），消息里点名并给出 `{"tool": "...", "args": {"<名>": ...}}` 的写法；
+  - 按模型常犯的写法拦下，消息里带改法，不运行任何命令：`via_call` 的 `tool` 含空白（`"gh issue:read"`，消息建议 `"gh/issue:read"`）或缺少 `<provider>/`，`args` 是 JSON 字符串而不是对象；`via_browse` 的 `path` 以 `via` 开头，或词里带 `/`（`"gh/issue:read"` 应写 `"gh issue:read"`）；`via_more` 的 `cursor` 带空白（把 `via more c7f2` 整句传来，消息给出 `"c7f2"`）；`via_read` 的 `uri` 没有 scheme（文件路径），或还留着模板的 `{占位符}`；`via_prompts`、`via_resources` 的 `args` 里有非字符串的值（否则 CLI 会静默丢掉它）；
   - `via_browse` 的第一个词是内置子命令名（`"trust"` 会变成 `via trust`），`path` 超过三个词；
   - `via_prompts` 给了 `args` 或 `complete` 而没有 `name`；`via_resources` 给了 `complete` 或 `args` 而没有 `template`，或给了 `template` 而没有 `complete`；`via_skills` 给了 `file` 而没有 `name`；
   - `via_tasks` 既没有 `provider` 也没有 `task`，有 `action` 而没有 `task`，`action` 不是 `status` 或 `cancel`，只有 `task` 而它不是 `<provider>/<id>` 的写法（第一个 `/` 前至少一个字符）；
@@ -311,7 +315,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
   - `via_call` 不传 `timeout` 时等待与命令行一致（server 的 `timeout`，缺省 60 秒）；传了就是 `--timeout`。任务超时不被取消，退出码 6，`next: via tasks <provider> <ID>` 对应 `via_tasks`。
   - `via_tasks` 等结果（没有 `action`）且没有 `timeout` 时，serve 追加 `--timeout 30`，这是 serve 唯一不同于命令行缺省的一处：许多 client 给一次工具调用约 60 秒，缺省的 60 秒会赶在 client 放弃的同一刻，结果与任务 ID 都丢；到点时退出码 6、任务继续，再调一次即可。`status`、`cancel` 与列表是单次请求，不加缺省。
   - 任务进入 `input_required` 时与命令行没有终端时相同（[任务](#任务via-tasks-与---detach)、[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）：elicitation 回答 `decline`，任务继续，结果里的 `next:` 请用户在终端里运行；等的不是 elicitation 时退出码 1，`next: via tasks <provider> <ID> --cancel` 对应 `action: "cancel"`。
-- **工具定义的大小**：九个工具的 `tools/list` 结果约 4.6 KB（约 1,150 token，按 4 字节一 token），`instructions` 约 0.7 KB；测试限制前者不超过 4.8 KB，并用快照钉住所有定义与 `instructions` 的文字（`test/cli/__snapshots__/serve-tools.txt`、`serve-instructions.txt`）。
+- **工具定义的写法与大小**：每个工具的描述有一句话职责、一条最小示例（`{"path": "gh issue"}`）、输入格式的要求（`tool` 是 `<provider>/<resource>:<verb>` 且不含空格，工具参数都在 `args` 里、键是 schema 里的原名）、与相邻工具的界限（`via_browse` 带冒号的 `path` 是用法而不是调用；`via_call` 不做发现；`via_more` 只收元信息行里 `via more` 之后的游标；`via_tasks` 接 `via_call` 的 `detach` 或退出码 6 留下的任务）和失败时的去向（`next:` 与退出码）；`instructions` 写工作流、`via_*` 与 CLI 写法的对应、退出码 2/3/4/5 各自该怎么办。只写模型会用错的地方，其余不写。九个工具的 `tools/list` 结果约 5.9 KB（约 1,480 token，按 4 字节一 token；0.4 的第一版是 4.6 KB），`instructions` 约 1.2 KB；测试限制前者不超过 6 KB、后者不超过 1.3 KB，并用快照钉住所有定义与 `instructions` 的文字（`test/cli/__snapshots__/serve-tools.txt`、`serve-instructions.txt`）。多出的约 1.3 KB 买的是少一次失败的往返：上面的参数检查在拼命令行之前拦下常见的误用。
 - **框架配置里的 `via serve`**：登记了 `via serve` 的框架配置会被 via 自己读到，这样的条目不进入目录（[config.md](config.md#校验与诊断)）。
 
 ### via batch
@@ -401,10 +405,10 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 
 | 选项 | 作用 |
 | --- | --- |
-| `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)） |
+| `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)）；浏览视图、`via find`、`via servers` 支持 `json`，`raw` 在它们上退出码 2 |
 | `--json` | `-o json` 的别名（模型对 `--json` 的先验很强）。工具自己有名为 `json` 的参数时写 `--p.json` |
 | `--full` | 关闭截断 |
-| `--all` | 浏览视图不截断条目 |
+| `--all` | 浏览视图不截断条目；`via <provider> -h --all` 另列出全部工具的用法 |
 | `--yes` | 确认执行危险工具 |
 | `--dry-run` | 只解析并打印将要发出的调用，不执行（输出格式见下） |
 | `--no-validate` | 跳过本地 schema 校验（[arguments.md](arguments.md#schema-不可靠时)）；`--yes` 与 `deny` 照常生效 |
@@ -413,7 +417,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `--schema-mode compatible\|strict` | 快照比较的松紧，默认 `compatible` |
 | `--detach` | 工具调用在 server 建出任务后立即返回任务 ID，不等结果（[任务](#任务via-tasks-与---detach)）；只用于工具调用（含 `via call`、`via batch`） |
 | `--complete <参数>` | 向 server 要这个 prompt 或资源模板参数的取值建议（[补全](#补全)），只用于 `via prompts <provider> <名称>` 与 `via resources <provider> <模板>` |
-| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)） |
+| `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)），再加 `--all` 时在视图后列出该 provider 全部工具的 `usage:` 行（`-o json` 时是工具详情的数组） |
 
 全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
 

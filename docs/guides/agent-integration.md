@@ -149,7 +149,7 @@ Claude Desktop、IDE 的聊天面板这类 agent 不能执行命令，只能挂 
 
 没有全局安装时可以写成 `"command": "npx", "args": ["-y", "@modelctx-ai/via", "serve"]`。via 读框架配置时会认出这一条是它自己，不会把它当作 server 再拉起一次（`via servers` 里有一条 info 说明）。
 
-agent 看到的是九个元工具（`via_browse`、`via_find`、`via_call`、`via_more`、`via_resources`、`via_read`、`via_prompts`、`via_skills`、`via_tasks`，约 1,150 token），用法与命令行一一对应，输出也完全相同，见 [cli.md](../spec/cli.md#via-serve)。`via trust` 与 `via auth login` 没有对应的工具，仍然要你在终端里运行。框架从哪个目录拉起 `via serve`，项目级配置就按哪个目录查找，与在那里运行 `via` 相同。
+agent 看到的是九个元工具（`via_browse`、`via_find`、`via_call`、`via_more`、`via_resources`、`via_read`、`via_prompts`、`via_skills`、`via_tasks`，约 1,480 token），用法与命令行一一对应，输出也完全相同，见 [cli.md](../spec/cli.md#via-serve)。`via trust` 与 `via auth login` 没有对应的工具，仍然要你在终端里运行。框架从哪个目录拉起 `via serve`，项目级配置就按哪个目录查找，与在那里运行 `via` 相同。
 
 有 shell 的 agent 不需要 `via serve`：直接用命令行，上下文里只有 `via prompt` 的说明块，比九个工具定义更小。
 

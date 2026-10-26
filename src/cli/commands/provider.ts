@@ -1,9 +1,10 @@
 // `via <provider> [<resource>|<tool>] …` and `via call <provider>/<ref> …` (cli.md, "解析顺序").
-import { renderProvider, renderResource } from '../../catalog';
+import { providerHint, providerJson, renderProvider, renderResource, resourceHint, toolListing } from '../../catalog';
 import { ExitCode } from '../../render/exit-codes';
 import { shellWords } from '../../render/shell';
 import type { App } from '../app';
 import { usageFailure } from '../failure';
+import { rejectRaw, writeJson } from '../listing-output';
 import { openProvider, resolveToolRef, splitToolRef, type OpenProvider } from '../open-provider';
 import { selfJson, selfLines, SELF_HEADER } from '../server-info';
 import { noteCanonical, resolveInProvider, resolveVerbWord, type Target } from '../target';
@@ -22,6 +23,7 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
   const [typedProvider, typedTarget, ...restArgv] = words as [string, ...string[]];
   if (app.options.schemaSnapshot !== undefined && typedTarget === undefined) throw notATool();
   if (app.options.detach && typedTarget === undefined) throw notACall();
+  if (typedTarget === undefined) rejectRaw(app, [typedProvider]);
   const opened = await openProvider(app, typedProvider);
   const { visible } = opened.views;
 
@@ -35,6 +37,13 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
     const view = withNewline(renderProvider(visible, { all: app.options.all, also }));
     // `-h` adds what the server says about itself (instructions, description): only here (discovery.md, "server 自述").
     if (app.options.help) return showServerSelf(app, opened, view);
+    if (app.options.format === 'json') {
+      // The data on stdout, the `→` hint (as in the text view) on stderr.
+      const features = opened.listing.features;
+      await writeJson(app, providerJson(visible, { resources: !!features?.resources, prompts: !!features?.prompts, skills: !!features?.skills }));
+      if (visible.tools.length > 0 && visible.resources.length > 0) app.err(`${providerHint(visible)}\n`);
+      return ExitCode.Ok;
+    }
     app.out(view);
     return ExitCode.Ok;
   }
@@ -52,7 +61,13 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
   if (target.kind === 'resource') {
     if (app.options.schemaSnapshot !== undefined) throw notATool();
     if (app.options.detach) throw notACall();
+    rejectRaw(app, [typedProvider, typedTarget]);
     noteCanonical(app, [typedProvider, typedTarget], [visible.provider, target.group.name]);
+    if (app.options.format === 'json') {
+      await writeJson(app, target.group.tools.map((t) => toolListing(t)));
+      app.err(`${resourceHint(visible, target.group)}\n`);
+      return ExitCode.Ok;
+    }
     app.out(withNewline(renderResource(visible, target.group)));
     return ExitCode.Ok;
   }
@@ -78,14 +93,16 @@ async function showServerSelf(app: App, opened: OpenProvider, view: string): Pro
     self = cache.readInfo(server);
   }
   const redact = (text: string): string => app.redact(text);
-  const provider = opened.views.visible.provider;
+  const visible = opened.views.visible;
+  // `--all` adds every tool: its usage line (text), or its detail, the `-h -o json` of that tool (json).
+  const every = app.options.all ? await (await toolCommands()).providerTools(visible) : undefined;
   if (app.options.format === 'json') {
-    app.out(`${JSON.stringify(await app.redactValue(selfJson(provider, self ?? {}, redact)), null, 2)}\n`);
+    await writeJson(app, every ? every.details : selfJson(visible.provider, self ?? {}, redact));
     return ExitCode.Ok;
   }
   const lines = self ? selfLines(self, redact) : ['  (unknown: the server could not be reached)'];
   const text = await app.redactText(`${SELF_HEADER}\n${lines.join('\n')}\n\n`);
-  app.out(text + view);
+  app.out(text + view + (every && every.usage.length > 0 ? `\n${every.usage.join('\n')}\n` : ''));
   return ExitCode.Ok;
 }
 
