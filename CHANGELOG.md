@@ -8,6 +8,7 @@
 
 ### Added
 
+- 发布 2026-10-26 的 agent 评测报告（[eval-2026-10-26-deepseek-flash.md](bench/results/eval-2026-10-26-deepseek-flash.md)）：deepseek-flash、effort medium，9 个任务 × 10 次。native 68/90、via 66/90、mcp2cli 67/90、mcpc 68/90。门槛 1 不成立，三组对比的 Wilson 区间都重叠。mcp2cli 一列是同日第二次运行，第一次因本机回放收到 HTTP 502 而作废。原始 JSON 不在仓库里。不涉及动词表与规范写法。
 - Windows 推荐路径、`via.cmd` 垫片与 `via doctor` 的 `platform` 提示（[#37](https://github.com/modelctx-ai/via/issues/37)，[getting-started.md](docs/guides/getting-started.md#windows)、[agent-integration.md](docs/guides/agent-integration.md#via-doctor检测与关闭提示)）：
   - 快速上手的 Windows 一节新增「推荐姿势」（agent 与 via 都装在 WSL2 内，Windows 侧框架配置在 `sources` 里按 `/mnt/c/…` 显式列出，`.wslconfig` 的 `localhostForwarding` 与 VM 空闲关闭对 OAuth 回调、daemon 的影响，没有 WSL 时用 Git Bash 并设 `MSYS_NO_PATHCONV`），以及可选的 `scripts/windows/via.cmd`（转发到 `wsl.exe -e via …`；不在 npm 包里，没有对应的子命令；**未在真实 Windows 上验证**，待测清单写在同一节）。
   - `via doctor` 在 Windows 上固定多一行 `platform`，提示 PowerShell 5.1 会丢掉 `--args '{…}'` 的内层双引号、改用 `--args @文件`（不探测 PowerShell 版本）；在 WSL 内读了 `/mnt/<盘符>/…` 下的配置文件时，提示跨文件系统读取的冷启动代价并列出文件。只提示，不改变退出码；其他环境的输出不变。
