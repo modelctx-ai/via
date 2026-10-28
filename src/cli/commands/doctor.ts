@@ -1,6 +1,6 @@
 // `via doctor`: probe every server live, then hand the results to the renderer.
 import { BUNDLED_FRAMEWORKS, CredentialError, type ServerConfig } from '../../config';
-import { shellWord } from '../../render/shell';
+import { shellArg, shellWord } from '../../render/shell';
 import { ClientError } from '../../client/errors';
 import type { App } from '../app';
 import { buildProviderTable, statusOf } from '../directory';
@@ -28,7 +28,7 @@ export async function doctorCommand(app: App): Promise<number> {
         return { ...base, status: 'ok', toolCount: tools.length, ...(protocol ? { protocol } : {}), schemaBytes: Buffer.byteLength(JSON.stringify(tools), 'utf8'), toolNameBytes: tools.reduce((n, t) => n + Buffer.byteLength(t.name, 'utf8'), 0), ...(warning ? { warning } : {}) };
       } catch (error) {
         const probe: ServerProbe = { ...base, status: probeStatus(statusOf(error)), message: app.redact.scan(error instanceof Error ? error.message : String(error)) };
-        const next = error instanceof ClientError || error instanceof CredentialError ? error.next : undefined;
+        const next = nextFromDoctor(app, server, error instanceof ClientError || error instanceof CredentialError ? error.next : undefined);
         if (next) probe.next = app.redact.scan(next);
         return probe;
       }
@@ -55,6 +55,15 @@ export async function doctorCommand(app: App): Promise<number> {
   });
   app.out(`${out.text}\n`);
   return out.exitCode;
+}
+
+/**
+ * `via doctor` is what a failure that may pass on its own points at (output.md, "错误"), and that is the
+ * command being run: here the next step is the server's own log, unless the config hides `via daemon`.
+ */
+function nextFromDoctor(app: App, server: ServerConfig, next: string | undefined): string | undefined {
+  if (next !== 'via doctor') return next;
+  return app.commandVisible('daemon') ? `via daemon logs ${shellArg(server.provider, { placeholder: 'provider', positional: true })}` : undefined;
 }
 
 /**

@@ -18,7 +18,8 @@ export interface ProxyServer {
   close(): Promise<void>;
 }
 
-export async function startProxy(): Promise<ProxyServer> {
+/** `refuseTunnels`: answer every CONNECT with this status instead of opening it, as srt's proxy does for a domain its policy does not allow. */
+export async function startProxy(options: { refuseTunnels?: number } = {}): Promise<ProxyServer> {
   const log: ProxyLog[] = [];
   const sockets = new Set<Socket>();
   const server: Server = createServer((req, res) => {
@@ -46,6 +47,10 @@ export async function startProxy(): Promise<ProxyServer> {
   });
   server.on('connect', (req, client: Socket, head) => {
     log.push({ line: `CONNECT ${req.url}`, ...(req.headers['proxy-authorization'] ? { authorization: String(req.headers['proxy-authorization']) } : {}) });
+    if (options.refuseTunnels !== undefined) {
+      client.end(`HTTP/1.1 ${options.refuseTunnels} Refused\r\nContent-Length: 0\r\n\r\n`);
+      return;
+    }
     const [host, port] = String(req.url).split(':');
     const upstream = connect(Number(port), host, () => {
       client.write('HTTP/1.1 200 Connection Established\r\n\r\n');

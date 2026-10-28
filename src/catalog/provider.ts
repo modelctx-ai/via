@@ -114,6 +114,16 @@ function toCatalogTool(provider: string, d: Draft, rules: CatalogRules, confirm:
 }
 
 /**
+ * Whether an agent may see `tool`. MCP Apps marks a tool that only the server's own UI calls with a
+ * `_meta.ui.visibility` that leaves out `"model"`, and a host must keep it out of the agent's tool list
+ * (discovery.md, step 1; ADR 0031). Absent or not an array: the default, `["model", "app"]`.
+ */
+export function modelVisible(tool: McpTool): boolean {
+  const visibility = tool._meta?.ui?.visibility;
+  return !Array.isArray(visibility) || visibility.includes('model');
+}
+
+/**
  * Split every tool of one provider and resolve conflicts (naming.md rules 5 and 6),
  * then apply `deny` and group by resource.
  */
@@ -123,7 +133,8 @@ export function buildProviderCatalog(
 ): ProviderCatalog {
   const providerNames = [input.provider, ...(input.aliases ?? [])];
 
-  const drafts: Draft[] = input.tools.map((def) => {
+  // An app-only tool is left out before naming, as if the server had not listed it: it takes no part in name conflicts.
+  const drafts: Draft[] = input.tools.filter(modelVisible).map((def) => {
     const s = splitToolName(def.name, { providerNames }, rules.split);
     const defaultName = s.kind === 'resource' ? `${s.resource}:${s.verb}` : s.leafName;
     const splitLeaf = s.leafName;

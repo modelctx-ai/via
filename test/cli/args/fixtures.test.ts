@@ -12,7 +12,8 @@ describe('fixture tool schemas', () => {
           const ctx = { provider: name, ref: `${name} ${tool.name}`, rawName: tool.name, readOnly: !!tool.annotations?.readOnlyHint, destructive: !!tool.annotations?.destructiveHint };
           const usage = formatUsage(tool, ctx);
           expect(usage.startsWith(`usage: via ${name} ${tool.name}`), tool.name).toBe(true);
-          expect(formatToolHelp(tool, ctx)).toContain(`alias: ${tool.name}`);
+          // `ref` here is the raw name itself, so there is no second spelling to show.
+          expect(formatToolHelp(tool, ctx)).not.toContain('alias:');
           const required = tool.inputSchema?.required ?? [];
           try {
             const r = await parseToolArgs([], tool, ctx, { io: memoryIO(), validate: true });

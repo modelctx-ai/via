@@ -136,9 +136,11 @@ next: ask the user to run this in a terminal: via auth login linear
   | bearer / headers 凭证被拒（401/403） | 用户 | `ask the user: the credentials of <provider> were refused; check servers.<name>.auth in the via config (…)`（`auth login` 对静态凭证没有用） |
   | 凭证引用解析失败（`env:` 变量没设、`file:` 不存在或为空、`keychain:` 没有条目或读不出、`cmd:` 程序不在 PATH 或失败、引用写法有误） | 用户 | `ask the user: export EXA_KEY=<value>, or point the reference at another source (file:, keychain:)`（设变量、放文件、登录钥匙串、装程序都是人的事） |
   | 沙箱程序不存在（`sandbox.command` 找不到，退出码 6） | 用户 | `ask the user: srt is not installed (needed by sandbox.enabled in the via config)`（[config.md](config.md#sandbox)） |
+  | 在沙箱里运行时，沙箱的代理拒绝连接 server（`CONNECT` 回 403：主机不在 `allowedDomains` 里；退出码 6，原因写 `the sandbox's proxy refused <origin> (HTTP 403)`） | 用户 | `ask the user: add <主机> to sandbox.policy.network.allowedDomains in the via config`（[config.md](config.md#sandbox)） |
+  | 其他情形下 HTTPS 代理拒绝建立隧道（`CONNECT` 回 200 以外的状态；退出码 6，原因写 `the proxy did not connect to <origin> (HTTP <状态>)`） | 用户 | `ask the user: the proxy did not let via reach <origin> (HTTP <状态>); check the proxy, or list <主机> in NO_PROXY` |
   | 子命令被 `commands` 禁止（退出码 5） | agent 换别的命令 | `via help`（列出还能用的命令）；其他错误的 `next:` 指向被禁止的命令时不输出 |
   | 超时 | 重试 | `rerun with a larger --timeout` |
-  | 进程启动后退出、连接断开、HTTP 5xx、网络不可达 | 可能是暂时的 | `via doctor` |
+  | 进程启动后退出、连接断开、HTTP 5xx、网络不可达 | 可能是暂时的 | `via doctor`；`via doctor` 自己的结果里改为 `via daemon logs <provider>`（不再指回自己），`commands` 禁止或隐藏了 `via daemon` 时不写 |
 
   程序名来自用户自己的配置，回显前脱敏、清理控制字符、折成一行（同上一条）。`-o json` 的 `error.next` 是同一个字符串。凭证引用解析失败（`CredentialError`）的 `next:` 是各情形自己的说明，统一加 `ask the user: ` 前缀（`ask the user: export NOT_SET=<value>, …`），说明里不含凭证值，`via doctor` 里该 server 的 `next:` 与 `-o json` 的 `error.next` 相同；没有说明时 OAuth server 用 `auth login` 的写法，其余写 `ask the user: fix the credential reference in servers.<name>.auth of the via config`。
 - 参数错误附 usage（[arguments.md](arguments.md#校验与报错)）；找不到附 did you mean（[discovery.md](discovery.md#找不到时)）。

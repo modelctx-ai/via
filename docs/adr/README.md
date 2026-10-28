@@ -36,6 +36,7 @@
 | [0028](0028-restrict-and-hide-subcommands.md) | 在配置里禁止、只允许、隐藏或只显示某些子命令（`commands`） | 已接受 |
 | [0029](0029-provider-word-as-resource-and-same-name-leaf.md) | 复数的 provider 词可以是资源；与资源同名的叶子工具在浏览和 did you mean 里被找到 | 已接受 |
 | [0030](0030-infer-destructive-from-names.md) | 没有声明破坏性注解的工具按名字推断，并允许用户点名要求确认 | 已接受 |
+| [0031](0031-leave-out-app-only-tools.md) | MCP Apps 里只给界面调用的工具（`visibility` 不含 `"model"`）不进入目录 | 已接受 |
 
 ## 流程
 

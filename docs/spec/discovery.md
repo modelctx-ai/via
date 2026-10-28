@@ -4,7 +4,7 @@ provider 就是配置里的 server，按名字原样列出，不做分类：模�
 
 ## 目录构建流程
 
-1. **拉取**：对每个 server 调用 `tools/list`（分页拉全）。
+1. **拉取**：对每个 server 调用 `tools/list`（分页拉全）。`_meta.ui.visibility` 是数组而不含 `"model"` 的工具（MCP Apps 里只给 server 自己的界面调用的工具，如 `["app"]`）在拆分之前去掉，如同 server 没有列出它：不进入视图、索引和 `via serve`，按名字调用是「找不到」（退出码 3），也不参与重名处理；`visibility` 缺省或不是数组时按默认值 `["model", "app"]` 保留（[ADR 0031](../adr/0031-leave-out-app-only-tools.md)）。原始缓存照样保存它们，`via sync`、`via doctor`、`via daemon status` 的工具数与被 `deny` 的工具一样按 server 列出的数目计。
 2. **确定 provider**：取 server 别名（或配置中的 `alias`），统一为小写 kebab-case；与内置子命令重名时必须改名。
 3. **拆分工具名**：每个工具拆成 `资源:动作`，拆不开的作为叶子工具（[naming.md](naming.md)）。
 4. **建索引**：provider、资源、动作、原始名、描述、参数名分词后建倒排索引，供 `via find` 使用。

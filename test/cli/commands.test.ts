@@ -106,6 +106,18 @@ describe('via doctor', () => {
     expect(r.stdout).toMatch(/down/);
     expect(r.stdout + r.stderr).not.toContain(FAKE_TOKEN);
     expect(srv.state.listCalls).toBe(1);
+    // A failure that may pass points at `via doctor` elsewhere; here, at the server's log instead of at itself.
+    expect(r.stdout).toMatch(/^ {2}down: failed \(cannot start down: .*\)\n {4}next: via daemon logs down$/m);
+    expect(r.stdout).not.toContain('next: via doctor');
+  });
+
+  it('gives no next step for a failure that may pass when the config hides via daemon', async () => {
+    const sb = makeSandbox();
+    sb.userConfig('sources: false\nservers:\n  down:\n    url: http://127.0.0.1:1/mcp\ncommands:\n  hide: [daemon]\n');
+    const r = await sb.via(['doctor']);
+    expect(r.code).toBe(6);
+    expect(r.stdout).toMatch(/^ {2}down: failed \(cannot start down: .*\)\n\n/m);
+    expect(r.stdout).not.toContain('next: via d');
   });
 
   it('ignores the catalog cache: it checks the connection', async () => {

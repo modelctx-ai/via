@@ -48,9 +48,10 @@ export function userConfigDir(ctx: PathContext): string {
   return join(ctx.env.XDG_CONFIG_HOME || join(ctx.home, '.config'), 'via');
 }
 
-/** Where to tell the user to put `config.yaml`, as they would type it (for `next:` hints). */
-export function userConfigHint(platform: NodeJS.Platform): string {
-  return platform === 'win32' ? '%APPDATA%\\via\\config.yaml' : '~/.config/via/config.yaml';
+/** Where to tell the user to put `config.yaml`, as they would type it (for `next:` hints): `XDG_CONFIG_HOME` moves it. */
+export function userConfigHint(ctx: PathContext): string {
+  if (ctx.platform === 'win32') return '%APPDATA%\\via\\config.yaml';
+  return ctx.env.XDG_CONFIG_HOME ? shortenHome(userConfigPath(ctx), ctx.home, ctx.platform) : '~/.config/via/config.yaml';
 }
 
 export function userConfigPath(ctx: PathContext): string {

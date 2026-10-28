@@ -186,7 +186,7 @@ export function createCredentialResolver(options: CredentialResolverOptions = {}
   /** `cmd:` is for the user config only; checked on every resolve, before any cached value is looked at. */
   function checkCmdOrigin(ref: string, origin: ConfigOrigin): void {
     if (origin.scope !== 'user' && origin.scope !== 'cli') {
-      throw new CredentialError(`cmd: credential references are only allowed in the user config${where(origin)}`, ref, `move this server definition to ${userConfigHint(ctx.platform)}, or use env:, file: or keychain:`);
+      throw new CredentialError(`cmd: credential references are only allowed in the user config${where(origin)}`, ref, `move this server definition to ${userConfigHint(ctx)}, or use env:, file: or keychain:`);
     }
   }
 

@@ -2,7 +2,8 @@
 // connection, so nothing here costs CLI cold start (implementation.md, "启动速度").
 import type { Client, ClientOptions, FetchLike, McpSubscription, StandardSchemaV1, SubscriptionFilter, Transport } from '@modelcontextprotocol/client';
 import pkg from '../../package.json';
-import type { CredentialResolver, ServerConfig } from '../config/types';
+import { SANDBOX_MARKER } from '../config/policy';
+import { refOrigin, type CredentialResolver, type ServerConfig } from '../config/types';
 import type { CompletionRef, CompletionResult, DetachedCall, GetPromptResult, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import type { McpTool } from '../catalog/types';
 import { createRedactor, redactValue } from '../render/redact';
@@ -944,7 +945,7 @@ export class McpSession {
       this.log?.event(`connected in ${Date.now() - began}ms; protocol ${created.protocol.version || 'unknown'}, ${created.protocol.stateful ? 'stateful' : 'stateless'}${pid?.() ? `; pid ${pid()}` : ''}`);
       return created;
     } catch (err) {
-      const mapped = mapError(err, { server, phase: 'connect', timeoutMs, redact: this.redactor(), stderrTail: stderrBuf });
+      const mapped = mapError(err, { server, phase: 'connect', timeoutMs, redact: this.redactor(), stderrTail: stderrBuf, sandboxed: this.options.env?.[SANDBOX_MARKER] === '1' });
       this.log?.error(`connect failed after ${Date.now() - began}ms: ${firstLine(mapped.message)}`);
       if (client) await client.close().catch(() => undefined); // kills a half-started child
       if (handle) handle.closed = true;
@@ -996,7 +997,7 @@ export class McpSession {
       const track = (value: string): void => this.resolver.track?.(value);
       this.oauth = createCallProvider(this.server, this.options.oauthStore ?? createOAuthStore(), {
         track,
-        resolveCredential: (ref) => this.resolver.resolve(ref, this.server.origin),
+        resolveCredential: (ref) => this.resolver.resolve(ref, refOrigin(this.server, 'auth')),
         ...(this.proxied() ? { fetch: this.proxied()! } : {}),
         ...(this.options.now ? { now: this.options.now } : {}),
         onSaveFailed: (reason) => {

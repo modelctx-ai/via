@@ -6,7 +6,7 @@
 import type { McpTool } from '../catalog/types';
 import { CATALOG_TTL_MS, CatalogCache, effectiveTtl } from '../cli/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
-import type { CredentialResolver, ServerConfig } from '../config/types';
+import { refOrigin, type CredentialResolver, type ServerConfig } from '../config/types';
 import type { DetachedCall, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, CompletionRef, CompletionResult, GetPromptResult, ListedTools, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { lazyRedactor, redactProtocol, type Redactor } from '../render/redact';
@@ -394,7 +394,7 @@ export class SessionManager {
         // A saved login must exist (no network); its tokens join the redaction list.
         const { createCallProvider } = await import('../client/oauth');
         const { resolver } = this.options;
-        await createCallProvider(server, this.oauthStore, { track: (value) => resolver.track?.(value), resolveCredential: (ref) => resolver.resolve(ref, server.origin), now: this.options.now }).requireLogin();
+        await createCallProvider(server, this.oauthStore, { track: (value) => resolver.track?.(value), resolveCredential: (ref) => resolver.resolve(ref, refOrigin(server, 'auth')), now: this.options.now }).requireLogin();
       }
     } catch (error) {
       throw mapError(error, { server, phase: 'connect', timeoutMs, redact: this.redact });

@@ -33,7 +33,8 @@ export function compactJson(value: unknown, depth = 0): string {
   const pad = '  '.repeat(depth);
   const flat = isScalar(value) || (Array.isArray(value) ? value.every(isScalar) : Object.values(value as object).every(isFlat));
   const one = inline(value);
-  if (flat && pad.length + one.length <= 100) return one;
+  // A scalar has nothing to break, however long: below, a string would be taken apart as an object of its characters.
+  if (isScalar(value) || (flat && pad.length + one.length <= 100)) return one;
   if (Array.isArray(value)) return `[\n${value.map((v) => `${pad}  ${compactJson(v, depth + 1)}`).join(',\n')}\n${pad}]`;
   const entries = Object.entries(value as object).map(([k, v]) => `${pad}  ${JSON.stringify(k)}: ${compactJson(v, depth + 1)}`);
   return `{\n${entries.join(',\n')}\n${pad}}`;

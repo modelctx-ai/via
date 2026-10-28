@@ -24,6 +24,8 @@ export interface ErrorContext {
   timeoutMs: number;
   /** Last lines the stdio child wrote to stderr, if any (already unredacted; redacted here). */
   stderrTail?: string;
+  /** This via runs inside `sandbox.command` (config.md, `sandbox`): the proxy it goes through is the sandbox's. */
+  sandboxed?: boolean;
 }
 
 /** Longest piece of upstream text we echo into an error message. */
@@ -343,6 +345,7 @@ function startupFailure(err: unknown, ctx: ErrorContext): ClientError {
   const { server } = ctx;
   const provider = server.provider;
   const status = httpStatus(err);
+  const refused = tunnelRefusal(err);
   let reason: string;
   let spawnFailedToFindCommand = false;
   // What only a person can fix says so in `next:`; what may pass on its own points at `via doctor` (output.md, "错误").
@@ -369,6 +372,19 @@ function startupFailure(err: unknown, ctx: ErrorContext): ClientError {
   } else if (status !== undefined) {
     const detail = clean(upstreamText(err), ctx);
     reason = `HTTP ${status}${detail ? `: ${detail}` : ''}`;
+  } else if (refused !== undefined) {
+    // Not the server's answer and not a network hiccup: a proxy that will not connect via to this host, every
+    // time. The sandbox's proxy answers 403 for a domain its policy does not allow (config.md, `sandbox`).
+    const origin = originOf(server.transport.url);
+    const host = hostOf(server.transport.url);
+    if (ctx.sandboxed && refused === 403) {
+      reason = `the sandbox's proxy refused ${origin} (HTTP 403)`;
+      next = askUser(`add ${host} to sandbox.policy.network.allowedDomains in the via config`);
+    } else {
+      reason = `the proxy did not connect to ${origin} (HTTP ${refused})`;
+      next = askUser(`the proxy did not let via reach ${origin} (HTTP ${refused}); check the proxy, or list ${host} in NO_PROXY`);
+    }
+    return new ClientError({ exitCode: ExitCode.Upstream, message: `cannot start ${provider}: ${reason}`, next });
   } else if (networkCode(err) !== undefined || isFetchFailure(err)) {
     reason = `cannot reach ${originOf(server.transport.url)} (${networkCode(err) ?? 'network error'})`;
   } else {
@@ -454,6 +470,28 @@ function networkCode(err: unknown): string | undefined {
     cur = (cur as { cause?: unknown }).cause;
   }
   return undefined;
+}
+
+/**
+ * The status a proxy answered a CONNECT with when it did not open the tunnel, looking through `fetch failed`
+ * causes. undici words it `Proxy response (403) !== 200 when HTTP Tunneling` (the ProxyAgent of undici 7).
+ */
+function tunnelRefusal(err: unknown): number | undefined {
+  let cur: unknown = err;
+  for (let i = 0; i < 4 && cur; i += 1) {
+    const match = /^Proxy response \((\d{3})\) !== 200 when HTTP Tunneling/.exec(errorMessage(cur));
+    if (match) return Number(match[1]);
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'the configured host';
+  }
 }
 
 function isFetchFailure(err: unknown): boolean {

@@ -121,6 +121,12 @@ export interface ServerConfig {
   /** Source of the transport definition. */
   origin: ConfigOrigin;
   /**
+   * Source of a credential-bearing field that a layer other than `origin` wrote, keyed `auth`, `headers.<name>`
+   * or `env.<name>`: a user-config overlay that adds `auth.bearer: cmd:…` to a framework-defined server. What
+   * `cmd:` is checked against (security.md, "`cmd:` 凭证"). Absent: every field comes from `origin`.
+   */
+  refOrigins?: Record<string, ConfigOrigin>;
+  /**
    * False when a project-scoped source that shapes the transport (stdio command,
    * args, env, cwd; HTTP url, headers) has not been confirmed with `via trust` (security.md).
    */
@@ -153,6 +159,11 @@ export class CredentialError extends Error {
     this.name = "CredentialError";
     if (hint) this.next = hint.startsWith('ask the user') ? hint : askUser(hint);
   }
+}
+
+/** Where the credential reference in `field` (`auth`, `headers.<name>`, `env.<name>`) of `server` was written. */
+export function refOrigin(server: Pick<ServerConfig, 'origin' | 'refOrigins'>, field: string): ConfigOrigin {
+  return server.refOrigins?.[field] ?? server.origin;
 }
 
 /** Resolves credential references in memory. Implementations must never write results to disk. */

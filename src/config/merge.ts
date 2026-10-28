@@ -16,10 +16,17 @@ export interface Accumulator {
   launch: Map<string, ConfigOrigin>;
   /** `auth.oauth.issuer` set by a non-project layer (user config, user-level framework config, CLI); project layers cannot override it. */
   userIssuerPin?: string;
+  /** Layer that last wrote each credential-bearing field: `auth`, `headers.<name>`, `env.<name>` (`ServerConfig.refOrigins`). */
+  refOrigins: Map<string, ConfigOrigin>;
 }
 
 export function newAccumulator(): Accumulator {
-  return { def: {}, launch: new Map() };
+  return { def: {}, launch: new Map(), refOrigins: new Map() };
+}
+
+/** Forget where the fields under `prefix` (`headers.`, `env.`) came from: a layer replaced the transport that had them. */
+function dropOrigins(acc: Accumulator, prefix: string): void {
+  for (const key of [...acc.refOrigins.keys()]) if (key.startsWith(prefix)) acc.refOrigins.delete(key);
 }
 
 function mergeRecord(base: Record<string, string> | undefined, overlay: Record<string, string>): Record<string, string> {
@@ -45,6 +52,7 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
     delete d.url;
     delete d.headers;
     acc.launch.clear();
+    dropOrigins(acc, 'headers.');
   }
   if (def.url !== undefined && d.command !== undefined) {
     delete d.command;
@@ -52,6 +60,7 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
     delete d.env;
     delete d.cwd;
     acc.launch.clear();
+    dropOrigins(acc, 'env.');
   }
   if (def.command !== undefined) d.command = def.command;
   if (def.url !== undefined) d.url = def.url;
@@ -59,8 +68,14 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
 
   if (def.args !== undefined) d.args = [...def.args];
   if (def.cwd !== undefined) d.cwd = def.cwd;
-  if (def.env !== undefined) d.env = mergeRecord(d.env, def.env);
-  if (def.headers !== undefined) d.headers = mergeRecord(d.headers, def.headers);
+  if (def.env !== undefined) {
+    d.env = mergeRecord(d.env, def.env);
+    for (const key of Object.keys(def.env)) acc.refOrigins.set(`env.${key}`, origin);
+  }
+  if (def.headers !== undefined) {
+    d.headers = mergeRecord(d.headers, def.headers);
+    for (const key of Object.keys(def.headers)) acc.refOrigins.set(`headers.${key}`, origin);
+  }
   if (def.rename !== undefined) d.rename = mergeRecord(d.rename, def.rename);
   if (def.noise !== undefined) d.noise = [...new Set([...(d.noise ?? []), ...def.noise])];
   if (def.roots !== undefined) d.roots = [...def.roots];
@@ -74,6 +89,7 @@ export function applyDef(acc: Accumulator, def: ServerDef, origin: ConfigOrigin)
       acc.userIssuerPin = auth.type === 'oauth' ? auth.issuer : undefined;
     }
     d.auth = auth;
+    acc.refOrigins.set('auth', origin);
   }
   // `confirm.tools` only adds; `confirm.except` and `confirm: never` loosen, so load.ts strips them from project layers.
   if (def.confirmTools !== undefined) d.confirmTools = [...new Set([...(d.confirmTools ?? []), ...def.confirmTools])];

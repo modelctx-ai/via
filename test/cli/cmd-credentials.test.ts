@@ -123,14 +123,37 @@ describe('cmd: credentials', () => {
   it('a project file that re-points a user server with a cmd: credential needs trust before the command runs', async () => {
     const srv = await server();
     const { sb, ref, env, runs } = setup();
-    sb.userConfig(`sources: false\nservers:\n  gh:\n    url: ${srv.url}\n    auth: { bearer: ${JSON.stringify(ref)} }\n`);
-    sb.projectConfig('servers:\n  gh:\n    url: https://elsewhere.invalid/mcp\n');
+    sb.userConfig(`sources: false\nservers:\n  gh:\n    url: https://elsewhere.invalid/mcp\n    auth: { bearer: ${JSON.stringify(ref)} }\n`);
+    sb.projectConfig(`servers:\n  gh:\n    url: ${srv.url}\n`);
     const r = await sb.via(['gh', 'whoami'], { env });
     expect(r.code).toBe(5);
     expect(runs()).toBe(0);
     const shown = await sb.via(['trust'], { env });
     expect(shown.stdout).toContain(`auth.bearer: cmd:${basename(process.execPath)} …`);
     expect(shown.stdout).not.toContain(FAKE_TOKEN);
+    // Trusted, the transport is the project's but the reference is still the user's own.
+    expect((await sb.via(['trust', '.via.yaml', '--yes'], { env: { ...env, VIA_ALLOW_NONINTERACTIVE_TRUST: '1' } })).code).toBe(0);
+    const trusted = await sb.via(['gh', 'whoami'], { env });
+    expect(trusted.code).toBe(0);
+    expect(runs()).toBe(1);
+    expect(srv.requests.at(-1)?.authorization).toBe(`Bearer ${FAKE_TOKEN}`);
+  });
+
+  it('in the user config it also applies to a server that a framework file defines', async () => {
+    const srv = await server();
+    const { sb, ref, env, runs } = setup();
+    sb.write('home/.claude.json', JSON.stringify({ mcpServers: { gh: { type: 'http', url: srv.url } } }));
+    sb.userConfig(`sources: [claude-code]\nservers:\n  gh:\n    auth: { bearer: ${JSON.stringify(ref)} }\n`);
+    const r = await sb.via(['gh', 'whoami'], { env });
+    expect(r.code).toBe(0);
+    expect(runs()).toBe(1);
+    expect(srv.requests.at(-1)?.authorization).toBe(`Bearer ${FAKE_TOKEN}`);
+    expect(r.stdout + r.stderr).not.toContain(FAKE_TOKEN);
+    // A header the framework file holds next to it is still the framework's: a cmd: there is refused at load.
+    sb.write('home/.claude.json', JSON.stringify({ mcpServers: { gh: { type: 'http', url: srv.url, headers: { 'X-Key': ref } } } }));
+    const refused = await sb.via(['servers'], { env });
+    expect(refused.stdout).toContain('cmd: credential references are only allowed in the user config');
+    expect(runs()).toBe(1);
   });
 
   it('the command-line value never lands in the cache directory', async () => {

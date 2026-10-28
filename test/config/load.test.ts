@@ -224,6 +224,20 @@ describe('trust (security.md)', () => {
     expect(server(await tree.load(), 'tool')).toMatchObject({ trusted: true, timeout: 5, disabled: true });
   });
 
+  it('records the layer of each credential field that the transport\'s layer did not write (cmd: is checked against it)', async () => {
+    const tree = makeTree({
+      'home/.claude.json': JSON.stringify({ mcpServers: { web: { type: 'http', url: 'https://w.invalid/mcp', headers: { 'X-A': 'b' } }, tool: { command: 'tool', env: { A: 'b' } } } }),
+      'home/.config/via/config.yaml': 'sources: [claude-code]\nservers:\n  web:\n    auth: { bearer: "cmd:pass web" }\n  tool:\n    env: { K: "cmd:pass tool" }\n',
+      'project/.via.yaml': 'servers:\n  tool:\n    url: https://t.invalid/mcp\n',
+    });
+    const config = await tree.load();
+    expect(config.diagnostics.filter((d) => d.level === 'error')).toEqual([]);
+    expect(server(config, 'web')).toMatchObject({ origin: { scope: 'framework-user' }, refOrigins: { auth: { scope: 'user', path: join(tree.home, '.config/via/config.yaml') } } });
+    expect(Object.keys(server(config, 'web').refOrigins ?? {})).toEqual(['auth']);
+    // The project's URL replaced the stdio transport, and with it the env entry the user wrote.
+    expect(server(config, 'tool')).not.toHaveProperty('refOrigins');
+  });
+
   it('a project switching a server to a URL drops the stdio launch', async () => {
     const tree = makeTree({
       'home/.cursor/mcp.json': JSON.stringify({ mcpServers: { tool: { command: 'tool', env: { A: 'b' } } } }),

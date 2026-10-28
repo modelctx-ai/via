@@ -5,7 +5,7 @@
 import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import type { CallOptions, McpClient } from '../client';
-import type { CredentialResolver, ServerConfig } from '../config/types';
+import { refOrigin, type CredentialResolver, type ServerConfig } from '../config/types';
 import type { CompletionRef, CompletionResult, ProtocolInfo, ServerFeatures, ServerSelf, ToolCallResult } from '../protocol';
 import { ExitCode } from '../render/exit-codes';
 import { createRedactor, redactValue } from '../render/redact';
@@ -137,7 +137,7 @@ export class InProcessBackend implements Backend {
       if (server.auth.type === 'oauth' && this.options.oauthStore) {
         // A saved login must exist (no network); its tokens join the redaction list.
         const { createCallProvider } = await import('../client/oauth');
-        await createCallProvider(server, this.options.oauthStore, { track: (value) => resolver.track?.(value), resolveCredential: (ref) => resolver.resolve(ref, server.origin), now }).requireLogin();
+        await createCallProvider(server, this.options.oauthStore, { track: (value) => resolver.track?.(value), resolveCredential: (ref) => resolver.resolve(ref, refOrigin(server, 'auth')), now }).requireLogin();
       }
     } catch (error) {
       // The error module is big and only a failure needs it: a browse that resolves its credentials never loads it.

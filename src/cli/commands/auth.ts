@@ -4,7 +4,8 @@
 import type { FetchLike } from '@modelcontextprotocol/client';
 import type { LoginIO, LoginStatus, LoginTarget } from '../../client/oauth';
 import type { ServerConfig } from '../../config';
-import { userConfigHint } from '../../config/paths';
+import { refOrigin } from '../../config/types';
+import { pathContext, userConfigHint } from '../../config/paths';
 import { proxyFetch } from '../../proxy';
 import { ExitCode } from '../../render/exit-codes';
 import { shellArg } from '../../render/shell';
@@ -47,7 +48,7 @@ async function oauthServer(app: App, name: string): Promise<{ entry: ProviderEnt
   if (server.auth.type === 'oauth') {
     throw fail(ExitCode.Usage, `${entry.name} is a stdio server; auth: oauth applies to HTTP servers only`, `via servers`);
   }
-  throw fail(ExitCode.Usage, `${entry.name} is not configured for OAuth (auth: ${describeMethod(server)})`, `set servers.${server.name}.auth to oauth in ${userConfigHint(app.io.platform)}`);
+  throw fail(ExitCode.Usage, `${entry.name} is not configured for OAuth (auth: ${describeMethod(server)})`, `set servers.${server.name}.auth to oauth in ${userConfigHint(pathContext({ home: app.io.home, env: app.io.env, platform: app.io.platform }))}`);
 }
 
 function describeMethod(server: ServerConfig): string {
@@ -93,7 +94,7 @@ async function login(app: App, argv: readonly string[]): Promise<number> {
       timeoutMs: app.options.timeoutMs ?? LOGIN_TIMEOUT_MS,
       io,
       track: (value) => resolver.track?.(value),
-      credentials: (ref) => resolver.resolve(ref, entry.server.origin),
+      credentials: (ref) => resolver.resolve(ref, refOrigin(entry.server, 'auth')),
       now: app.io.now,
       ...proxied(app, resolver),
     });

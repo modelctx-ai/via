@@ -62,6 +62,32 @@ describe('MCP over HTTP', () => {
     expect(r.stdout + r.stderr).not.toMatch(/alice|hunter2pass/);
   });
 
+  it('names a proxy that would not open the tunnel, and leaves the fix to the user (exit 6)', async () => {
+    const proxy = await startProxy({ refuseTunnels: 403 });
+    useCleanup(() => proxy.close());
+    const sb = makeSandbox();
+    sb.userConfig('sources: false\nservers:\n  gh:\n    url: https://mcp.example.invalid/mcp\n');
+    const r = await sb.via(['gh', 'echo_text', '--message', 'hi'], { env: { HTTPS_PROXY: proxy.url } });
+    expect(r.code).toBe(6);
+    expect(r.stderr).toContain('cannot start gh: the proxy did not connect to https://mcp.example.invalid (HTTP 403)');
+    expect(r.stderr).toContain('next: ask the user: the proxy did not let via reach https://mcp.example.invalid (HTTP 403); check the proxy, or list mcp.example.invalid in NO_PROXY');
+  });
+
+  it('says which domain the sandbox has to allow when its proxy refuses one', async () => {
+    const proxy = await startProxy({ refuseTunnels: 403 });
+    useCleanup(() => proxy.close());
+    const sb = makeSandbox();
+    sb.userConfig('sources: false\nservers:\n  gh:\n    url: https://mcp.example.invalid/mcp\n');
+    // What srt gives the via inside it: its own proxy, and the marker the sandboxed via runs with (config.md, `sandbox`).
+    const env = { HTTPS_PROXY: proxy.url, VIA_SANDBOXED: '1' };
+    const r = await sb.via(['gh', 'echo_text', '--message', 'hi'], { env });
+    expect(r.code).toBe(6);
+    expect(r.stderr).toContain("cannot start gh: the sandbox's proxy refused https://mcp.example.invalid (HTTP 403)");
+    expect(r.stderr).toContain('next: ask the user: add mcp.example.invalid to sandbox.policy.network.allowedDomains in the via config');
+    const root = await sb.via([], { env });
+    expect(root.stdout).toMatch(/^gh\s+failed · the sandbox's proxy refused https:\/\/mcp\.example\.invalid \(HTTP 403\)$/m);
+  });
+
   it('refuses a proxy of a kind it cannot speak instead of connecting directly (exit 2)', async () => {
     const { srv, sb } = await setup();
     const r = await sb.via(['gh', 'echo_text', '--message', 'hi'], { env: { HTTP_PROXY: 'socks5://alice:hunter2pass@127.0.0.1:1080' } });

@@ -38,6 +38,9 @@ export const DEFAULT_SANDBOX_EXCLUDE: readonly string[] = ['auth', 'trust', 'dae
 
 export const DEFAULT_SANDBOX_COMMAND: readonly string[] = ['srt'];
 
+/** Set in the environment of the via that runs inside the sandbox, so it does not wrap itself again. */
+export const SANDBOX_MARKER = 'VIA_SANDBOXED';
+
 export function emptyPolicy(): Policy {
   return { commands: { deny: new Set(), hide: new Set() }, sandbox: { enabled: false, command: [...DEFAULT_SANDBOX_COMMAND], exclude: [...DEFAULT_SANDBOX_EXCLUDE] } };
 }

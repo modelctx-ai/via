@@ -1,6 +1,6 @@
 // Resolve a server's credential references into concrete connection parameters (auth.md,
 // "鉴权方式"). Results live in memory only; nothing here logs or persists them.
-import type { CredentialResolver, ServerConfig } from '../config/types';
+import { refOrigin, type CredentialResolver, type ServerConfig } from '../config/types';
 import { baseEnvironment } from './env';
 
 export interface ResolvedStdio {
@@ -32,19 +32,20 @@ export async function resolveConnection(
   resolver: CredentialResolver,
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<ResolvedConnection> {
-  const { auth, transport, origin } = server;
+  const { auth, transport } = server;
   // The error constructors are a big module that only a failure needs, and this runs on every browse.
   if (auth.type === 'oauth' && transport.type === 'stdio') throw (await import('./errors')).oauthNeedsHttp(server);
 
-  const resolveAll = async (refs: Record<string, string>): Promise<Record<string, string>> => {
+  // Each reference is checked against the layer that wrote it (`cmd:` only from the user config), not the transport's.
+  const resolveAll = async (refs: Record<string, string>, field: (key: string) => string): Promise<Record<string, string>> => {
     const out: Record<string, string> = {};
-    for (const [key, ref] of Object.entries(refs)) out[key] = await resolver.resolve(ref, origin);
+    for (const [key, ref] of Object.entries(refs)) out[key] = await resolver.resolve(ref, refOrigin(server, field(key)));
     return out;
   };
 
   if (transport.type === 'stdio') {
     // `auth.bearer` / `auth.headers` do not apply to stdio: its credentials go through `env` (auth.md).
-    const env = { ...baseEnvironment(baseEnv), ...(await resolveAll(transport.env)) };
+    const env = { ...baseEnvironment(baseEnv), ...(await resolveAll(transport.env, (key) => `env.${key}`)) };
     return {
       type: 'stdio',
       command: transport.command,
@@ -58,10 +59,10 @@ export async function resolveConnection(
   const put = (name: string, value: string): void => {
     headers.set(name.toLowerCase(), [name, value]);
   };
-  for (const [name, value] of Object.entries(await resolveAll(transport.headers))) put(name, value);
+  for (const [name, value] of Object.entries(await resolveAll(transport.headers, (key) => `headers.${key}`))) put(name, value);
   if (auth.type === 'headers') {
-    for (const [name, value] of Object.entries(await resolveAll(auth.headers))) put(name, value);
+    for (const [name, value] of Object.entries(await resolveAll(auth.headers, () => 'auth'))) put(name, value);
   }
-  if (auth.type === 'bearer') put('Authorization', `Bearer ${await resolver.resolve(auth.bearer, origin)}`);
+  if (auth.type === 'bearer') put('Authorization', `Bearer ${await resolver.resolve(auth.bearer, refOrigin(server, 'auth'))}`);
   return { type: 'http', url: transport.url, headers: Object.fromEntries(headers.values()) };
 }

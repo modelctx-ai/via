@@ -195,4 +195,19 @@ describe('proxyFetch', () => {
     expect(JSON.stringify({ message: error.message, cause: error.cause?.message })).not.toContain('topsecret');
     expect(error.cause?.code).toMatch(/^E|^UND_ERR/);
   });
+
+  it('keeps the type and every cause of a refused tunnel, as a direct failure would have them', async () => {
+    const p = await startProxy({ refuseTunnels: 403 });
+    closers.push(p.close);
+    const url = new URL(p.url);
+    const send = proxyFetch({ HTTPS_PROXY: `http://alice:topsecret@${url.host}` })!;
+    const error = (await send('https://mcp.example.invalid/mcp').catch((e: unknown) => e)) as Error;
+    // `fetch failed` is a TypeError; undici puts what the proxy said two causes down.
+    expect(error).toBeInstanceOf(TypeError);
+    const chain: Array<{ message: string; code?: unknown }> = [];
+    for (let cur: unknown = error; cur instanceof Error; cur = cur.cause) chain.push({ message: cur.message, code: (cur as { code?: unknown }).code });
+    expect(chain.some((c) => c.message.startsWith('Proxy response (403)') && c.code === 'UND_ERR_ABORTED')).toBe(true);
+    expect(JSON.stringify(chain)).not.toContain('topsecret');
+    expect(p.log.map((l) => l.line)).toEqual(['CONNECT mcp.example.invalid:443']);
+  });
 });

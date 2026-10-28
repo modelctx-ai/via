@@ -11,6 +11,7 @@ import {
   shortenHome,
   userCacheDir,
   userConfigDir,
+  userConfigHint,
   userConfigPath,
   userDataDir,
 } from '../../src/config/paths';
@@ -45,6 +46,13 @@ describe('Windows directories', () => {
     expect(userConfigDir(pathContext({ home: 'C:\\Users\\Me', env, platform: 'win32' }))).toBe('C:\\Users\\Me\\AppData\\Roaming\\via');
     expect(userConfigDir(pathContext({ home: '/home/me', env, platform: 'linux' }))).toBe(join('/xdg', 'via')); // host separators: a Windows host handed `linux` still builds Windows paths
     expect(userCacheDir(pathContext({ home: '/home/me', env, platform: 'darwin' }))).toBe(join('/home/me', 'Library', 'Caches', 'via'));
+  });
+
+  it('names the user config in next: hints where via reads it', () => {
+    expect(userConfigHint(pathContext({ home: '/home/me', env: {}, platform: 'linux' }))).toBe('~/.config/via/config.yaml');
+    expect(userConfigHint(pathContext({ home: '/home/me', env: { XDG_CONFIG_HOME: '/xdg' }, platform: 'linux' }))).toBe(join('/xdg', 'via', 'config.yaml'));
+    expect(userConfigHint(pathContext({ home: '/home/me', env: { XDG_CONFIG_HOME: join('/home/me', 'cfg') }, platform: 'darwin' }))).toBe(shortenHome(join('/home/me', 'cfg', 'via', 'config.yaml'), '/home/me', 'darwin'));
+    expect(userConfigHint(win({ XDG_CONFIG_HOME: '/xdg' }))).toBe('%APPDATA%\\via\\config.yaml');
   });
 });
 

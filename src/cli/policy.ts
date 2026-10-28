@@ -5,7 +5,7 @@
 import { join } from 'node:path';
 import type { ConfigDiagnostic } from '../config/diagnostics';
 import { pathContext, userCacheDir } from '../config/paths';
-import { emptyPolicy, isInternalCommand, refusedBy, type CommandPolicy, type Policy, type SandboxSettings } from '../config/policy';
+import { emptyPolicy, isInternalCommand, refusedBy, SANDBOX_MARKER, type CommandPolicy, type Policy, type SandboxSettings } from '../config/policy';
 import { policyFiles } from '../config/policy-probe';
 import { ExitCode } from '../render/exit-codes';
 import type { ErrorInfo } from '../render/errors';
@@ -13,8 +13,7 @@ import { matchBuiltin } from './builtins';
 import type { CliEnv } from './env';
 import type { GlobalOptions } from './options';
 
-/** Set in the environment of the via that runs inside the sandbox, so it does not wrap itself again. */
-export const SANDBOX_MARKER = 'VIA_SANDBOXED';
+export { SANDBOX_MARKER };
 
 export interface LoadedPolicy {
   policy: Policy;

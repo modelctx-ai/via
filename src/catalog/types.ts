@@ -16,6 +16,8 @@ export interface McpTool {
     idempotentHint?: boolean;
     openWorldHint?: boolean;
   };
+  /** Only `ui.visibility` (MCP Apps, `io.modelcontextprotocol/ui`) is read: who may call the tool. Server data, so unchecked. */
+  _meta?: { ui?: { visibility?: unknown } };
 }
 
 export interface JsonSchema {

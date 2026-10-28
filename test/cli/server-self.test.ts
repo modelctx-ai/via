@@ -101,4 +101,11 @@ describe('via <provider> -h', () => {
     const r = await sb.via(['gh', '-h', '-o', 'json']);
     expect(JSON.parse(r.stdout)).toEqual({ provider: 'gh', server: { name: 'cli-fixture', version: '0.0.0', ...about } });
   });
+
+  it('keeps text longer than a line a string with -o json', async () => {
+    const instructions = `${'Call search_code before reading files. '.repeat(5)}end`;
+    const { sb } = await setup({ instructions });
+    const r = await sb.via(['gh', '-h', '-o', 'json']);
+    expect((JSON.parse(r.stdout) as { server: { instructions: unknown } }).server.instructions).toBe(instructions);
+  });
 });

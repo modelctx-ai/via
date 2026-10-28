@@ -413,6 +413,13 @@ function checkedPatterns(server: string, field: 'tools' | 'except', patterns: re
   return out;
 }
 
+/** The fields a layer other than the transport's wrote, with that layer (`ServerConfig.refOrigins`); undefined when there are none. */
+function otherOrigins(written: ReadonlyMap<string, ConfigOrigin>, origin: ConfigOrigin): Record<string, ConfigOrigin> | undefined {
+  const same = (a: ConfigOrigin): boolean => a.scope === origin.scope && a.path === origin.path;
+  const entries = [...written].filter(([, o]) => !same(o));
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function finalize(
   name: string,
   acc: Accumulator,
@@ -463,6 +470,8 @@ function finalize(
     origin: acc.transportOrigin ?? { scope: 'cli' },
     trusted,
   };
+  const refOrigins = otherOrigins(acc.refOrigins, server.origin);
+  if (refOrigins) server.refOrigins = refOrigins;
   const confirmTools = checkedPatterns(name, 'tools', d.confirmTools, 'error', diagnostics);
   const confirmExcept = checkedPatterns(name, 'except', d.confirmExcept, 'warning', diagnostics);
   if (confirmTools.length > 0) server.confirmTools = confirmTools;

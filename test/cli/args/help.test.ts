@@ -141,6 +141,15 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
     expect(help.split('\n').at(-1)).toBe('alias: thing_do · destructive (needs --yes)');
   });
 
+  it('leaves out alias: when the raw name is the canonical one, and the line when nothing is left', () => {
+    const tool = makeTool({ type: 'object', properties: {}, additionalProperties: false });
+    expect(formatToolHelp(tool, { ...CTX, ref: 'acme whoami', rawName: 'whoami', readOnly: true }).split('\n').at(-1)).toBe('read-only');
+    const bare = formatToolHelp(tool, { ...CTX, ref: 'acme whoami', rawName: 'whoami' });
+    expect(bare).not.toContain('alias:');
+    expect(bare.endsWith('\n')).toBe(false);
+    expect(formatToolHelp(tool, { ...CTX, ref: 'acme who-am-i', rawName: 'who_am_i' }).split('\n').at(-1)).toBe('alias: who_am_i');
+  });
+
   it('wraps long usage lines at 80 columns with a 9-space indent', () => {
     const tool = makeTool({
       type: 'object',

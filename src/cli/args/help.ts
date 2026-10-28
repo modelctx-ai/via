@@ -352,9 +352,10 @@ export function formatToolHelp(tool: McpTool, ctx: ToolArgsContext, options: Hel
 
   if (cut) out.push(`full text: via ${shellWords(ctx.refWords ?? ctx.ref)} -h --full`);
 
-  const marks = [`alias: ${shellArg(ctx.rawName, { placeholder: 'name' })}`];
+  // A raw name that is already the canonical one is no second spelling.
+  const marks = ctx.ref === `${ctx.provider} ${ctx.rawName}` ? [] : [`alias: ${shellArg(ctx.rawName, { placeholder: 'name' })}`];
   if (ctx.readOnly) marks.push('read-only');
   if (ctx.destructive) marks.push(ctx.destructiveBy === 'inferred' ? 'destructive? (inferred from the name; needs --yes)' : ctx.destructiveBy === 'config' ? 'needs --yes (confirm in the via config)' : 'destructive (needs --yes)');
-  out.push(marks.join(' · '));
+  if (marks.length > 0) out.push(marks.join(' · '));
   return out.join('\n');
 }

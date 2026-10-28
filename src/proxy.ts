@@ -162,6 +162,23 @@ function scrub(text: string, secrets: readonly string[]): string {
   return out;
 }
 
+/**
+ * `error` and its causes with every message scrubbed. The error mapping reads the type (`fetch failed` is a
+ * TypeError), the codes and the messages of the whole chain: undici puts `ECONNREFUSED` or a proxy's
+ * `Proxy response (403) !== 200 when HTTP Tunneling` two causes down, so a proxied failure keeps them as a
+ * direct one does.
+ */
+function scrubbedCopy(error: Error, secrets: readonly string[], depth = 0): Error {
+  const cause = depth < 4 && error.cause instanceof Error ? scrubbedCopy(error.cause, secrets, depth + 1) : undefined;
+  const message = scrub(error.message, secrets);
+  const options = cause ? { cause } : undefined;
+  const copy = error instanceof TypeError ? new TypeError(message, options) : new Error(message, options);
+  copy.name = error.name;
+  const code = (error as { code?: unknown }).code;
+  if (code !== undefined) Object.assign(copy, { code });
+  return copy;
+}
+
 const agents = new Map<string, Promise<unknown>>();
 
 export interface ProxyFetchOptions {
@@ -216,10 +233,8 @@ export function proxyFetch(env: Env, options: ProxyFetchOptions = {}, base: Fetc
     } catch (error) {
       if (error instanceof ProxyConfigError) throw error;
       if (!(error instanceof Error)) throw error;
-      // The network layer may quote the proxy URL; the cause keeps its error code (ECONNREFUSED, …) for the error mapping.
-      const scrubbed = new Error(scrub(error.message, secrets), { cause: error.cause instanceof Error ? Object.assign(new Error(scrub(error.cause.message, secrets)), { code: (error.cause as { code?: unknown }).code }) : undefined });
-      scrubbed.name = error.name;
-      throw scrubbed;
+      // The network layer may quote the proxy URL.
+      throw scrubbedCopy(error, secrets);
     }
   };
 }

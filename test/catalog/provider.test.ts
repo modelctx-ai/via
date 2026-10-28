@@ -97,6 +97,20 @@ describe('deny filter (discovery.md, step 6)', () => {
   });
 });
 
+describe('app-only tools (discovery.md, step 1; ADR 0031)', () => {
+  const ui = (name: string, visibility: unknown): McpTool => ({ name, _meta: { ui: { visibility } } });
+
+  it('leaves out a tool whose _meta.ui.visibility has no "model" before naming, so it causes no conflict', () => {
+    const c = buildProviderCatalog({ provider: 'acme', tools: [...tools('create_issue', 'list_issues'), ui('issue_create', ['app'])] });
+    expect(names(c)).toEqual(['issue:create', 'issue:list']);
+  });
+
+  it('keeps a tool the model may call, and one whose visibility is missing or not a list', () => {
+    const c = buildProviderCatalog({ provider: 'acme', tools: [ui('get_me', ['model', 'app']), ui('list_issues', 'app'), { name: 'get_issue', _meta: {} }, ui('ui_get', [])] });
+    expect(c.tools.map((t) => t.rawName)).toEqual(['get_me', 'list_issues', 'get_issue']);
+  });
+});
+
 describe('buildCatalog', () => {
   it('sorts providers by name and normalises provider names', () => {
     const c = buildCatalog([

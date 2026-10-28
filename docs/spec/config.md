@@ -174,7 +174,7 @@ sandbox:
 - **via 追加的设置**：在 `policy` 之上，`filesystem.allowWrite` 追加 via 的缓存目录与 OAuth 文件目录（`<数据目录>/oauth`），`filesystem.denyWrite` 追加 via 的用户配置目录与 `<数据目录>/trust.json`，`network.allowedDomains`、`network.deniedDomains`、`filesystem.denyRead` 缺省时补成空列表。结果写在缓存目录的 `sandbox/settings-<哈希>.json`（0600），内容相同的复用同一个文件。沙箱里因此能写缓存、存下刷新后的 OAuth 令牌，但改不了 via 的配置（关不掉沙箱）和信任记录。
 - **沙箱里不用 daemon**：里层的 via 带 `VIA_NO_DAEMON=1` 和 `VIA_SANDBOXED=1` 运行，所有 server 在它自己的进程里连接（[daemon.md](daemon.md#无-daemon-模式)）；看到 `VIA_SANDBOXED=1` 的 via 不再包裹自己。
 - **在沙箱外运行的**：`exclude` 里的子命令，`help` 与内置子命令的 `-h`（固定文字），`daemon run`。其余（浏览、`find`、调用、`batch`、`serve`、`doctor`、`prompt`…）都在里面，所以它们要写的文件（如 `via prompt --out` 的目标）必须在 `policy` 的 `allowWrite` 里，或者把这个子命令放进 `exclude`；via 自己的缓存（目录、游标、媒体文件）已经可写。
-- **网络**：srt 默认拒绝全部网络。HTTP server、OAuth 的授权服务器、`search.semantic` 的端点、`npx`/`uvx` 的包注册表都要写进 `network.allowedDomains`；via 自己的代理变量照常交给沙箱程序，srt 把它当作上游代理。
+- **网络**：srt 默认拒绝全部网络。HTTP server、OAuth 的授权服务器、`search.semantic` 的端点、`npx`/`uvx` 的包注册表都要写进 `network.allowedDomains`；via 自己的代理变量照常交给沙箱程序，srt 把它当作上游代理。没写进去的主机，srt 的代理对 `CONNECT` 回 403：连接它的 server 报 `cannot start <provider>: the sandbox's proxy refused <origin> (HTTP 403)`（退出码 6），`next: ask the user: add <主机> to sandbox.policy.network.allowedDomains in the via config`；这不是暂时的网络故障，不提示重试（[output.md](output.md#错误)）。
 - **失败关闭**：`command` 找不到是退出码 6，`next: ask the user: srt is not installed (needed by sandbox.enabled in the via config)`；`policy` 的文件读不出或不是 JSON 对象是退出码 2。沙箱程序自己拒绝设置时（字段错误、缺少 bubblewrap），它的报错直接显示，退出码是它的。都不会退回到不加沙箱运行。
 - **只读用户配置**：项目配置里的 `sandbox` 被忽略并告警（`sandbox-forbidden`）。
 - `via doctor` 在开启时多一行 `sandbox`，写明程序、设置来源，以及这次检查是否在沙箱里运行。
