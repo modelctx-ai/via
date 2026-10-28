@@ -293,7 +293,7 @@ describe('catalog', () => {
     it('answers from the disk cache the same way, for a daemon that has not listed the server itself', async () => {
       const h = await startDaemon();
       const server = stdioServer();
-      const { CatalogCache } = await import('../../src/cli/catalog-cache');
+      const { CatalogCache } = await import('../../src/client/catalog-cache');
       new CatalogCache(h.catalogDir).write(server, TOOLS as never, { fetchedAt: Date.now() });
       const conn = await h.connect();
       const t = target(server);
@@ -371,7 +371,7 @@ describe('catalog', () => {
     const conn = await h.connect();
     const server = stdioServer();
     await conn.request({ type: 'list', ...target(server), timeoutMs: 5000 });
-    const { CatalogCache } = await import('../../src/cli/catalog-cache');
+    const { CatalogCache } = await import('../../src/client/catalog-cache');
     const hit = new CatalogCache(h.catalogDir).read(server);
     expect(hit?.tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
   });
@@ -389,7 +389,7 @@ describe('catalog', () => {
     }, 3000, 'the refreshed catalog');
     const again = (await conn.request({ type: 'list', ...t, timeoutMs: 5000 })) as { result: ListedTools };
     expect(again.result.fromCache).toBe(true);
-    const { CatalogCache } = await import('../../src/cli/catalog-cache');
+    const { CatalogCache } = await import('../../src/client/catalog-cache');
     expect(new CatalogCache(h.catalogDir).read(server)?.tools.some((x) => x.name === 'extra_1')).toBe(true);
   });
 

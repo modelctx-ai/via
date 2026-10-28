@@ -316,7 +316,7 @@ describe('built dist/via.js', () => {
       }
       try {
         const dir = dirname(bin);
-        const modules = ['commands/tool', 'args/', 'render/pipeline', 'render/media', 'client/errors', 'client/elicit', 'config/credentials', 'platform/command', 'render/cursor-file'];
+        const modules = ['commands/tool', 'args/', 'schema/validate', 'render/pipeline', 'render/media', 'client/errors', 'client/elicit', 'config/credentials', 'platform/command', 'render/cursor-file'];
         const marker = (m: string): RegExp => new RegExp(`^// src/(cli/)?${m.replaceAll('/', '\\/')}`, 'm');
         // The markers must match the bundle, or the check below passes vacuously.
         const bundle = readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, f), 'utf8'));

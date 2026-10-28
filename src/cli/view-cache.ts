@@ -21,7 +21,7 @@ import type { DocTerms } from '../catalog/search';
 import type { CatalogTool, McpTool, ProviderCatalog } from '../catalog/types';
 import type { ServerConfig } from '../config/types';
 import { stringHash } from '../hash';
-import { cacheKey } from './catalog-cache';
+import { cacheKey } from '../client/catalog-cache';
 
 /** Bumped when the file layout changes. */
 const VIEW_VERSION = 6;

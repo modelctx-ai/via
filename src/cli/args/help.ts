@@ -1,5 +1,5 @@
 // `-h` text and usage lines rendered from the input schema (arguments.md, "帮助").
-import { extractParams } from '../../catalog/signature';
+import { extractParams, scalarLabel, typeLabels } from '../../catalog/signature';
 import type { JsonSchema, McpTool, ParamInfo } from '../../catalog/types';
 import { shellArg, shellQuote, shellWords, visibleText } from '../../render/shell';
 import { alignRows, truncateChars } from '../../render/width';
@@ -41,8 +41,6 @@ function literalText(v: unknown): string {
 /** A flag as written in a usage line or a parameter row: quoted if its name holds anything a shell acts on. */
 const flagText = (flag: string): string => shellQuote(flag) ?? '--<name>';
 
-const TYPE_LABELS: Record<string, string> = { string: 'str', number: 'num', integer: 'num', boolean: 'bool', object: 'json', array: 'json' };
-
 /** The items of the array at `pos`: none for a tuple, and none when the schema does not say (an `anyOf` such as `array | null` is searched). */
 function itemsOfPos(model: SchemaModel, pos: Pos, depth = 0): Pos {
   if (!model.expandPos(pos).some((s) => Array.isArray(s.prefixItems))) {
@@ -66,14 +64,7 @@ function scalarItemLabel(model: SchemaModel, pos: Pos): string | undefined {
   if (items.length === 0) return undefined;
   const { types, known } = model.typeInfoPos(items);
   if (!known) return undefined;
-  const labels: string[] = [];
-  for (const t of types) {
-    if (t === 'null') continue;
-    const label = TYPE_LABELS[t];
-    if (label === undefined || label === 'json') return undefined;
-    if (!labels.includes(label)) labels.push(label);
-  }
-  return labels.length === 0 ? undefined : labels.length === 1 ? labels[0] : `(${labels.join('|')})`;
+  return scalarLabel(types);
 }
 
 function describeType(model: SchemaModel, pos: Pos): { boolean: boolean; text: string; inlineEnum: boolean; literals: unknown[] | undefined } {
@@ -89,7 +80,7 @@ function describeType(model: SchemaModel, pos: Pos): { boolean: boolean; text: s
     const item = scalarItemLabel(model, pos);
     if (item !== undefined) return { boolean: false, text: `<${item}[]>`, inlineEnum: false, literals };
   }
-  const labels = [...new Set([...types].map((t) => TYPE_LABELS[t]).filter((x): x is string => !!x))];
+  const labels = typeLabels(types);
   return { boolean: false, text: `<${labels.length > 0 ? labels.join('|') : 'value'}>`, inlineEnum: false, literals };
 }
 

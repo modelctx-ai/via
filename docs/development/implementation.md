@@ -13,7 +13,6 @@
 | schema 校验 | `ajv` |
 | 配置解析 | `yaml`、`smol-toml`、`jsonc-parser`（部分框架配置带注释） |
 | 钥匙串 | `@napi-rs/keyring` |
-| 用户目录 | `env-paths` |
 | 进程间通信 | Node 内置 `net`（unix socket，Windows 上为 named pipe，名字由握手令牌派生，见 [daemon.md](../spec/daemon.md#windows)） |
 | 表格对齐 | `get-east-asian-width`（中日韩字符按双宽计算）；宽度算法是 `string-width` 的移植，只是把 `Intl.Segmenter` 与 emoji 正则推迟到第一次遇到非窄字符时才创建，一致性由测试把 `string-width`（仅开发依赖）当参照来保证 |
 | 打包 | `tsup`（esbuild）打成带按需分块的 ESM 包（npm 发布，见[发布](#发布)） |
@@ -47,7 +46,7 @@
 
 0.4 的第一次复测（[bench/results/perf-0.4.md](../../bench/results/perf-0.4.md)）发现浏览类命令比 v0.3.1 慢 3–5 ms。原因不是哪一次提交：每个功能提交往浏览路径上多带了一点只有失败、调用或凭证引用才要的代码，另有两个早就存在的问题。修复和以后写代码要遵守的几条：
 
-- **浏览路径（缓存命中的 `via`、`via <provider>`、`via find`）只加载浏览要用的模块。** 判断标准是 `test/cli/dist.test.ts` 的「缓存命中的浏览命令不加载只有调用、失败、凭证引用或游标才需要的模块」：`commands/tool`、`args/`、`render/pipeline`、`render/media`、`client/errors`、`client/elicit`、`config/credentials`、`platform/command`、`render/cursor-file` 不得出现在这些命令加载的分块里。新增的错误类型、调用相关的渲染、凭证来源的实现放在这些模块里，或者在用到的地方 `import()`，不要从浏览路径上的模块静态引用。需要「只抛、不构造」的地方用小模块：`ClientError` 在 `client/client-error.ts`（`errors.ts` 的构造函数与 `mapError` 很大，只有失败才用），引用的语法在 `config/credential-ref.ts`（配置加载每次都要，解析器 `config/credentials.ts` 经 `config/lazy-resolver.ts` 在第一次 `resolve()` 时才加载）。
+- **浏览路径（缓存命中的 `via`、`via <provider>`、`via find`）只加载浏览要用的模块。** 判断标准是 `test/cli/dist.test.ts` 的「缓存命中的浏览命令不加载只有调用、失败、凭证引用或游标才需要的模块」：`commands/tool`、`args/`、`schema/validate`、`render/pipeline`、`render/media`、`client/errors`、`client/elicit`、`config/credentials`、`platform/command`、`render/cursor-file` 不得出现在这些命令加载的分块里。新增的错误类型、调用相关的渲染、凭证来源的实现放在这些模块里，或者在用到的地方 `import()`，不要从浏览路径上的模块静态引用。需要「只抛、不构造」的地方用小模块：`ClientError` 在 `client/client-error.ts`（`errors.ts` 的构造函数与 `mapError` 很大，只有失败才用），引用的语法在 `config/credential-ref.ts`（配置加载每次都要，解析器 `config/credentials.ts` 经 `config/lazy-resolver.ts` 在第一次 `resolve()` 时才加载）。
 - **按文件 import，不从聚合入口重新导出。** `browse-deps.ts` 直接从 `config/load`、`config/diagnostics` 取东西，不经 `config/index`：打包后 `config/index` 的重新导出会把它引用的每个模块（包括凭证解析器）连成静态依赖，即使用不到。
 - **模块只被一个动态入口引用时，打包器把它放在入口分块里；同时被别的静态引用时多出一个只有几百字节的转发分块。** `App` 只被 `run` 动态 import（`toErrorInfo` 在 `cli/error-info.ts`，`daemonDisabled` 在 `app.ts` 内部），`commands/provider.ts` 只被 `run` 动态 import（`openProvider` 等在 `cli/open-provider.ts`），每省一个分块省约 0.4 ms。
 - **预构建缓存每个 server 与 provider 名一份**：`catalog/<哈希>.<名字哈希>.view.json`。同一个 server 配成两个名字时（两个 agent 框架的配置里各一份）原来共用一个文件，每次运行都有一份未命中、重建、写回（框架配置场景里约 20 ms）。
@@ -94,11 +93,13 @@ via/
 │  ├─ cli/          # 入口、子命令、工具参数解析
 │  ├─ config/       # 框架配置探测与解析、合并、凭证引用
 │  ├─ catalog/      # 名称拆分、索引、搜索（含同义词扩展与可选的 embedding 检索 semantic.ts）、浏览视图、缓存
-│  ├─ client/       # MCP 会话、鉴权、OAuth
+│  ├─ client/       # MCP 会话、鉴权、OAuth、tools/list 磁盘缓存（catalog-cache.ts）、Backend 接口（backend.ts）
+│  ├─ schema/       # 与终端无关的 JSON Schema 工具：参数校验（validate.ts，ajv 按需加载；CLI 与 daemon 共用）
 │  ├─ render/       # 输出流水线：清理、形状判断、表格、截断、游标
-│  ├─ platform/     # 平台差异：Windows 上命令的解析与 cmd.exe 启动（command.ts）、BOM / UTF-16 文本解码（text.ts）
+│  ├─ platform/     # 平台差异：环境变量查找与路径模块（env.ts）、Windows 上命令的解析与 cmd.exe 启动（command.ts）、BOM / UTF-16 文本解码（text.ts）
 │  ├─ log/          # 日志：按大小轮转的异步追加（index.ts）、读取与跟随（read.ts，`via daemon logs`）；调用路径与 daemon 才加载
 │  ├─ daemon/       # socket 服务（server）、会话与目录（sessions）、CLI 侧连接与拉起（client、backend）、路径与安全检查（paths）、协议帧（wire）
+│  ├─ command-names.ts  # 内置子命令名：CLI 路由与 config 的 `commands` 校验共用
 │  └─ protocol.ts   # CLI 与 daemon 之间的消息类型
 ├─ data/
 │  ├─ frameworks/   # 各框架的配置路径、解析方式、关闭提示
@@ -116,7 +117,7 @@ via/
 
 ### Windows 约定
 
-- 所有平台相关的路径与环境变量查找走 `PathContext`（`src/config/paths.ts`：`platform` 可注入；Windows 的 `userConfigDir` / `userCacheDir` / `userDataDir`、不分大小写的 `getEnv`、`pathIdentity`、`shortenHome`）。需要读懂「某个平台的路径」时传 `platform: 'win32'`，不要写 `process.platform === 'win32'` 的分支。凡是拼出字符串但不碰文件系统的地方用 `pathModule(platform)`（`win32` 的 `join` / `resolve` 在任何宿主上给出反斜杠路径），碰文件系统的地方用宿主的 `node:path`。
+- 所有平台相关的路径与环境变量查找走 `PathContext`（`src/config/paths.ts`：`platform` 可注入；Windows 的 `userConfigDir` / `userCacheDir` / `userDataDir`、`pathIdentity`、`shortenHome`；不分大小写的 `getEnv` 与 `pathModule` 在 `src/platform/env.ts`，供不依赖配置的层使用）。需要读懂「某个平台的路径」时传 `platform: 'win32'`，不要写 `process.platform === 'win32'` 的分支。凡是拼出字符串但不碰文件系统的地方用 `pathModule(platform)`（`win32` 的 `join` / `resolve` 在任何宿主上给出反斜杠路径），碰文件系统的地方用宿主的 `node:path`。
 - 子进程只经 `src/platform/command.ts`（`planSpawn`、`prepareStdioCommand`），不要在别处对用户给的命令直接 `spawn`。`shell: true` 一律不用。
 - 读用户文件和标准输入时用 `decodeText`（去 BOM、识别 UTF-16），而不是 `toString('utf8')`；批处理输入与配置已兼容 CRLF。输出一律是 UTF-8 加 `\n`。
 - 权限位（0600 / 0700）在 Windows 上无效，代码仍然传，但文档与测试不得假定它们生效（[security.md](../spec/security.md#windows-上的文件权限)）。
@@ -128,10 +129,10 @@ via/
 
 ### CLI 到 MCP server 的一个入口：Backend
 
-所有会碰 MCP server 的命令（`call`、`batch`、`auth`、`doctor`、`sync`、浏览与 `find`）都经 `App.backend()`（`src/cli/backend.ts` 的 `Backend` 接口，`App.client()` 返回同一个对象）：
+所有会碰 MCP server 的命令（`call`、`batch`、`auth`、`doctor`、`sync`、浏览与 `find`）都经 `App.backend()`（`Backend` 接口在 `src/client/backend.ts`，`App.client()` 返回同一个对象）：
 
 - `listing(server, { timeoutMs, refresh })`：工具列表（缓存、凭证检查在后端内完成）；`callTool(...)`、`compiler()`（参数校验用的 schema 编译器，daemon 模式下由 daemon 校验）、`cursors()`（游标存放处）、`redact(text)`、`secrets()`。
-- `InProcessBackend`（进程内模式）、`DaemonBackend`（`src/daemon/backend.ts`，每个操作一个协议请求）和包住前者的 `FallbackBackend`（daemon 不可用时按 [daemon.md](../spec/daemon.md#生命周期) 回退）。新命令只用 `App` 的 `backend()`、`listing()`、`client()`、`compile`、`redactText()`，不要自己创建 `InProcessClient`，否则会绕过 daemon。
+- `InProcessBackend`（进程内模式，`src/cli/backend.ts`）、`DaemonBackend`（`src/daemon/backend.ts`，每个操作一个协议请求）和包住前者的 `FallbackBackend`（daemon 不可用时按 [daemon.md](../spec/daemon.md#生命周期) 回退）。新命令只用 `App` 的 `backend()`、`listing()`、`client()`、`compile`、`redactText()`，不要自己创建 `InProcessClient`，否则会绕过 daemon。
 
 ## 模块与规范的对应
 

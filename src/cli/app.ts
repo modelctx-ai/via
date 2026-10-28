@@ -12,15 +12,15 @@ import { emptyPolicy, isVisible, refusedBy, restrictsCommands, type Policy } fro
 import { lazyRedactor, redactValue, type Redactor } from '../render/redact';
 import { formatError, type ErrorInfo } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
-import type { Backend, Listing } from './backend';
-import type { CatalogCache } from './catalog-cache';
+import type { Backend, Listing } from '../client/backend';
+import type { CatalogCache } from '../client/catalog-cache';
 import type { ProviderEntry, ProviderTable } from './directory';
 import type { ViewCache } from './view-cache';
 import type { TaskRecords } from './task-record';
 import type { CliEnv } from './env';
 import { fail } from './failure';
 import { filterHelp, HELP, VERSION } from './help';
-import { matchBuiltin } from './builtins';
+import { matchBuiltin } from '../command-names';
 import type { GlobalOptions } from './options';
 
 /**
@@ -245,7 +245,7 @@ export class App {
   /** Schema compiler for argument validation: in the daemon when there is one, else ajv here. */
   compile: SchemaCompiler = async (schema, label) => {
     const backend = await this.backend();
-    return (backend.compiler() ?? (await import('./args/validate')).compileSchema)(schema, label);
+    return (backend.compiler() ?? (await import('../schema/validate')).compileSchema)(schema, label);
   };
 
   /**

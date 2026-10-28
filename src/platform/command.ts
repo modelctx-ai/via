@@ -15,7 +15,7 @@
 //
 // Everything is pure and takes the platform as input, so it is tested on any host.
 import { statSync } from 'node:fs';
-import { getEnv, pathModule, type Env } from '../config/paths';
+import { getEnv, pathModule, type Env } from './env';
 
 export interface ResolveOptions {
   env: Env;

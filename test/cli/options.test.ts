@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RESERVED_COMMANDS } from '../../src/catalog';
-import { ACTIVE_COMMANDS, ALL_COMMANDS, FUTURE_COMMANDS, matchBuiltin } from '../../src/cli/builtins';
+import { ACTIVE_COMMANDS, ALL_COMMANDS, FUTURE_COMMANDS, matchBuiltin } from '../../src/command-names';
 import { CliFailure } from '../../src/cli/failure';
 import { extractGlobals, parseLocal } from '../../src/cli/options';
 

@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import type { McpTool } from '../catalog/types';
 import { sha256Hex } from '../sha256';
 import type { ServerConfig } from '../config/types';
-import { validSelf } from '../client/server-info';
+import { validSelf } from './server-info';
 import type { ProtocolInfo, ServerFeatures, ServerSelf } from '../protocol';
 
 /** Default time to live of a cached `tools/list` (discovery.md). */

@@ -6,7 +6,7 @@ import type { ConfigDiagnostic, DiagnosticCode, DiagnosticLevel } from './diagno
 import { isPlainObject, ownEntries, type ServerDef } from './model';
 import { parseCredentialRef } from './credential-ref';
 import { isProtocolVersion, PROTOCOL_VERSIONS } from '../protocol-versions';
-import { ACTIVE_COMMANDS } from '../cli/builtins';
+import { ACTIVE_COMMANDS } from '../command-names';
 import type { AuthConfig, SemanticSearchConfig } from './types';
 
 /** `sources` as written: `auto`, `false`, or a list of framework ids and file paths. */

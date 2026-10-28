@@ -53,7 +53,7 @@ secrets:
 - `auth.bearer`、`auth.headers` 的值：一律算；
 - stdio 的 `env`、HTTP 的 `headers`：键名包含 `KEY`、`TOKEN`、`SECRET`、`PASSWORD`/`PASSWD`、`AUTH`、`CREDENTIAL`（不分大小写）之一时算。
 
-告警只写 server 名、键名和文件，**不写值**。`auth` 的文件来自加载诊断，是写下它的那份配置；`env`、`headers` 的文件是 server 定义所在的文件（`origin`），覆盖层补写的明文会算到定义文件上。
+告警只写 server 名、键名和文件，**不写值**。`auth` 的文件来自加载诊断，是写下它的那份配置；`env`、`headers` 的文件同样是写下这个键的那一层：用户配置给框架文件定义的 server 补写的明文 header，报告的是用户配置。
 
 **OAuth 登录存储**：存放在文件里的 OAuth 登录，如果其目录或文件不可写（刷新后的 token 存不下来，轮换 refresh token 的 server 会让登录失效），在该 server 之下加一行 `warning:` 与 `next: chmod …`；不改变退出码（[auth.md](../spec/auth.md#刷新)）。
 

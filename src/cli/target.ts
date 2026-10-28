@@ -15,7 +15,7 @@ import { notFoundError } from '../render/errors';
 import { ExitCode } from '../render/exit-codes';
 import { shellWords, visibleText } from '../render/shell';
 import type { App } from './app';
-import { ALL_COMMANDS } from './builtins';
+import { ALL_COMMANDS } from '../command-names';
 import { matchingDeny, type ProviderEntry } from './directory';
 import { CliFailure, fail, usageFailure } from './failure';
 

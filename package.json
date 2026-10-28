@@ -45,7 +45,6 @@
     "@napi-rs/keyring": "^2.1.2",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "env-paths": "^4.0.0",
     "get-east-asian-width": "^1.5.0",
     "jsonc-parser": "^3.3.1",
     "smol-toml": "^1.9.1",

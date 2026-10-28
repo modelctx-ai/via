@@ -9,7 +9,7 @@ import { emptyPolicy, isInternalCommand, refusedBy, SANDBOX_MARKER, type Command
 import { policyFiles } from '../config/policy-probe';
 import { ExitCode } from '../render/exit-codes';
 import type { ErrorInfo } from '../render/errors';
-import { matchBuiltin } from './builtins';
+import { matchBuiltin } from '../command-names';
 import type { CliEnv } from './env';
 import type { GlobalOptions } from './options';
 

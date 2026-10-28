@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildProviderCatalog, exampleCommand, type CatalogTool, type McpTool, type ProviderInput } from '../../src/catalog';
 import { formatCallExample } from '../../src/cli/args/example';
-import { cacheKey } from '../../src/cli/catalog-cache';
+import { cacheKey } from '../../src/client/catalog-cache';
 import { stringHash } from '../../src/hash';
 import { ViewCache } from '../../src/cli/view-cache';
 import { httpServer } from '../helpers/client';

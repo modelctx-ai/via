@@ -7,7 +7,7 @@ import { describeJsonFailure, parseJson, type JsonResult } from './json';
 import { buildToolArgsError, formatWarnings, pointerOf, problemsFromAjv, type Problem, unknownArgument } from './report';
 import { isPlainObject, type Pos, SchemaModel } from './schema';
 import type { ParsedToolArgs, ParseToolArgsOptions, ToolArgsContext } from './types';
-import { compileSchema } from './validate';
+import { compileSchema } from '../../schema/validate';
 import { formatUsage } from './help';
 import { shellWords } from '../../render/shell';
 

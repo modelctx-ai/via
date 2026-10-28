@@ -14,7 +14,6 @@ export {
 } from './cursor';
 export { FileCursorStore } from './cursor-file';
 export { FileMediaSink, MemoryMediaSink, type MediaSink, type MediaFile } from './media';
-export { defaultCacheDir, defaultCursorDir, defaultMediaDir } from './cache-dir';
 export { formatMetaLine, formatElapsed, formatBytes, type MetaInfo } from './meta';
 export {
   authRequiredError,

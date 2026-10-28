@@ -11,6 +11,23 @@ export const TYPED_SIGNATURE_MAX_WIDTH = 60;
 /** Allowed values written into a signature as `a|b|c` only when they fit this many characters (the same limit as the `usage:` line). */
 const ENUM_INLINE_MAX = 60;
 const TYPE_LABELS: Readonly<Record<string, string>> = { string: 'str', number: 'num', integer: 'num', boolean: 'bool', object: 'json', array: 'json' };
+
+/** The short labels of JSON Schema types (`str`, `num`, `bool`, `json`), each once, in order. Shared with the `-h` text (args/help.ts). */
+export function typeLabels(types: Iterable<string>): string[] {
+  return [...new Set([...types].map((t) => TYPE_LABELS[t]).filter((x): x is string => !!x))];
+}
+
+/** The label of array items whose types are all scalar (`str`, `(str|num)`); undefined when any is an object, an array or unknown. */
+export function scalarLabel(types: Iterable<string>): string | undefined {
+  const labels: string[] = [];
+  for (const t of types) {
+    if (t === 'null') continue;
+    const label = TYPE_LABELS[t];
+    if (label === undefined || label === 'json') return undefined;
+    if (!labels.includes(label)) labels.push(label);
+  }
+  return labels.length === 0 ? undefined : labels.length === 1 ? labels[0] : `(${labels.join('|')})`;
+}
 const REF_DEPTH = 8;
 
 type Json = Record<string, unknown>;
@@ -127,14 +144,7 @@ function scalarItemLabel(root: JsonSchema, schema: unknown): string | undefined 
   if (items === undefined) return undefined;
   const { types, known } = typesOf(root, items);
   if (!known) return undefined;
-  const labels: string[] = [];
-  for (const t of types) {
-    if (t === 'null') continue;
-    const label = TYPE_LABELS[t];
-    if (label === undefined || label === 'json') return undefined;
-    if (!labels.includes(label)) labels.push(label);
-  }
-  return labels.length === 0 ? undefined : labels.length === 1 ? labels[0] : `(${labels.join('|')})`;
+  return scalarLabel(types);
 }
 
 /**
@@ -154,7 +164,7 @@ function describeParam(root: JsonSchema, schema: unknown): Pick<ParamInfo, 'type
     const item = scalarItemLabel(root, schema);
     if (item !== undefined) return { type: `${item}[]` };
   }
-  const labels = [...new Set([...types].map((t) => TYPE_LABELS[t]).filter((x): x is string => !!x))];
+  const labels = typeLabels(types);
   return labels.length === 0 || (labels.length === 1 && labels[0] === 'str') ? {} : { type: labels.join('|') };
 }
 

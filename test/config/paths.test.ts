@@ -2,19 +2,8 @@
 // these run, with the same result, on every host.
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  expandPath,
-  getEnv,
-  normalizeWindowsPath,
-  pathContext,
-  pathIdentity,
-  shortenHome,
-  userCacheDir,
-  userConfigDir,
-  userConfigHint,
-  userConfigPath,
-  userDataDir,
-} from '../../src/config/paths';
+import { expandPath, normalizeWindowsPath, pathContext, pathIdentity, shortenHome, userCacheDir, userConfigDir, userConfigHint, userConfigPath, userDataDir } from '../../src/config/paths';
+import { getEnv } from '../../src/platform/env';
 import { shellWord } from '../../src/render/shell';
 
 const win = (env: Record<string, string> = {}) => pathContext({ home: 'C:\\Users\\Me', env, platform: 'win32' });

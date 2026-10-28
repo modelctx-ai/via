@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildProviderCatalog, SearchIndex, type CatalogTool, type DocTerms, type McpTool, type ProviderCatalog, type ProviderInput, type RestoredTerms } from '../../src/catalog';
-import { CatalogCache, cacheKey } from '../../src/cli/catalog-cache';
+import { CatalogCache, cacheKey } from '../../src/client/catalog-cache';
 import { stringHash } from '../../src/hash';
 import type { ServerConfig } from '../../src/config/types';
 import { inputsHash, ViewCache } from '../../src/cli/view-cache';

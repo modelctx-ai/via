@@ -3,7 +3,7 @@
 // output captured, so naming, argument parsing, `deny`, confirmation, redaction, rendering and
 // cursors are exactly those of the CLI. Nothing here talks to an upstream server directly.
 import type { CallToolResult, JSONObject, Server, Tool } from '@modelcontextprotocol/server';
-import { matchBuiltin } from './builtins';
+import { matchBuiltin } from '../command-names';
 import type { CliEnv } from './env';
 import { VERSION } from './help';
 import { ExitCode } from '../render/exit-codes';

@@ -18,7 +18,6 @@ export {
   checkTrust,
   forgetTrust,
   hashContent,
-  isTrusted,
   readTrustStore,
   recordTrust,
   recordTrustHash,

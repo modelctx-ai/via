@@ -13,6 +13,7 @@
 // numbers) is parsed every time, as before.
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isPlainObject } from './model';
 
 /** Bumped when the stored shape changes. */
 const SHAPE_VERSION = 1;
@@ -33,9 +34,6 @@ interface CacheFile {
   shape: Shape;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /** The document as a shape, or undefined when it cannot be expressed that way. */
 export function shapeOf(node: unknown, source: string, yaml: typeof import('yaml')): Shape | undefined {
@@ -86,7 +84,7 @@ export function valueOf(shape: unknown, source: string): unknown {
     return source.slice(from, to);
   }
   if (shape === null || typeof shape === 'number' || typeof shape === 'boolean') return shape;
-  if (isRecord(shape) && Array.isArray(shape.m)) {
+  if (isPlainObject(shape) && Array.isArray(shape.m)) {
     const items = shape.m as unknown[];
     if (items.length % 2 !== 0) throw new Error('bad map');
     const out: Record<string, unknown> = {};
@@ -97,7 +95,7 @@ export function valueOf(shape: unknown, source: string): unknown {
     }
     return out;
   }
-  if (isRecord(shape) && Array.isArray(shape.s)) return (shape.s as unknown[]).map((item) => valueOf(item, source));
+  if (isPlainObject(shape) && Array.isArray(shape.s)) return (shape.s as unknown[]).map((item) => valueOf(item, source));
   throw new Error('bad shape');
 }
 
@@ -105,8 +103,8 @@ function sameValue(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) || Array.isArray(b)) {
     return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => sameValue(item, b[i]));
   }
-  if (isRecord(a) || isRecord(b)) {
-    if (!isRecord(a) || !isRecord(b)) return false;
+  if (isPlainObject(a) || isPlainObject(b)) {
+    if (!isPlainObject(a) || !isPlainObject(b)) return false;
     const keys = Object.keys(a);
     const other = Object.keys(b);
     return keys.length === other.length && keys.every((k, i) => k === other[i] && sameValue(a[k], b[k]));

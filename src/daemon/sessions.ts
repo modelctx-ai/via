@@ -4,7 +4,7 @@
 // the error mapping; this layer adds lifetime (idle stop, exclusive servers), the catalog and its
 // refresh on `list_changed`, and redaction of what goes back over the socket.
 import type { McpTool } from '../catalog/types';
-import { CATALOG_TTL_MS, CatalogCache, effectiveTtl } from '../cli/catalog-cache';
+import { CATALOG_TTL_MS, CatalogCache, effectiveTtl } from '../client/catalog-cache';
 import { ClientError, McpSession, mapError, resolveConnection, untrustedServer, type CallOptions } from '../client';
 import { refOrigin, type CredentialResolver, type ServerConfig } from '../config/types';
 import type { DetachedCall, SkillEntry, SkillRead, TaskInfo, TaskList, TaskOutcome, CompletionRef, CompletionResult, GetPromptResult, ListedTools, ListResult, McpPrompt, ProtocolInfo, ReadResourceResult, ResourceListing, ServerFeatures, ServerTarget, SessionStatus, ToolCallResult } from '../protocol';

@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { buildCatalog, normalizeProviderName, renderFind, restoreProvider, SearchIndex, snapshotProvider, type CatalogTool, type DocTerms, type RestoredTerms } from '../src/catalog';
-import { CatalogCache } from '../src/cli/catalog-cache';
+import { CatalogCache } from '../src/client/catalog-cache';
 import { run } from '../src/cli/run';
 import { loadConfig } from '../src/config';
 import { daemonRuntime } from '../src/daemon/client';

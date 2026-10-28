@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import { lstatSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { dirname, isAbsolute, win32 } from 'node:path';
-import { getEnv, pathModule, userCacheDir, type PathContext } from '../config/paths';
+import { userCacheDir, type PathContext } from '../config/paths';
+import { getEnv, pathModule } from '../platform/env';
 
 export interface DaemonPaths {
   /** Directory holding the files below (a Windows named pipe has no directory of its own). */

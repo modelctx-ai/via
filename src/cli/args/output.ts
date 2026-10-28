@@ -1,7 +1,7 @@
 // Output validation (arguments.md, "输出校验"): outputSchema vs structuredContent, warnings only.
 import type { McpTool } from '../../catalog/types';
 import { type Segment, segmentsOf } from './report';
-import { compileSchema, type SchemaCompiler } from './validate';
+import { compileSchema, type SchemaCompiler } from '../../schema/validate';
 
 const MAX_WARNINGS = 3;
 

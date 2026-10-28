@@ -3,7 +3,7 @@
 // launched process is detached so a slow browser start cannot hold `via` up.
 import { spawn } from 'node:child_process';
 import { win32 } from 'node:path';
-import { getEnv, type Env } from '../../config/paths';
+import { getEnv, type Env } from '../../platform/env';
 
 export interface OpenResult {
   opened: boolean;

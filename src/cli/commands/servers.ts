@@ -8,7 +8,7 @@ import { alignRows } from '../../render/width';
 import { ExitCode } from '../../render/exit-codes';
 import type { App } from '../app';
 import { authState, type AuthState } from '../auth-state';
-import type { CacheEntry } from '../catalog-cache';
+import type { CacheEntry } from '../../client/catalog-cache';
 import { buildProviderTable, type ProviderEntry } from '../directory';
 import { writeJson } from '../listing-output';
 import { protocolLabel } from '../protocol-label';

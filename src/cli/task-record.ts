@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, wr
 import { join } from 'node:path';
 import type { ServerConfig } from '../config/types';
 import { sha256Hex } from '../sha256';
-import { cacheKey } from './catalog-cache';
+import { cacheKey } from '../client/catalog-cache';
 
 /** Per server: at most this many records, none older than {@link MAX_AGE_MS}. */
 export const MAX_RECORDS = 50;

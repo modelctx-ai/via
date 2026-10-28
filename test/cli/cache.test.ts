@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CatalogCache, cacheKey, CATALOG_TTL_MS } from '../../src/cli/catalog-cache';
+import { CatalogCache, cacheKey, CATALOG_TTL_MS } from '../../src/client/catalog-cache';
 import type { ServerConfig } from '../../src/config';
 import { httpServer, stdioServer } from '../helpers/client';
 import { defaultGeneration } from '../helpers/generation';

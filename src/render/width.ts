@@ -28,6 +28,11 @@ export function alignRows(rows: readonly (readonly string[])[], gap = 2): string
 }
 
 /** Truncate to at most `max` characters (code points), ending with `…` when cut. */
+/** `1 tool`, `3 tools`: a count and an English noun that takes `s`. */
+export function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
 export function truncateChars(s: string, max: number): string {
   const chars = Array.from(s);
   return chars.length > max ? `${chars.slice(0, Math.max(0, max - 1)).join('')}…` : s;

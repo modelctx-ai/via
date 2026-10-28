@@ -2,7 +2,7 @@
 // imported on demand, so a trivial command never loads the ones it does not use. `run` takes
 // everything from the outside world as parameters, which is how the tests drive it in-process.
 import type { App } from './app';
-import { matchBuiltin } from './builtins';
+import { matchBuiltin } from '../command-names';
 import { makeEnv, type CliEnv } from './env';
 import { CliFailure, usageFailure } from './failure';
 import { COMMAND_USAGE } from './help';

@@ -1,7 +1,7 @@
 // `via doctor` (guides/agent-integration.md): connection and auth status per server, frameworks
 // still injecting MCP schemas with their disable hints, plaintext secrets, config problems.
 // Pure: the CLI probes the servers and prints the text; nothing here reads files or the network.
-import { formatDiagnostic, isCredentialRef, type ConfigDiagnostic, type FrameworkDef, type LoadedConfig, type ServerConfig } from '../config';
+import { formatDiagnostic, isCredentialRef, refOrigin, type ConfigDiagnostic, type FrameworkDef, type LoadedConfig, type ServerConfig } from '../config';
 import type { CatalogWarning } from '../catalog';
 import type { ProtocolInfo } from '../protocol';
 import { protocolLabel } from './protocol-label';
@@ -9,7 +9,7 @@ import { askToRun } from '../render/ask';
 import { ExitCode } from '../render/exit-codes';
 import { shortenHome } from '../config/paths';
 import { shellArg, shellWord } from '../render/shell';
-import { displayWidth, padEndWidth, truncateChars } from '../render/width';
+import { displayWidth, padEndWidth, plural, truncateChars } from '../render/width';
 import type { HostKind } from '../platform/host';
 
 /** Result of probing one server (done by the CLI with the client; doctor only renders). */
@@ -101,10 +101,6 @@ const STATUS_EXIT: Record<Status, number> = {
   untrusted: ExitCode.Denied,
   error: ExitCode.Upstream,
 };
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
-}
 
 function oneLine(text: string): string {
   return truncateChars(text.replace(/\s+/g, ' ').trim(), MESSAGE_MAX);
@@ -382,10 +378,13 @@ function findSecrets(config: LoadedConfig): Secret[] {
     add({ server: d.server, field, ...(d.file ? { file: d.file } : {}) });
   }
   for (const s of config.servers) {
-    const where = s.origin.path ? { file: s.origin.path } : {};
     const values = s.transport.type === 'stdio' ? ['env', s.transport.env] as const : ['headers', s.transport.headers] as const;
     for (const [key, value] of Object.entries(values[1])) {
-      if (isPlaintext(key, value)) add({ server: s.name, field: `${values[0]}.${key}`, ...where });
+      if (!isPlaintext(key, value)) continue;
+      // The file that wrote this value, which is not the transport's when another layer added it.
+      const field = `${values[0]}.${key}`;
+      const file = refOrigin(s, field).path;
+      add({ server: s.name, field, ...(file ? { file } : {}) });
     }
     // Backstop for auth literals the loader did not report (every literal there is a secret).
     if (s.auth.type === 'bearer' && !isCredentialRef(s.auth.bearer) && !authReported.has(`${s.name}\0auth.bearer`)) {

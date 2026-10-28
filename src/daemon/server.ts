@@ -6,7 +6,7 @@ import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, rm
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { dirname, join } from 'node:path';
 import type { JsonSchema } from '../catalog/types';
-import { compileSchema, type CompileResult } from '../cli/args/validate';
+import { compileSchema, type CompileResult } from '../schema/validate';
 import { ClientError } from '../client';
 import { parseAnswer, type ElicitAnswer, type ElicitQuestion, type ElicitSink } from '../client/elicit';
 import type { OAuthStore } from '../client/oauth';

@@ -1,7 +1,7 @@
 // Schema validation with ajv, loaded lazily (implementation.md: ajv must not be on the cold path).
 // `import type` only at the top: the static import graph of src/cli/args stays free of ajv.
 import type { ErrorObject, default as AjvClass } from 'ajv';
-import type { JsonSchema } from '../../catalog/types';
+import type { JsonSchema } from '../catalog/types';
 
 export type { ErrorObject };
 

@@ -5,7 +5,7 @@ import type { JsonSchema } from '../../catalog/types';
 import { scannerOf } from '../../render/redact';
 import { visibleText } from '../../render/shell';
 import { alignRows, truncateChars } from '../../render/width';
-import type { ErrorObject } from './validate';
+import type { ErrorObject } from '../../schema/validate';
 import { isPlainObject, rootFlagName, type SchemaModel } from './schema';
 import { type ArgIssue, ToolArgsError } from './types';
 

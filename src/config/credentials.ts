@@ -6,7 +6,8 @@ import { MIN_REDACTED_LITERAL_LENGTH, parseCredentialRef } from './credential-re
 import { CredentialError, type ConfigOrigin, type CredentialResolver } from './types';
 import { importKeyring } from '../keyring';
 import { decodeText } from '../platform/text';
-import { expandPath, getEnv, pathContext, userConfigHint, type Env, type PathContext } from './paths';
+import { expandPath, pathContext, userConfigHint, type PathContext } from './paths';
+import { getEnv, type Env } from '../platform/env';
 
 // The reference grammar lives in credential-ref.ts: config loading needs it on every run, this module
 // (the resolver itself) only when a reference is actually resolved.

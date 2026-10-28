@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { access, chmod, constants, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { OAuthClientInformationMixed, OAuthDiscoveryState, OAuthTokens } from '@modelcontextprotocol/client';
-import { pathContext, userDataDir, type Env, type PathContext } from '../../config/paths';
+import { pathContext, userDataDir, type PathContext } from '../../config/paths';
+import { type Env } from '../../platform/env';
 import { importKeyring } from '../../keyring';
 
 export const KEYCHAIN_SERVICE = 'via';

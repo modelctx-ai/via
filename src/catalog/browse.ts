@@ -3,7 +3,7 @@ import { formatSignature, shortDescription, signatureLists, SIGNATURE_MAX_PARAMS
 import type { CatalogTool, DestructiveBy, ProviderCatalog, ResourceGroup } from './types';
 import type { SearchHit } from './search';
 import { shellArg, shellWords, visibleText } from '../render/shell';
-import { alignRows } from '../render/width';
+import { alignRows, plural } from '../render/width';
 
 // Browse views (discovery.md, "浏览视图"). Pure functions returning the text to print.
 
@@ -52,10 +52,6 @@ export function rootEntries(
       ...(detail ? { detail } : {}),
     };
   });
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 function marker(tool: CatalogTool): string {

@@ -8,7 +8,8 @@
 import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { sha256Hex } from '../sha256';
-import { normalizeWindowsPath, pathModule } from './paths';
+import { normalizeWindowsPath } from './paths';
+import { pathModule } from '../platform/env';
 
 export interface TrustRecord {
   /** Hex SHA-256 of the file content that was confirmed. */
@@ -102,10 +103,6 @@ export function trustStatus(store: TrustStore, path: string, sha256: string, pla
   const record = key === undefined ? undefined : store.entries[key];
   if (!record) return 'untrusted';
   return record.sha256 === sha256 ? 'trusted' : 'changed';
-}
-
-export function isTrusted(store: TrustStore, path: string, sha256: string, platform: NodeJS.Platform = process.platform): boolean {
-  return trustStatus(store, path, sha256, platform) === 'trusted';
 }
 
 /** Check a file against the store on disk, hashing the content as it is now. */

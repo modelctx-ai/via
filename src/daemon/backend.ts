@@ -1,14 +1,14 @@
 // The CLI's daemon backend: every operation that touches an MCP server becomes a request on the
 // socket (daemon.md). Parsing and rendering stay in the CLI; this file only translates between the
 // `Backend` interface and protocol messages. It imports no MCP SDK and no ajv.
-import type { Backend, Listing, ListingOptions } from '../cli/backend';
-import type { Compiled, CompileResult, SchemaCompiler } from '../cli/args/validate';
+import type { Backend, Listing, ListingOptions } from '../client/backend';
+import type { Compiled, CompileResult, SchemaCompiler } from '../schema/validate';
 import type { McpTool } from '../catalog/types';
 import { ClientError } from '../client/client-error';
 import type { ElicitAnswer, ElicitQuestion } from '../client/elicit';
 import type { CallOptions, ListOptions } from '../client/session';
 import type { ServerConfig } from '../config/types';
-import type { CatalogCache } from '../cli/catalog-cache';
+import type { CatalogCache } from '../client/catalog-cache';
 import type {
   CompletionRef,
   CompletionResult,
@@ -283,7 +283,7 @@ export class DaemonBackend implements Backend {
    */
   compiler(): SchemaCompiler {
     return async (schema, label): Promise<CompileResult> => {
-      const local = async (): Promise<CompileResult> => (await import('../cli/args/validate')).compileSchema(schema, label);
+      const local = async (): Promise<CompileResult> => (await import('../schema/validate')).compileSchema(schema, label);
       let first: ValidateResult;
       try {
         first = unwrap<ValidateResult>(await this.send({ type: 'validate', schema, label, compileOnly: true }, { deadlineMs: 10_000, spawn: true }));

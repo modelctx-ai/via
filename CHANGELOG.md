@@ -122,6 +122,7 @@
 
 ### Changed
 
+- `via doctor` 报告 `env`、`headers` 里的明文凭证时，指出写入这个值的文件，而不是定义传输的文件（[agent-integration.md](docs/guides/agent-integration.md#via-doctor检测与关闭提示)）：框架配置定义 server、用户配置补一个明文 header 时，此前按文档约定提示框架文件，用户会去改错的地方。来源取自合并时记录的字段来源（`refOrigins`）。`auth` 下的明文本来就由加载器按正确的文件报告，不受影响。不涉及动词表与规范写法。
 - MCP Apps 里只给界面调用的工具不再进入目录（[ADR 0031](docs/adr/0031-leave-out-app-only-tools.md)、[discovery.md](docs/spec/discovery.md#目录构建流程)）：`_meta.ui.visibility` 是数组而不含 `"model"` 的工具（GitHub MCP server 的 `ui_get` 是 `["app"]`）在拆分之前去掉，视图、`via find`、`via serve` 里都没有它，按名字调用是 `no such tool`（退出码 3）。`via github` 因此与 Claude Code 一样是 46 个工具。`visibility` 缺省或不是数组时照旧列出；`via sync`、`via doctor`、`via daemon status` 的工具数仍按 server 列出的数目计。行为变化：按名字调用这类工具的脚本会失败。过滤代码进入目录规则指纹，旧的预构建缓存自动作废。不涉及动词表与规范写法。
 - `via doctor` 区分延迟加载 schema 的框架，并且框架关闭提示改为英文（[agent-integration.md](docs/guides/agent-integration.md#via-doctor检测与关闭提示)、[data-files.md](docs/development/data-files.md#frameworks)）：
   - 此前同一条输出一边写「claude-code ~11k tokens/turn」，一边在提示里说 Claude Code 默认延迟加载 schema，前者对默认配置并不成立。`data/frameworks/<id>.json` 新增可选字段 `deferredSchemas`（只给官方文档确认的框架设置，目前只有 `claude-code`）和它的 `fullWhenEnv`（`ENABLE_TOOL_SEARCH`，值 `false`）。声明了 `deferredSchemas` 的框架单列一节 `frameworks deferring MCP schemas (only tool names are injected)`，估算只含工具名（每个工具一行 `mcp__<server>__<工具名>`，4 字节 ≈ 1 token），数量级从 ~11k 降到几百 token；via 进程的环境里 `ENABLE_TOOL_SEARCH=false` 时改回 `still injecting` 一节，按完整 schema 估算，行尾写 `(ENABLE_TOOL_SEARCH=false)`。只读 via 进程自己的环境变量，不读也不写框架配置；框架 settings 里的 `env`、阈值模式（`auto`、`auto:N`）、`alwaysLoad` 不判断，写在文档里。没有该字段的框架行为不变。`framework.schema.json` 同步。
@@ -179,6 +180,7 @@
 
 ### Removed
 
+- 运行时依赖 `env-paths`：唯一的引用者 `src/render/cache-dir.ts` 已无调用方，一并删除；用户目录一直由 `src/config/paths.ts` 计算，行为不变。内部还有几处整理，用户不可见：`tools/list` 磁盘缓存移到 `src/client/`、参数校验移到 `src/schema/`、内置子命令名移到 `src/command-names.ts`、`Backend` 接口移到 `src/client/backend.ts`、`getEnv`/`pathModule` 移到 `src/platform/env.ts`，使 `daemon/`、`config/`、`platform/` 不再引用 `cli/` 或上层模块（[implementation.md](docs/development/implementation.md#代码结构)）。不涉及动词表与规范写法。
 - 单文件可执行的构建路径（ADR 0023）：`npm run build:bin`、`scripts/build-bin.ts`、`scripts/lib/bin-targets.ts`、CI 的 `binary` 任务、`test/cli/bin.test.ts`、`test/bin-targets.test.ts`，以及识别 Bun 编译产物的 `isCompiledBinary()`。不保留「自行构建、不受支持」的版本：它需要 Bun、一组固定的 CI 任务和只在目标平台上才有意义的测试，而没有人发布它。`npm run bench:perf` 去掉第 6 节（Bun）及 `--only-bun`、`--skip-bun`，第 5 节不再测单文件。`bench/results/` 里的历史数据保留。
 - Homebrew 相关的全部内容：`packaging/homebrew/`、`scripts/render-homebrew.mjs`、`test/packaging/homebrew.test.ts`、`release.yml` 的 `homebrew` 任务，快速上手与两份 README 里的 `brew install` 说明。这些从未随任何版本发布。
 

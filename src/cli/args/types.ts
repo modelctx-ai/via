@@ -1,5 +1,5 @@
 // Public types of the argument parser (arguments.md). Re-exported from ./index.ts.
-import type { SchemaCompiler } from './validate';
+import type { SchemaCompiler } from '../../schema/validate';
 
 /** Which tool is being called, for usage lines and messages. */
 export interface ToolArgsContext {

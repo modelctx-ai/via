@@ -312,6 +312,17 @@ describe('renderDoctor', () => {
       expect(out.text).toContain('gw: X-Api-Key is plaintext');
       expect(out.text).not.toContain(FAKE_SECRET);
     });
+
+    it('names the file that wrote the literal, not the one that defined the transport', async () => {
+      const tree = makeTree({
+        'home/.cursor/mcp.json': JSON.stringify({ mcpServers: { docs: { url: 'https://docs.example.com/mcp', headers: { 'X-Trace': 'abc' } } } }),
+        'home/.config/via/config.yaml': 'servers:\n  docs:\n    headers:\n      X-Api-Key: "' + FAKE_SECRET + '"\n',
+      });
+      const loaded = await tree.load();
+      const out = renderDoctor({ config: loaded, frameworks: [], probes: [], home: tree.home });
+      expect(out.text).toContain('docs: X-Api-Key in ~/.config/via/config.yaml is plaintext');
+      expect(out.text).not.toContain(FAKE_SECRET);
+    });
   });
 
   it('works end to end on a real loaded config', async () => {
