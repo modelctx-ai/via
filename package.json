@@ -1,6 +1,6 @@
 {
   "name": "@modelctx-ai/via",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Call MCP servers as `via <provider> <resource>:<verb>` with on-demand discovery.",
   "license": "Apache-2.0",
   "repository": {

@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-28
+
 ### Added
 
 - 没有声明破坏性注解的工具按名字推断，并允许用户点名要求确认（[ADR 0030](docs/adr/0030-infer-destructive-from-names.md)，[arguments.md](docs/spec/arguments.md#危险操作)、[config.md](docs/spec/config.md#confirm)、[security.md](docs/spec/security.md)、[discovery.md](docs/spec/discovery.md)、[cli.md](docs/spec/cli.md)、[data-files.md](docs/development/data-files.md#destructivejson)）：
