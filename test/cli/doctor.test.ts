@@ -320,7 +320,7 @@ describe('renderDoctor', () => {
       });
       const loaded = await tree.load();
       const out = renderDoctor({ config: loaded, frameworks: [], probes: [], home: tree.home });
-      expect(out.text).toContain('docs: X-Api-Key in ~/.config/via/config.yaml is plaintext');
+      expect(portablePaths(out.text)).toContain('docs: X-Api-Key in ~/.config/via/config.yaml is plaintext');
       expect(out.text).not.toContain(FAKE_SECRET);
     });
   });
