@@ -98,7 +98,7 @@ $ npm run bench:tokens -- --out bench/results/0.4-tokens --release 0.4   # 同�
 - **via 一列是真实运行**：脚本跑的是打包后的 `dist/via.js`，命令序列是人按「合理的 agent 路径」写的（从 `via <provider>` 或 `via find` 开始，签名足够时不加 `-h`）。mcp2cli 同理，工具不超过 25 个的 server 用 `--list`，更大的用 `--search`，每条要用的命令先看 `--help`。mcpc 的路径是 `connect`（打印该 server 的工具概览）→ 每个有参数的工具先 `tools-get` 一次 → `tools-call 工具 键:=值 …`，用默认的人类可读输出。
 - **做同样的事**：每个任务有一份原生调用序列和一份回放用的返回值。测量时核对回放 server 的调用日志，via、mcp2cli 与 mcpc 发出的 `tools/call` 必须与原生的工具名、参数完全一致，否则报错。
 - **原生一列也经过回放 server**：用官方 SDK 的 client 取 `tools/list` 和 `tools/call`，不手算。
-- **token 估算**：4 字节约 1 token，与 `via doctor` 用的是同一个常量（`BYTES_PER_TOKEN`）。可复现起见，元信息行的耗时、端口、沙箱路径归一为常量。可选的精确计数（调用 token 计数接口）0.1 没有做；agent 评测直接使用 API 返回的 `usage`。
+- **token 估算**：4 字节约 1 token，与 `via doctor` 用的是同一个常量（`BYTES_PER_TOKEN`）。可复现起见，元信息行的耗时、端口、沙箱路径归一为常量。可选的精确计数（调用 token 计数接口）0.1 没有做；agent 评测直接使用 API 返回的 `usage`。这个比例对不同内容的偏差方向不一样，读数字时要记着：拿一个真实的 BPE 分词器（`o200k_base`，不是 Claude 的分词器，只作参照）对 0.4 的输出抽样比过，浏览视图与 `find` 的列表实际比估算少 30–40%（短词多），带 UUID、哈希、URL 的表格实际比估算多 28–70%，缩进的 JSON 多 15–45%（同样取决于里面有多少 ID 与 URL）。也就是基准高估了发现一侧、低估了结果一侧，各列受影响的程度不同；合计的量级和各列的相对次序没有因此改变，但不要把某一步的估算当成精确的 token 数。
 - **mcp2cli 是可选的一列**：PATH 上有 `mcp2cli` 才运行，并记录版本；没有就在输出里说明已跳过，不伪造数字。说明文本取自它自带的 skill（`bench/vendor/mcp2cli/`，MIT）。
 - **mcpc 也是可选的一列**：PATH 上有 `mcpc`（`npm install -g @apify/mcpc`，需要 Node.js 22.12+）才运行，并记录版本；没有就在输出里说明已跳过，不伪造数字。说明文本是 `mcpc help --skill` 的原文（`bench/vendor/mcpc/`，Apache-2.0）加一行告诉 agent 有哪些可连的 server。mcpc 没有一次性调用，调用前必须 `mcpc connect <server> @名字` 建会话，所以**每个任务的第一步就是 `connect`，这些命令和它们打印的工具概览计入成本**；沙箱里只预先写好 `mcp.json`（server 列表）。会话由一个后台进程维持，每个任务结束后关闭它建的会话，沙箱状态放在 `MCPC_HOME_DIR`，进程不会比运行活得更久。
 
