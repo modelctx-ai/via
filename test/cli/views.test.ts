@@ -45,6 +45,9 @@ describe('via (root)', () => {
     expect(r.code).toBe(0);
     expect(r.stdout).toContain('0 providers · 0 tools');
     expect(r.stdout).toContain('no MCP servers found');
+    // the npm package holds no docs/: the pointer is a URL
+    expect(r.stdout).toContain('(see https://github.com/modelctx-ai/via/blob/main/docs/guides/getting-started.md)');
+    expect((await sb.via(['-h'])).stdout).toContain('\ndocs: https://github.com/modelctx-ai/via/blob/main/docs/spec/cli.md\n');
   });
 });
 
@@ -85,7 +88,7 @@ describe('via <provider>', () => {
 
   it('truncates long resource lists and --all shows everything', async () => {
     const { srv, sb } = await setup();
-    srv.state.tools = Array.from({ length: 30 }, (_, i) => ({ name: `thing${String.fromCharCode(97 + (i % 26))}${i}_get`, description: 'x', inputSchema: { type: 'object', properties: {} } }));
+    srv.state.tools = Array.from({ length: 60 }, (_, i) => ({ name: `thing${String.fromCharCode(97 + (i % 26))}${i}_get`, description: 'x', inputSchema: { type: 'object', properties: {} } }));
     const cut = await sb.via(['gh']);
     expect(cut.stdout).toMatch(/… \d+ more · via gh --all/);
     const all = await sb.via(['gh', '--all']);

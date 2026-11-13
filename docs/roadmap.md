@@ -101,7 +101,7 @@ flowchart LR
 
 | 门槛 | 条件 | 状态 |
 | --- | --- | --- |
-| 门槛 1（0.1 → 0.2） | token 基准与 agent 评测跑通，任务成功率不低于原生 MCP，且不低于 mcp2cli | 未过关：token 基准已发布（[0.1](../bench/results/0.1.md)，[0.4](../bench/results/0.4-tokens.md) 起含 mcpc 一列）；agent 评测的第一份结果（[deepseek-flash，2026-10-26](../bench/results/eval-2026-10-26-deepseek-flash.md)）里门槛**不成立**：via 73%（66/90）低于 native 76%（68/90）和 mcp2cli 74%（67/90），三个区间重叠，差异在噪声之内，但「不低于」没有达到。逐任务看，差距集中在 `cloudflare-dns-records`（via 2/10，native 6/10）；`notion-update-doc` 四个条件都是 0/10，要先查任务的判定标准。默认模型上还没有结果 |
+| 门槛 1（0.1 → 0.2） | token 基准与 agent 评测跑通，任务成功率不低于原生 MCP，且不低于 mcp2cli | 未过关：token 基准已发布（[0.1](../bench/results/0.1.md)，[0.4](../bench/results/0.4-tokens.md) 起含 mcpc 一列）；agent 评测的第一份结果（[deepseek-flash，2026-10-26](../bench/results/eval-2026-10-26-deepseek-flash.md)）里门槛**不成立**：via 73%（66/90）低于 native 76%（68/90）和 mcp2cli 74%（67/90），三个区间重叠，差异在噪声之内，但「不低于」没有达到。逐任务看，差距集中在 `cloudflare-dns-records`（via 2/10，native 6/10）；`notion-update-doc` 四个条件都是 0/10：每次都把页面更新了 3–7 遍，最可能的原因是回放无状态，模型写入后再读到的仍是旧页面；回放现在能在写入之后返回新状态（[bench/README.md](../bench/README.md#calls-条目) 的 `after`），这一项要重跑才知道。默认模型上还没有结果 |
 | 门槛 2（0.2 → 0.3） | 热 daemon 调用开销达到[性能目标](development/testing.md#性能目标)，OAuth 在主流远程 server 上验证通过 | 部分达到：目标已在 0.4 重新标定（d3），复测发现的浏览路径回归已修复（[perf-0.4](../bench/results/perf-0.4.md)）。热 daemon 的额外开销（5.6–7.2 ms，目标 < 15）、库路径的 `find`（22.9–27.5 ms，< 30）、daemon 的 RssAnon（最高 37.4–44.2 MiB，< 55）、`via`（中位数比裸 node 多 45.6 ms，不超过 50）和带框架配置的 `via`（+60.8，< 80）达到；`via github`（+50.6）、带框架配置的 `via find`（+78.7）在线上；**没有达到**：无 daemon 的 `via find`（+49–58 ms，不超过 50）、经热 daemon 的 `via find`（+75–89，< 70；`via` 是 +68–75）、一千个工具的整进程 `find`（+85–104，不超过 80）。热 daemon 的两项在这台机器上 v0.3.1 也是 +68 与 +80，所以差距主要是机器，不是回归；余下的办法和估计收益写在 perf-0.4 的「试过没有留下的」里。OAuth 在真实远程 server 上的验证还没有记录 |
 
 ## 0.4：验证、协议对齐与补齐

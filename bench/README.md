@@ -150,13 +150,16 @@ success:                           # agent 评测怎样判定成功（token 基�
 | --- | --- |
 | `server`、`tool` | 属于哪个 server 的哪个原始工具名 |
 | `args` | 可选。参数子集匹配：条目里写的键必须在实际参数里且值相等，多出的键忽略；数组与标量要求相等。省略则匹配任意参数 |
+| `after` | 可选。这个条目只在本 server 已经**回答过**某个工具的调用之后才生效：写成工具名（`after: notion-update-page`），或 `{ tool, args }`（`args` 同样是子集匹配，对着那次调用的参数）。用来表示「写过之后再读，读到的是写过的状态」 |
 | `result` | 内联的 JSON 值，作为一个 text 块返回（紧凑序列化，和多数 server 一样） |
 | `resultFile` | 相对 `bench/` 的 JSON 文件，读入后紧凑序列化返回 |
 | `text` / `textFile` | 原样返回的文本（源码、Markdown、页面快照等） |
 | `content` | 直接给出 MCP 的 `content` 数组（图片等） |
 | `isError` | 返回 `isError: true` |
 
-`result`、`resultFile`、`text`、`textFile`、`content` 五选一。同一工具有多个条目时按文件顺序尝试，第一个匹配的生效；条目不会因为被用过而失效。承载身份的参数（`issue_number`、`id`、元素 `ref`）应写进条目的 `args`，这样操作了录制里不存在的对象会失败，而不是悄悄拿到别的对象的返回值。
+`result`、`resultFile`、`text`、`textFile`、`content` 五选一。同一工具有多个条目时按文件顺序尝试，第一个匹配的生效；条目不会因为被用过而失效。带 `after` 的条目要写在同一工具不带 `after` 的条目**之前**，否则永远轮不到它。
+
+回放本来是无状态的：同一个工具对同样的参数永远返回同一份录制。这对「先读后写」的脚本没有影响，但模型常常在写入之后再读一次来确认，这时读到写入之前的内容，它就会以为没写成而再写一遍，而写操作的 `max: 1` 把这记为失败。第一次评测里 `notion-update-doc` 在四个条件下都是 0/10（每次都更新了 3–7 遍），`linear-my-work` 也有同样的记录；这两个任务现在用 `after` 给出写入之后的页面与 issue。哪些调用被回答过记在条目自己身上：基准在任务之间替换条目、评测每次运行新建条目，都会重新开始。承载身份的参数（`issue_number`、`id`、元素 `ref`）应写进条目的 `args`，这样操作了录制里不存在的对象会失败，而不是悄悄拿到别的对象的返回值。
 
 `recordings/` 下的数据是**合成**的：按常见 API 的形状（GitHub 的 REST 对象、Linear 的 issue、Notion 的页面、Playwright 的页面快照、Cloudflare 的 DNS 记录）手写，不含真实账号、令牌或内部数据。要换成真实录制的返回值，替换这些文件即可，任务文件不用改。
 

@@ -55,10 +55,13 @@ describe('via <provider>', () => {
   });
 
   it('cuts a long tools: line of leaf tools', () => {
-    const text = renderProvider(provider('playwright'));
-    // 12 leaf names fit on the line; the rest are counted
+    // the 15 leaf tools of playwright are below the limit of 30: all of them, no ellipsis
+    expect(renderProvider(provider('playwright'))).not.toContain('…');
+    const text = renderProvider(provider('playwright'), { maxLeaves: 12 });
     expect(text).toContain(`… ${provider('playwright').leaves.length - 12} more · via playwright --all`);
     expect(renderProvider(provider('playwright'), { all: true })).not.toContain('…');
+    // and no real server of the fixtures has its resources cut: github has 33 rows, notion 37
+    for (const name of ['github', 'notion']) expect(renderProvider(provider(name)), name).not.toContain('…');
   });
 
   it('truncates long resource lists and points at --all', () => {
@@ -119,5 +122,9 @@ describe('via find', () => {
 
   it('says so when nothing matches', () => {
     expect(renderFind([], 'zzzz')).toBe('no tools match "zzzz"\n→ via to list providers');
+    // a query without a Latin letter or digit: nothing translates it, so the hint says what is matched
+    expect(renderFind([], '发评论')).toBe('no tools match "发评论"\n→ via to list providers · tools are matched by the words of their names and descriptions: try those words (usually English)');
+    expect(renderFind([], '发 issue 评论')).toBe('no tools match "发 issue 评论"\n→ via to list providers');
+    expect(renderFind([], '???')).toBe('no tools match "???"\n→ via to list providers');
   });
 });

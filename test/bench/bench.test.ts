@@ -146,6 +146,43 @@ describe('replay server', () => {
     expect(over.map((e) => e.tool)).toEqual(['get_issue', 'no_such_tool', 'list_teams']);
   });
 
+  it.each(PROTOCOLS)('answers a read with the state after the write once the write was answered (`after`) over %s', async (_label, protocol) => {
+    const tools = readTools(`${root}test/fixtures/tools/linear.json`);
+    const task = loadSuite(root, ['linear-my-work']).tasks[0]!;
+    const calls = cannedCalls([task], 'linear', `${root}bench`);
+    const running = await startReplayHttp({ name: 'linear', tools, calls, ...(protocol ? { protocol } : {}) });
+    closers.push(running.close);
+    const client = await connect(running.url);
+    const status = async (id: string): Promise<string> => {
+      const got = await client.callTool({ name: 'get_issue', arguments: { id } });
+      return JSON.parse((got.content as Array<{ text: string }>)[0]!.text).status as string;
+    };
+    expect(await status('PLT-300')).toBe('In Progress');
+    expect(await status('PLT-328')).toBe('In Progress');
+    // a write that no entry answers changes nothing
+    expect((await client.callTool({ name: 'update_issue', arguments: { id: 'PLT-999', state: 'Done' } })).isError).toBe(true);
+    expect(await status('PLT-300')).toBe('In Progress');
+    await client.callTool({ name: 'update_issue', arguments: { id: 'PLT-300', state: 'Done' } });
+    // the issue that was written reads back as written; the other one is as it was
+    expect(await status('PLT-300')).toBe('Done');
+    expect(await status('PLT-328')).toBe('In Progress');
+    // fresh entries start afresh: the benchmark swaps them per task, the evaluation makes them per run
+    calls.splice(0, calls.length, ...cannedCalls([task], 'linear', `${root}bench`));
+    expect(await status('PLT-300')).toBe('In Progress');
+  });
+
+  it('gives the page with the new line to a fetch that follows the update of the notion task', async () => {
+    const tools = readTools(`${root}test/fixtures/tools/notion.json`);
+    const task = loadSuite(root, ['notion-update-doc']).tasks[0]!;
+    const running = await startReplayHttp({ name: 'notion', tools, calls: cannedCalls([task], 'notion', `${root}bench`) });
+    closers.push(running.close);
+    const client = await connect(running.url);
+    const page = async (): Promise<string> => ((await client.callTool({ name: 'notion-fetch', arguments: { id: '2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701' } })).content as Array<{ text: string }>)[0]!.text;
+    expect(await page()).not.toContain('Decision:');
+    await client.callTool({ name: 'notion-update-page', arguments: { page_id: '2f1c9e4a-7b6d-4e3f-a1b2-c3d4e5f6a701', command: 'insert_content_after', new_str: 'x' } });
+    expect(await page()).toContain('Decision: per-tenant limits will be exposed in the public API docs.');
+  });
+
   it.each(PROTOCOLS)('can be re-targeted while running (the benchmark swaps canned calls per task) over %s', async (_label, protocol) => {
     const tools = readTools(`${root}test/fixtures/tools/cloudflare.json`);
     const calls = [{ tool: 'whoami', result: { content: [{ type: 'text', text: 'first' }] } }];

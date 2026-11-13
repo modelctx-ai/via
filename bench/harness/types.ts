@@ -18,6 +18,8 @@ export interface CannedCall {
   tool: string;
   /** Subset match against the call's arguments; absent matches any. */
   args?: Args;
+  /** The entry applies only after a call of this tool (with these arguments, if given) was answered: a read after the write that changed it. */
+  after?: string | { tool: string; args?: Args };
   result?: unknown;
   resultFile?: string;
   text?: string;

@@ -92,12 +92,12 @@ issue          read · write · list · search
 pull-request   read · create · list · merge
 file           create-or-update · push · delete
 commit         get · list
-… 14 more · via github --all
+…
 ```
 
 - 每个资源一行，动作内联，按资源名排序；一行内的动作按 `tools/list` 中的先后顺序排列。
-- 叶子工具在资源行之后：`tools: search · fetch`，按 `tools/list` 顺序，超过 12 个时截断并提示 `--all`。
-- 资源行数超过一屏（默认 20 行）时截断，提示 `… N more · via <provider> --all`，位于叶子工具行之前。
+- 叶子工具在资源行之后：`tools: search · fetch`，按 `tools/list` 顺序，超过 30 个时截断并提示 `--all`。
+- 资源行数超过 40 行时截断，提示 `… N more · via <provider> --all`，位于叶子工具行之前。资源按名字排序，上限定得低，被藏起来的就是字母表里靠后的那些（Notion 的 `page`、GitHub 的 `repository`），找它们要多跑一条命令，而一行只有几个 token；上限是给背后有几百个工具的网关准备的，常见的 server（GitHub 33 行、Notion 37 行）一次列全。
 - 需要 `--yes` 的动作加标记（如 `delete!`），不区分来源（server 声明的、推断的、配置要求的；区分在资源视图与 `-h` 里），只读资源不加标记。
 - server 声明了 MCP 资源、prompt 或技能（`2026-07-28` 且声明了 `io.modelcontextprotocol/skills`）时，叶子工具行之后多一行 `also: via resources <provider> · via prompts <provider> · via skills <provider>`（只列出声明了的）。这是 agent 发现这几类内容的唯一入口，所以 `via prompt` 的说明文本不需要提它们。
 - 最后一行提示下一步：`→ via <provider> <resource> for signatures`。

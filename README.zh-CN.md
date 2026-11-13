@@ -35,7 +35,7 @@ via 把任意 MCP server 的工具变成 agent 按需发现、按需调用的命
 - 每个框架各自保存 server 地址和凭证，轮换一次要改所有地方。
 - 工具返回的原始 JSON 键名逐行重复，截断和翻页各家各做。
 
-via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，按 server 注入凭证，以 `provider → 资源 → 动作` 的命令形态暴露工具，并用一套统一规则渲染输出。agent 上下文里只剩一段约 200 token 的使用说明。
+via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，按 server 注入凭证，以 `provider → 资源 → 动作` 的命令形态暴露工具，并用一套统一规则渲染输出。agent 上下文里只剩一段约 230 token 的使用说明。
 
 ![via 的工作原理：agent 在 shell 里执行 via 并拿回紧凑输出；via CLI 把调用交给本机 daemon，daemon 读取框架 MCP 配置和凭证，经 stdio 或 HTTP 用 MCP 与各 server 通信](docs/assets/how-it-works.zh-CN.svg)
 
@@ -192,13 +192,16 @@ via prompt --skill --out <目录>/via/SKILL.md   # 改写成 SKILL.md，给按�
 
 ## 与其他方式对比
 
-|  | 框架原生接入 MCP | 单 server 的 MCP 转 CLI 工具 | **via** |
-| --- | --- | --- | --- |
-| 上下文里的工具 schema | 全部，预先注入 | 无 | 无，只有约 200 token 的说明 |
-| server | 每个框架各一份列表 | 每次调用指定一个端点 | 所有 server 汇成一个目录 |
-| 跨 server 搜索 | — | — | `via find` |
-| 凭证 | 每个框架各抄一份 | 每次调用传入 | 每个 server 一个引用 |
-| 输出 | 原始 JSON，各家处理不同 | 因工具而异 | 一套渲染规则，带续读游标 |
+|  | 原生 MCP，schema 全部注入 | 原生 MCP，工具按需加载 | 单 server 的 MCP 转 CLI 工具 | **via** |
+| --- | --- | --- | --- | --- |
+| 上下文里的工具 schema | 全部，预先注入 | 工具搜索加载过的那些 | 无 | 无，只有约 230 token 的说明 |
+| server | 每个框架各一份列表 | 每个框架各一份列表 | 每次调用指定一个端点 | 所有 server 汇成一个目录 |
+| 跨 server 搜索 | — | 框架自带的工具搜索 | — | `via find` |
+| 凭证 | 每个框架各抄一份 | 每个框架各抄一份 | 每次调用传入 | 每个 server 一个引用 |
+| 输出 | 原始 JSON，各家处理不同 | 原始 JSON | 因工具而异 | 一套渲染规则，`--pick` 选字段，带续读游标 |
+| 不进上下文的中间结果 | — | — | 管道 | 管道、`via batch` |
+
+框架已经按需加载工具时，via 在 schema 上省不下多少：token 基准里不计注入之后两者大致相当。这时 via 多出来的是表里其余几行：所有框架共用一份配置、每个 server 一个凭证引用，结果紧凑，中间结果留在 shell 里。
 
 与 mcpc、mcp2cli、mcporter、网关的具体区别见[愿景与定位](docs/overview/vision.md#与相近工具的区别)。
 

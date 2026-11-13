@@ -18,6 +18,22 @@ file-upload              create
 folder                   create · update
 group                    get
 meeting-note             query
-… 17 more · via notion --all
+memory                   search
+message-to-session       send
+multiple-data-source     query
+page                     create · update · move · duplicate · delete! · restore
+page-backlink            list
+private-page             list
+recent-page              list
+self                     get
+session                  query · search
+session-event            list · read
+session-status           get
+shared-page              list
+skill                    download · upload
+team                     get
+tool-access              get
+user                     get
+view                     create · update
 tools: search · fetch · check-mcp-next-steps · convert-page-to-skill · spawn-session · stop-session · wait-session · show-advanced-analysis-next-steps
 → via notion <resource> for signatures

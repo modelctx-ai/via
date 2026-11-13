@@ -66,12 +66,13 @@
 ```json
 {
   "version": 1,
-  "fields": ["node_id", "_links", "*_api_url", "*_url_template", "gravatar_id"],
+  "fields": ["node_id", "_links", "*_api_url", "*_url_template", "gravatar_id", "avatar_url", "repository_url", "followers_url", "…"],
   "keep": ["url", "html_url"]
 }
 ```
 
 - 支持 `*` 通配；`keep` 优先于 `fields`，也优先于按 server 配置的 `noise` 追加项。
+- 收进来的是任务读不到用处的字段：对象的内部编号（`node_id`）、头像（`avatar_url`、`gravatar_id`）、供程序沿着 API 继续取数据的链接（`_links`、`*_api_url`、`repository_url`、`labels_url`、`comments_url`、`events_url`、`timeline_url`，以及用户对象上的 `followers_url`、`repos_url` 一类）。`url` 与 `html_url` 始终保留：它们常常是结果里唯一能给人看的链接。只按字段名判断，不看值；被去掉的字段在 `-o raw` 里仍然有。新增一项之前先确认它在别的 server 里不会是任务要读的数据。
 
 ## columns.json
 
@@ -87,7 +88,7 @@
 ```
 
 - `maxColumns`：一张表最多显示的列数。
-- `priority`：列数超过上限时优先保留的字段名，靠前的优先；用完后按字段在对象中出现的顺序补满。
+- `priority`：列数超过上限时优先保留的字段名，靠前的优先；用完后按字段在对象中出现的顺序补满，其中超过一半的单元格会被截断的字段排在放得下的字段之后（[output.md](../spec/output.md#渲染流程)）。
 - `labelKeys`：对象出现在表格单元格里时，用其中第一个有标量值的字段代表它（如 `user` 显示为 `octocat`）；都没有则显示紧凑 JSON。
 
 ## synonyms.json

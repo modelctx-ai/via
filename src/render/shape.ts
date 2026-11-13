@@ -67,16 +67,42 @@ function tableKeys(items: readonly unknown[], opts: ShapeOptions): TableKeys | u
   return { keys: common, all: [...count.keys()] };
 }
 
-/** Pick at most `max` columns: preferred field names first, then the remaining in key order. */
-function chooseColumns(keys: readonly string[], columns: ColumnsData): string[] {
+/** A cell that is one URL and nothing else: it is shown whole, since a URL cut short opens nothing. */
+const WHOLE_URL = /^https?:\/\/\S+$/;
+
+/** Whether a column would mostly be cut: more than half of its cells are longer than a cell may be. */
+function mostlyCut(rows: readonly Row[], key: string, opts: ShapeOptions): boolean {
+  if (opts.cellWidth === undefined) return false;
+  let present = 0;
+  let long = 0;
+  for (const row of rows) {
+    if (row[key] === undefined) continue;
+    present += 1;
+    const text = cellText(row[key], opts.columns).replace(/\s+/g, ' ').trim();
+    if (!WHOLE_URL.test(text) && Array.from(text).length > opts.cellWidth) long += 1;
+  }
+  return long * 2 > present;
+}
+
+/**
+ * Pick at most `maxColumns` columns: preferred field names first, then the remaining in key order,
+ * those whose cells fit before those that would mostly be cut (a `description` shortened to its
+ * first words tells less than the `priority` it would push out).
+ */
+function chooseColumns(keys: readonly string[], rows: readonly Row[], opts: ShapeOptions): string[] {
+  const { columns } = opts;
   const chosen = new Set<string>();
   for (const name of columns.priority) {
     if (chosen.size >= columns.maxColumns) break;
     if (keys.includes(name)) chosen.add(name);
   }
-  for (const key of keys) {
-    if (chosen.size >= columns.maxColumns) break;
-    chosen.add(key);
+  if (chosen.size < columns.maxColumns && chosen.size < keys.length) {
+    const rest = keys.filter((k) => !chosen.has(k));
+    const cut = new Set(rest.filter((k) => mostlyCut(rows, k, opts)));
+    for (const key of [...rest.filter((k) => !cut.has(k)), ...rest.filter((k) => cut.has(k))]) {
+      if (chosen.size >= columns.maxColumns) break;
+      chosen.add(key);
+    }
   }
   return keys.filter((k) => chosen.has(k)); // display in the order fields first appear
 }
@@ -100,10 +126,10 @@ function cellText(value: unknown, columns: ColumnsData): string {
 }
 
 function table(items: readonly unknown[], keys: TableKeys, opts: ShapeOptions, indent: string) {
-  const shown = keys.picked ? keys.keys : chooseColumns(keys.keys, opts.columns);
+  const shown = keys.picked ? keys.keys : chooseColumns(keys.keys, items as Row[], opts);
   const cell = (v: unknown) => {
     const flat = cellText(v, opts.columns).replace(/\s+/g, ' ').trim();
-    return opts.cellWidth === undefined ? flat : truncateChars(flat, opts.cellWidth);
+    return opts.cellWidth === undefined || WHOLE_URL.test(flat) ? flat : truncateChars(flat, opts.cellWidth);
   };
   const rows = [shown, ...(items as Row[]).map((r) => shown.map((k) => cell(r[k])))];
   return {

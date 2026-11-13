@@ -7,10 +7,14 @@ import { alignRows, plural } from '../render/width';
 
 // Browse views (discovery.md, "浏览视图"). Pure functions returning the text to print.
 
-/** Default number of resource rows on a screen (discovery.md). */
-export const DEFAULT_MAX_ROWS = 20;
+/**
+ * Resource rows shown before the list is cut (discovery.md). Rows sort by name, so a low limit hides
+ * whatever comes late in the alphabet (`page` of Notion, `repository` of GitHub) and costs a second
+ * command to find it; a row is a few tokens. The limit is for a gateway with hundreds of tools.
+ */
+export const DEFAULT_MAX_ROWS = 40;
 /** Default number of leaf tool names on the `tools:` line before it is cut. */
-export const DEFAULT_MAX_LEAVES = 12;
+export const DEFAULT_MAX_LEAVES = 30;
 
 /**
  * What a provider's tool list came to in a browse (discovery.md, "浏览视图"). The names are the ones
@@ -234,7 +238,13 @@ export function resourceHint(provider: ProviderCatalog, group: ResourceGroup): s
 
 /** What `via find` says when nothing matches; the second line is a `→` hint. */
 export function findNoMatch(query: string): { message: string; hint: string } {
-  return { message: `no tools match "${visibleText(query)}"`, hint: '→ via to list providers' };
+  // Words are matched as the tools spell them. A query without a Latin letter or digit (`发评论`) finds
+  // nothing among English descriptions, and nothing here translates: say what would match instead.
+  const foreign = /\p{L}/u.test(query) && !/[A-Za-z0-9]/.test(query);
+  return {
+    message: `no tools match "${visibleText(query)}"`,
+    hint: foreign ? '→ via to list providers · tools are matched by the words of their names and descriptions: try those words (usually English)' : '→ via to list providers',
+  };
 }
 
 /**
