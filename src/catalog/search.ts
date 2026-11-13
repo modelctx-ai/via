@@ -305,14 +305,50 @@ export class SearchIndex {
     }
   }
 
-  private bm25(normalizedQuery: string): Map<number, number> {
-    const syn = this.synonyms();
+  /** The words of a query that BM25 scores: its significant words, or all of them when none is. */
+  private scoredTerms(normalizedQuery: string, syn: Synonyms | undefined): string[] {
     const significant = [...new Set(this.terms(normalizedQuery, true))];
     let terms = significant.length > 0 ? significant : [...new Set(this.terms(normalizedQuery, false))];
     if (syn) {
       const kept = terms.filter((t) => !syn.queryStopwords.has(t));
       if (kept.length > 0) terms = kept;
     }
+    return terms;
+  }
+
+  /**
+   * The scored words of a query that nothing in the catalog answers (discovery.md, "对不上的词"): no
+   * tool has the word, or a stem or synonym the search tries for it, in its name, description or
+   * parameters, and no provider is named by it. Whatever `search` returns for such a query matched
+   * its other words only. Empty when every word found something, and for an empty query.
+   */
+  unmatched(query: string): string[] {
+    const q = normalizeQuery(query);
+    if (q === '') return [];
+    const syn = this.synonyms();
+    const terms = this.scoredTerms(q, syn);
+    const known = (term: string): boolean => this.postings.has(term) || this.providerDocs.has(term);
+    const answered = new Set<string>();
+    if (!syn) terms.filter(known).forEach((t) => answered.add(t));
+    else {
+      for (const concept of expandQuery(syn, this.terms(q, false), terms, (t) => this.postings.has(t))) {
+        // Alternatives are kept only when the index has them: one is enough. A phrase answers each of its words.
+        if (concept.term === null) concept.anchors.forEach((a) => answered.add(a));
+        else if (known(concept.term) || concept.alts.length > 0) answered.add(concept.term);
+      }
+    }
+    // Reported as the query spelled them (`dns`), not in index form (`dn`).
+    const spelled = new Map<string, string>();
+    for (const word of tokenize(q)) {
+      const term = singularize(word, this.rules.split);
+      if (!spelled.has(term)) spelled.set(term, word);
+    }
+    return terms.filter((t) => !answered.has(t)).map((t) => spelled.get(t) ?? t);
+  }
+
+  private bm25(normalizedQuery: string): Map<number, number> {
+    const syn = this.synonyms();
+    const terms = this.scoredTerms(normalizedQuery, syn);
     const scores = new Map<number, number>();
     this.providerScores(terms, scores);
     if (!syn) {

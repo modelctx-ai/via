@@ -1,5 +1,5 @@
 // `via <provider> [<resource>|<tool>] …` and `via call <provider>/<ref> …` (cli.md, "解析顺序").
-import { providerHint, providerJson, renderProvider, renderResource, resourceHint, resourceTools, toolListing } from '../../catalog';
+import { normalizeInput, providerHint, providerJson, renderProvider, renderResource, resourceHint, resourceTools, toolListing, type ProviderCatalog } from '../../catalog';
 import { ExitCode } from '../../render/exit-codes';
 import { shellWords } from '../../render/shell';
 import type { App } from '../app';
@@ -18,6 +18,75 @@ const notATool = () => usageFailure('--schema-snapshot applies to a tool call or
 const notACall = () => usageFailure('--detach applies to a tool call, not to a listing', 'via call -h');
 
 const withNewline = (s: string): string => (s.endsWith('\n') ? s : `${s}\n`);
+
+type Views = { visible: ProviderCatalog; full: ProviderCatalog };
+
+/** One thing to show: what was typed for it and what it resolved to. */
+interface Shown {
+  typed: string[];
+  target: Target;
+}
+
+/**
+ * The resource or tool a further word names (cli.md, "一次看几个"). Without a colon the word must
+ * be the whole name: a unique prefix is fine for the first word, but a later one may as well be an
+ * argument of the tool before it. With a colon it is a tool reference and has to resolve.
+ */
+function namedTarget(views: Views, deny: readonly RegExp[], word: string, tools: boolean): Target | undefined {
+  const reference = word.includes(':');
+  let target: Target;
+  try {
+    target = resolveInProvider(views, deny, word);
+  } catch (error) {
+    if (reference && tools) throw error;
+    return undefined;
+  }
+  if (target.kind === 'tool' && !tools) return undefined;
+  if (reference) return target;
+  const typed = normalizeInput(word);
+  const whole = target.kind === 'resource' ? target.group.name === typed : target.tool.name === typed || normalizeInput(target.tool.rawName) === typed;
+  return whole ? target : undefined;
+}
+
+/** The leading words that each name something to show; stops at the first option or word that names nothing. */
+function furtherTargets(views: Views, deny: readonly RegExp[], words: readonly string[], tools: boolean): Shown[] {
+  const out: Shown[] = [];
+  for (const word of words) {
+    if (word.startsWith('-')) break;
+    const target = namedTarget(views, deny, word, tools);
+    if (!target) break;
+    out.push({ typed: [word], target });
+  }
+  return out;
+}
+
+/** `via gh issue pull-request`, `via gh issue:read issue:write -h`: each view or usage in turn, a blank line between them. */
+async function showSeveral(app: App, opened: OpenProvider, typedProvider: string, items: readonly Shown[]): Promise<number> {
+  if (app.options.schemaSnapshot !== undefined) throw usageFailure('--schema-snapshot compares one tool; name one', 'via call -h');
+  if (app.options.detach) throw notACall();
+  rejectRaw(app, [typedProvider, ...items.flatMap((item) => item.typed)]);
+  const { visible } = opened.views;
+  // The same thing named twice is shown once.
+  const key = (t: Target): string => (t.kind === 'resource' ? `r ${t.group.name}` : `t ${t.tool.name}`);
+  const unique = items.filter((item, i) => items.findIndex((other) => key(other.target) === key(item.target)) === i);
+  if (app.options.format === 'json') {
+    const tool = unique.some((item) => item.target.kind === 'tool') ? await toolCommands() : undefined;
+    const values = unique.map(({ target }) => (target.kind === 'resource' ? resourceTools(visible, target.group).map((t) => toolListing(t)) : tool!.detailOf(target.tool)));
+    app.out(`${JSON.stringify(await app.redactValue(values), null, 2)}\n`);
+    return ExitCode.Ok;
+  }
+  for (const [i, { typed, target }] of unique.entries()) {
+    if (i > 0) app.out('\n');
+    if (target.kind === 'resource') {
+      noteCanonical(app, [typedProvider, ...typed], [visible.provider, target.group.name]);
+      app.out(withNewline(renderResource(visible, target.group)));
+    } else {
+      noteCanonical(app, [typedProvider, ...typed], [visible.provider, target.tool.name]);
+      await (await toolCommands()).showToolHelp(app, { entry: opened.entry, listing: opened.listing, views: opened.views, tool: target.tool });
+    }
+  }
+  return ExitCode.Ok;
+}
 
 export async function providerCommand(app: App, words: readonly string[]): Promise<number> {
   const [typedProvider, typedTarget, ...restArgv] = words as [string, ...string[]];
@@ -60,7 +129,22 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
   // `via gh issue read …` is `via gh issue:read …`; any other word after a resource is an error (cli.md, "解析顺序").
   const typedWords = [typedProvider, typedTarget];
   if (target.kind === 'resource' && restArgv.length > 0) {
-    target = { kind: 'tool', provider: visible, tool: resolveVerbWord(opened.views, deny, target.group, restArgv[0]!) };
+    // Words that are not a verb of this resource may name more things to look at: more resources, and with -h tools too.
+    const group = target.group;
+    const verb = normalizeInput(restArgv[0]!);
+    const more = group.tools.some((t) => t.verb === verb) ? [] : furtherTargets(opened.views, deny, restArgv, app.options.help);
+    const words = restArgv.findIndex((w) => w.startsWith('-'));
+    const named = words < 0 ? restArgv.length : words;
+    if (more.length > 0) {
+      // After a resource every word has to mean something (cli.md, "解析顺序"): the first that does not is the error.
+      if (more.length < named) {
+        resolveVerbWord(opened.views, deny, group, restArgv[more.length]!);
+        // It is a verb of the first resource, in the middle of a list of things to show: one or the other.
+        throw usageFailure(`unexpected argument "${restArgv[more.length]!.slice(0, 40)}" after ${shellWords(more[more.length - 1]!.typed)}`, `via ${shellWords([visible.provider, group.name])}`);
+      }
+      return showSeveral(app, opened, typedProvider, [{ typed: [typedTarget], target }, ...more]);
+    }
+    target = { kind: 'tool', provider: visible, tool: resolveVerbWord(opened.views, deny, group, restArgv[0]!) };
     typedWords.push(restArgv[0]!);
     toolArgv = restArgv.slice(1);
   }
@@ -79,6 +163,9 @@ export async function providerCommand(app: App, words: readonly string[]): Promi
   }
   const toolTarget = { entry: opened.entry, listing: opened.listing, views: opened.views, tool: target.tool };
   if (app.options.help) {
+    // `via gh issue:read issue:write -h`: the usage of each. Words that name nothing are arguments, which -h does not read.
+    const more = furtherTargets(opened.views, deny, toolArgv, true);
+    if (more.length > 0) return showSeveral(app, opened, typedProvider, [{ typed: typedWords.slice(1), target }, ...more]);
     noteCanonical(app, typedWords, [visible.provider, target.tool.name]);
     return (await toolCommands()).showToolHelp(app, toolTarget);
   }
@@ -112,12 +199,20 @@ async function showServerSelf(app: App, opened: OpenProvider, view: string): Pro
   return ExitCode.Ok;
 }
 
-/** `via call <provider>/<ref> [--args …]`: the single-string form, for scripts. */
+/**
+ * `via call <provider>/<ref> [--args …]`: the single-string form, for scripts. The reference may
+ * also be written as the listings print it, quoted as one word or as two words.
+ */
 export async function callCommand(app: App, words: readonly string[]): Promise<number> {
-  const [ref, ...toolArgv] = words;
+  let [ref, ...toolArgv] = words;
+  // `via call gh issue:read …`: a first word that is no reference by itself, followed by a word that is not an option.
+  if (ref !== undefined && !/[\s/]/.test(ref) && toolArgv[0] !== undefined && !toolArgv[0].startsWith('-')) {
+    ref = `${ref} ${toolArgv[0]}`;
+    toolArgv = toolArgv.slice(1);
+  }
   const split = splitToolRef(ref, 'via call -h');
   const opened = await openProvider(app, split.provider);
-  const toolTarget = resolveToolRef(opened, (await app.config()).deny, ref!, split.target);
+  const toolTarget = resolveToolRef(opened, (await app.config()).deny, `${split.provider}/${split.target}`, split.target);
   const tool = await toolCommands();
   if (app.options.help) return tool.showToolHelp(app, toolTarget);
   return tool.callTool(app, toolTarget, toolArgv);

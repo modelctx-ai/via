@@ -4,4 +4,4 @@ number  title                                                                 st
 11      Group inference too eager when a provider has fewer than six servers  open    https://api.github.com/repos/acme/api/issues/11  https://github.com/acme/api/issues/11  hubot
 9       Windows named pipes                                                   closed  https://api.github.com/repos/acme/api/issues/9   https://github.com/acme/api/issues/9   octocat
 --- stderr ---
-· github issue:list · 318ms · 3 rows · +8 cols (-o json)
+· github issue:list · 318ms · 3 rows · +8 cols: repository_url, labels_url, comments_url, labels, comments, created_at, updated_at, assignee (--pick a,b or -o json)

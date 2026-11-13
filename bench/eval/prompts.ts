@@ -1,7 +1,7 @@
-// The prompts of the agent evaluation. Everything the model sees is identical across the three
-// conditions except the condition's own section: the native tools, the `via prompt` text with
-// the `via` shell tool, or the vendored mcp2cli / mcpc skill with the `mcp2cli` / `mcpc` shell
-// tool. The text is documented in bench/README.md ("系统提示"); change both together.
+// The prompts of the agent evaluation. Everything the model sees is identical across the
+// conditions except the condition's own section: the native tools, the `tool_search` tool with
+// one line about it (native-deferred), the `via prompt` text with the `via` shell tool, or the
+// vendored mcp2cli / mcpc skill with the `mcp2cli` / `mcpc` shell tool. The text is documented in bench/README.md ("系统提示"); change both together.
 import { serversLine } from '../harness/instructions';
 import type { Task } from '../harness/types';
 import type { Condition, ToolDef } from './types';
@@ -40,6 +40,33 @@ export function shellTool(program: CliProgram): ToolDef {
   };
 }
 
+/** Name of the one tool the native-deferred condition starts with. */
+export const TOOL_SEARCH = 'tool_search';
+
+/** The search tool of the native-deferred condition. */
+export function toolSearchTool(): ToolDef {
+  return {
+    name: TOOL_SEARCH,
+    description:
+      'Search the tools of the connected MCP servers by keywords and load the best matches. ' +
+      'A loaded tool is named `mcp__<server>__<tool>` and can be called like any other tool from your next turn on. ' +
+      'Tools that were not loaded cannot be called.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keywords such as "github list issues", or the exact name of a tool.' },
+        limit: { type: 'integer', description: 'How many tools to load: 5 when left out, at most 10.' },
+      },
+      required: ['query'],
+    },
+  };
+}
+
+/** The condition's own section of the native-deferred system prompt. */
+export function deferredSection(mounted: readonly string[]): string {
+  return `The tools of these MCP servers are connected but not loaded: ${mounted.join(', ')}. Call \`${TOOL_SEARCH}\` with keywords to find and load the ones a step needs; loaded tools stay available for the rest of the task.`;
+}
+
 export interface PromptParts {
   /** Output of `via prompt` (the via condition). */
   viaPrompt?: string;
@@ -56,6 +83,8 @@ export function buildSystemPrompt(condition: Condition, parts: PromptParts): str
   switch (condition) {
     case 'native':
       return COMMON_SYSTEM;
+    case 'native-deferred':
+      return `${COMMON_SYSTEM}\n\n${deferredSection(parts.mounted)}`;
     case 'via': {
       if (parts.viaPrompt === undefined) throw new Error('the via condition needs the `via prompt` text');
       return `${COMMON_SYSTEM}\n\nYour only tool is \`${SHELL_TOOL}\`, which runs \`via\` commands. Instructions for \`via\`:\n\n${parts.viaPrompt.trim()}`;

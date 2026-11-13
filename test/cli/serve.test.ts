@@ -208,14 +208,13 @@ describe('via serve', () => {
   it('stops common misuse with the fix in the message', async () => {
     const { srv, client } = await setup();
     const cases: Array<[string, Record<string, unknown>, string]> = [
-      ['via_call', { tool: 'gh issue:read' }, 'tool must be "<provider>/<resource>:<verb>" without spaces, e.g. "gh/issue:read"'],
-      ['via_call', { tool: 'gh/issue:read extra stuff' }, 'tool must be "<provider>/<resource>:<verb>" without spaces'],
-      ['via_call', { tool: 'issue:read' }, 'tool must start with the provider and "/": "<provider>/issue:read"'],
+      ['via_call', { tool: 'gh/issue:read extra stuff' }, 'tool is the provider and the tool name, as listed: "gh/issue:read extra"; its parameters go inside args'],
+      ['via_call', { tool: 'issue:read' }, 'tool must start with the provider: "<provider> issue:read"'],
       ['via_call', { tool: 'gh/echo-text', args: '{"message":"hi"}' }, 'args must be an object, not a JSON string: pass the object itself'],
       ['via_call', { tool: 'gh/echo-text', message: 'hi' }, 'unknown argument "message"; the parameters of the tool go inside args: {"tool": "...", "args": {"message": ...}}'],
       ['via_find', { query: 'issue', provider: 'gh' }, 'unknown argument "provider"; via_find takes query, limit'],
       ['via_more', { cursor: 'via more c7f2' }, 'cursor is only the code, not the command: "c7f2"'],
-      ['via_browse', { path: 'gh/issue:read' }, 'path words are separated by spaces, not "/": "gh issue:read"'],
+      ['via_browse', { path: 'gh issue/read' }, 'path words are separated by spaces, not "/": "issue read"'],
       ['via_browse', { path: 'via gh issue' }, 'path starts at the provider: "gh issue", not "via ..."'],
       ['via_read', { provider: 'gh', uri: '/project/README.md' }, 'uri must be a URI with a scheme, copied from via_resources (not a path): "/project/README.md"'],
       ['via_read', { provider: 'gh', uri: 'file:///logs/{date}.log' }, 'uri still has the placeholder "{date}": fill in the template\'s variables first'],
@@ -245,6 +244,14 @@ describe('via serve', () => {
     expect(commandLine('via_tasks', { task: 'gh/job/1', timeout: 120 })).toEqual(['tasks', 'gh/job/1', '--timeout', '120']);
     // via_call waits as the CLI does (the server's timeout) unless it is told to detach or given a timeout
     expect(commandLine('via_call', { tool: 'gh/report:generate' })).toEqual(['call', 'gh/report:generate', '--args', '{}']);
+    expect(commandLine('via_call', { tool: 'gh/issue:list', pick: 'number,title' })).toEqual(['call', 'gh/issue:list', '--args', '{}', '--pick', 'number,title']);
+    // a tool is named as the listings print it, or with a slash: one word for the CLI either way
+    expect(commandLine('via_call', { tool: 'gh issue:read', args: { owner: 'a' } })).toEqual(['call', 'gh/issue:read', '--args', '{"owner":"a"}']);
+    expect(commandLine('via_call', { tool: '  gh   echo-text ' })).toEqual(['call', 'gh/echo-text', '--args', '{}']);
+    expect(commandLine('via_call', { tool: 'gh --yes' })).toEqual(['call', 'gh/--yes', '--args', '{}']);
+    expect(commandLine('via_browse', { path: 'gh/issue:read' })).toEqual(['gh', 'issue:read', '-h']);
+    expect(commandLine('via_browse', { path: 'gh issue:read' })).toEqual(['gh', 'issue:read', '-h']);
+    expect(() => commandLine('via_call', { tool: 'gh/issue:list', pick: '--yes' })).toThrow(/pick must not start with "-"/);
     expect(commandLine('via_call', { tool: 'gh/report:generate', detach: true, timeout: 5 })).toEqual(['call', 'gh/report:generate', '--args', '{}', '--detach', '--timeout', '5']);
     expect(commandLine('via_prompts', { provider: 'gh', name: 'review', args: { code: 'x' }, complete: 'lang' })).toEqual(['prompts', 'gh', 'review', '--args', '{"code":"x"}', '--complete', 'lang']);
     expect(commandLine('via_resources', { provider: 'gh', template: 'file:///logs/{date}.log', args: { date: '2026' }, complete: 'date' })).toEqual(['resources', 'gh', 'file:///logs/{date}.log', '--args', '{"date":"2026"}', '--complete', 'date']);

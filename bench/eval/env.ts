@@ -39,7 +39,7 @@ export async function createEnv(options: { loaded: LoadedSuite; task: Task; cond
       closers.push(running.close);
       urls[name] = running.url;
     }
-    if (condition !== 'native') {
+    if (condition !== 'native' && condition !== 'native-deferred') {
       sandbox = createSandbox(urls);
       runners = await options.runners(sandbox);
       if (condition === 'mcp2cli') {

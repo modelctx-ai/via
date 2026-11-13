@@ -43,6 +43,6 @@ describe('ViewCache, parameter names and types', () => {
     expect(byName.project_list!.params.map((p) => p.arg)).toEqual(['_', 'reason']);
     expect(exampleCommand(byName.project_list!)).toBeUndefined();
     expect(byName.build_run!.params.map((p) => [p.arg, p.type])).toEqual([['items', 'json'], ['todo-ids', 'str[]'], ['_', undefined]]);
-    expect(exampleCommand(byName.build_run!)).toBe(`via board build:run --items '[{"todoId":"text"}]' --todo-ids text`);
+    expect(exampleCommand(byName.build_run!)).toBe(`via board build:run --items '[{"todoId":"text"}]'`);
   });
 });

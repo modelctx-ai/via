@@ -36,7 +36,7 @@ export const USAGE = `usage: npm run bench:eval -- [options]
 
   --trials <n>         runs per task and condition (default 3)
   --task <text>        only tasks whose id contains the text (repeatable)
-  --condition <name>   native, via, mcp2cli or mcpc (repeatable or comma-separated; default all)
+  --condition <name>   native, native-deferred, via, mcp2cli or mcpc (repeatable or comma-separated; default all)
   --model <id>         model to evaluate (default ${DEFAULT_MODEL})
   --max-turns <n>      model turns per run (default 25)
   --max-tokens <n>     output token limit of one reply (default 16000)
@@ -86,7 +86,7 @@ export function parseArgs(argv: string[]): EvalArgs {
     else if (arg === '--task') args.tasks.push(value(i++));
     else if (arg === '--condition') {
       for (const name of value(i++).split(',')) {
-        if (!(CONDITIONS as readonly string[]).includes(name)) throw new Error(`unknown condition: ${name} (native, via, mcp2cli, mcpc)`);
+        if (!(CONDITIONS as readonly string[]).includes(name)) throw new Error(`unknown condition: ${name} (${CONDITIONS.join(', ')})`);
         if (!args.conditions.includes(name as Condition)) args.conditions.push(name as Condition);
       }
     } else if (arg === '--model') args.model = value(i++);

@@ -42,8 +42,26 @@ via <provider> -h                         provider 视图，前面加上 server 
 
 - **恰好是该资源的一个动词** → 等价于 `via <provider> <resource>:<verb> [参数…]`：`via gh issue read --issue-number 1` 就是 `via gh issue:read --issue-number 1`。动词按与工具引用相同的宽松规则匹配（大小写、`-` 与 `_` 等价），但只认完整的动词，不认前缀；资源仍接受唯一前缀。输出严格：调用的元信息行本来就以规范写法开头（`· gh issue:read · …`）；`-h` 没有元信息行，stderr 先输出一行 `· gh issue:read`（输入已是规范写法 `issue:read` 时不输出，[见下](#工具引用的写法)）。`--dry-run`、`--yes`、`-o` 等全局选项、本地校验与 `deny` 都与冒号写法一致：被 `deny` 隐藏的动词是退出码 5，不是「多余的词」。
 - **以 `-` 开头** → 是选项。浏览视图认的选项是全局选项（`--all`、`-o`、`-h` 等，via 先取走）；其余一律退出码 2，`error: unknown option --bogus`，`next: via <provider> <resource>`，不再静默忽略。
+- **恰好是另一个资源的名字** → 一次看几个资源，见[一次看几个](#一次看几个)。
 - **其他任何词** → 退出码 2，不执行、不浏览，`error: unexpected argument "reed"`。该资源下有相近的动词时附 `did you mean: gh issue:read`（最多 3 个），`next:` 为 `via gh issue:read -h`；有单数化之后名字等于该资源的叶子工具（`secrets` 之于 `secret`）时，它也列在候选里（[discovery.md](discovery.md#找不到时)）；写成原始工具名（`issue_read`）或把 `资源:动作` 写在资源之后（`issue:read`）的，同样列出对应的规范写法而不接受：只有一种多词写法，错误里给出的就是能直接运行的那一种。没有任何候选时列出该资源的动词（`verbs of gh issue: read · write · list`，最多 8 个），`next:` 为 `via gh issue`。
 - 资源与动词同名（`search:search`）时，资源之后的第一个词按动词解释，所以 `via gh search search cats` 调用 `search:search`，`via gh search cats` 是退出码 2。叶子工具占了资源名（[naming.md](naming.md) 规则 7）时，该名字解析为叶子工具，其后的词是它的参数，不适用本节。
+
+#### 一次看几个
+
+发现常常要看不止一处：两个资源各有哪些动作，或者接下来要连着用的两个工具各自怎么调用。分成几条命令就是几轮往返，所以一条命令可以点名几个：
+
+```console
+$ via gh issue pull-request              # 两个资源视图，中间空一行
+$ via gh issue:read issue:write -h       # 两个工具的用法，中间空一行
+$ via gh pull-request issue:read -h      # 带 -h 时资源与工具可以混着写
+```
+
+- **不带 `-h`**：资源之后的词全都是资源名时，依次输出每个资源的视图。这里不认工具名（`via gh issue whoami` 仍是退出码 2）：不带 `-h` 的工具名是一次调用，不能因为写在资源后面就被悄悄执行或悄悄变成浏览。
+- **带 `-h`**：第一个目标之后的词，每个点名一个工具（输出它的用法）或一个资源（输出它的视图）。写法与第一个目标相同（规范写法、原始名都行），但**必须是完整的名字**，不接受唯一前缀：`-h` 也常常被加在一条写到一半的调用后面（`via gh code:search "rust mcp" -h`），不是名字的词是那条调用的参数，像以前一样不看。含 `:` 的词一定是工具引用：解析不了就按「找不到」处理（退出码 3，附 did you mean），不再被静默丢掉。遇到第一个选项（`--owner`）就不再往后找。
+- 第一个目标是资源时，它后面的每个词都必须是名字（[资源之后的词](#资源之后的词)不变）：第一个不是的词是 `unexpected argument`，退出码 2，什么都不输出。
+- 同一个目标写了两次只输出一次。各段之间空一行，顺序是命令行上的顺序；输入用了别名时，stderr 的 `· <规范写法>` 每个目标一行。
+- `-o json` 输出一个数组，每个目标一项，就是单独查看它时的 JSON（资源是工具条目的数组，工具是工具详情）。`-o raw` 与只有资源时一样是退出码 2；`--schema-snapshot` 一次只比较一个工具，点名几个时退出码 2。
+- 只在同一个 provider 之内；跨 provider 用 `via find`。
 
 ## 为什么是这种形状
 
@@ -57,7 +75,7 @@ via <provider> -h                         provider 视图，前面加上 server 
 | 命令 | 作用 |
 | --- | --- |
 | `via find <查询> [-n 10] [--brief]` | 跨 provider 搜索工具，每条结果带参数签名（含类型与枚举）和一行 `example:` 调用示例；`--brief` 去掉示例行 |
-| `via call <provider>/<resource>:<verb> --args '{…}'` | 显式调用，参数为 JSON、`@文件` 或 `-`（stdin），供脚本使用 |
+| `via call <provider>/<resource>:<verb> --args '{…}'` | 显式调用，参数为 JSON、`@文件` 或 `-`（stdin），供脚本使用；引用也可以照列表里的样子写成 `"<provider> <resource>:<verb>"`（[工具引用的写法](#工具引用的写法)） |
 | `via more <游标>` | 续读被截断的结果 |
 | `via batch [--concurrency <n>] [--line <n>[,<n>…]]` | 从 stdin 读 JSONL，并发调用，结果按输入顺序输出；`--line` 只执行指定的行（[见下](#via-batch)） |
 | `via servers` | 列出 server、来源文件、传输方式、鉴权状态与备注 |
@@ -299,9 +317,9 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 
 | 工具 | 参数 | 执行的命令 |
 | --- | --- | --- |
-| `via_browse` | `path`：省略或空串、`<provider>`、`<provider> <resource>`、`<provider> <resource>:<verb>`（按空白分词，至多三个词） | `via [path…]`；有两个以上的词时追加 `-h`：带 `:` 的是该工具的用法，叶子工具与原始名也只显示用法（命令行上 `via gh whoami` 会调用它，而 `via_browse` 是只读的），资源照常列出 |
+| `via_browse` | `path`：省略或空串、`<provider>`、`<provider> <resource>`、`<provider> <resource>:<verb>`（按空白分词，至多三个词；只有一个词且带 `/` 时按 `<provider>/<其余>` 拆开） | `via [path…]`；有两个以上的词时追加 `-h`：带 `:` 的是该工具的用法，叶子工具与原始名也只显示用法（命令行上 `via gh whoami` 会调用它，而 `via_browse` 是只读的），资源照常列出 |
 | `via_find` | `query`（必填）、`limit`（正整数） | `via find <query> [-n <limit>]` |
-| `via_call` | `tool`（必填，单字符串引用）、`args`（对象）、`yes`（布尔）、`detach`（布尔）、`timeout`（正数，秒） | `via call <tool> --args <args 的 JSON，缺省 {}> [--yes] [--detach] [--timeout <秒>]` |
+| `via_call` | `tool`（必填：`<provider> <resource>:<verb>` 或 `<provider>/<resource>:<verb>`，交给命令行时一律是 `/` 的写法，所以第二个词不会被当成选项）、`args`（对象）、`yes`（布尔）、`detach`（布尔）、`timeout`（正数，秒）、`pick`（字符串，逗号分隔的字段名） | `via call <tool> --args <args 的 JSON，缺省 {}> [--yes] [--detach] [--timeout <秒>] [--pick <字段>]` |
 | `via_more` | `cursor`（必填） | `via more <cursor>` |
 | `via_resources` | `provider`（必填）、`template`、`args`（字符串值的对象）、`complete`（`template` 与 `complete` 同时给，`args` 需要 `template`） | `via resources <provider>`；有 `template` 时 `via resources <provider> <template> [--args <json>] --complete <complete>` |
 | `via_read` | `provider`、`uri`（必填） | `via read <provider> <uri>` |
@@ -314,7 +332,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
   - 必填参数缺失或为空、类型不对（字符串参数不是字符串，`args` 不是对象，`yes` 不是布尔，`limit` 不是正整数）；
   - 字符串参数以 `-` 开头（它会成为一个全局选项或命令选项，例如 `--yes`、`-o raw`）。工具参数在 `args` 的 JSON 里，不受这条限制；
   - 工具不认识的参数名。最常见的是把被调用工具的参数写在 `tool` 旁边而不是 `args` 里（那样调用会不带参数发出），消息里点名并给出 `{"tool": "...", "args": {"<名>": ...}}` 的写法；
-  - 按模型常犯的写法拦下，消息里带改法，不运行任何命令：`via_call` 的 `tool` 含空白（`"gh issue:read"`，消息建议 `"gh/issue:read"`）或缺少 `<provider>/`，`args` 是 JSON 字符串而不是对象；`via_browse` 的 `path` 以 `via` 开头，或词里带 `/`（`"gh/issue:read"` 应写 `"gh issue:read"`）；`via_more` 的 `cursor` 带空白（把 `via more c7f2` 整句传来，消息给出 `"c7f2"`）；`via_read` 的 `uri` 没有 scheme（文件路径），或还留着模板的 `{占位符}`；`via_prompts`、`via_resources` 的 `args` 里有非字符串的值（否则 CLI 会静默丢掉它）；
+  - 按模型常犯的写法拦下，消息里带改法，不运行任何命令：`via_call` 的 `tool` 多于两个词（把参数写进了 `tool`）或缺少 provider，`args` 是 JSON 字符串而不是对象；`via_browse` 的 `path` 以 `via` 开头，或第二个词之后带 `/`；`via_more` 的 `cursor` 带空白（把 `via more c7f2` 整句传来，消息给出 `"c7f2"`）；`via_read` 的 `uri` 没有 scheme（文件路径），或还留着模板的 `{占位符}`；`via_prompts`、`via_resources` 的 `args` 里有非字符串的值（否则 CLI 会静默丢掉它）；
   - `via_browse` 的第一个词是内置子命令名（`"trust"` 会变成 `via trust`），`path` 超过三个词；
   - `via_prompts` 给了 `args` 或 `complete` 而没有 `name`；`via_resources` 给了 `complete` 或 `args` 而没有 `template`，或给了 `template` 而没有 `complete`；`via_skills` 给了 `file` 而没有 `name`；
   - `via_tasks` 既没有 `provider` 也没有 `task`，有 `action` 而没有 `task`，`action` 不是 `status` 或 `cancel`，只有 `task` 而它不是 `<provider>/<id>` 的写法（第一个 `/` 前至少一个字符）；
@@ -325,7 +343,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
   - `via_call` 不传 `timeout` 时等待与命令行一致（server 的 `timeout`，缺省 60 秒）；传了就是 `--timeout`。任务超时不被取消，退出码 6，`next: via tasks <provider> <ID>` 对应 `via_tasks`。
   - `via_tasks` 等结果（没有 `action`）且没有 `timeout` 时，serve 追加 `--timeout 30`，这是 serve 唯一不同于命令行缺省的一处：许多 client 给一次工具调用约 60 秒，缺省的 60 秒会赶在 client 放弃的同一刻，结果与任务 ID 都丢；到点时退出码 6、任务继续，再调一次即可。`status`、`cancel` 与列表是单次请求，不加缺省。
   - 任务进入 `input_required` 时与命令行没有终端时相同（[任务](#任务via-tasks-与---detach)、[ADR 0018](../adr/0018-elicitation-in-a-terminal-declined-elsewhere.md)）：elicitation 回答 `decline`，任务继续，结果里的 `next:` 请用户在终端里运行；等的不是 elicitation 时退出码 1，`next: via tasks <provider> <ID> --cancel` 对应 `action: "cancel"`。
-- **工具定义的写法与大小**：每个工具的描述有一句话职责、一条最小示例（`{"path": "gh issue"}`）、输入格式的要求（`tool` 是 `<provider>/<resource>:<verb>` 且不含空格，工具参数都在 `args` 里、键是 schema 里的原名）、与相邻工具的界限（`via_browse` 带冒号的 `path` 是用法而不是调用；`via_call` 不做发现；`via_more` 只收元信息行里 `via more` 之后的游标；`via_tasks` 接 `via_call` 的 `detach` 或退出码 6 留下的任务）和失败时的去向（`next:` 与退出码）；`instructions` 写工作流、`via_*` 与 CLI 写法的对应、退出码 2/3/4/5 各自该怎么办。只写模型会用错的地方，其余不写。九个工具的 `tools/list` 结果约 5.9 KB（约 1,480 token，按 4 字节一 token；0.4 的第一版是 4.6 KB），`instructions` 约 1.2 KB；测试限制前者不超过 6 KB、后者不超过 1.3 KB，并用快照钉住所有定义与 `instructions` 的文字（`test/cli/__snapshots__/serve-tools.txt`、`serve-instructions.txt`）。多出的约 1.3 KB 买的是少一次失败的往返：上面的参数检查在拼命令行之前拦下常见的误用。
+- **工具定义的写法与大小**：每个工具的描述有一句话职责、一条最小示例（`{"path": "gh issue"}`）、输入格式的要求（`tool` 照列表里的样子写，工具参数都在 `args` 里、键是 schema 里的原名）、与相邻工具的界限（`via_browse` 带冒号的 `path` 是用法而不是调用；`via_call` 不做发现；`via_more` 只收元信息行里 `via more` 之后的游标；`via_tasks` 接 `via_call` 的 `detach` 或退出码 6 留下的任务）和失败时的去向（`next:` 与退出码）；`instructions` 写工作流、`via_*` 与 CLI 写法的对应、退出码 2/3/4/5 各自该怎么办。只写模型会用错的地方，其余不写。九个工具的 `tools/list` 结果约 6.0 KB（约 1,500 token，按 4 字节一 token；0.4 的第一版是 4.6 KB），`instructions` 约 1.2 KB；测试限制前者不超过 6 KB、后者不超过 1.3 KB，并用快照钉住所有定义与 `instructions` 的文字（`test/cli/__snapshots__/serve-tools.txt`、`serve-instructions.txt`）。多出的约 1.3 KB 买的是少一次失败的往返：上面的参数检查在拼命令行之前拦下常见的误用。
 - **框架配置里的 `via serve`**：登记了 `via serve` 的框架配置会被 via 自己读到，这样的条目不进入目录（[config.md](config.md#校验与诊断)）。
 
 ### via batch
@@ -340,7 +358,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 {"tool": "linear/issue:get", "args": {"id": "ENG-123"}}
 ```
 
-- `tool`（必填）：单字符串形式的工具引用 `<provider>/<resource>:<verb>`，解析规则与 `via call` 相同（唯一前缀、大小写与 `-`/`_` 宽松、原始名可用）。
+- `tool`（必填）：单字符串形式的工具引用 `<provider>/<resource>:<verb>`，或者照 `via find` 与浏览视图打印的样子写成 `<provider> <resource>:<verb>`（[工具引用的写法](#工具引用的写法)）；解析规则与 `via call` 相同（唯一前缀、大小写与 `-`/`_` 宽松、原始名可用）。
 - `args`（可选，默认 `{}`）：参数对象，键是 schema 里的参数原名，值直接是 JSON。它与 `--args '{…}'` 走同一条路径：做补齐与本地校验，但没有 `@文件`、`-`、`--flag` 这类命令行写法，字符串 `"@a.md"` 或 `"-"` 原样传给上游。校验报错仍用命令行写法指出参数（`--repo  required`），`-o json` 的 `details` 带 JSON Pointer。
 - 其他字段一律报错，避免 `arg` 这类拼写错误被静默忽略。
 - 空行（只含空白）跳过，但仍占行号；识别 `\r\n` 与开头的 BOM。**行号**是该行在输入中的位置，用于定位错误。
@@ -352,7 +370,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 - 各行并发执行。同一 server 上的并发不超过它的 `concurrency`（[config.md](config.md#serversname)），超出的排队；另有全局上限 `--concurrency <n>`（默认 16，正整数），限制同时在途的行数，无论它们属于哪些 server。
 - 单条失败（解析、找不到、`deny`、危险操作、校验、上游、传输、超时）只影响该行，不中止其他行。
 - 每个 provider 的工具列表在整批中只取一次；校验失败后「缓存超过 5 分钟则刷新一次」的规则（[arguments.md](arguments.md#schema-不可靠时)）也是每个 provider 整批一次，而不是每行一次。
-- 全局选项对整批生效：`--yes` 确认所有危险工具；`--dry-run` 对每一行只打印将要发出的调用（格式见 [`--dry-run` 的输出](#--dry-run-的输出)），不发起调用；`--no-validate`、`--timeout`、`--full`、`-o` 同理。没有 `--yes` 时，危险工具所在的行以退出码 5 失败，其余行不受影响，`next:` 写 `rerun only this line with: via batch --yes --line 3`（3 是该行的行号），因为重跑整批会让已成功的行再执行一遍；stdin 仍要给同一份输入。
+- 全局选项对整批生效：`--yes` 确认所有危险工具；`--dry-run` 对每一行只打印将要发出的调用（格式见 [`--dry-run` 的输出](#--dry-run-的输出)），不发起调用；`--no-validate`、`--timeout`、`--full`、`--pick`、`-o` 同理。没有 `--yes` 时，危险工具所在的行以退出码 5 失败，其余行不受影响，`next:` 写 `rerun only this line with: via batch --yes --line 3`（3 是该行的行号），因为重跑整批会让已成功的行再执行一遍；stdin 仍要给同一份输入。
 - **`--line <n>[,<n>…]`**：只执行指定的行，其余行跳过。`<n>` 是输入里的行号（与错误里的 `line N` 同一个数，空行也占行号），逗号分隔，可以重复写 `--line`（取并集）；必须是正整数。被跳过的行不解析、不解析 provider，也不连接 server，所以其中的错误不会出现。指定的行号不存在（空行，或超过最后一行）、不是正整数列表，或 `--line` 没有值时，不执行任何调用，退出码 2：`error: --line 9: there is no call at that line; nothing was run`，下一行 `lines with a call: 1 · 3 · 4`（超过 12 个时截断为 `… N more`）。其余选项（`--yes`、`--dry-run`、`--timeout`、`-o`）照常作用于被选中的行。
 - 批量不是事务：没有回滚，也不保证幂等。已发出的写入调用不会因为后面的行失败而撤销。
 
@@ -400,7 +418,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `elapsedMs` | 上游调用耗时，仅调用返回时有 |
 | `result` | 成功时清理后的结果，与单次 `-o json` 的 stdout 是同一个值（没有内容时为 `null`；`--dry-run` 时是 dry-run 对象） |
 | `error` | 失败时的 `{code, message, next?, details?}`，与单次 `-o json` 的 stderr 里 `error` 对象相同 |
-| `truncated`、`next` | 结果超过输出预算时：没有 `result`，`truncated` 为 `true`，`next` 是 `via more <游标>`；加 `--full` 则不截断。被截断的 JSON 不是合法 JSON，所以不会把半截结果塞进记录 |
+| `truncated`、`next` | 结果超过输出预算时：`result` 是第一页（一份合法的 JSON，[output.md](output.md#json-的分页)），`truncated` 为 `true`，`next` 是 `via more <游标>`，从第二页继续；加 `--full` 则不截断 |
 | `warnings` | 警告（如 `outputSchema` 不匹配），有才出现 |
 | `skipped` | `--line` 没有选中该行时为 `true`；这样的记录只有 `line` 与 `skipped` 两个字段，没有 `ok`、`exitCode` |
 | `unvalidated` | 以 `--no-validate` 跳过校验时为 `true` |
@@ -418,6 +436,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)）；浏览视图、`via find`、`via servers` 支持 `json`，`raw` 在它们上退出码 2 |
 | `--json` | `-o json` 的别名（模型对 `--json` 的先验很强）。工具自己有名为 `json` 的参数时写 `--p.json` |
 | `--full` | 关闭截断；用在工具或 prompt 的 `-h` 上时输出完整的工具描述与参数描述（[arguments.md](arguments.md#帮助)） |
+| `--pick <字段,…>` | 只输出结果里点名的字段，按给出的顺序；带点的名字取嵌套字段（[output.md](output.md#选字段--pick)）。可以重复，名字合并。与 `-o raw` 同用是用法错误（退出码 2，不发调用）。工具自己有名为 `pick` 的参数时写 `--p.pick` |
 | `--all` | 浏览视图不截断条目；`via <provider> -h --all` 另列出全部工具的用法 |
 | `--yes` | 确认执行危险工具 |
 | `--dry-run` | 只解析并打印将要发出的调用，不执行（输出格式见下） |
@@ -429,7 +448,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `--complete <参数>` | 向 server 要这个 prompt 或资源模板参数的取值建议（[补全](#补全)），只用于 `via prompts <provider> <名称>` 与 `via resources <provider> <模板>` |
 | `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)），再加 `--all` 时在视图后列出该 provider 全部工具的 `usage:` 行（`-o json` 时是工具详情的数组） |
 
-全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
+全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--pick`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--pick=title,state`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
 
 工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）；`--p.` 开头的参数不会被当作全局选项。
 
@@ -456,7 +475,7 @@ args:
 ## 工具引用的写法
 
 - **命令行**：`linear issue:create`，provider 与工具是两个参数。
-- **单字符串形式**：`linear/issue:create`，用于 `via call`、`via batch`、`deny` 规则和日志。
+- **单字符串形式**：`linear/issue:create`，用于 `via call`、`via batch`、`deny` 规则和日志。`via call`、`via batch` 的 `tool` 与 `via serve` 的 `via_call` 也接受列表里打印的两个词 `linear issue:create`（中间是空白，恰好两个词）：agent 照着 `via find` 的结果抄下来就能用，不必先把空格换成 `/`。`via call` 还可以把两个词分开写（`via call linear issue:create --args '{…}'`）。`deny` 规则与日志只用 `/` 的写法。
 - **原始名作为别名**：原始 MCP 工具名始终可用，`via linear create_issue` 等价于 `via linear issue:create`。拆分规则调整时，旧写法不会失效。
 - **输入宽松**：大小写不敏感，`-` 与 `_` 等价；provider 和资源接受唯一前缀。
 - **歧义与缺失**：有歧义时不执行，列出候选；找不到时给出至多 3 个 did you mean。

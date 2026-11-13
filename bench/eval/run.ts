@@ -10,7 +10,7 @@ import { createEnv } from './env';
 import { judge, successOf } from './judge';
 import { runAgent } from './loop';
 import { buildSystemPrompt } from './prompts';
-import { cliTools, nativeTools, type AgentTools } from './tools';
+import { cliTools, deferredNativeTools, nativeTools, type AgentTools } from './tools';
 import type { Condition, ModelFactory, RunRecord } from './types';
 import { CONDITIONS } from './types';
 
@@ -87,6 +87,8 @@ async function runJob(options: EvalRunOptions, job: Job, skills: { mcp2cli?: str
     let viaPrompt: string | undefined;
     if (job.condition === 'native') {
       tools = await nativeTools(env);
+    } else if (job.condition === 'native-deferred') {
+      tools = await deferredNativeTools(env);
     } else if (job.condition === 'via') {
       const prompt = await env.runners!.via(['prompt']);
       if (prompt.code !== 0) throw new Error(`via prompt exited ${prompt.code}: ${prompt.stderr}`);
@@ -134,7 +136,7 @@ export async function runEval(options: EvalRunOptions): Promise<RunRecord[]> {
     const record = await runJob(options, job, skills);
     finished += 1;
     options.log?.(
-      `[${finished}/${jobs.length}] ${job.condition.padEnd(7)} ${job.task.id} #${job.trial}: ${record.success ? 'success' : `FAIL (${record.status})`}` +
+      `[${finished}/${jobs.length}] ${job.condition.padEnd(15)} ${job.task.id} #${job.trial}: ${record.success ? 'success' : `FAIL (${record.status})`}` +
         `, ${record.turns} turns, ${record.toolCalls} calls (${record.errorCalls} errors), ${record.tokens.total.toLocaleString('en-US')} tokens, ${(record.wallMs / 1000).toFixed(1)}s` +
         (record.error ? `: ${record.error}` : ''),
     );

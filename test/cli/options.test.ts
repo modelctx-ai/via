@@ -33,6 +33,20 @@ describe('extractGlobals', () => {
     expect(() => extractGlobals(['--schema-mode'])).toThrow(CliFailure);
   });
 
+  it('takes --pick as a list of field names, with a separate value or =, and merges repeats', () => {
+    expect(extractGlobals(['gh', 'issue:list', '--pick', 'title, state', '--owner', 'a'])).toMatchObject({ options: { pick: ['title', 'state'] }, rest: ['gh', 'issue:list', '--owner', 'a'] });
+    expect(extractGlobals(['--pick=number,priority.name']).options.pick).toEqual(['number', 'priority.name']);
+    expect(extractGlobals(['--pick', 'a,b', '--pick=b,c']).options.pick).toEqual(['a', 'b', 'c']);
+    expect(extractGlobals(['gh', 'x:y', '--p.pick', 'a']).options.pick).toBeUndefined();
+    expect(extractGlobals(['-o', 'json', '--pick', 'a']).options).toMatchObject({ format: 'json', pick: ['a'] });
+    for (const argv of [['--pick'], ['--pick', ' , '], ['--pick=']]) {
+      expect(() => extractGlobals(argv)).toThrow(/--pick needs field names/);
+    }
+    // -o raw prints the upstream text as it is: refused before anything is sent, whatever the order
+    expect(() => extractGlobals(['gh', 'x:y', '--pick', 'a', '-o', 'raw'])).toThrow(/--pick does not apply to -o raw/);
+    expect(() => extractGlobals(['-o=raw', '--pick=a'])).toThrow(CliFailure);
+  });
+
   it('leaves --p.<name> for the tool, even when it is spelled like a global', () => {
     const { options, rest } = extractGlobals(['gh', 'x:y', '--p.full', 'a', '--p.yes', '--p.timeout', '5']);
     expect(options.full).toBe(false);

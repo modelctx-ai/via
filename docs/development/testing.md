@@ -123,7 +123,7 @@ via 比 0.1 的 14,210 多出的 521 token 主要来自说明块变长（`via pr
 
 ## agent 评测
 
-同一组任务分别让模型用原生 MCP、mcp2cli、mcpc 和 via 完成，比较：
+同一组任务分别让模型用原生 MCP、带工具延迟加载的原生 MCP、mcp2cli、mcpc 和 via 完成，比较：
 
 - 任务成功率；
 - 总 token（取自 API 返回的 `usage`，输入含缓存读写）；
@@ -140,15 +140,16 @@ $ npm run bench:eval -- --trials 10 --effort medium # 写 bench/results/eval-<�
 $ npm run bench:eval -- --fake-model                # 不需要密钥：只验证流水线，不衡量任何模型
 ```
 
-没有密钥时 `bench:eval` 给出说明并以退出码 2 结束。脚本只读进程环境，不加载 `.env`。真实评测开始前先校验用户配置里已有凭证的 server（见 [bench/README.md](../../bench/README.md#四种条件)）：该登录的在第一个任务之前登录并复查，任务进行中拒绝再开登录或访问回放 server 以外的地址。`--fake-model` 不碰凭证。选项（`--trials`、`--task`、`--condition`、`--model`、`--max-turns`、`--concurrency`、`--out`、`--effort` 等）、四种条件的工具与系统提示、每次运行的记录项，以及怎样把同一次配置再跑一遍，见 [bench/README.md](../../bench/README.md#agent-评测) 的「稳定复现」。模型默认值在 `bench/eval/anthropic.ts`（`claude-opus-5-5`），用 `--model` 换；思考强度用 `--effort`，不传则用模型自己的默认值，报告里也不出现这一项。结论只对评测所用的模型和 effort 成立，换了就要重跑。`@anthropic-ai/sdk` 是 devDependency，via 本身不依赖它。
+没有密钥时 `bench:eval` 给出说明并以退出码 2 结束。脚本只读进程环境，不加载 `.env`。真实评测开始前先校验用户配置里已有凭证的 server（见 [bench/README.md](../../bench/README.md#五种条件)）：该登录的在第一个任务之前登录并复查，任务进行中拒绝再开登录或访问回放 server 以外的地址。`--fake-model` 不碰凭证。选项（`--trials`、`--task`、`--condition`、`--model`、`--max-turns`、`--concurrency`、`--out`、`--effort` 等）、五种条件的工具与系统提示、每次运行的记录项，以及怎样把同一次配置再跑一遍，见 [bench/README.md](../../bench/README.md#agent-评测) 的「稳定复现」。模型默认值在 `bench/eval/anthropic.ts`（`claude-opus-5-5`），用 `--model` 换；思考强度用 `--effort`，不传则用模型自己的默认值，报告里也不出现这一项。结论只对评测所用的模型和 effort 成立，换了就要重跑。`@anthropic-ai/sdk` 是 devDependency，via 本身不依赖它。
 
 ### 对比什么
 
-四个条件使用同一批回放 server（与 token 基准相同的合成录制）、同一份任务描述和同一段系统提示骨架，只有各自的工具和说明文本不同：
+五个条件使用同一批回放 server（与 token 基准相同的合成录制）、同一份任务描述和同一段系统提示骨架，只有各自的工具和说明文本不同：
 
 | 条件 | 模型看到什么 | 模型能做什么 |
 | --- | --- | --- |
 | native | 全部挂载 server 的工具定义，原样（167 个工具） | 直接调用 MCP 工具，调用转发给回放 server |
+| native-deferred | 一个 `tool_search` 工具和一句说明；搜到的工具定义从下一轮起加载 | 先搜索再调用；没有加载的工具不能调用（[bench/README.md](../../bench/README.md#native-deferred-一列)） |
 | via | `via prompt` 的输出 | 一个 `shell` 工具，只能运行 `via …`（不经真实 shell） |
 | mcp2cli | mcp2cli 自带 skill 原文加 server 别名 | 一个 `shell` 工具，只能运行 `mcp2cli …` |
 | mcpc | `mcpc help --skill` 原文加可连接的 server 名（`./mcp.json` 的条目） | 一个 `shell` 工具，只能运行 `mcpc …`；自己 `mcpc connect` 建会话，运行结束时会话被关闭 |
@@ -181,12 +182,12 @@ mcp2cli、mcpc 不在 PATH 上时对应条件跳过并在输出里说明，不�
 
 ### 门槛 1 比较什么
 
-门槛 1 要求 via 的任务成功率**不低于**原生 MCP，**且不低于** mcp2cli。`bench:eval` 在汇总后打印这个判断：逐条件的成功次数 / 运行次数、点估计的比较，以及 95% Wilson 区间是否重叠。区间重叠时不要把差异当结论：增加 `--trials`，或看逐任务的成功次数和未成功运行的检查明细，判断是模型随机性还是 via 的某个设计（拆分、浏览、渲染）确实让模型找不到工具。mcp2cli 缺失时比较标为不完整，不算门槛通过。via 与 mcpc 的比较（同样的成功率点估计与区间）单独列在「不属于门槛」一栏，不影响判定。token、轮数与错误调用不是门槛条件，但随结果一起记录：token 基准说明「几乎不占上下文」，这里说明「省下的上下文有没有换来更多弯路」。
+门槛 1 要求 via 的任务成功率**不低于**原生 MCP，**且不低于** mcp2cli。`bench:eval` 在汇总后打印这个判断：逐条件的成功次数 / 运行次数、点估计的比较，以及 95% Wilson 区间是否重叠。区间重叠时不要把差异当结论：增加 `--trials`，或看逐任务的成功次数和未成功运行的检查明细，判断是模型随机性还是 via 的某个设计（拆分、浏览、渲染）确实让模型找不到工具。mcp2cli 缺失时比较标为不完整，不算门槛通过。via 与 native-deferred、mcpc 的比较（同样的成功率点估计与区间）单独列在「不属于门槛」一栏，不影响判定。native-deferred 回答的是另一个问题：框架已经延迟加载工具定义时，via 在 token、轮数和成功率上还剩多少差别。token、轮数与错误调用不是门槛条件，但随结果一起记录：token 基准说明「几乎不占上下文」，这里说明「省下的上下文有没有换来更多弯路」。
 
 ### 局限
 
 - 返回值是合成的，且同一工具的返回值基本不随参数变化；它检验模型能否找到并正确调用工具，不检验真实 server 的行为差异。
-- 评测对象是「模型加说明文本加工具」整体，四个条件的说明文本篇幅和风格天然不同（native 没有文字说明，mcp2cli 与 mcpc 各是一份通用 skill，via 是一段为它写的短说明）；这正是被比较的东西，但意味着结论包含了提示的差异。
+- 评测对象是「模型加说明文本加工具」整体，各条件的说明文本篇幅和风格天然不同（native 没有文字说明，native-deferred 只有一句，mcp2cli 与 mcpc 各是一份通用 skill，via 是一段为它写的短说明）；这正是被比较的东西，但意味着结论包含了提示的差异。
 - 模型有随机性、API 会变。请求不设温度或 seed，同一次配置再跑也不会得到同一组数字。报告记录模型、日期、试验次数、轮数上限和（若传了）effort；base URL、并发和 git commit 不在报告里，复现配置以 [bench/README.md](../../bench/README.md#稳定复现) 的命令为准。结论只对那一次成立。
 - `--fake-model` 的输出不是结果（见 bench/README.md），不会写入 `bench/results/`。
 

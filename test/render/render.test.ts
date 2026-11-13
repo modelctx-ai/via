@@ -18,7 +18,7 @@ describe('shapes (output.md, step 3)', () => {
     const header = out.stdout.split('\n')[0]!;
     for (const col of ['number', 'title', 'state', 'url']) expect(header).toContain(col);
     expect(out.stdout.split('\n')[0]!.trim().split(/\s{2,}/).length).toBeLessThanOrEqual(6);
-    expect(out.stderr).toMatch(/\+\d+ cols \(-o json\)/);
+    expect(out.stderr).toMatch(/\+\d+ cols: [\w, ]+ \(--pick a,b or -o json\)/);
   });
 
   it('parses JSON text content when there is no structuredContent', async () => {
@@ -194,7 +194,7 @@ describe('media (output.md, step 5)', () => {
 describe('meta line (output.md, "元信息行")', () => {
   it('shows ref, elapsed time and rows, with a +N cols hint', async () => {
     const out = await render(structured(githubIssues));
-    expect(out.stderr).toBe('· github issue:list · 318ms · 3 rows · +8 cols (-o json)\n');
+    expect(out.stderr).toBe('· github issue:list · 318ms · 3 rows · +8 cols: repository_url, labels_url, comments_url, labels, comments, created_at, updated_at, assignee (--pick a,b or -o json)\n');
   });
 
   it('shows bytes for non-list results and seconds for slow calls', async () => {

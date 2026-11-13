@@ -5,8 +5,14 @@ CLI 相比原生 MCP 最明显的优势：中间结果在 shell 里流转，不�
 ## 只取需要的字段
 
 ```bash
-via linear issue:list --team ENG --state "In Progress" -o json | jq -r '.[].identifier'
+# 表格里只要这几列：不经过 jq，输出本身就小
+via linear issue:list --team ENG --state "In Progress" --pick identifier,title,priority
+
+# 交给脚本：-o json 加 --full，结果再大也是完整的一份
+via linear issue:list --team ENG --state "In Progress" -o json --full | jq -r '.[].identifier'
 ```
+
+`-o json` 超过输出预算（默认 8 KB）时会分页：每一页都是合法的 JSON，但只是一部分，余下的在 `via more <游标>` 里（[output.md](../spec/output.md#json-的分页)）。给脚本用时要么加 `--full`，要么用 `--pick` 先缩小结果。
 
 ## 大结果不进上下文
 

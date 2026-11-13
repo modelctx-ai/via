@@ -62,11 +62,11 @@ describe('a parameter named _', () => {
 
 describe('the example of find and of -h', () => {
   // The example writes JSON, which has no pasteable form on Windows (arguments.md, "调用示例").
-  it.skipIf(process.platform === 'win32')('leaves out optional parameters that say nothing, the same in both', async () => {
+  it.skipIf(process.platform === 'win32')('holds the required parameters only, the same in both', async () => {
     const { sb } = await setup();
     const help = (await sb.via(['gh', 'build:run', '-h'])).stdout;
     const example = /^example: (.*)$/m.exec(help)![1]!;
-    expect(example).toBe(`via gh build:run --items '[{"todoId":"text"}]' --todo-ids text`);
+    expect(example).toBe(`via gh build:run --items '[{"todoId":"text"}]'`);
     const find = JSON.parse((await sb.via(['find', 'build', '-o', 'json'])).stdout) as Array<{ ref: string; example?: string }>;
     expect(find.find((t) => t.ref === 'gh build:run')?.example).toBe(example);
     const listing = await sb.via(['find', 'project']);
@@ -76,19 +76,29 @@ describe('the example of find and of -h', () => {
 });
 
 describe('-h and -h --full', () => {
-  it('cuts the description, says so on a line before alias:, and prints everything with --full', async () => {
-    const { sb } = await setup();
-    const cut = await sb.via(['gh', 'build:run', '-h']);
-    expect(cut.stdout).toContain('\nRun builds for cards.\n');
-    expect(cut.stdout).not.toContain('explicit request');
-    expect(cut.stdout.split('\n').slice(-3)).toEqual(['full text: via gh build:run -h --full', 'alias: build_run', '']);
+  it('prints the whole description by default; a very long one is cut, says so before alias:, and is whole with --full', async () => {
+    const { srv, sb } = await setup();
+    const help = await sb.via(['gh', 'build:run', '-h']);
+    expect(help.stdout).toContain('\nRun builds for cards.\n\nUse this only on the explicit request of the user.\n\n  --items');
+    expect(help.stdout).not.toContain('full text:');
     const full = await sb.via(['gh', 'build:run', '-h', '--full']);
     expect(full.code).toBe(0);
-    expect(full.stdout).toContain('\nRun builds for cards.\n\nUse this only on the explicit request of the user.\n\n  --items');
-    expect(full.stdout).not.toContain('full text:');
+    expect(full.stdout).toBe(help.stdout);
+
+    // Past 2,000 characters the description is a document: cut, with the way to read all of it.
+    const manual = `Run builds for cards.\n\n${Array.from({ length: 40 }, (_, i) => `Rule ${i + 1}: a build is never started twice for the same card, whatever the caller asks for.`).join('\n')}`;
+    srv.state.tools = srv.state.tools.map((t) => (t.name === 'build_run' ? { ...t, description: manual } : t));
+    await sb.via(['sync']);
+    const cut = await sb.via(['gh', 'build:run', '-h']);
+    expect(cut.stdout).toContain('Rule 1: a build');
+    expect(cut.stdout).not.toContain('Rule 40:');
+    expect(cut.stdout.split('\n').slice(-3)).toEqual(['full text: via gh build:run -h --full', 'alias: build_run', '']);
+    const whole = await sb.via(['gh', 'build:run', '-h', '--full']);
+    expect(whole.stdout).toContain('Rule 40:');
+    expect(whole.stdout).not.toContain('full text:');
     // The option may stand before -h, and -o json is whole whatever is asked.
-    expect((await sb.via(['gh', 'build:run', '--full', '-h'])).stdout).toBe(full.stdout);
-    expect(JSON.parse((await sb.via(['gh', 'build:run', '-h', '-o', 'json'])).stdout).description).toContain('explicit request');
+    expect((await sb.via(['gh', 'build:run', '--full', '-h'])).stdout).toBe(whole.stdout);
+    expect(JSON.parse((await sb.via(['gh', 'build:run', '-h', '-o', 'json'])).stdout).description).toContain('Rule 40:');
   });
 
   it('shows no hint when the text is whole', async () => {

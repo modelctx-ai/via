@@ -57,13 +57,16 @@ const withNewline = (s: string): string => (s.endsWith('\n') ? s : `${s}\n`);
 export async function showToolHelp(app: App, initial: ToolTarget): Promise<number> {
   const target = await checkSchemaSnapshot(app, initial);
   if (app.options.format === 'json') {
-    const { tool } = target;
-    const detail = toolDetail(tool.def, tool.ref, { readOnly: tool.readOnly, destructive: tool.destructive, destructiveBy: tool.destructiveBy });
-    app.out(`${JSON.stringify(await app.redactValue(detail), null, 2)}\n`);
+    app.out(`${JSON.stringify(await app.redactValue(detailOf(target.tool)), null, 2)}\n`);
     return ExitCode.Ok;
   }
   app.out(withNewline(formatToolHelp(target.tool.def, argsContext(target.tool), { full: app.options.full })));
   return ExitCode.Ok;
+}
+
+/** The tool detail of `-h -o json`: the reference, the raw name, the marks and both schemas. */
+export function detailOf(tool: CatalogTool): Record<string, unknown> {
+  return toolDetail(tool.def, tool.ref, { readOnly: tool.readOnly, destructive: tool.destructive, destructiveBy: tool.destructiveBy });
 }
 
 /**
@@ -342,6 +345,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
       cellWidth: config.output.cellWidth,
       noise: defaultNoise(server.noise),
       secrets: app.secrets(),
+      ...(options.pick ? { pick: options.pick } : {}),
     }),
     {
       ref: tool.ref,
@@ -360,6 +364,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
     stderr: rendered.exitCode === ExitCode.ToolError ? addDisagreeHint(rendered.stderr, options.format, resultText(result)) : rendered.stderr,
     warnings,
   };
+  if (rendered.warnings) warnings.push(...rendered.warnings);
   if (rendered.meta) outcome.meta = rendered.meta;
   if (rendered.error) outcome.error = rendered.error;
   return outcome;

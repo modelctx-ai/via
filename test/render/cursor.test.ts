@@ -89,10 +89,13 @@ describe('budget and cursors (output.md, step 4 and "游标")', () => {
     expect(collected.replace(/\n/g, '')).toBe('x'.repeat(1000));
   });
 
-  it('applies the budget to -o json as well', async () => {
+  it('applies the budget to -o json as well, and what it prints is still JSON', async () => {
     const out = await render(structured(manyRows), { budget: 500, format: 'json' });
     expect(Buffer.byteLength(out.stdout)).toBeLessThanOrEqual(500);
     expect(out.stderr).toContain('next: via more ');
+    const rows = JSON.parse(out.stdout) as unknown[];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]).toEqual(JSON.parse(JSON.stringify(manyRows[0])));
   });
 
   it('a cursor never encodes arguments or credentials: ids are random hex', async () => {

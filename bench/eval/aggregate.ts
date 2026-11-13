@@ -1,7 +1,7 @@
 // Aggregating run records per condition and per task, and deciding roadmap gate 1:
 // the task success rate with via is not lower than with native MCP, and not lower than with
-// mcp2cli (docs/roadmap.md). mcpc is a further control: its comparison with via is reported next
-// to the gate but is not part of it.
+// mcp2cli (docs/roadmap.md). native-deferred and mcpc are further controls: their comparisons with
+// via are reported next to the gate but are not part of it.
 import { CONDITIONS, type Condition, type RunRecord } from './types';
 
 export const mean = (xs: readonly number[]): number => (xs.length === 0 ? 0 : xs.reduce((n, x) => n + x, 0) / xs.length);
@@ -85,7 +85,7 @@ export interface Summary {
   conditions: ConditionSummary[];
   tasks: TaskSummary[];
   gate: Gate;
-  /** Comparisons the gate does not ask for (via against mcpc); same shape, never decide the gate. */
+  /** Comparisons the gate does not ask for (via against native-deferred and mcpc); same shape, never decide the gate. */
   extra: Comparison[];
 }
 
@@ -148,6 +148,9 @@ export function gateOf(conditions: readonly ConditionSummary[], options: { fake:
   return { evaluated: !options.fake && comparisons.length > 0, complete, holds, comparisons, notes };
 }
 
+/** Conditions via is compared with outside the gate, in the order they are reported. */
+export const EXTRA_COMPARISONS: readonly Condition[] = ['native-deferred', 'mcpc'];
+
 export function summarize(runs: readonly RunRecord[], options: { conditions: readonly Condition[]; taskOrder: readonly string[]; fake: boolean; mcp2cliSkipped?: string; mcpcSkipped?: string }): Summary {
   const conditions = options.conditions.map((c) => summarizeCondition(c, runs));
   const tasks: TaskSummary[] = options.taskOrder
@@ -161,7 +164,12 @@ export function summarize(runs: readonly RunRecord[], options: { conditions: rea
       return { task, cells };
     });
   const via = conditions.find((c) => c.condition === 'via');
-  const mcpc = conditions.find((c) => c.condition === 'mcpc');
-  const extra = !options.fake && via && via.runs > 0 && mcpc && mcpc.runs > 0 ? [compare(via, mcpc)] : [];
+  const extra: Comparison[] = [];
+  if (!options.fake && via && via.runs > 0) {
+    for (const versus of EXTRA_COMPARISONS) {
+      const other = conditions.find((c) => c.condition === versus);
+      if (other && other.runs > 0) extra.push(compare(via, other));
+    }
+  }
   return { conditions, tasks, gate: gateOf(conditions, options), extra };
 }

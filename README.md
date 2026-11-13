@@ -39,7 +39,9 @@ via is a standalone MCP client. It reads the MCP configuration your frameworks a
 
 ![How via works: the agent runs via in the shell and gets compact output back; the via CLI hands the call to a local daemon, which reads framework MCP configs and credentials and talks MCP to the servers over stdio or HTTP](docs/assets/how-it-works.svg)
 
-On the 9 tasks of the [token benchmark](bench/results/0.4-tokens.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), **via used about 4% of the tokens that native MCP injection used**; the other shell-based MCP clients measured with it, mcp2cli and mcpc, used about 16% and 15%. The figures are estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading. Success rates from the live-model evaluation (`npm run bench:eval`) have not been published yet.
+On the 9 tasks of the [token benchmark](bench/results/0.4-tokens.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), **via used about 4% of the tokens that native MCP injection used**; the other shell-based MCP clients measured with it, mcp2cli and mcpc, used about 16% and 15%. The figures are estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading.
+
+With a live model the saving is smaller. In the [first published agent evaluation](bench/results/eval-2026-10-26-deepseek-flash.md) (deepseek-flash, 9 tasks × 10 runs per condition) via used 48% of the input tokens of native MCP (a mean of 61k against 128k per run) and took more turns (13.2 against 7.1). Success rates were within noise of each other (via 73%, native 76%, mcp2cli 74%, mcpc 76%), so the roadmap's gate of "not lower than native" is not met yet. Runs on other models, and against native MCP with deferred tool loading (the `native-deferred` condition of `npm run bench:eval`), have not been published.
 
 ## Highlights
 
@@ -47,7 +49,7 @@ On the 9 tasks of the [token benchmark](bench/results/0.4-tokens.md) (github, li
 - **Reuses the config you already have.** Reads MCP servers from Claude Code, Claude Desktop, Cursor, Codex, VS Code, Gemini CLI, GitHub Copilot CLI, Devin Desktop / Windsurf, Antigravity and Amp. Read-only: via never writes to them.
 - **One place for credentials.** Configuration holds references (`keychain:`, `env:`, `file:`, `cmd:`) or via's own OAuth sign-in. Resolved values are shown as `***` everywhere.
 - **Search across servers.** `via find "create issue"` ranks tools from every provider, with synonym expansion. Deterministic by default: no model calls unless you turn on `search.semantic`.
-- **Compact, predictable output.** One set of rendering rules for every server, a `next:` hint after every error, cursors for truncated output, and `-o json` for scripts.
+- **Compact, predictable output.** One set of rendering rules for every server, a `next:` hint after every error, cursors for truncated output, `--pick` to print only the fields you name, and `-o json` for scripts.
 - **Built for the shell.** Pipe results between tools without passing them through the model, or send many calls through `via batch` at once.
 - **Guard rails.** `deny` rules hide tools, destructive tools need `--yes`, and project-level commands and endpoints need `via trust` before first use.
 - **Fast and portable.** Browsing a warm cache takes about 80 ms. A local daemon keeps MCP sessions open between calls. Runs on macOS, Linux and Windows.
@@ -154,7 +156,7 @@ via prompt --skill --out <dir>/via/SKILL.md   # a SKILL.md instead, for agents t
 
 The block says what via is and asks the agent to prefer `via` over the MCP tools it already has. Keep one copy of it: Claude Code can pull that file in from CLAUDE.md with `@AGENTS.md` instead of keeping a second one.
 
-An agent without a shell (Claude Desktop, an IDE chat panel) mounts `via serve` as its only MCP server instead and gets nine meta-tools (`via_browse`, `via_find`, `via_call`, …, about 1,480 tokens) that behave exactly like the commands:
+An agent without a shell (Claude Desktop, an IDE chat panel) mounts `via serve` as its only MCP server instead and gets nine meta-tools (`via_browse`, `via_find`, `via_call`, …, about 1,500 tokens) that behave exactly like the commands:
 
 ```json
 { "mcpServers": { "via": { "command": "via", "args": ["serve"] } } }
@@ -167,7 +169,7 @@ See the [getting-started guide](docs/guides/getting-started.md) and [agent frame
 | Command | Purpose |
 | --- | --- |
 | `via` · `via <provider>` · `via <provider> <resource>` | Browse level by level; `-h` shows the usage of one tool |
-| `via <provider> <resource>:<verb> [--arg value]` | Call a tool; `-o json` prints JSON, `--dry-run` prints the call without sending it |
+| `via <provider> <resource>:<verb> [--arg value]` | Call a tool; `--pick a,b` prints only those fields, `-o json` prints JSON, `--dry-run` prints the call without sending it |
 | `via find <query>` | Search tools across providers |
 | `via more <cursor>` | Continue truncated output |
 | `via batch` | Read JSON Lines from stdin, run the calls concurrently, print results in input order |

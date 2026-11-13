@@ -61,6 +61,7 @@ export async function print(
       noise: defaultNoise(server.noise),
       secrets: app.secrets(),
       redacted: true,
+      ...(app.options.pick ? { pick: app.options.pick } : {}),
     }),
     {
       ref,

@@ -17,9 +17,8 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
         '  --owner          <str>',
         '  --repo           <str>',
         '  --issue-number   <num>',
-        '  --method         get: Get issue details · get_comments: Get issue comments · …',
+        '  --method         get: Get issue details · get_comments: Get issue comments · get_sub_issues: Get sub-issues · get_parent: Get the parent issue · get_labels: Get labels',
         'example: via github issue:read --owner text --repo text --issue-number 1 --method get',
-        'full text: via github issue:read -h --full',
         'alias: issue_read · read-only',
       ].join('\n'),
     );
@@ -55,14 +54,15 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
                [--priority <num>] [--tags <str[]>] [--pages <json>] [--level <str>]
 
       Create an issue
+      with a long body
+
         --title      Title of the issue
-        --body       The issue body, written in Markdown. It may be long and is cut so that …
+        --body       The issue body, written in Markdown. It may be long and is cut so that a help page stays readable on one line.
         --draft      default: false
         --priority   Priority · default: 3
         --tags       repeat the flag or pass a JSON array
-        --level      one of: level-number-0, level-number-1, level-number-2, level-number-3, …
-      example: via acme issue:create --title text --body text --draft
-      full text: via acme issue:create -h --full
+        --level      one of: level-number-0, level-number-1, level-number-2, level-number-3, level-number-4, level-number-5, level-number-6, level-number-7, level-number-8, level-number-9, level-number-10, level-number-11
+      example: via acme issue:create --title text
       alias: issue_create"
     `);
   });
@@ -89,7 +89,6 @@ describe('formatToolHelp (arguments.md, "帮助")', () => {
         --filter            Which issues
         --filter.state      open|closed · Issue state
         --filter.per-page   num · default: 30
-      example: via acme thing:do --filter.state open
       alias: thing_do"
     `);
   });

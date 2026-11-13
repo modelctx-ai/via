@@ -18,8 +18,15 @@ export interface CursorRecord {
   totalBytes: number;
   /** Page budget in bytes. */
   budget: number;
-  /** Table rows hidden by `maxColumns`, kept for the meta line of continuation pages. */
+  /** Table columns hidden by `maxColumns`, kept for the meta line of continuation pages. */
   hiddenColumns: number;
+  /** Their names (meta.ts); absent in cursors written before the names were kept. */
+  hiddenNames?: string[];
+  /**
+   * `-o json`: `lines` is a JSON document and every page is one too (json-pages.ts). `breaks` are
+   * the lines a page has to end after: the parts of a string that was split.
+   */
+  json?: { breaks: number[] };
   createdAt: number;
 }
 

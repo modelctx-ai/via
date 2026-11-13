@@ -33,6 +33,6 @@
     "description": "List issues",
     "readOnly": true,
     "destructive": false,
-    "example": "via gh issue:list --owner text --repo text --state open"
+    "example": "via gh issue:list --owner text --repo text"
   }
 ]

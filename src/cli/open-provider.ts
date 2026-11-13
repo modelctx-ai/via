@@ -23,13 +23,22 @@ export async function openProvider(app: App, input: string): Promise<OpenProvide
   return { entry, listing, views: await app.providerViews(entry, listing) };
 }
 
-/** `<provider>/<ref>` split at the first slash (cli.md, "工具引用的写法"). */
+/**
+ * A tool reference in one string (cli.md, "工具引用的写法"): `<provider>/<ref>`, split at the first
+ * slash, or the two words the listings print, `<provider> <ref>`. An agent copies what `via find`
+ * showed it, so both spellings name the same tool.
+ */
 export function splitToolRef(ref: string | undefined, next: string): { provider: string; target: string } {
-  const slash = ref === undefined ? -1 : ref.indexOf('/');
-  if (ref === undefined || slash <= 0 || slash === ref.length - 1) {
-    throw usageFailure('expected a tool reference like <provider>/<resource>:<verb>', next);
-  }
-  return { provider: ref.slice(0, slash), target: ref.slice(slash + 1) };
+  const expected = (): never => {
+    throw usageFailure('expected a tool reference like <provider>/<resource>:<verb> or "<provider> <resource>:<verb>"', next);
+  };
+  if (ref === undefined) return expected();
+  const words = ref.trim().split(/\s+/);
+  if (words.length === 2 && words.every((w) => w !== '' && !w.startsWith('-'))) return { provider: words[0]!, target: words[1]! };
+  if (words.length !== 1) return expected();
+  const slash = words[0]!.indexOf('/');
+  if (slash <= 0 || slash === words[0]!.length - 1) return expected();
+  return { provider: words[0]!.slice(0, slash), target: words[0]!.slice(slash + 1) };
 }
 
 /** The tool a single-string reference names inside an opened provider; deny, ambiguity and resources fail here. */

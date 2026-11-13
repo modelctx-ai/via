@@ -8,8 +8,8 @@ export const HELP = `via ${VERSION}: call MCP servers as \`via <provider> <resou
 usage:
   via                                        providers and their tool counts
   via <provider> [--all]                     resources and actions of a provider
-  via <provider> <resource>                  actions of a resource, with signatures
-  via <provider> <resource>:<verb> -h        usage of a tool
+  via <provider> <resource>…                 actions of a resource, with signatures (several: one after another)
+  via <provider> <resource>:<verb>… -h       usage of a tool (several: one after another)
   via <provider> <resource>:<verb> [args]    call a tool
   via find <query> [-n 10] [--brief]         search tools across providers, each with a call example
   via batch [--concurrency <n>] [--line <n>] JSON Lines on stdin: concurrent calls, results in input order
@@ -25,7 +25,7 @@ commands:
 
 options:
   -o text|json|raw  --json  --full  --all  --yes  --dry-run  --no-validate  --detach  --timeout <seconds>  -h
-  --schema-snapshot <file>  --schema-mode compatible|strict
+  --pick <field,…>  --schema-snapshot <file>  --schema-mode compatible|strict
 
 docs: docs/spec/cli.md
 `;

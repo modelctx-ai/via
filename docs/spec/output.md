@@ -7,14 +7,14 @@
 ## 渲染流程
 
 1. **选数据源**：`isError` 为真时走[错误路径](#错误)；否则优先取 `structuredContent`，其次尝试把 text 内容解析为 JSON，都不行就按原文处理。多个 content 块依次渲染：单行文本和媒体路径紧挨着输出，结构化内容（表格、对象）前后各空一行。`structuredContent` 与 text 里只是重复它的 JSON 文本不再重复渲染。工具声明了 `outputSchema` 时先校验 `structuredContent`，不匹配只在 stderr 警告（[arguments.md](arguments.md#输出校验)）。
-2. **清理**：去掉 null、空字符串、空数组、空对象；按噪声字段表去掉 `node_id`、`_links`、`*_api_url` 之类字段。噪声表见 `data/noise.json`，可按 server 用 `noise` 配置追加。
+2. **清理**：去掉 null、空字符串、空数组、空对象；按噪声字段表去掉 `node_id`、`_links`、`*_api_url` 之类字段。噪声表见 `data/noise.json`，可按 server 用 `noise` 配置追加。带 `--pick` 时，在这一步之后只留下点名的字段（[选字段](#选字段--pick)）。
 3. **按形状渲染**：
-   - 字段一致的对象数组 → 对齐的表格，最多 6 列，优先选 name、title、id、number、state、url 等字段，其余列在元信息行注明「+N cols (-o json)」；
+   - 字段一致的对象数组 → 对齐的表格，最多 6 列，优先选 name、title、id、number、state、url 等字段，其余列的名字写在元信息行里（`+N cols: a, b (--pick a,b or -o json)`，见[元信息行](#元信息行)）；
    - 单个对象（含只有一个元素的数组）→ `key: value` 逐行输出，嵌套对象缩进两格；多行字符串缩进成块；嵌套的一致对象数组在缩进后同样渲染为表格，只有单个字段的对象数组（`[{name: bug}]`）合并为 `bug, p1`；
    - 纯文本 → 原样输出。
 
    表格里缺失的单元格显示 `-`；单元格里的数组用 `, ` 连接，对象取 `data/columns.json` 中 `labelKeys` 指定的字段代表它，换行折成空格。至少两行且至少一半的字段在半数以上的行里出现，才算「字段一致」。选列规则放在 `data/columns.json`（[数据文件](../development/data-files.md#columnsjson)）。
-4. **限长**：单元格超过 80 字符截断并加 `…`；总输出超过预算（默认 8 KB，可按 server 用 `budget` 配置）时按整行截断，完整结果存入游标。单行本身就超过预算时，这一行会被拆成多段分页输出。
+4. **限长**：单元格超过 80 字符截断并加 `…`；总输出超过预算（默认 8 KB，可按 server 用 `budget` 配置）时按整行截断，完整结果存入游标。单行本身就超过预算时，这一行会被拆成多段分页输出。`-o json` 的输出不按行截断：每一页都是合法的 JSON（[JSON 的分页](#json-的分页)）。
 5. **媒体**：图片、音频、二进制资源写入缓存目录，只打印文件路径；resource link 只打印 URI。
 6. **脱敏**：已解析的凭证值精确匹配替换为 `***`（JSON 转义后的写法同样替换）。实现上在清理和截断**之前**先对数据脱敏，避免单元格截断留下半个凭证，输出前再对成品整体扫一遍；写入游标的内容已经脱敏。脱敏**保持结构**，规则见下文[脱敏的范围](#脱敏的范围)。
 
@@ -65,8 +65,9 @@
 | 选项 | 内容 | 用途 |
 | --- | --- | --- |
 | `-o text`（默认） | 上述紧凑渲染 | agent 阅读 |
-| `-o json` | 清理后的 JSON，仍受预算约束 | 管道给 `jq` |
+| `-o json` | 清理后的 JSON，仍受预算约束；超过预算时分页，每一页都是一份合法的 JSON（[JSON 的分页](#json-的分页)） | 管道给 `jq`；脚本要完整结果时加 `--full` |
 | `-o raw` | 上游原始 content，不做任何处理（仍脱敏）；不受预算约束，不产生游标 | 排查问题 |
+| `--pick <字段,…>` | 只输出点名的字段，按给出的顺序；可与 `text`、`json` 组合，不能与 `raw` 组合 | 默认的列不是想要的那几列，或只要对象里的几项（[选字段](#选字段--pick)） |
 | `--full` | 关闭截断，可与任意格式组合 | 需要完整结果时；`-h --full` 给出未截断的工具描述（[arguments.md](arguments.md#帮助)） |
 
 浏览视图（`via`、`via <provider>`、`via <provider> <resource>`）与 `via find` 是 via 自己生成的目录，不经过上面的渲染流水线（没有预算与游标），但同样接受 `-o`：
@@ -74,16 +75,48 @@
 - `-o json` 输出目录的 JSON（字段见 [discovery.md](discovery.md#浏览视图)，全部来自预构建缓存，不读 schema），stdout 只有 JSON；文本视图末尾的 `→` 提示与「没有命中」的说明改写 stderr，`noteCanonical` 的元信息行（`· gh issue`）照旧在 stderr。字符串（描述、名字、枚举值）是 server 的内容，按[内容档](#脱敏的范围)脱敏后再序列化。`via servers -o json` 同理（[cli.md](cli.md#内置子命令)）。
 - `-o raw` 是上游原始 content，目录没有上游原文可给，退出码 2（`error: -o raw applies to a tool call: a listing has no upstream text to show`，`next:` 是同一条命令加 `-o json`），而不是悄悄输出文本。
 
+## 选字段（`--pick`）
+
+`--pick <字段>[,<字段>…]`（全局选项）只输出结果里点名的字段，按给出的顺序。表格默认的六列不是想要的那几列、或者单个对象只需要其中几项时用它：比 `-o json` 之后再筛选省得多，也不用把整份 JSON 读进上下文。
+
+- **作用的位置**：清理之后、渲染之前。从结果的最外层找起：对象数组看每一行的键，对象看它自己的键。有名字对得上的那一层就是被筛选的一层：行（或对象）只留下点名的字段，被留下的值保持完整，不再往里找。一个名字都对不上的那一层原样保留，再到它的每个值里去找。所以 `{ issues: […], totalCount, pageInfo }` 这样的外壳会留下，被筛选的是 `issues` 的行。
+- **名字**：结果里的键名。大小写与 `-`、`_` 的差别不计（`created-at`、`createdAt`、`created_at` 是同一个），写法完全相同的键优先。`a.b` 取嵌套对象里的字段（`priority.name`）；中间是对象数组时对每个元素取（`labels.name`）。键名本身含 `.` 时，整个名字先当作一个键去找。
+- **文本输出**：被筛选的对象数组渲染成恰好这些列的表格，顺序是给出的顺序，不受六列上限约束，元信息行不再有 `+N cols`。带点的名字是一列，列名是结果里的键路径（`priority.name`）；某一行没有的字段显示 `-`。只有一行时与单个对象一样逐行输出。单元格的 80 字符截断、输出预算与游标照常。
+- **`-o json`**：同样筛选，嵌套保持原样（`{ "priority": { "name": "High" } }`）。`-o raw` 是上游原文，没有字段可选：与 `--pick` 同用是用法错误，退出码 2，在发出调用之前拒绝。
+- **对不上的名字**：调用已经发生，结果照常输出，退出码不变；元信息行之前多一行 `warning: --pick: no field named <名字…> (fields: <那一层的字段名>)`，字段最多列 24 个，其余写 `…`。所有名字都对不上时，输出与不带 `--pick` 相同。结果不是结构化数据（纯文本、文件内容）时是 `warning: --pick chooses fields of a structured result; this one has none`。`via batch -o json` 把这些警告放在该行记录的 `warnings` 里。
+- **范围**：工具调用（`via <provider> …`、`via call`、`via batch` 的每一行、`via serve` 里 `via_call` 的 `pick` 参数），以及 `via read`、`via resources`、`via prompts` 这些走同一条流水线的命令。浏览视图、`via find`、`-h` 与 `via more` 不看它。筛选在清理之后，被噪声表去掉的字段选不到（要看它们用 `-o raw`）。工具自己有名为 `pick` 的参数时写 `--p.pick`（[arguments.md](arguments.md#与全局选项重名)）。
+
+```console
+$ via linear my-issue:list --state "In Progress"
+issues:
+  id                                    identifier  title                                         description                               url                                        status
+  5f3e0c1a-0300-4a2b-9c1d-0e7b6a5d4c3b  PLT-300     Rate limiter fails closed when Redis is down  Rate limiter fails closed when Redis is…  https://linear.app/acme/issue/PLT-300/ra…  In Progress
+  5f3e0c1a-0304-4a2b-9c1d-0e7b6a5d4c3b  PLT-304     Migrate billing webhooks to the new queue     Migrate billing webhooks to the new que…  https://linear.app/acme/issue/PLT-304/mi…  In Progress
+hasNextPage: false
+· linear my-issue:list · 134ms · 812 bytes · +8 cols: priority, assignee, assigneeId, labels, team, teamId, createdAt, updatedAt (--pick a,b or -o json)
+
+$ via linear my-issue:list --state "In Progress" --pick identifier,title,priority,assignee
+issues:
+  identifier  title                                         priority  assignee
+  PLT-300     Rate limiter fails closed when Redis is down  High      jdoe
+  PLT-304     Migrate billing webhooks to the new queue     Medium    jdoe
+hasNextPage: false
+· linear my-issue:list · 131ms · 229 bytes
+```
+
+`priority` 在结果里是 `{ value, name }`，表格单元格照常取它的代表字段（`labelKeys`）；要数值就写 `--pick priority.value`。
+
 ## 元信息行
 
 成功调用后在 stderr 输出一行，以 `·` 开头，字段以 ` · ` 分隔：
 
 ```text
-· <规范写法> · <耗时> · <行数或字节数> [· +N cols (-o json)] [· <标记>…] [· next: <命令>]
+· <规范写法> · <耗时> · <行数或字节数> [· +N cols: <列名…> (--pick a,b or -o json)] [· <标记>…] [· next: <命令>]
 ```
 
 - 耗时不足 1 秒写 `318ms`，否则写 `1.8s`。
 - 结果是列表（表格、数组）且未截断时写 `N rows`；其他情况写字节数，`k` 以 1024 为单位（`8.0k`，小于 1024 时写原始数字）；被截断时写 `已显示/总计 bytes`。
+- 表格有列没有显示时写 `+N cols`，后面是这些列的名字（按它们在结果里出现的顺序，最多 8 个，还有更多时以 `…` 结尾），括号里是拿到它们的两种办法：`--pick`（[选字段](#选字段--pick)）或 `-o json`。列名是 server 结果里的键，只有普通的词（字母、数字和 `_ . $ @ -`，不超过 40 个字符）才写进这一行，其余的只计数、不显示：键名里的空格、`·`、`:` 不能冒充这一行的字段或 `next:` 提示（[security.md](security.md)）。没有一个名字可写时只有 `+N cols (--pick a,b or -o json)`。续页的元信息行同样带着这些名字。`-o json` 没有被隐藏的列，不出现这一项。
 - 标记有 `unvalidated`（[arguments.md](arguments.md#schema-不可靠时)）、`--detach` 时 server 没有建任务的 `no task`（[cli.md](cli.md#任务via-tasks-与---detach)）和 `via batch` 的 `line N`（[cli.md](cli.md#via-batch)），排在 `+N cols` 之后、`next:` 之前，`unvalidated` 在前。`via batch` 另在最后输出一行 `· batch · …` 汇总。
 - 警告（如 `outputSchema` 不匹配）写在元信息行之前，每条一行 `warning: …`。与结果无关的运行时警告（如刷新后的 OAuth 登录存不下来，[auth.md](auth.md#刷新)）在发生时同样写一行 `warning: …` 到 stderr，每个会话只提示一次。
 
@@ -95,7 +128,7 @@ number  title                    state  labels   updated
 12      Support OAuth DCR        open   auth     2026-10-18
 11      Group inference too eag… open   catalog  2026-10-17
 9       Windows named pipes      open   daemon   2026-10-12
-· github issue:list · 318ms · 3 rows · +7 cols (-o json)
+· github issue:list · 318ms · 3 rows · +7 cols: id, user, assignees, comments, created_at, html_url, body (--pick a,b or -o json)
 
 $ via exa web:search "rust mcp"
 title                          url                                   score
@@ -112,6 +145,33 @@ Rust MCP SDK                   github.com/modelcontextprotocol/rus…  0.91
 - `via more <游标>` 从截断处继续，格式与首段一致（表格的表头在每一段重复）；仍有剩余时元信息行给出新的游标。元信息行里的 `shown/total bytes` 中 `shown` 是到本段为止累计已显示的字节数。
 - 游标是不透明字符串（4 位十六进制起，冲突时变长的随机串），不得编码凭证或参数原文。
 - 游标不存在或已过期：退出码 3，提示 `next: rerun the original command`。
+
+### JSON 的分页
+
+`-o json` 的输出超过预算时同样分页，但每一页都是一份合法的 JSON 文档，`| jq` 不会因为截断而解析失败：
+
+- 一页是完整结果（两格缩进的 JSON）里连续的一段，前面补上它所在各层容器的开头（`{`、`"issues": [`），后面补上相应的结尾。每一页的嵌套与完整结果相同，`jq '.issues[].title'` 对每一页都成立。已经输出过的兄弟字段不在后面的页里重复；排在大数组之后的字段（`totalCount`、`pageInfo`）出现在最后一页。
+- 页在条目之间断开，并且尽量断在外层：一页里是若干个完整的条目，而不是半个。只有单个条目自己就放不进一页时，它才被分到相邻的几页，各页在同一个位置上带它的一部分键。
+- 一个字符串值自己就放不进一页时（文件内容、长正文），它被切成几段，每页在同一个键下带下一段；结果本身就是一个字符串时，每页是一个 JSON 字符串。同一页里不会有同一个字符串的两段。
+- 把各页按层拼起来就是完整结果：数组接元素，对象接键，被切开的字符串接文本。
+- 每页连同补上的开头与结尾不超过预算。一行自己就放不下时（一个很长的键，或嵌套很深时的路径加上一行内容），这一页会超出预算，但至少前进一行。元信息行的 `shown/total bytes` 只计结果本身的字节，不计补上的行；最后一页上两者相等。
+- 截断后的每一页虽然合法，却只是结果的一部分，退出码仍是 0，是否截断只写在 stderr 的元信息行里（`已显示/总计 bytes · next: via more <游标>`）。**脚本需要完整结果时加 `--full`**，或者用 `--pick` 先把结果缩到预算以内。
+- `via batch -o json` 的记录里，超出预算的结果 `result` 是第一页，另有 `truncated: true` 与 `next`（[cli.md](cli.md#via-batch)）。
+
+```console
+$ via github issue:list --owner acme --repo api -o json | jq '.issues | length'
+4
+· github issue:list · 155ms · 7.1k/17.8k bytes · next: via more 1ce6
+
+$ via more 1ce6 | jq '.issues[0].number, (.issues | length)'
+250
+4
+· github issue:list · 0ms · 14.1k/17.8k bytes · next: via more eb5b
+
+$ via github issue:list --owner acme --repo api -o json --pick number,title | jq '.issues | length'
+10
+· github issue:list · 149ms · 1.2k bytes
+```
 
 ## 错误
 

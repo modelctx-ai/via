@@ -23,6 +23,8 @@ export interface GlobalOptions {
   schemaMode: SchemaMode;
   /** `--complete <argument>`: ask the server for values of that prompt or resource-template argument (cli.md, "补全"). */
   complete?: string;
+  /** `--pick <fields>`: the fields of the result to print, in order (output.md, "选字段"). */
+  pick?: string[];
 }
 
 export function defaultOptions(): GlobalOptions {
@@ -48,6 +50,25 @@ function parseFormat(value: string): OutputFormat {
 function parseSchemaMode(value: string): SchemaMode {
   if (value === 'compatible' || value === 'strict') return value;
   throw usageFailure(`--schema-mode must be compatible or strict (got ${JSON.stringify(value.slice(0, 40))})`);
+}
+
+/**
+ * The names of `--pick`, in order, without repeats; empty when the value holds no name. Here and not
+ * in render/pick.ts: every command parses its options, only a call loads the renderer.
+ */
+export function parsePick(text: string): string[] {
+  const names: string[] = [];
+  for (const part of text.split(',')) {
+    const name = part.trim();
+    if (name !== '' && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+function parsePickOption(value: string): string[] {
+  const names = parsePick(value);
+  if (names.length === 0) throw usageFailure('--pick needs field names separated by commas, e.g. --pick title,state');
+  return names;
 }
 
 function parseTimeout(value: string): number {
@@ -105,6 +126,17 @@ export function extractGlobals(argv: readonly string[]): { options: GlobalOption
       options.complete = token.slice('--complete='.length);
       continue;
     }
+    if (token === '--pick') {
+      const value = argv[i + 1];
+      if (value === undefined) throw usageFailure('--pick needs field names separated by commas, e.g. --pick title,state');
+      i += 1;
+      options.pick = [...(options.pick ?? []), ...parsePickOption(value).filter((name) => !options.pick?.includes(name))];
+      continue;
+    }
+    if (token.startsWith('--pick=')) {
+      options.pick = [...(options.pick ?? []), ...parsePickOption(token.slice('--pick='.length)).filter((name) => !options.pick?.includes(name))];
+      continue;
+    }
     if (token === '-o' || token === '--timeout') {
       const value = argv[i + 1];
       if (value === undefined) throw usageFailure(`${token} needs a value`);
@@ -123,6 +155,9 @@ export function extractGlobals(argv: readonly string[]): { options: GlobalOption
     }
     rest.push(token);
   }
+  // `-o raw` prints the upstream text as it is: there are no fields to choose from, and saying so
+  // before anything is sent beats ignoring the option after a call that may have changed something.
+  if (options.pick && options.format === 'raw') throw usageFailure('--pick does not apply to -o raw, which prints the upstream text as it is; use -o json or the default text');
   return { options, rest };
 }
 

@@ -2,7 +2,7 @@
 
 比较同一组任务在四种方式下放进模型上下文的 token：原生 MCP 注入、`via`、[mcp2cli](https://github.com/knowsuchagency/mcp2cli)、[mcpc](https://github.com/apify/mcpc)。方法与口径见 [测试与评测](../docs/development/testing.md#token-基准)；结果在 [results/](results/)：0.1（原生、via、mcp2cli）是 [0.1.md](results/0.1.md)，0.4 加上 mcpc 一列后是 [0.4-tokens.md](results/0.4-tokens.md)；#34 之后的重跑是 [0.4-tokens-after-34.md](results/0.4-tokens-after-34.md)。
 
-任务文件与回放 server 是通用的，不绑定基准：[agent 评测](#agent-评测)（让模型在原生 MCP、mcp2cli、mcpc、via 四种环境里完成同一批任务）直接复用它们。
+任务文件与回放 server 是通用的，不绑定基准：[agent 评测](#agent-评测)（让模型在原生 MCP、带工具延迟加载的原生 MCP、mcp2cli、mcpc、via 五种环境里完成同一批任务）直接复用它们。
 
 ## 目录
 
@@ -14,7 +14,7 @@
 | `replay-server.mjs` | 回放 MCP server（官方 SDK 的 server 端，纯 ESM，无需构建） |
 | `schema/` | `suite.yaml` 与任务文件的 JSON Schema（draft-07） |
 | `harness/` | 基准的实现：加载与校验、沙箱、原生与命令序列的测量、报告；`runners.ts` 是两个脚本共用的 `via` / `mcp2cli` / `mcpc` 运行器 |
-| `eval/` | agent 评测的实现：模型循环、四种条件的工具、成功判定、汇总与报告 |
+| `eval/` | agent 评测的实现：模型循环、五种条件的工具、成功判定、汇总与报告 |
 | `vendor/mcp2cli/`、`vendor/mcpc/` | 两个对照程序的 skill 原文（对照列的「说明文本」），附来源与许可（MIT、Apache-2.0） |
 | `results/` | 要提交的结果：token 基准 `<版本>.md/.json`（0.4 起为 `<版本>-tokens.md/.json`），性能 `perf-*.md`，拆分统计 `<版本>-split.md/.json`。agent 评测的 `.md` 是可以提交的报告；旁边的 `eval-*.json` 是当次运行的原始记录，已在 `.gitignore` 里，不上传 |
 
@@ -208,12 +208,12 @@ via、mcp2cli 与 mcpc 三列真实运行命令，计入：说明文本（`via p
 
 ## agent 评测
 
-门槛 1 的后半（[路线图](../docs/roadmap.md#门槛)）：让真实模型在四种条件下完成同一批任务，比较任务成功率、token、轮数和错误调用。方法与口径见 [测试与评测](../docs/development/testing.md#agent-评测)。
+门槛 1 的后半（[路线图](../docs/roadmap.md#门槛)）：让真实模型在五种条件下完成同一批任务，比较任务成功率、token、轮数和错误调用。方法与口径见 [测试与评测](../docs/development/testing.md#agent-评测)。
 
 ```console
 $ npm run build
 $ export ANTHROPIC_API_KEY=...                    # 也支持 ANTHROPIC_BASE_URL
-$ npm run bench:eval                              # 9 个任务 × 4 个条件 × 3 次，结果写 bench/results/eval-<日期>.md/.json
+$ npm run bench:eval                              # 9 个任务 × 5 个条件 × 3 次，结果写 bench/results/eval-<日期>.md/.json
 $ npm run bench:eval -- --trials 10 --concurrency 6
 $ npm run bench:eval -- --task triage --condition via,native --trials 1   # 先小跑一次看看
 $ npm run bench:eval -- --fake-model              # 不要密钥：脚本化的模型，只验证流水线
@@ -237,7 +237,7 @@ $ npm run bench:eval -- --fake-model              # 不要密钥：脚本化的�
 | 密钥 | 只设 `ANTHROPIC_AUTH_TOKEN`。同时设 `ANTHROPIC_API_KEY` 时 SDK 会再带一把 `x-api-key`，这个网关按 bearer 使用 |
 | 模型 | `--model deepseek-flash` |
 | 思考强度 | `--effort medium`（请求里的 `output_config.effort`。DeepSeek 的 Anthropic 兼容接口认这个字段） |
-| 次数 | `--trials 10`（9 个任务 × 4 个条件 = 360 次） |
+| 次数 | `--trials 10`（当时是 9 个任务 × 4 个条件 = 360 次；`native-deferred` 是之后加的，那次运行里没有这一列） |
 | 并发 | `--concurrency 2` |
 | 对照 | PATH 上的 mcp2cli 3.8.0、mcpc 0.7.0，与 `suite.yaml` 里 vendored skill 的版本一致。不一致时仍会跑，stderr 打一行 |
 
@@ -258,31 +258,43 @@ $ npm run bench:eval -- \
 | --- | --- |
 | `--trials <n>` | 每个任务、每个条件的运行次数，默认 3。模型有随机性，门槛的结论至少要几十次运行才站得住 |
 | `--task <文本>` | 只跑 id 含该文本的任务，可重复 |
-| `--condition <名>` | `native`、`via`、`mcp2cli`、`mcpc`，可重复或逗号分隔，默认全部；mcp2cli、mcpc 不在 PATH 上时跳过并说明原因 |
+| `--condition <名>` | `native`、`native-deferred`、`via`、`mcp2cli`、`mcpc`，可重复或逗号分隔，默认全部；mcp2cli、mcpc 不在 PATH 上时跳过并说明原因 |
 | `--model <id>` | 被评测的模型，默认 `claude-opus-5-5`（`eval/anthropic.ts` 的 `DEFAULT_MODEL`） |
 | `--max-turns <n>` | 每次运行最多的模型轮数，默认 25；用完仍想调用工具记为未成功 |
 | `--max-tokens <n>` | 单次回复的输出上限，默认 16000 |
 | `--concurrency <n>` | 同时运行的次数，默认 4；每次运行有自己的回放 server 和沙箱 |
 | `--out <前缀>` | 写 `<前缀>.md` 和 `<前缀>.json`，默认 `bench/results/eval-<日期>` |
-| `--effort <级别>` | `low` … `max`，默认用模型自己的默认值；三个条件一致 |
+| `--effort <级别>` | `low` … `max`，默认用模型自己的默认值；各条件一致 |
 | `--cache` | 对话前缀的自动提示缓存；输入 token 仍按「未缓存 + 缓存读 + 缓存写」全部计入，缓存读写另列 |
 | `--fake-model` | 脚本化的模型（见下），不需要密钥 |
 | `--via <路径>`、`--mcp2cli <路径>`、`--no-mcp2cli`、`--mcpc <路径>`、`--no-mcpc` | 与 `bench:tokens` 相同 |
 
-### 四种条件
+### 五种条件
 
 同一份任务描述（任务文件的 `goal`）、同一段系统提示骨架，差别只在各自的工具与说明文本：
 
 1. **native**：全部挂载 server 的 `tools/list`（取自回放 server，不是手写的）按 `mcp__<server>__<工具>` 暴露为模型工具，模型的调用经官方 MCP SDK client 转发给回放 server。
-2. **via**：模型只有一个 `shell` 工具，说明文本是当次沙箱里 `via prompt` 的输出。命令按 POSIX 风格切词，作为 `dist/via.js` 的 argv 在沙箱 HOME 里运行（`sources: false`，配置只有这些回放 server；与 token 基准相同，进程内模式，不留后台 daemon），返回 stdout、stderr 和退出码。
-3. **mcp2cli**：同一个 `shell` 工具，只能运行 `mcp2cli …`；说明文本是 `vendor/mcp2cli/SKILL.md` 原文加一段别名说明（`Servers: @github @linear …`，并写明别名已经建好，用 `@name --search` 再 `@name <command>`，不要自己传 `--mcp`、`--oauth` 或别的 server 地址）。每次运行先为每个 server 做一次 `bake create`（一次性配置，不计入）。
-4. **mcpc**：同一个 `shell` 工具，只能运行 `mcpc …`；说明文本是 `vendor/mcpc/SKILL.md` 原文加一行 `Servers (entries of ./mcp.json, not connected yet): github linear …`。沙箱工作目录里有 `mcp.json`，模型自己 `mcpc connect ./mcp.json:<server> @<名字>` 建会话（这些命令和它们的输出像其他命令一样计入 token 与轮数）；运行结束时关闭它建的全部会话。
+2. **native-deferred**：同样的工具，但开始时一个也没有加载，见 [native-deferred 一列](#native-deferred-一列)。
+3. **via**：模型只有一个 `shell` 工具，说明文本是当次沙箱里 `via prompt` 的输出。命令按 POSIX 风格切词，作为 `dist/via.js` 的 argv 在沙箱 HOME 里运行（`sources: false`，配置只有这些回放 server；与 token 基准相同，进程内模式，不留后台 daemon），返回 stdout、stderr 和退出码。
+4. **mcp2cli**：同一个 `shell` 工具，只能运行 `mcp2cli …`；说明文本是 `vendor/mcp2cli/SKILL.md` 原文加一段别名说明（`Servers: @github @linear …`，并写明别名已经建好，用 `@name --search` 再 `@name <command>`，不要自己传 `--mcp`、`--oauth` 或别的 server 地址）。每次运行先为每个 server 做一次 `bake create`（一次性配置，不计入）。
+5. **mcpc**：同一个 `shell` 工具，只能运行 `mcpc …`；说明文本是 `vendor/mcpc/SKILL.md` 原文加一行 `Servers (entries of ./mcp.json, not connected yet): github linear …`。沙箱工作目录里有 `mcp.json`，模型自己 `mcpc connect ./mcp.json:<server> @<名字>` 建会话（这些命令和它们的输出像其他命令一样计入 token 与轮数）；运行结束时关闭它建的全部会话。
 
 `shell` 工具没有真实的 shell：不是 `via` / `mcp2cli` 开头的命令、`|` `&&` `;` `>` 之类的 shell 语法、没闭合的引号，都直接拒绝（退出码 127，计一次错误调用）。
 
 真实评测在第一个任务之前先做登录校验（`--fake-model` 不做）。对挂载的、并且用户配置里有凭证的 server 跑 `via auth status`：OAuth 已登录或还能刷新就通过；还没登录就在这里执行一次 `via auth login <provider>`，等浏览器里批准后再查一次状态。凭证对不上（例如 bearer 的环境变量缺失）则直接退出码 4，不开始评测。没有配凭证的 server 只用本地回放，不登录。
 
 任务进行中不再打开登录页。`via auth`、`mcp2cli --oauth`、`mcpc login` / `mcpc logout`，以及 `--mcp` / `mcpc connect` 指向本次回放 server 以外的地址，都以退出码 127 拒绝。工具参数里的 URL（例如打开 `https://docs.acme.test/`）不是连接目标，不拒绝。过期的回调标签页不能补救；要重新登录就停掉这次评测，再跑一次。
+
+### native-deferred 一列
+
+native 一列是「全部工具定义每轮完整注入」的朴素做法。越来越多的框架不这样做了：工具定义延迟加载，模型先搜索，搜到的才进上下文。这时 via 省下的不再是每轮的注入，要比的是发现的轮数和结果的大小。这一列就是这个对照（`eval/tools.ts` 的 `deferredNativeTools`）：
+
+- 开始时模型只有一个 `tool_search` 工具（`query` 必填，`limit` 可选：默认 5，最多 10），系统提示多一句话：哪些 server 已连接但工具没有加载，用 `tool_search` 按关键词查找并加载。
+- 检索是确定性的：对每个工具的名字（按 `_`、`-` 和大小写切词，权重 3）与描述做 BM25，简单的复数归一（`issues` 与 `issue` 相同）；`query` 恰好是某个工具名（带不带 `mcp__<server>__` 前缀都行）时它排第一；与查询没有共同词的工具不返回。
+- 搜到的工具定义从**下一轮**起加入请求的 `tools`，之后每轮都在（和框架里已加载的工具一样），所以 API 的 `usage` 只为已加载的定义计费。结果文本是加载的工具名加各自描述的第一行。
+- 没有加载的工具不能调用：返回 `Tool … is not loaded yet`，计一次错误调用。
+
+这是评测自己实现的延迟加载，用来代表这一类框架，不等同于任何一个框架的实现：有的框架把全部工具名列在上下文里，有的用正则或向量检索，加载的条数也不同。它与 via 的比较列在「不属于门槛」一节，门槛 1 的定义没有变。已发布的 [eval-2026-10-26-deepseek-flash](results/eval-2026-10-26-deepseek-flash.md) 是加这一列之前跑的，没有这一列的数字。
 
 ### 哪些结果进仓库
 
@@ -292,11 +304,11 @@ $ npm run bench:eval -- \
 | `results/eval-<日期>.md` | 可以。这是一份评测的报告（总览、门槛、各任务）。只有决定把这次运行当作发布结果时才提交 |
 | `results/eval-<日期>.json` | 不要。这是原始记录：每次运行的命令、模型原文和 token。体积大，而且含本机回放端口。`.gitignore` 已排除 `bench/results/eval-*.json` |
 
-`eval-2026-10-26-deepseek-flash` 是本地的一次 deepseek-flash 运行，不是默认模型，门槛 1 也不成立。报告可以留在本机对照；原始 JSON 不上传。
+`eval-2026-10-26-deepseek-flash` 是一次 deepseek-flash 运行，不是默认模型，门槛 1 也不成立；报告已提交（[results/eval-2026-10-26-deepseek-flash.md](results/eval-2026-10-26-deepseek-flash.md)），[路线图](../docs/roadmap.md#门槛)按它写了门槛 1 的状态。原始 JSON 不上传。
 
 ### 系统提示
 
-三个条件共用的部分（`eval/prompts.ts` 的 `COMMON_SYSTEM`；改这里时同步改本节）：
+各条件共用的部分（`eval/prompts.ts` 的 `COMMON_SYSTEM`；改这里时同步改本节）：
 
 ```text
 You are an autonomous agent completing one task for a user. Nobody can answer questions during the task, so do not ask for clarification: use your tools to find what you need and make reasonable choices.
@@ -308,14 +320,14 @@ Rules:
 - When the task is complete, stop calling tools and reply with a short final answer: what you did and the key facts you found.
 ```
 
-之后：native 条件什么都不加（工具定义本身就是说明）；via、mcp2cli 与 mcpc 条件各加一句「你唯一的工具是 `shell`，它运行 `via` / `mcp2cli` / `mcpc` 命令」，接着是上面说的说明文本。用户消息就是任务的 `goal`（折成一行）。`shell` 工具的描述见 `shellTool`。
+之后：native 条件什么都不加（工具定义本身就是说明）；native-deferred 条件加一句话（`deferredSection`：`The tools of these MCP servers are connected but not loaded: github, linear, …. Call \`tool_search\` with keywords to find and load the ones a step needs; loaded tools stay available for the rest of the task.`），`tool_search` 工具的描述见 `toolSearchTool`；via、mcp2cli 与 mcpc 条件各加一句「你唯一的工具是 `shell`，它运行 `via` / `mcp2cli` / `mcpc` 命令」，接着是上面说的说明文本。用户消息就是任务的 `goal`（折成一行）。`shell` 工具的描述见 `shellTool`。
 
 ### 每次运行记录什么
 
 成功与否和各项检查的结果、结束状态（`completed`、`max_turns`、`truncated`、`refused`、`error`）、API `usage` 按轮累加的输入 / 输出 / 缓存读 / 缓存写 token、模型轮数、工具调用数、**错误调用数**（非零退出码、MCP `isError`，或回放 server 没有对应返回值的调用——在 CLI 条件下，一条命令触发了没有返回值的上游调用也算）、耗时、最终回答，以及每次工具调用（截断到 1500 字符的输出）。API 或 harness 出错的运行记为未成功并单独计数。只有 `completed`（模型自己停下并给出回答）且所有检查通过才算成功。
 
-汇总每个条件：成功次数与成功率（95% Wilson 区间）、输入 / 输出 / 总 token 的均值与中位数、轮数、工具调用、错误调用、耗时；再给每个任务在三个条件下的成功次数。最后打印**门槛 1** 是否成立：via 的成功率不低于 native，且不低于 mcp2cli（点估计；区间重叠时注明差异在噪声之内）。mcp2cli 缺失时只做与 native 的比较，并标明「比较不完整」。via 与 mcpc 的比较单独列出（「不属于门槛」），不影响门槛的判定：门槛按路线图的定义只问 native 与 mcp2cli。
+汇总每个条件：成功次数与成功率（95% Wilson 区间）、输入 / 输出 / 总 token 的均值与中位数、轮数、工具调用、错误调用、耗时；再给每个任务在各条件下的成功次数。最后打印**门槛 1** 是否成立：via 的成功率不低于 native，且不低于 mcp2cli（点估计；区间重叠时注明差异在噪声之内）。mcp2cli 缺失时只做与 native 的比较，并标明「比较不完整」。via 与 native-deferred、mcpc 的比较单独列出（「不属于门槛」），不影响门槛的判定：门槛按路线图的定义只问 native 与 mcp2cli。
 
 ### `--fake-model`
 
-脚本化的模型：按任务文件的 `native.rounds`、`via`、`mcp2cli`、`mcpc` 步骤逐轮回放（`{cursor}` 取自上一步的输出），最后给出含 `answer` 关键事实的回答。它走完真实的循环、回放 server、沙箱、工具执行、判定、汇总和报告，用来验证流水线，**不衡量任何模型**：token 是字节数估算，成功率必然是 100%，门槛显示「未评估」。输出带醒目标注，也拒绝写入 `bench/results/`（默认不写文件；要保存请 `--out` 到别处）。`npm test` 里的冒烟测试用它跑通 native 与 via（以及 mcp2cli、mcpc，未安装时各自跳过），另有测试用本地假的 Messages API 验证真实客户端的请求形状与 usage 记账。
+脚本化的模型：按任务文件的 `native.rounds`、`via`、`mcp2cli`、`mcpc` 步骤逐轮回放（`{cursor}` 取自上一步的输出；native-deferred 先用一轮 `tool_search` 按名字加载要用的每个工具，再回放 `native.rounds`），最后给出含 `answer` 关键事实的回答。它走完真实的循环、回放 server、沙箱、工具执行、判定、汇总和报告，用来验证流水线，**不衡量任何模型**：token 是字节数估算，成功率必然是 100%，门槛显示「未评估」。输出带醒目标注，也拒绝写入 `bench/results/`（默认不写文件；要保存请 `--out` 到别处）。`npm test` 里的冒烟测试用它跑通 native、native-deferred 与 via（以及 mcp2cli、mcpc，未安装时各自跳过），另有测试用本地假的 Messages API 验证真实客户端的请求形状与 usage 记账。

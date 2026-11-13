@@ -57,6 +57,17 @@ describe('order and concurrency', () => {
     expect(srv.state.maxInflight).toBe(3);
   });
 
+  it('applies --pick to every line, and puts a name that matched nothing among the warnings of the record', async () => {
+    const { sb } = await setup();
+    const input = jsonl(READ(1), call('gh/issue:list', { owner: 'acme', repo: 'api' }));
+    const text = await sb.via(['batch', '--pick', 'number,state'], { stdin: input });
+    expect(text.stdout).toBe('number: 1\nstate: open\nitems:\n  number  state\n  12      open\n  11      open\n  9       closed\n');
+    const json = await sb.via(['batch', '--pick', 'title,nope', '-o', 'json'], { stdin: input });
+    const [first, second] = records(json.stdout);
+    expect(first).toMatchObject({ line: 1, ok: true, result: { title: 'Support OAuth DCR' }, warnings: ['--pick: no field named nope (fields: number, title, state)'] });
+    expect(second!.result).toEqual({ items: [{ title: 'Support OAuth DCR' }, { title: 'Group inference too eager' }, { title: 'Windows named pipes' }] });
+  });
+
   it('streams a result as soon as everything before it is done, and no earlier', async () => {
     const { sb } = await setup();
     const seen: string[] = [];
@@ -402,14 +413,21 @@ describe('-o json', () => {
     expect(records(r.stdout)).toEqual([{ line: 1, tool: 'gh/broken-tool', ok: false, exitCode: 1, error: { code: 1, message: 'boom: the upstream failed', next: 'via gh broken-tool -h' } }]);
   });
 
-  it('a result over the output budget is marked truncated with its cursor instead of being cut mid-JSON', async () => {
+  it('a result over the output budget holds its first page, marked truncated, with the cursor for the rest', async () => {
     const { sb } = await setup();
     const big = call('gh/list_pull_requests', { owner: 'a', repo: 'b' });
     const cut = records((await sb.via(['batch', '-o', 'json'], { stdin: jsonl(big) })).stdout)[0]!;
     expect(cut.ok).toBe(true);
-    expect(cut.result).toBeUndefined();
     expect(cut.truncated).toBe(true);
     expect(cut.next).toMatch(/^via more [0-9a-f]{4,}$/);
+    // the first page is a document: whole rows, from the first on
+    const first = cut.result as Array<{ number: number }>;
+    expect(first.length).toBeGreaterThan(10);
+    expect(first.length).toBeLessThan(300);
+    expect(first.map((row) => row.number)).toEqual(first.map((_, i) => i + 1));
+    // and the cursor continues with the row after it, as JSON again
+    const more = await sb.via([...(cut.next as string).split(' ').slice(1), '-o', 'json']);
+    expect((JSON.parse(more.stdout) as Array<{ number: number }>)[0]!.number).toBe(first.length + 1);
     const full = records((await sb.via(['batch', '-o', 'json', '--full'], { stdin: jsonl(big) })).stdout)[0]!;
     expect(full.truncated).toBeUndefined();
     expect((full.result as unknown[]).length).toBe(300);

@@ -61,7 +61,7 @@ schema 中的 anyOf/oneOf 分支能由已给出的字段唯一确定时，自动
 
 ### 与全局选项重名
 
-工具参数与全局选项重名时（例如参数名为 `full`、`yes`、`timeout`、`json`、`schema-snapshot`），用 `--p.full` 显式指定为工具参数；不加前缀时按全局选项处理。
+工具参数与全局选项重名时（例如参数名为 `full`、`yes`、`timeout`、`json`、`pick`、`schema-snapshot`），用 `--p.full` 显式指定为工具参数；不加前缀时按全局选项处理。
 
 ## 帮助
 
@@ -77,26 +77,25 @@ Get issue details
   --owner          <str>
   --repo           <str>
   --issue-number   <num>
-  --method         get: Get issue details · get_comments: Get issue comments · …
+  --method         get: Get issue details · get_comments: Get issue comments · get_sub_issues: Get sub-issues · get_parent: Get the parent issue · get_labels: Get labels
 example: via github issue:read --owner text --repo text --issue-number 1 --method get
-full text: via github issue:read -h --full
 alias: issue_read · read-only
 ```
 
-- 必填参数在前，显示类型、默认值、enum 可选值和截断后的描述。
+- 必填参数在前，显示类型、默认值、enum 可选值和描述。
 - usage 行超过 120 列时按 80 列折行，续行缩进 9 格，每个参数不拆开；错误信息里的 usage 最多列出 8 个可选参数，其余写成 `[…]`，完整列表见 `-h`。
 - 类型写法：string `<str>`、number/integer `<num>`、object `<json>`、boolean 只写开关；enum 直接写 `a|b|c`（超过 60 个字符时退回类型，完整列表放在参数行）。标量数组（元素是 string、number、integer、boolean，可以几种并列）写元素类型加 `[]`：`<str[]>`、`<num[]>`、`<(str|num)[]>`，因为它既可以重复传参、也可以整体写 JSON，写 `<json>` 会只提示后一种；对象数组、tuple、嵌套数组和没有声明元素类型的数组仍写 `<json>`。与全局选项重名的参数显示为 `--p.<name>`。
 - 参数行列有描述、默认值或需要说明的参数；**必填参数总是有一行**，没有描述时只写类型或可选值（`--issue-number   <num>`、`--method   get|get_comments`，布尔写 `bool`），这样 `-h` 回答得了「这个参数要什么」，不必回头读 usage 行。可选参数没有可说的就不单独成行。多行描述压成一行，列表项以 ` · ` 连接，放不下时以 ` · …` 结尾。标量数组注明「repeat the flag or pass a JSON array」。
 - **对象的字段**：有声明字段的 object 在参数行下列出 `--filter.<field>` 写法；元素是有声明字段的 object 的数组（`--items <json>`，只能整体写 JSON）在参数行下缩进两格列出条目的字段，参数行末尾写 `JSON array of objects with keys:`。两者每个字段一行：类型、必填时的 `required`、描述、`default`。数组条目的字段名**写 schema 里的原名**（`todoId`，不是 `todo-id`）：它们在 JSON 里，via 不改写 JSON 里的键，也不做 kebab 归一化。字段超过 12 个时只列前 12 个，其余写成 `… N more`（object 的 `--filter.…` 行写 `N more fields`）。更深一层的 object、数组只写 `json`。
-- **截断与全文**：默认的 `-h` 把工具描述截成第一行（最长 160 个字符），参数与字段的描述截到约 72 个字符，`one of:` 列表截到约 72 个字符；工具描述的其余部分（常含「仅在用户明确要求时」之类的约束）和被截掉的参数描述只在 `-h --full` 与 `-h -o json` 里。**发生了截断**（上述任何一处、或字段数超过上限）时，`example:` 行之后、`alias:` 行之前多一行 `full text: via <规范写法> -h --full`，没有截断时不出现；`via prompts <provider> <名称> -h` 同样（写成 `via prompts <provider> <名称> -h --full`）。列表项开头的说明行（以 `:` 结尾）在压成一行时被省略，不算截断。
-- **`--full`**（全局选项，[cli.md](cli.md#全局选项)：「关闭截断」）用在 `-h` 上：输出完整的工具描述，保留换行与段落（连续空行并成一行，每行去掉行尾空白；描述有多行时与参数行之间空一行）；参数与字段的描述全文，多行描述的后续行对齐在第一行之下，`default:`、`one of:` 等放在最后一行，`one of:` 列出全部值；字段数不设上限；不再输出 `full text:` 行。`-h -o json` 本来就是全文，`--full` 对它没有影响。工具自己有名为 `full` 的参数时，照旧写 `--p.full`。
+- **给全文，只挡住过长的**：读 `-h` 的 agent 已经选定了这个工具，描述就是工具的约定（「仅在用户明确要求时」、某个值必须按什么格式写），截掉它省下的 token 远抵不上一次错误调用。所以默认的 `-h` 输出**完整的工具描述**，保留换行与段落（连续空行并成一行，每行去掉行尾空白；描述有多行时与参数行之间空一行）；参数与字段的描述、`one of:` 的取值也是全文。只有三处上限，用来挡住本身就是一篇文档的描述：工具描述 2,000 个字符，每个参数或字段的描述 400 个字符，`one of:` 列表 400 个字符；字段数的上限（12）不变。超过的部分以 `…` 结尾，并在 `example:` 行之后、`alias:` 行之前多一行 `full text: via <规范写法> -h --full`；没有截断时不出现。`via prompts <provider> <名称> -h` 同样（写成 `via prompts <provider> <名称> -h --full`）。参数的多行描述仍压成一行（见上），列表项开头的说明行（以 `:` 结尾）在压成一行时被省略，不算截断。
+- **`--full`**（全局选项，[cli.md](cli.md#全局选项)：「关闭截断」）用在 `-h` 上：去掉上面三处长度上限和字段数上限，参数与字段的多行描述逐行列出（后续行对齐在第一行之下，`default:`、`one of:` 等放在最后一行）；不再输出 `full text:` 行。没有东西被截断时，它与默认的 `-h` 只差多行参数描述的排法。`-h -o json` 本来就是全文，`--full` 对它没有影响。工具自己有名为 `full` 的参数时，照旧写 `--p.full`。
 - 末尾显示原始名（`alias:`）、只读或危险标记；原始名与规范写法相同（叶子工具 `whoami`）时不写 `alias:`，三项都没有时没有这一行。其上一行是[调用示例](#调用示例)，再上一行是 `full text:`（有截断时）。
 
 ### 调用示例
 
-`-h` 在 `alias:` 行之前给出一行 `example:`，是按 `inputSchema` 生成、可以直接粘贴运行的调用（`via prompts <provider> <名称> -h` 同样有，写的是 prompt 的参数）。agent 读了它就知道嵌套对象、对象数组、tuple 该怎么写，不必再去翻映射规则；这行文字会进入 agent 的上下文，所以只给一条、尽量短（上例约 25 个 token）。错误信息里的 `usage:` 不带它。`via find` 的结果下面也带这一行（缩进两格，`-o json` 里是 `example` 字段，[discovery.md](discovery.md#搜索)），用的是同一个函数：为了不在搜索时读 schema，它的结果存在[预构建缓存](discovery.md#预构建缓存)里，所以两处的文字必须一致（测试逐工具比较）。
+`-h` 在 `alias:` 行之前给出一行 `example:`，是按 `inputSchema` 生成、可以直接粘贴运行的调用（`via prompts <provider> <名称> -h` 同样有，写的是 prompt 的参数）。agent 读了它就知道必填的嵌套对象、对象数组、tuple 该怎么写，不必再去翻映射规则；这行文字会进入 agent 的上下文，所以只给一条、尽量短（上例约 25 个 token）。错误信息里的 `usage:` 不带它。`via find` 的结果下面也带这一行（缩进两格，`-o json` 里是 `example` 字段，[discovery.md](discovery.md#搜索)），用的是同一个函数：为了不在搜索时读 schema，它的结果存在[预构建缓存](discovery.md#预构建缓存)里，所以两处的文字必须一致（测试逐工具比较）。
 
-- **选哪些参数**：所有必填参数，之后补可选参数，直到共 3 个；必填参数已有 3 个以上时只写必填。**没有可取的值的可选参数跳过**：没有声明 `type`（也没有 `enum`/`const`/`examples`/`default`）的参数只能写成 `text`（真实 server 里常见的 `_`：「Ignored.」），没有教学意义，不补进示例；只有这类可选参数的工具，示例只写必填参数，没有必填参数时不显示。必填的这类参数照写（缺了调用会失败）。可选参数的值是空容器（`'{}'`、`'[]'`，没有教学意义），或补上它会让整行超过 200 个字符时，跳过。没有参数的工具不显示。必填参数连一个可写的值都没有，或只写必填就超过 400 个字符时，整行不显示。
+- **选哪些参数**：所有必填参数，不写可选参数。示例会被照抄，写进去的可选参数就会被原样发出去：给列表工具补上的 `--id text` 把「列出」变成了「读某一条」，给评论补上的 `--parent-id text` 把它变成了对一条不存在的评论的回复。可选参数的写法在 usage 行与参数行里（声明了字段的 object 有 `--filter.<field>` 各行）。没有必填参数的工具不显示示例：不带参数的命令本身就是一次调用。必填参数连一个可写的值都没有，或整行超过 400 个字符时，整行不显示。
 - **取什么值**：`enum`/`const` 的第一个值；其次 `examples` 的第一个、`default`（长度超过 60 字符的不用；boolean 不用 `default`，直接写开关）；都没有时按类型生成：string 写 `text`（有 `format` 时写该格式的合法值：`date-time`、`date`、`time`、`email`、`uri`、`hostname`、`ipv4`），integer/number 取 `minimum`（`exclusiveMinimum` 加 1；不超过 `maximum`，默认 1），boolean 写 `--flag`。
 - **写成什么形态**，与[映射规则](#映射规则)一致：
   - 声明了字段的 object：点号路径，只写必填字段（没有必填字段时写第一个声明的字段），最多嵌套 3 层：`--filter.state open --filter.range.from 2026-01-15`；

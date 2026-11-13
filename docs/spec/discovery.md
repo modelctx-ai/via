@@ -160,7 +160,16 @@ server 常以它所操作的资源的复数命名（`jobs` 的工具 `create_job
 - **provider 名是范围，不是词**：provider 名的词（单数化后；`google-drive` 是 `google`、`drive`）不进该 provider 工具的名称字段索引，工具原始名里的 provider 前缀或后缀也不进（`jobs_create_job` 只索引 `create`、`job`）；但工具自己的规范名或原始名里另外含有这个词时照常索引（资源 `job:create`、叶子 `jobs`、`list_acme_accounts` 里的 `acme`）。查询词若等于某个 provider 名的词，该 provider 的所有工具各得一份相同的加分（名称字段命中，idf 取「这个 provider 的工具数」），所以 `github create issue` 仍偏向 github，同时这个词照常按工具自己的名称、描述、参数名计分。文档长度仍计入 provider 名的词，长度归一化不变。
 - **名称被查询覆盖**：工具原始名的每个词（去掉开头的 provider 名；末尾的 provider 名保留，因为它是品牌还是资源——`close_jobs` 对 `jobs`——由拆分规则决定，而这条规则不能依赖拆分）都在查询里（或是查询词的同义词 / 词形还原结果）时，每个词在 BM25 分数上加 `0.3 + 0.25 × ln(1 + (N − df + 0.5) / (df + 0.5))`，其中 `N` 是工具总数，`df` 是原始名里有这个词的工具数。第一项不随 `df` 变化：同一个 server 里叫这个词的工具越多，第二项越小，而单个 server 里资源词几乎出现在所有描述里，文档 idf 接近 0，只靠第二项压不过描述里提到该词的工具。`list jobs` 覆盖叶子 `jobs`，`create job` 覆盖 `create_job`（不论拆成 `job:create` 还是别的写法），不覆盖 `create_topic`。加分只在第 4 级内改变分数，不跨越第 1–3 级；它只看原始名，所以工具是叶子还是 `resource:verb`、动词表怎样变，都不改变谁得到加分（`rename` 也不影响）。
 
-结果默认 10 条，每条一行，格式同资源视图（含[类型与枚举](#via-provider-resource)）但带 provider 前缀；每条下面缩进两格带一行 `example:`，就是 `-h` 会给的那一行（同一个函数生成，遵守[调用示例](arguments.md#调用示例)的全部规则，包括 Windows 分支），所以大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。没有示例的工具（没有参数，或必填参数写不出安全的值）不带这一行。
+### 对不上的词
+
+BM25 是「或」的关系：查询里只要有一个词命中，工具就会出现在结果里。于是 `via find "dns records"` 在没有任何工具提到 DNS 的目录里照样返回结果（某个描述里有 `record` 的工具），看上去和一次正常的命中没有区别。`find` 因此核对每个参与打分的查询词在目录里有没有着落：
+
+- 一个词算**有着落**，只要有工具在名称、参数名或描述里有它（单数化之后比较），或者有搜索会为它尝试的词形还原、同义词、短语（[同义词扩展](#同义词扩展默认开启确定性)），或者它是某个 provider 名的词。
+- 有结果、但有词没有着落时，stderr 多一行：`· no tool mentions "dns": these matched the rest of the query · via <provider> lists every tool of a provider`。词按查询里的写法给出（不是索引里单数化后的样子），多个时以逗号分隔。结果照常输出，退出码不变。
+- 不出现的情形：排在第一的结果是按规范写法命中的（层级 1–3，查询本身就是工具名）；所有词都有着落；一个结果都没有（那是「没有命中」的提示）；开启了 `search.semantic` 且 embedding 参与了排序（它按含义而不是按词匹配）。
+- 检查只用已经建好的索引，不读 schema，不调用模型。`-o json` 时这一行同样在 stderr。
+
+结果默认 10 条，每条一行，格式同资源视图（含[类型与枚举](#via-provider-resource)）但带 provider 前缀；每条下面缩进两格带一行 `example:`，就是 `-h` 会给的那一行（同一个函数生成，遵守[调用示例](arguments.md#调用示例)的全部规则，包括 Windows 分支），所以大多数情况下 `find` 之后就能直接调用，省掉一次 `-h`。示例只含必填参数；没有示例的工具（没有必填参数：不带参数的命令就是调用；或必填参数写不出安全的值）不带这一行。
 
 ```console
 $ via find "read issue"

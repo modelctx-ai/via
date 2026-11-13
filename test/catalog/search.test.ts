@@ -90,6 +90,32 @@ describe('SearchIndex ranking (discovery.md, "搜索")', () => {
   });
 });
 
+describe('SearchIndex#unmatched (discovery.md, "对不上的词")', () => {
+  it('names the scored words of a query that no tool and no provider answers, as the query spelled them', () => {
+    expect(index.unmatched('dns records')).toEqual(['dns']);
+    expect(index.unmatched('kubernetes pods')).toEqual(['kubernetes', 'pods']);
+    expect(index.unmatched('Create a KUBERNETES issue')).toEqual(['kubernetes']);
+  });
+
+  it('counts a plural, a stem, a synonym, a phrase and a provider name as answered', () => {
+    for (const query of ['create issue', 'issues', 'listing repositories', 'open a ticket', 'pull request merge', 'github', 'linear issue', 'github/issue:read']) {
+      expect(index.unmatched(query), query).toEqual([]);
+    }
+  });
+
+  it('leaves stop words out, and has nothing to say about an empty query', () => {
+    expect(index.unmatched('the issue of a')).toEqual([]);
+    expect(index.unmatched('')).toEqual([]);
+    expect(index.unmatched('   ')).toEqual([]);
+  });
+
+  it('is the plain lookup when synonyms are off', () => {
+    const plain = new SearchIndex(catalog, undefined, { synonyms: false });
+    expect(plain.unmatched('ticket issue')).toEqual(['ticket']);
+    expect(plain.unmatched('issue')).toEqual([]);
+  });
+});
+
 describe('SearchIndex: a provider named after its resource (discovery.md, "搜索")', () => {
   // jobs.json: server `jobs`, tools `create_job` -> job:create, `jobs` (leaf), `close_jobs`, `create_topic`, ...
   // whose descriptions and parameters mention jobs throughout.

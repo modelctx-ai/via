@@ -61,14 +61,17 @@ describe.skipIf(process.platform === 'win32')('formatCallExample', () => {
     expect(example({ ...COMPLEX, required: ['legacy_tuple', 'count', 'draft'] })).toBe(`${PREFIX} --legacy-tuple '["text",1]' --count 5 --draft`);
   });
 
-  it('fills the required parameters first, then optional ones up to three parameters in all', () => {
+  it('writes every required parameter and no optional one; a tool without required parameters has no example', () => {
     const schema = {
       type: 'object',
       properties: { a: { type: 'string' }, b: { type: 'string' }, c: { type: 'string' }, d: { type: 'string' }, e: { type: 'string' } },
       required: ['c'],
     };
-    expect(example(schema)).toBe(`${PREFIX} --c text --a text --b text`);
+    expect(example(schema)).toBe(`${PREFIX} --c text`);
     expect(example({ ...schema, required: ['a', 'b', 'c', 'd'] })).toBe(`${PREFIX} --a text --b text --c text --d text`);
+    // the bare command is the call: a line that fills in filters would be copied with them
+    expect(example({ ...schema, required: [] })).toBeUndefined();
+    expect(example({ type: 'object', properties: { id: { type: 'string', description: 'Read this one instead of listing.' }, limit: { type: 'integer', default: 50 } } })).toBeUndefined();
   });
 
   it('uses the repeated flag for a list of scalars and JSON for anything else', () => {
@@ -114,7 +117,8 @@ describe.skipIf(process.platform === 'win32')('formatCallExample', () => {
     expect(example({ type: 'object', properties: { yes: { type: 'boolean' }, full: { type: 'string' } }, required: ['yes', 'full'] })).toBe(`${PREFIX} --p.yes --p.full text`);
     const clash = { type: 'object', properties: { '$(a)': { type: 'string' }, '$(A)': { type: 'string' } }, required: ['$(a)'] };
     // the collision keeps the original names, which are written as one quoted word each
-    expect(example(clash)).toBe(`${PREFIX} '--$(a)' text '--$(A)' text`);
+    expect(example(clash)).toBe(`${PREFIX} '--$(a)' text`);
+    expect(example({ ...clash, required: ['$(a)', '$(A)'] })).toBe(`${PREFIX} '--$(a)' text '--$(A)' text`);
   });
 
   it('writes a value that starts with a dash as --name=value, and a negative number the same way', () => {
