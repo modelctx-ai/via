@@ -18,8 +18,10 @@ export interface CursorRecord {
   totalBytes: number;
   /** Page budget in bytes. */
   budget: number;
-  /** Table rows hidden by `maxColumns`, kept for the meta line of continuation pages. */
+  /** Table columns hidden by `maxColumns`, kept for the meta line of continuation pages. */
   hiddenColumns: number;
+  /** Their names (meta.ts); absent in cursors written before the names were kept. */
+  hiddenNames?: string[];
   createdAt: number;
 }
 

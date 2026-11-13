@@ -57,6 +57,17 @@ describe('order and concurrency', () => {
     expect(srv.state.maxInflight).toBe(3);
   });
 
+  it('applies --pick to every line, and puts a name that matched nothing among the warnings of the record', async () => {
+    const { sb } = await setup();
+    const input = jsonl(READ(1), call('gh/issue:list', { owner: 'acme', repo: 'api' }));
+    const text = await sb.via(['batch', '--pick', 'number,state'], { stdin: input });
+    expect(text.stdout).toBe('number: 1\nstate: open\nitems:\n  number  state\n  12      open\n  11      open\n  9       closed\n');
+    const json = await sb.via(['batch', '--pick', 'title,nope', '-o', 'json'], { stdin: input });
+    const [first, second] = records(json.stdout);
+    expect(first).toMatchObject({ line: 1, ok: true, result: { title: 'Support OAuth DCR' }, warnings: ['--pick: no field named nope (fields: number, title, state)'] });
+    expect(second!.result).toEqual({ items: [{ title: 'Support OAuth DCR' }, { title: 'Group inference too eager' }, { title: 'Windows named pipes' }] });
+  });
+
   it('streams a result as soon as everything before it is done, and no earlier', async () => {
     const { sb } = await setup();
     const seen: string[] = [];

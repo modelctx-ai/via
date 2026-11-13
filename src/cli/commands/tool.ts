@@ -342,6 +342,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
       cellWidth: config.output.cellWidth,
       noise: defaultNoise(server.noise),
       secrets: app.secrets(),
+      ...(options.pick ? { pick: options.pick } : {}),
     }),
     {
       ref: tool.ref,
@@ -360,6 +361,7 @@ async function attemptCall(app: App, request: CallRequest, sink: CallSink, warni
     stderr: rendered.exitCode === ExitCode.ToolError ? addDisagreeHint(rendered.stderr, options.format, resultText(result)) : rendered.stderr,
     warnings,
   };
+  if (rendered.warnings) warnings.push(...rendered.warnings);
   if (rendered.meta) outcome.meta = rendered.meta;
   if (rendered.error) outcome.error = rendered.error;
   return outcome;

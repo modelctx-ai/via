@@ -3,6 +3,7 @@ import { CURSOR_TTL_MS, linesBytes, splitLongLines, takePage, type CursorRecord,
 import { ExitCode } from './exit-codes';
 import { formatError, type ErrorInfo } from './errors';
 import { formatMetaLine, type MetaInfo } from './meta';
+import { pickValue } from './pick';
 import type { MediaSink } from './media';
 import { createRedactor, redactValue, scannerOf, type Redactor } from './redact';
 import { sanitizeText } from './sanitize';
@@ -29,6 +30,8 @@ export interface RenderOptions {
   columns: ColumnsData;
   /** Resolved credential values that must never reach the output. */
   secrets: readonly string[];
+  /** `--pick`: the fields to keep, in order (output.md, "选字段"). Empty or absent: everything. */
+  pick?: readonly string[];
   /**
    * The result was already redacted field by field (`redactProtocol`), so its protocol fields
    * (`role`, `mimeType`, …) are final. Rendering then only runs the document scan over what it
@@ -77,6 +80,8 @@ export interface RenderOutput {
   meta?: MetaInfo;
   /** The structured form of the error report, when the result was an error. */
   error?: ErrorInfo;
+  /** Warnings the rendering itself added to `stderr` (a `--pick` name that matched nothing). */
+  warnings?: string[];
 }
 
 // Source selection ------------------------------------------------------------
@@ -145,6 +150,43 @@ interface Body {
   header: string[];
   rows?: number;
   hiddenColumns: number;
+  hiddenNames: string[];
+  /** What `--pick` could not do, one warning each. */
+  warnings: string[];
+}
+
+/** Field names listed in a warning about a `--pick` name that matched nothing. */
+const MAX_FIELDS_LISTED = 24;
+
+/** `--pick` over the values of a result: the selection of each, and what to say when a name found nothing. */
+class Picker {
+  private readonly matched = new Set<string>();
+  private available: string[] = [];
+  private values = 0;
+
+  constructor(
+    private readonly names: readonly string[],
+    private readonly flat: boolean,
+  ) {}
+
+  apply(value: unknown): { value: unknown; tables?: WeakMap<object, string[]> } {
+    if (this.names.length === 0) return { value };
+    this.values += 1;
+    const outcome = pickValue(value, this.names, this.flat);
+    for (const name of this.names) if (!outcome.unknown.includes(name)) this.matched.add(name);
+    if (this.available.length === 0) this.available = outcome.available;
+    return { value: outcome.value, tables: outcome.tables };
+  }
+
+  warnings(redact: (s: string) => string): string[] {
+    if (this.names.length === 0) return [];
+    if (this.values === 0) return ['--pick chooses fields of a structured result; this one has none'];
+    const unknown = this.names.filter((name) => !this.matched.has(name));
+    if (unknown.length === 0) return [];
+    const listed = this.available.slice(0, MAX_FIELDS_LISTED).map((name) => visibleText(redact(name)));
+    const more = this.available.length > listed.length ? ', …' : '';
+    return [`--pick: no field named ${unknown.map((name) => visibleText(redact(name))).join(', ')}${listed.length > 0 ? ` (fields: ${listed.join(', ')}${more})` : ''}`];
+  }
 }
 
 function textBody(pieces: Piece[], options: RenderOptions, redact: (s: string) => string): Body {
@@ -153,18 +195,23 @@ function textBody(pieces: Piece[], options: RenderOptions, redact: (s: string) =
   let header: string[] = [];
   let rows: number | undefined;
   let hidden = 0;
+  const hiddenNames: string[] = [];
+  const picker = new Picker(options.pick ?? [], true);
   for (const piece of pieces) {
     if (piece.kind === 'value') {
       const cleaned = cleanValue(redactValue(piece.value, redact), options.noise);
       if (cleaned === undefined) continue;
-      const shaped = shapeValue(cleaned, {
+      const picked = picker.apply(cleaned);
+      const shaped = shapeValue(picked.value, {
         cellWidth: options.full ? undefined : options.cellWidth,
         columns: options.columns,
+        ...(picked.tables ? { picked: picked.tables } : {}),
       });
       sections.push({ lines: shaped.lines, compact: false });
       header = shaped.kind === 'table' ? shaped.header : [];
       rows = shaped.rows;
       hidden += shaped.hiddenColumns;
+      for (const name of shaped.hiddenNames) if (!hiddenNames.includes(name)) hiddenNames.push(name);
     } else if (piece.kind === 'text') {
       const text = redact(piece.text).replace(/\s+$/, '');
       if (text) sections.push({ lines: text.split('\n'), compact: !text.includes('\n') });
@@ -181,28 +228,33 @@ function textBody(pieces: Piece[], options: RenderOptions, redact: (s: string) =
     header: single ? header : [],
     rows: single ? rows : undefined,
     hiddenColumns: hidden,
+    hiddenNames,
+    warnings: picker.warnings(redact),
   };
 }
 
 function jsonBody(pieces: Piece[], options: RenderOptions, redact: (s: string) => string): Body {
   const values: unknown[] = [];
+  const picker = new Picker(options.pick ?? [], false);
   for (const piece of pieces) {
     if (piece.kind === 'value') {
       const cleaned = cleanValue(redactValue(piece.value, redact), options.noise);
-      if (cleaned !== undefined) values.push(cleaned);
+      if (cleaned !== undefined) values.push(picker.apply(cleaned).value);
     } else if (piece.kind === 'text') {
       values.push(redact(piece.text));
     } else {
       values.push(piece.path !== undefined ? { type: piece.type, path: piece.path } : { type: piece.type, uri: redact(piece.uri ?? '') });
     }
   }
-  if (values.length === 0) return { lines: [], header: [], hiddenColumns: 0 };
+  if (values.length === 0) return { lines: [], header: [], hiddenColumns: 0, hiddenNames: [], warnings: picker.warnings(redact) };
   const value = values.length === 1 ? values[0] : values;
   return {
     lines: JSON.stringify(value, null, 2).split('\n'),
     header: [],
     rows: Array.isArray(value) ? value.length : undefined,
     hiddenColumns: 0,
+    hiddenNames: [],
+    warnings: picker.warnings(redact),
   };
 }
 
@@ -233,8 +285,8 @@ function rawText(result: ToolResult, media: MediaSink, redact: (s: string) => st
 
 const withNewline = (s: string) => (s === '' || s.endsWith('\n') ? s : `${s}\n`);
 
-function stderrFor(meta: MetaInfo, ctx: Pick<RenderContext, 'warnings'>): string {
-  const warnings = (ctx.warnings ?? []).map((w) => `warning: ${w}\n`).join('');
+function stderrFor(meta: MetaInfo, ctx: Pick<RenderContext, 'warnings'>, own: readonly string[] = []): string {
+  const warnings = [...(ctx.warnings ?? []), ...own].map((w) => `warning: ${w}\n`).join('');
   return `${warnings}${formatMetaLine(meta)}\n`;
 }
 
@@ -276,15 +328,17 @@ export async function renderToolResult(
     elapsedMs: ctx.elapsedMs,
     rows: body.rows,
     hiddenColumns: options.format === 'text' ? body.hiddenColumns : 0,
+    ...(options.format === 'text' && body.hiddenNames.length > 0 ? { hiddenNames: body.hiddenNames.map(scan) } : {}),
     flags: ctx.flags,
     bytes: { shown: 0, total: 0 },
     ...(ctx.next ? { next: ctx.next } : {}),
   };
 
+  const own = body.warnings.length > 0 ? { warnings: body.warnings } : {};
   const totalBytes = linesBytes(all);
   if (options.full || totalBytes <= options.budget) {
     meta.bytes = { shown: totalBytes, total: totalBytes };
-    return { stdout: all.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok, meta };
+    return { stdout: all.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx, body.warnings), exitCode: ExitCode.Ok, meta, ...own };
   }
 
   // Over budget: show what fits, keep the rest behind a cursor.
@@ -300,11 +354,12 @@ export async function renderToolResult(
     totalBytes: linesBytes(header) + linesBytes(bodyLines),
     budget: options.budget,
     hiddenColumns: meta.hiddenColumns ?? 0,
+    ...(meta.hiddenNames ? { hiddenNames: meta.hiddenNames } : {}),
     createdAt: now(),
   };
   meta.bytes = { shown, total: record.totalBytes };
   if (page.next < bodyLines.length) meta.next = `via more ${shellArg(await ctx.cursors.put(record), { placeholder: 'cursor', positional: true })}`;
-  return { stdout: page.lines.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx), exitCode: ExitCode.Ok, meta };
+  return { stdout: page.lines.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx, body.warnings), exitCode: ExitCode.Ok, meta, ...own };
 }
 
 /** `via more <cursor>`: continue from where the previous page stopped, same format as the first page. */
@@ -330,6 +385,7 @@ export async function renderMore(
     elapsedMs: ctx.elapsedMs,
     bytes: { shown, total: record.totalBytes },
     hiddenColumns: record.hiddenColumns,
+    ...(record.hiddenNames ? { hiddenNames: record.hiddenNames } : {}),
   };
   if (page.next < record.lines.length) {
     const next: CursorRecord = { ...record, offset: page.next, shownBytes: shown, createdAt: (ctx.now ?? Date.now)() };

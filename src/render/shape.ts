@@ -7,6 +7,8 @@ export interface ShapeOptions {
   /** Table cells longer than this many characters are cut and end with `…`. Undefined: no cut (`--full`). */
   cellWidth: number | undefined;
   columns: ColumnsData;
+  /** Arrays whose columns `--pick` chose (pick.ts): a table of exactly these columns, in this order. */
+  picked?: WeakMap<object, string[]>;
 }
 
 export type ShapeKind = 'table' | 'object' | 'list' | 'scalar';
@@ -20,6 +22,21 @@ export interface Shaped {
   rows?: number;
   /** Columns left out of tables (all tables counted), for the `+N cols` meta field. */
   hiddenColumns: number;
+  /** Their names, in the order they first appear; a name left out of two tables is listed once. */
+  hiddenNames: string[];
+}
+
+/** What the tables of one result left out. */
+interface Hidden {
+  count: number;
+  names: string[];
+}
+
+const noHidden = (): Hidden => ({ count: 0, names: [] });
+
+function addHidden(acc: Hidden, t: { hidden: string[] }): void {
+  acc.count += t.hidden.length;
+  for (const name of t.hidden) if (!acc.names.includes(name)) acc.names.push(name);
 }
 
 type Row = Record<string, unknown>;
@@ -28,15 +45,26 @@ const isObject = (v: unknown): v is Row => v !== null && typeof v === 'object' &
 const isScalar = (v: unknown): v is string | number | boolean =>
   typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
 
+interface TableKeys {
+  /** Keys shared by enough rows to be columns. */
+  keys: string[];
+  /** Every key any row has, in the order they first appear. */
+  all: string[];
+  /** The columns were chosen with `--pick`: all of them are shown, in this order. */
+  picked?: boolean;
+}
+
 /** Keys shared by "enough" rows, or undefined when the array is not a consistent list of objects. */
-function tableKeys(items: readonly unknown[]): { keys: string[]; all: number } | undefined {
+function tableKeys(items: readonly unknown[], opts: ShapeOptions): TableKeys | undefined {
   if (items.length < 2 || !items.every(isObject)) return undefined;
+  const picked = opts.picked?.get(items);
+  if (picked) return picked.length > 0 ? { keys: picked, all: picked, picked: true } : undefined;
   const rows = items as Row[];
   const count = new Map<string, number>();
   for (const row of rows) for (const key of Object.keys(row)) count.set(key, (count.get(key) ?? 0) + 1);
   const common = [...count.entries()].filter(([, n]) => n >= rows.length / 2).map(([k]) => k);
   if (common.length === 0 || common.length / count.size < 0.5) return undefined;
-  return { keys: common, all: count.size };
+  return { keys: common, all: [...count.keys()] };
 }
 
 /** Pick at most `max` columns: preferred field names first, then the remaining in key order. */
@@ -71,8 +99,8 @@ function cellText(value: unknown, columns: ColumnsData): string {
   return String(value);
 }
 
-function table(items: readonly unknown[], keys: { keys: string[]; all: number }, opts: ShapeOptions, indent: string) {
-  const shown = chooseColumns(keys.keys, opts.columns);
+function table(items: readonly unknown[], keys: TableKeys, opts: ShapeOptions, indent: string) {
+  const shown = keys.picked ? keys.keys : chooseColumns(keys.keys, opts.columns);
   const cell = (v: unknown) => {
     const flat = cellText(v, opts.columns).replace(/\s+/g, ' ').trim();
     return opts.cellWidth === undefined ? flat : truncateChars(flat, opts.cellWidth);
@@ -81,7 +109,7 @@ function table(items: readonly unknown[], keys: { keys: string[]; all: number },
   return {
     lines: alignRows(rows).map((l) => indent + l),
     rows: items.length,
-    hidden: keys.all - shown.length,
+    hidden: keys.all.filter((k) => !shown.includes(k)),
   };
 }
 
@@ -91,7 +119,7 @@ function scalarLines(value: string | number | boolean, indent: string): string[]
     .map((l) => indent + l);
 }
 
-function listLines(items: readonly unknown[], opts: ShapeOptions, indent: string, acc: { hidden: number }): string[] {
+function listLines(items: readonly unknown[], opts: ShapeOptions, indent: string, acc: Hidden): string[] {
   const out: string[] = [];
   for (const item of items) {
     if (isScalar(item)) {
@@ -108,7 +136,7 @@ function listLines(items: readonly unknown[], opts: ShapeOptions, indent: string
   return out;
 }
 
-function objectLines(obj: Row, opts: ShapeOptions, indent: string, acc: { hidden: number }): string[] {
+function objectLines(obj: Row, opts: ShapeOptions, indent: string, acc: Hidden): string[] {
   const out: string[] = [];
   for (const [key, value] of Object.entries(obj)) {
     if (isScalar(value)) {
@@ -120,17 +148,17 @@ function objectLines(obj: Row, opts: ShapeOptions, indent: string, acc: { hidden
         out.push(`${indent}${key}: ${value.join(', ')}`);
         continue;
       }
-      // `[{name: bug}, {name: p1}]` reads best as `bug, p1`.
-      const singles = value.map((v) => (isObject(v) && Object.keys(v).length === 1 ? Object.values(v)[0] : undefined));
+      // `[{name: bug}, {name: p1}]` reads best as `bug, p1`; rows cut down by `--pick` stay a table with its header.
+      const singles = opts.picked?.has(value) ? [undefined] : value.map((v) => (isObject(v) && Object.keys(v).length === 1 ? Object.values(v)[0] : undefined));
       if (singles.every((v) => isScalar(v) && !String(v).includes('\n'))) {
         out.push(`${indent}${key}: ${singles.join(', ')}`);
         continue;
       }
-      const keys = tableKeys(value);
+      const keys = tableKeys(value, opts);
       out.push(`${indent}${key}:`);
       if (keys) {
         const t = table(value, keys, opts, `${indent}  `);
-        acc.hidden += t.hidden;
+        addHidden(acc, t);
         out.push(...t.lines);
       } else {
         out.push(...listLines(value, opts, `${indent}  `, acc));
@@ -151,24 +179,24 @@ function objectLines(obj: Row, opts: ShapeOptions, indent: string, acc: { hidden
  * - anything else -> one item per line.
  */
 export function shapeValue(value: unknown, opts: ShapeOptions): Shaped {
+  const acc = noHidden();
+  const hidden = (): Pick<Shaped, 'hiddenColumns' | 'hiddenNames'> => ({ hiddenColumns: acc.count, hiddenNames: acc.names });
   if (Array.isArray(value)) {
-    const keys = tableKeys(value);
+    const keys = tableKeys(value, opts);
     if (keys) {
       const t = table(value, keys, opts, '');
-      return { kind: 'table', lines: t.lines, header: t.lines.slice(0, 1), rows: t.rows, hiddenColumns: t.hidden };
+      addHidden(acc, t);
+      return { kind: 'table', lines: t.lines, header: t.lines.slice(0, 1), rows: t.rows, ...hidden() };
     }
     if (value.length === 1 && isObject(value[0])) {
-      const acc = { hidden: 0 };
-      return { kind: 'object', lines: objectLines(value[0], opts, '', acc), header: [], rows: 1, hiddenColumns: acc.hidden };
+      return { kind: 'object', lines: objectLines(value[0], opts, '', acc), header: [], rows: 1, ...hidden() };
     }
-    const acc = { hidden: 0 };
     const lines = value.every(isScalar) ? value.flatMap((v) => scalarLines(v as string, '')) : listLines(value, opts, '', acc);
-    return { kind: 'list', lines, header: [], rows: value.length, hiddenColumns: acc.hidden };
+    return { kind: 'list', lines, header: [], rows: value.length, ...hidden() };
   }
   if (isObject(value)) {
-    const acc = { hidden: 0 };
-    return { kind: 'object', lines: objectLines(value, opts, '', acc), header: [], hiddenColumns: acc.hidden };
+    return { kind: 'object', lines: objectLines(value, opts, '', acc), header: [], ...hidden() };
   }
-  if (isScalar(value)) return { kind: 'scalar', lines: scalarLines(value, ''), header: [], hiddenColumns: 0 };
-  return { kind: 'scalar', lines: [], header: [], hiddenColumns: 0 };
+  if (isScalar(value)) return { kind: 'scalar', lines: scalarLines(value, ''), header: [], ...hidden() };
+  return { kind: 'scalar', lines: [], header: [], ...hidden() };
 }

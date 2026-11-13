@@ -49,7 +49,7 @@ With a live model the saving is smaller. In the [first published agent evaluatio
 - **Reuses the config you already have.** Reads MCP servers from Claude Code, Claude Desktop, Cursor, Codex, VS Code, Gemini CLI, GitHub Copilot CLI, Devin Desktop / Windsurf, Antigravity and Amp. Read-only: via never writes to them.
 - **One place for credentials.** Configuration holds references (`keychain:`, `env:`, `file:`, `cmd:`) or via's own OAuth sign-in. Resolved values are shown as `***` everywhere.
 - **Search across servers.** `via find "create issue"` ranks tools from every provider, with synonym expansion. Deterministic by default: no model calls unless you turn on `search.semantic`.
-- **Compact, predictable output.** One set of rendering rules for every server, a `next:` hint after every error, cursors for truncated output, and `-o json` for scripts.
+- **Compact, predictable output.** One set of rendering rules for every server, a `next:` hint after every error, cursors for truncated output, `--pick` to print only the fields you name, and `-o json` for scripts.
 - **Built for the shell.** Pipe results between tools without passing them through the model, or send many calls through `via batch` at once.
 - **Guard rails.** `deny` rules hide tools, destructive tools need `--yes`, and project-level commands and endpoints need `via trust` before first use.
 - **Fast and portable.** Browsing a warm cache takes about 80 ms. A local daemon keeps MCP sessions open between calls. Runs on macOS, Linux and Windows.
@@ -169,7 +169,7 @@ See the [getting-started guide](docs/guides/getting-started.md) and [agent frame
 | Command | Purpose |
 | --- | --- |
 | `via` · `via <provider>` · `via <provider> <resource>` | Browse level by level; `-h` shows the usage of one tool |
-| `via <provider> <resource>:<verb> [--arg value]` | Call a tool; `-o json` prints JSON, `--dry-run` prints the call without sending it |
+| `via <provider> <resource>:<verb> [--arg value]` | Call a tool; `--pick a,b` prints only those fields, `-o json` prints JSON, `--dry-run` prints the call without sending it |
 | `via find <query>` | Search tools across providers |
 | `via more <cursor>` | Continue truncated output |
 | `via batch` | Read JSON Lines from stdin, run the calls concurrently, print results in input order |

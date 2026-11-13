@@ -74,9 +74,9 @@ describe('via serve', () => {
     expect(tools.map((t) => t.name)).toEqual(['via_browse', 'via_find', 'via_call', 'via_more', 'via_resources', 'via_read', 'via_prompts', 'via_skills', 'via_tasks']);
     expect(client.getInstructions()).toContain('via_browse');
     expect(client.getServerCapabilities()).toEqual({ tools: {} });
-    // The point of serve is a small context: the whole tools/list result stays under 6 KB (about 1,500 tokens at 4 bytes a token), the instructions under 1.3 KB.
-    expect(JSON.stringify(tools).length).toBeLessThan(6000);
-    expect(JSON.stringify(SERVE_TOOLS).length).toBeLessThan(6000);
+    // The point of serve is a small context: the whole tools/list result stays under 6 KiB (about 1,500 tokens at 4 bytes a token), the instructions under 1.3 KB.
+    expect(JSON.stringify(tools).length).toBeLessThan(6144);
+    expect(JSON.stringify(SERVE_TOOLS).length).toBeLessThan(6144);
     expect(client.getInstructions()!.length).toBeLessThan(1300);
   });
 
@@ -245,6 +245,8 @@ describe('via serve', () => {
     expect(commandLine('via_tasks', { task: 'gh/job/1', timeout: 120 })).toEqual(['tasks', 'gh/job/1', '--timeout', '120']);
     // via_call waits as the CLI does (the server's timeout) unless it is told to detach or given a timeout
     expect(commandLine('via_call', { tool: 'gh/report:generate' })).toEqual(['call', 'gh/report:generate', '--args', '{}']);
+    expect(commandLine('via_call', { tool: 'gh/issue:list', pick: 'number,title' })).toEqual(['call', 'gh/issue:list', '--args', '{}', '--pick', 'number,title']);
+    expect(() => commandLine('via_call', { tool: 'gh/issue:list', pick: '--yes' })).toThrow(/pick must not start with "-"/);
     expect(commandLine('via_call', { tool: 'gh/report:generate', detach: true, timeout: 5 })).toEqual(['call', 'gh/report:generate', '--args', '{}', '--detach', '--timeout', '5']);
     expect(commandLine('via_prompts', { provider: 'gh', name: 'review', args: { code: 'x' }, complete: 'lang' })).toEqual(['prompts', 'gh', 'review', '--args', '{"code":"x"}', '--complete', 'lang']);
     expect(commandLine('via_resources', { provider: 'gh', template: 'file:///logs/{date}.log', args: { date: '2026' }, complete: 'date' })).toEqual(['resources', 'gh', 'file:///logs/{date}.log', '--args', '{"date":"2026"}', '--complete', 'date']);

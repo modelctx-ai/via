@@ -61,7 +61,7 @@ schema 中的 anyOf/oneOf 分支能由已给出的字段唯一确定时，自动
 
 ### 与全局选项重名
 
-工具参数与全局选项重名时（例如参数名为 `full`、`yes`、`timeout`、`json`、`schema-snapshot`），用 `--p.full` 显式指定为工具参数；不加前缀时按全局选项处理。
+工具参数与全局选项重名时（例如参数名为 `full`、`yes`、`timeout`、`json`、`pick`、`schema-snapshot`），用 `--p.full` 显式指定为工具参数；不加前缀时按全局选项处理。
 
 ## 帮助
 

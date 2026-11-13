@@ -24,6 +24,39 @@ describe('calling a tool', () => {
     expect(srv.state.calls).toEqual([{ name: 'issue_read', args: { owner: 'acme', repo: 'api', issue_number: 3, method: 'get' } }]);
   });
 
+  it('prints only the fields --pick names, in text and in JSON, and says which name it did not find', async () => {
+    const { srv, sb } = await setup();
+    const LIST = ['gh', 'issue:list', '--owner', 'acme', '--repo', 'api'];
+    const text = await sb.via([...LIST, '--pick', 'state,number']);
+    expect(text.code).toBe(0);
+    expect(text.stdout).toBe('items:\n  state   number\n  open    12\n  open    11\n  closed  9\n');
+    expect(normalize(text.stderr)).toBe('· gh issue:list · <t> · 62 bytes\n');
+
+    const json = await sb.via([...LIST, '--pick=title', '-o', 'json']);
+    expect(JSON.parse(json.stdout)).toEqual({ items: [{ title: 'Support OAuth DCR' }, { title: 'Group inference too eager' }, { title: 'Windows named pipes' }] });
+
+    const typo = await sb.via([...READ, '--pick', 'titel,state']);
+    expect(typo.code).toBe(0);
+    expect(typo.stdout).toBe('state: open\n');
+    expect(normalize(typo.stderr)).toBe('warning: --pick: no field named titel (fields: number, title, state)\n· gh issue:read · <t> · 12 bytes\n');
+
+    // refused before the call is sent
+    const before = srv.state.calls.length;
+    const raw = await sb.via([...READ, '--pick', 'title', '-o', 'raw']);
+    expect(raw.code).toBe(2);
+    expect(raw.stderr).toContain('error: --pick does not apply to -o raw');
+    expect(srv.state.calls).toHaveLength(before);
+  });
+
+  it('addresses a tool parameter named pick as --p.pick', async () => {
+    const { srv, sb } = await setup();
+    srv.state.tools = [{ name: 'card_draw', description: 'Draw', inputSchema: { type: 'object', properties: { pick: { type: 'string' } }, required: ['pick'] } }];
+    await sb.via(['sync']);
+    expect((await sb.via(['gh', 'card_draw', '-h'])).stdout).toContain('--p.pick <str>');
+    const dry = await sb.via(['gh', 'card_draw', '--p.pick', 'ace', '--dry-run', '-o', 'json']);
+    expect(JSON.parse(dry.stdout)).toMatchObject({ args: { pick: 'ace' } });
+  });
+
   it('accepts the raw name and prints the canonical form', async () => {
     const { sb } = await setup();
     const r = await sb.via(['gh', 'Issue_Write', '--owner', 'a', '--repo', 'b', '--title', 't']);

@@ -49,7 +49,7 @@ via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，
 - **复用已有配置**：读取 Claude Code、Claude Desktop、Cursor、Codex、VS Code、Gemini CLI、GitHub Copilot CLI、Devin Desktop / Windsurf、Antigravity、Amp 里的 MCP server；只读，从不写入。
 - **凭证集中一处**：配置里只写引用（`keychain:`、`env:`、`file:`、`cmd:`）或由 via 自己完成 OAuth 授权；解析后的值在所有输出里显示为 `***`。
 - **跨 server 搜索**：`via find "create issue"` 在所有 provider 里排序工具，带同义词扩展；默认是确定性的，除非你开启 `search.semantic`，否则不调用模型。
-- **紧凑、可预期的输出**：所有 server 共用一套渲染规则，报错后附 `next:` 提示，截断输出可用游标续读，脚本里用 `-o json`。
+- **紧凑、可预期的输出**：所有 server 共用一套渲染规则，报错后附 `next:` 提示，截断输出可用游标续读，`--pick` 只输出点名的字段，脚本里用 `-o json`。
 - **为 shell 而生**：结果在工具之间用管道传递，不经过模型；`via batch` 一次并发发出多个调用。
 - **安全护栏**：`deny` 规则隐藏工具，破坏性工具需要 `--yes`，项目级的命令与端点首次使用前需要 `via trust`。
 - **快，且到处能跑**：缓存热时浏览约 80 ms；本机 daemon 在调用之间保持 MCP 会话；支持 macOS、Linux、Windows。
@@ -169,7 +169,7 @@ via prompt --skill --out <目录>/via/SKILL.md   # 改写成 SKILL.md，给按�
 | 命令                                               | 作用                                                            |
 | -------------------------------------------------- | --------------------------------------------------------------- |
 | `via` · `via <provider>` · `via <provider> <资源>` | 逐级浏览；`-h` 查看单个工具的用法                               |
-| `via <provider> <资源>:<动作> [--参数 值]`         | 调用工具；`-o json` 输出 JSON，`--dry-run` 只打印将要发出的调用 |
+| `via <provider> <资源>:<动作> [--参数 值]`         | 调用工具；`--pick a,b` 只输出这些字段，`-o json` 输出 JSON，`--dry-run` 只打印将要发出的调用 |
 | `via find <查询>`                                  | 跨 provider 搜索工具                                            |
 | `via more <游标>`                                  | 续读被截断的输出                                                |
 | `via batch`                                        | 从 stdin 读 JSON Lines，并发调用，按输入顺序输出                |

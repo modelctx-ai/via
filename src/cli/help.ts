@@ -25,7 +25,7 @@ commands:
 
 options:
   -o text|json|raw  --json  --full  --all  --yes  --dry-run  --no-validate  --detach  --timeout <seconds>  -h
-  --schema-snapshot <file>  --schema-mode compatible|strict
+  --pick <field,…>  --schema-snapshot <file>  --schema-mode compatible|strict
 
 docs: docs/spec/cli.md
 `;

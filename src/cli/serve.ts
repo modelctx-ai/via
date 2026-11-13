@@ -14,7 +14,7 @@ export type Runner = (argv: readonly string[], overrides: Partial<CliEnv>) => Pr
 const INSTRUCTIONS = `via gives you the user's MCP servers' tools on demand, without loading their schemas up front.
 Flow: via_find (or via_browse: "" lists providers, "gh" its resources, "gh issue" the verbs with signatures, "gh issue:read" one tool's usage) then via_call. Each via_find result has an example: line to adapt.
 Names: via_browse and via_find print "gh issue:read"; via_call takes "gh/issue:read" with every tool parameter inside args. A colon marks a tool; browsing it shows its usage and runs nothing.
-Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more (the cursor only), "via resources|read|prompts|skills|tasks ..." are the matching via_* tools, "--complete" is complete, "--detach" is detach, "--timeout" is timeout.
+Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more (the cursor only), "via resources|read|prompts|skills|tasks ..." are the matching via_* tools, "--complete" is complete, "--detach" is detach, "--timeout" is timeout, "--pick" is pick.
 A failure ends with a next: line; follow it. Exit 2: fix the arguments and retry. 3: not found, see the candidates. 4: the user must log in; you cannot. 5: refused (deny rule, untrusted config, or a destructive tool: pass yes: true only if the user intends it).
 A call that outlives its wait is not cancelled: continue it with via_tasks. For a long job pass detach: true to get its task id at once.`;
 
@@ -56,6 +56,7 @@ export const SERVE_TOOLS: Tool[] = [
         yes: { type: 'boolean', description: 'Confirm a destructive tool' },
         detach: { type: 'boolean', description: 'Return the task id at once instead of waiting' },
         timeout: seconds('Seconds to wait (default 60)'),
+        pick: str('Result fields to print: "title,state"'),
       },
       ['tool'],
     ),
@@ -238,7 +239,8 @@ export function commandLine(tool: string, input: Input): string[] {
       if (yes !== undefined && typeof yes !== 'boolean') throw new ServeUsageError('yes must be a boolean');
       const detach = input.detach;
       if (detach !== undefined && typeof detach !== 'boolean') throw new ServeUsageError('detach must be a boolean');
-      return ['call', ref, '--args', args(input, 'args') ?? '{}', ...(yes === true ? ['--yes'] : []), ...(detach === true ? ['--detach'] : []), ...timeout(input)];
+      const pick = text(input, 'pick');
+      return ['call', ref, '--args', args(input, 'args') ?? '{}', ...(yes === true ? ['--yes'] : []), ...(detach === true ? ['--detach'] : []), ...timeout(input), ...(pick === undefined ? [] : ['--pick', pick])];
     }
     case 'via_more': {
       const cursor = text(input, 'cursor', true);

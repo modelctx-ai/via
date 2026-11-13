@@ -11,6 +11,7 @@ via_call: Run one tool. It neither searches nor lists: get the name and paramete
   yes (boolean): Confirm a destructive tool
   detach (boolean): Return the task id at once instead of waiting
   timeout (number): Seconds to wait (default 60)
+  pick (string): Result fields to print: "title,state"
 
 via_more [read-only]: Continue output that ended with "next: via more c7f2". Example: {"cursor": "c7f2"}. A cursor lasts 30 minutes (then exit 3: rerun the call) and cannot page a new query.
   cursor* (string): The code after "via more"

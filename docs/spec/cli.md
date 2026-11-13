@@ -301,7 +301,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 | --- | --- | --- |
 | `via_browse` | `path`：省略或空串、`<provider>`、`<provider> <resource>`、`<provider> <resource>:<verb>`（按空白分词，至多三个词） | `via [path…]`；有两个以上的词时追加 `-h`：带 `:` 的是该工具的用法，叶子工具与原始名也只显示用法（命令行上 `via gh whoami` 会调用它，而 `via_browse` 是只读的），资源照常列出 |
 | `via_find` | `query`（必填）、`limit`（正整数） | `via find <query> [-n <limit>]` |
-| `via_call` | `tool`（必填，单字符串引用）、`args`（对象）、`yes`（布尔）、`detach`（布尔）、`timeout`（正数，秒） | `via call <tool> --args <args 的 JSON，缺省 {}> [--yes] [--detach] [--timeout <秒>]` |
+| `via_call` | `tool`（必填，单字符串引用）、`args`（对象）、`yes`（布尔）、`detach`（布尔）、`timeout`（正数，秒）、`pick`（字符串，逗号分隔的字段名） | `via call <tool> --args <args 的 JSON，缺省 {}> [--yes] [--detach] [--timeout <秒>] [--pick <字段>]` |
 | `via_more` | `cursor`（必填） | `via more <cursor>` |
 | `via_resources` | `provider`（必填）、`template`、`args`（字符串值的对象）、`complete`（`template` 与 `complete` 同时给，`args` 需要 `template`） | `via resources <provider>`；有 `template` 时 `via resources <provider> <template> [--args <json>] --complete <complete>` |
 | `via_read` | `provider`、`uri`（必填） | `via read <provider> <uri>` |
@@ -352,7 +352,7 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 - 各行并发执行。同一 server 上的并发不超过它的 `concurrency`（[config.md](config.md#serversname)），超出的排队；另有全局上限 `--concurrency <n>`（默认 16，正整数），限制同时在途的行数，无论它们属于哪些 server。
 - 单条失败（解析、找不到、`deny`、危险操作、校验、上游、传输、超时）只影响该行，不中止其他行。
 - 每个 provider 的工具列表在整批中只取一次；校验失败后「缓存超过 5 分钟则刷新一次」的规则（[arguments.md](arguments.md#schema-不可靠时)）也是每个 provider 整批一次，而不是每行一次。
-- 全局选项对整批生效：`--yes` 确认所有危险工具；`--dry-run` 对每一行只打印将要发出的调用（格式见 [`--dry-run` 的输出](#--dry-run-的输出)），不发起调用；`--no-validate`、`--timeout`、`--full`、`-o` 同理。没有 `--yes` 时，危险工具所在的行以退出码 5 失败，其余行不受影响，`next:` 写 `rerun only this line with: via batch --yes --line 3`（3 是该行的行号），因为重跑整批会让已成功的行再执行一遍；stdin 仍要给同一份输入。
+- 全局选项对整批生效：`--yes` 确认所有危险工具；`--dry-run` 对每一行只打印将要发出的调用（格式见 [`--dry-run` 的输出](#--dry-run-的输出)），不发起调用；`--no-validate`、`--timeout`、`--full`、`--pick`、`-o` 同理。没有 `--yes` 时，危险工具所在的行以退出码 5 失败，其余行不受影响，`next:` 写 `rerun only this line with: via batch --yes --line 3`（3 是该行的行号），因为重跑整批会让已成功的行再执行一遍；stdin 仍要给同一份输入。
 - **`--line <n>[,<n>…]`**：只执行指定的行，其余行跳过。`<n>` 是输入里的行号（与错误里的 `line N` 同一个数，空行也占行号），逗号分隔，可以重复写 `--line`（取并集）；必须是正整数。被跳过的行不解析、不解析 provider，也不连接 server，所以其中的错误不会出现。指定的行号不存在（空行，或超过最后一行）、不是正整数列表，或 `--line` 没有值时，不执行任何调用，退出码 2：`error: --line 9: there is no call at that line; nothing was run`，下一行 `lines with a call: 1 · 3 · 4`（超过 12 个时截断为 `… N more`）。其余选项（`--yes`、`--dry-run`、`--timeout`、`-o`）照常作用于被选中的行。
 - 批量不是事务：没有回滚，也不保证幂等。已发出的写入调用不会因为后面的行失败而撤销。
 
@@ -418,6 +418,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `-o text\|json\|raw` | 输出格式（[output.md](output.md#输出格式)）；浏览视图、`via find`、`via servers` 支持 `json`，`raw` 在它们上退出码 2 |
 | `--json` | `-o json` 的别名（模型对 `--json` 的先验很强）。工具自己有名为 `json` 的参数时写 `--p.json` |
 | `--full` | 关闭截断；用在工具或 prompt 的 `-h` 上时输出完整的工具描述与参数描述（[arguments.md](arguments.md#帮助)） |
+| `--pick <字段,…>` | 只输出结果里点名的字段，按给出的顺序；带点的名字取嵌套字段（[output.md](output.md#选字段--pick)）。可以重复，名字合并。与 `-o raw` 同用是用法错误（退出码 2，不发调用）。工具自己有名为 `pick` 的参数时写 `--p.pick` |
 | `--all` | 浏览视图不截断条目；`via <provider> -h --all` 另列出全部工具的用法 |
 | `--yes` | 确认执行危险工具 |
 | `--dry-run` | 只解析并打印将要发出的调用，不执行（输出格式见下） |
@@ -429,7 +430,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `--complete <参数>` | 向 server 要这个 prompt 或资源模板参数的取值建议（[补全](#补全)），只用于 `via prompts <provider> <名称>` 与 `via resources <provider> <模板>` |
 | `-h`, `--help` | 帮助；放在工具引用后时显示该工具用法，加 `-o json` 时输出工具详情（也就是快照文件的格式）；放在 provider 后时在 provider 视图前显示 server 的自述（[discovery.md](discovery.md#server-自述)），再加 `--all` 时在视图后列出该 provider 全部工具的 `usage:` 行（`-o json` 时是工具详情的数组） |
 
-全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
+全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--pick`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--pick=title,state`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
 
 工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）；`--p.` 开头的参数不会被当作全局选项。
 
