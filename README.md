@@ -35,7 +35,7 @@ English | [简体中文](README.zh-CN.md)
 - Each framework keeps its own copy of server URLs and credentials, so rotating a key means editing every one of them.
 - Raw JSON results repeat the same keys on every row, and each framework handles truncation and paging differently.
 
-via is a standalone MCP client. It reads the MCP configuration your frameworks already have (read-only), injects credentials per server, exposes tools as `provider → resource → verb` commands, and renders all output with one set of rules. The agent's context holds only a usage note of about 200 tokens.
+via is a standalone MCP client. It reads the MCP configuration your frameworks already have (read-only), injects credentials per server, exposes tools as `provider → resource → verb` commands, and renders all output with one set of rules. The agent's context holds only a usage note of about 230 tokens.
 
 ![How via works: the agent runs via in the shell and gets compact output back; the via CLI hands the call to a local daemon, which reads framework MCP configs and credentials and talks MCP to the servers over stdio or HTTP](docs/assets/how-it-works.svg)
 
@@ -196,7 +196,7 @@ The threat model is in the [security spec](docs/spec/security.md).
 
 | | Native MCP in the framework | Single-server MCP-to-CLI tools | **via** |
 | --- | --- | --- | --- |
-| Tool schemas in context | All of them, up front | None | None, only a ~200-token note |
+| Tool schemas in context | All of them, up front | None | None, only a ~230-token note |
 | Servers | Each framework has its own list | One endpoint per call | All servers in one catalog |
 | Cross-server search | — | — | `via find` |
 | Credentials | Copied into each framework | Passed per call | One reference per server |

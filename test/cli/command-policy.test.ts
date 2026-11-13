@@ -105,7 +105,7 @@ describe('commands.hide and commands.show', () => {
     expect(r.code).toBe(0);
     expect(r.stdout).not.toContain('via find');
     expect(r.stdout).not.toContain('via more');
-    expect(r.stdout).toContain('- Errors print the next command to run.');
+    expect(r.stdout).toContain('- `--pick a,b` prints only those fields of a result. Errors print the next command to run.');
     expect(r.stdout).toContain('Never run `via trust` yourself');
     // Unrestricted, the text is the one in agent-integration.md.
     const plain = makeSandbox();
