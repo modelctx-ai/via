@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { portablePaths } from '../helpers/portable';
 import { FAKE_TOKEN, makeSandbox, startFixtureServer, useCleanup } from './helpers';
 
 const configOf = (sb: { home: string }): string => join(sb.home, '.config', 'via', 'config.yaml');
@@ -13,11 +14,12 @@ describe('via servers add: what is written', () => {
     const sb = makeSandbox();
     const r = await sb.via(HTTP, { answer: 'y' });
     expect(r.code).toBe(0);
-    expect(r.asked).toEqual(['add this server to ~/.config/via/config.yaml? [y/N] ']);
-    expect(r.stdout).toBe(
+    // The path is printed with the host's separator: `\` on Windows.
+    expect(r.asked.map(portablePaths)).toEqual(['add this server to ~/.config/via/config.yaml? [y/N] ']);
+    expect(portablePaths(r.stdout)).toBe(
       ['~/.config/via/config.yaml  (new file)', '+ servers:', '+   github:', '+     url: https://api.example.test/mcp/', '+     auth:', '+       bearer: env:GITHUB_TOKEN', '→ via github to see its tools', ''].join('\n'),
     );
-    expect(r.stderr).toBe('· added github to ~/.config/via/config.yaml\n');
+    expect(portablePaths(r.stderr)).toBe('· added github to ~/.config/via/config.yaml\n');
     expect(readFileSync(configOf(sb), 'utf8')).toBe('servers:\n  github:\n    url: https://api.example.test/mcp/\n    auth:\n      bearer: env:GITHUB_TOKEN\n');
     if (process.platform !== 'win32') expect(statSync(configOf(sb)).mode & 0o777).toBe(0o600);
     // and the server is there for the next command
@@ -182,7 +184,7 @@ describe('via servers add: what is refused', () => {
     for (const name of ['gh', 'GH', 'off']) {
       const r = await sb.via(['servers', 'add', name, 'https://other.example.test/mcp'], { answer: 'y' });
       expect(r.code, name).toBe(2);
-      expect(r.stderr).toMatch(/is already (defined in|in) ~\/\.config\/via\/config\.yaml/);
+      expect(portablePaths(r.stderr)).toMatch(/is already (defined in|in) ~\/\.config\/via\/config\.yaml/);
       expect(r.asked).toEqual([]);
     }
     for (const name of ['find', 'Servers', 'help']) {
