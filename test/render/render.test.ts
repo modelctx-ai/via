@@ -21,6 +21,38 @@ describe('shapes (output.md, step 3)', () => {
     expect(out.stderr).toMatch(/\+\d+ cols: [\w, ]+ \(--pick a,b or -o json\)/);
   });
 
+  it('fills the columns left with fields that fit before fields that would mostly be cut', async () => {
+    const long = 'Seen in production on the EU cluster; see the linked incident for logs and the timeline of the outage.';
+    const rows = [
+      { id: 'u-1', identifier: 'PLT-300', title: 'Rate limiter fails closed', description: long, priority: { value: 2, name: 'High' }, status: 'In Progress', assignee: 'jdoe', team: 'Platform' },
+      { id: 'u-2', identifier: 'PLT-304', title: 'Migrate billing webhooks', description: long, priority: { value: 3, name: 'Medium' }, status: 'In Progress', assignee: 'jdoe', team: 'Platform' },
+    ];
+    const out = await render(structured(rows));
+    // title, id, identifier and status are preferred names; of the rest, priority and assignee fit, description does not
+    expect(out.stdout.split('\n')[0]!.trim().split(/\s{2,}/)).toEqual(['id', 'identifier', 'title', 'priority', 'status', 'assignee']);
+    expect(out.stdout).toContain('High');
+    expect(out.meta?.hiddenNames).toEqual(['description', 'team']);
+    // with nothing else to show, a long field still gets its column, cut as before
+    const few = await render(structured(rows.map(({ id, title, description }) => ({ id, title, description }))));
+    expect(few.stdout.split('\n')[0]!.trim().split(/\s{2,}/)).toEqual(['id', 'title', 'description']);
+    expect(few.stdout).toContain('…');
+    // --full cuts nothing, so the order of the fields decides alone
+    const full = await render(structured(rows), { full: true });
+    expect(full.stdout.split('\n')[0]!.trim().split(/\s{2,}/)).toEqual(['id', 'identifier', 'title', 'description', 'priority', 'status']);
+  });
+
+  it('never cuts a cell that is one URL, and still cuts text that merely contains one', async () => {
+    const url = `https://linear.app/acme/issue/PLT-300/${'rate-limiter-fails-closed-when-redis-is-down-'.repeat(2)}end`;
+    const rows = [
+      { title: 'a', url, note: `see ${url} for the whole story` },
+      { title: 'b', url, note: 'short' },
+    ];
+    const out = await render(structured(rows));
+    expect(url.length).toBeGreaterThan(80);
+    expect(out.stdout).toContain(`${url}  `);
+    expect(out.stdout).toMatch(/see https:\/\/linear\.app\/\S*…/);
+  });
+
   it('parses JSON text content when there is no structuredContent', async () => {
     const a = await render(structured(githubIssues));
     const b = await render(jsonText(githubIssues));
