@@ -106,6 +106,7 @@ $ via gh pull-request issue:read -h      # 带 -h 时资源与工具可以混着
   - `stop`：结束这个 socket 的所有 daemon 进程，返回时它们都已退出。先向应答的 daemon 发 `shutdown`，给在途请求 5 秒处理完；仍未结束就发 `shutdown`（`force`），让它放弃在途请求（关闭会话、停止 stdio 子进程）立即退出。socket 上不应答的 daemon 进程（进程记录里的 `starting`、`stopping`）收到 `SIGTERM`，同样立即退出（Windows 上 `SIGTERM` 即结束进程，它的 stdio 子进程不随之结束，见 [daemon.md](daemon.md#windows)）。全部退出后输出 `daemon: stopped (pid N[, M…])`，放弃过在途请求时追加 `, requests in flight abandoned`；这些请求的 CLI 按「连接中断」处理（只读请求在进程内重做，其余以退出码 6 报告可能已执行）。没有 daemon 时输出 `daemon: not running`，退出码 0。某个进程 5 秒后仍未退出时退出码 7，`next: kill <pid>`。`-o json` 输出 `{"running": false, "pid"?: N, "stopped": [N, …], "abandoned"?: true}`。
   - `logs [<provider>] [-n <行数>] [--follow|-f] [--since <时长>]`：打印日志（[daemon.md](daemon.md#日志)）。不带 provider 是 daemon 自己的日志（`logs/daemon.log`），带 provider（与其他命令同样的唯一前缀、大小写宽松规则，找不到退出码 3 并给出候选）是该 server 的日志（stdio 子进程的 stderr、连接与协议事件、每次调用一行）。读文件，所以 daemon 没运行时、`VIA_NO_DAEMON=1` 下都能用（后者只有 server 的日志）。先输出最后 `-n` 行（默认 50，`-n 0` 一行不输出，常与 `--follow` 同用），从旧到新，轮转出的副本（`.1` 至 `.3`）也算在内；`--since` 只保留这段时间之内的行，时长写 `30s`、`10m`、`2h`、`1d`，可以连写（`1h30m`），无法解析或为 0 时退出码 2。`--follow` 在输出之后继续等新行（每 250 毫秒查看一次文件，跟随轮转，文件还不存在时等它出现），直到被 `Ctrl-C`（或 `SIGTERM`）中断，退出码 0。内容在写入时已脱敏，输出时控制字符再转义一遍；日志不存在时 stderr 写 `· no log yet for <provider> · <路径>`，stdout 为空，退出码 0。`-o json` 输出 JSON Lines：`{"time": "<ISO>", "source": "event|error|stderr", "text": "…"}`。
   - `run`：前台运行 daemon，由 CLI 分离拉起，也可手动运行。选项 `--socket <路径>`、`--idle-timeout <秒>`（缺省取配置的 `daemon.idleTimeout`）；已有 daemon 在这个 socket 上应答时输出 `daemon: already running on <路径>` 并以 0 退出。收到 SIGTERM/SIGINT/SIGHUP 时正常退出。
+- `via servers add <name> …`：把一个 server 写进用户配置，要在终端里确认，见 [via servers add](#via-servers-add)。
 - `via servers`：每个 server 一行，依次为 provider、传输方式（HTTP 只写 scheme 与主机，stdio 只写命令）、协议（上次拉取目录时协商出的 MCP 协议版本和连接是否有状态，如 `2026-07-28 stateless`、`2025-11-25 stateful`；固定了版本的加 `(pinned)`，还没有记录时只有固定的版本，什么都没有写 `-`）、鉴权方式及凭证引用是否可解析（只写引用，不写值）、来源文件、备注（`disabled`、`untrusted`、框架间冲突、保留名冲突）；之后列出配置诊断。不连接任何 server（协议一列读的是目录缓存，缓存过期或被清掉后回到 `-`），也不执行 `cmd:` 凭证引用（[config.md](config.md#凭证引用)）。`untrusted` 的备注附 `via trust <路径>`（多个文件待确认时为 `via trust`）。配置里有 error 级诊断时照常显示，不中止。
   - `-o json`：`{"servers": [{"name", "provider", "transport", "source", "status", "auth", "protocol", "tools", "notes"?}], "diagnostics": [{"level", "message"}]}`，顺序同文本。`transport` 是 `{"type": "stdio", "command"}`（只有命令，不含参数与 env）或 `{"type": "http", "origin"}`（只有 scheme 与主机，不含路径与查询串）；`source` 是 `{"scope", "path"?}`（路径写法同文本，家目录缩写为 `~`）；`status` 为 `ok`、`disabled`、`skipped`（保留名或重名，不进入目录）、`untrusted`；`auth` 是 `{"method", "usable", "missing"?, "login"?}`（`missing` 是解析不了的凭证引用，只有引用；`login` 是 OAuth 的登录状态）；`protocol` 是 `{"version", "stateful", "pinned"}`（读自目录缓存，只有固定版本而没有记录时没有 `stateful`），都没有时为 `null`；`tools` 是 `via` 显示的可见工具数（`deny` 之后），没有可用缓存、已禁用、未信任或被跳过时为 `null`。不含任何凭证值与 env 值；字符串按内容档脱敏（[output.md](output.md#脱敏的范围)）。`-o raw` 退出码 2。
 - `via trust`：显示并记录对项目级配置文件的信任，也能列出、撤销记录；细节、确认方式和退出码见 [security.md](security.md#via-trust)。它读取配置但不连接 server，配置里有 error 级诊断时照常工作（不执行任何工具）。确认默认在终端里完成；`--yes` 只在带显式路径并设置 `VIA_ALLOW_NONINTERACTIVE_TRUST=1` 时有效。
@@ -307,6 +308,36 @@ form answered: accept {"name":"Ann","count":3,"color":"red"}
 - **粘贴与提前输入**：一次粘贴多行时，后面的行留给后面的问题。
 - 终端里输入的答案只发给提问的 server，不写盘、不进日志、不进 `next:`。
 
+### via servers add
+
+把一个 server 写进用户配置（`~/.config/via/config.yaml`），是 via 唯一会写这个文件的地方（[ADR 0032](../adr/0032-servers-add-writes-the-user-config.md)）。它只新增：改一个已有的 server、给框架里的 server 补凭证、删除，仍然手改文件（[config.md](config.md)）。
+
+```console
+$ via servers add github https://api.githubcopilot.com/mcp/ --bearer env:GITHUB_TOKEN
+~/.config/via/config.yaml
++ servers:
++   github:
++     url: https://api.githubcopilot.com/mcp/
++     auth:
++       bearer: env:GITHUB_TOKEN
+add this server to ~/.config/via/config.yaml? [y/N] y
+→ via github to see its tools
+· added github to ~/.config/via/config.yaml
+
+$ via servers add fs --env LOG_LEVEL=debug -- npx -y @modelcontextprotocol/server-filesystem ~/work
+```
+
+- **两种写法**：`via servers add <name> <url> [--bearer <引用> | --oauth] [--header <名>=<值>]…` 是 HTTP server；`via servers add <name> [--env <键>=<值>]… -- <命令> [参数…]` 是 stdio server。`--header`、`--env` 可以重复。`--oauth` 写成 `auth: oauth`，之后用 `via auth login <name>` 登录。
+- **`--` 之后原样保留**：它后面的每个词都是 server 命令行的一部分，包括 `-h`、`--yes`、`-o` 这些与全局选项同名的词，以及第二个 `--`。这条规则只对 `via servers add` 生效（[全局选项](#全局选项)）。
+- **名字**：字母、数字、`.`、`_`、`-`，以字母或数字开头。不能是内置子命令名；已经有同名 server 时拒绝（任何来源：用户配置、项目配置、框架配置，按 provider 名归一化后比较，`disabled` 的也算），提示指向它所在的文件。
+- **凭证只写引用**：`--bearer` 的值必须是[凭证引用](config.md#凭证引用)（`env:`、`keychain:`、`file:`、`cmd:`）。`--header`、`--env` 的键名像是秘密时（含 `KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`AUTH`、`CREDENTIAL`，与 `via doctor` 判定明文凭证的规则相同），值同样必须是引用；其余的键可以写普通值。URL 带 userinfo（`user:pass@`），或查询参数名像是秘密的，也拒绝。这些都是用法错误（退出码 2），被拒绝的值不在任何输出里重复。
+- **确认**：先在 stdout 打印文件路径（新建时标 `(new file)`）和将要写入的 YAML，每行以 `+ ` 开头，再在终端问 `add this server to <文件>? [y/N]`；回答 `y` 或 `yes` 才写。没有终端时不写，退出码 5，`error: the server was not added: confirmation needs a terminal`，`next: ask the user to run this in a terminal: via servers add …`。回答别的同样是退出码 5。`--yes` 不代替确认，也没有环境变量开关。`--dry-run` 只打印这几行（stderr `· dry run: nothing was written`，退出码 0），不需要终端。
+- **写入**：新条目按文件现有的缩进插在 `servers` 块的末尾，没有 `servers` 时在文件末尾追加一块；文件里别的内容，包括注释与空行，一个字节都不动。文本里没有可插的位置时（`servers: {}`、空的 `servers:`）由 YAML 库重写整份文档，注释保留，位置可能变。两种情况都在写之前把结果重新解析，与「原来的内容加上这一条」比较，不相等就不写（退出码 7）。文件是符号链接时写到它指向的文件；先写同目录的临时文件再改名；新文件权限 0600，已有文件保持原权限，目录不存在时创建。
+- **拒绝而不修复**：配置文件不是合法 YAML、顶层不是映射、`servers` 不是映射时退出码 2，`nothing was written`，`next: via doctor`。
+- **沙箱**：开启了 [`sandbox`](config.md#sandbox) 时配置目录在沙箱里只读，命令打印那几行后以退出码 5 结束，`next: ask the user: run it outside the sandbox (list servers under sandbox.exclude), or add the lines above to <文件>`。
+- 成功时 stderr 一行 `· added <name> to <文件>`，stdout 最后一行是下一步：`→ via <name> to see its tools`，或 `--oauth` 时的 `→ via auth login <name> to sign in`。它不连接 server，也不检查凭证引用能否解析：那是下一条命令和 `via doctor` 的事。
+- `via serve` 不提供它；`commands.deny: [servers]` 连同 `via servers` 一起禁止。
+
 ### via serve
 
 `via serve` 在 stdin/stdout 上运行一个 MCP server（只有 stdio 传输，不监听端口），供没有 shell 的 agent 在框架里当作普通 stdio server 登记，例如 `{"command": "via", "args": ["serve"]}`。stdin 关闭时退出；不接受参数，带参数时报用法错误（退出码 2）。设计理由见 [ADR 0016](../adr/0016-via-serve-meta-tools-over-stdio.md)，任务、技能与补全的工具见 [ADR 0024](../adr/0024-via-serve-tasks-skills-and-completion.md)。
@@ -450,7 +481,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 
 全局选项可以出现在命令行的任何位置，包括工具参数之间；via 先取走它们，剩下的参数按原有顺序交给工具参数解析器。`-o`、`--timeout`、`--pick`、`--schema-snapshot`、`--schema-mode`、`--complete` 的值写在下一个参数里，或用 `-o=json`、`--timeout=5`、`--pick=title,state`、`--schema-snapshot=a.json`、`--complete=lang`。值不合法时退出码 2。`--schema-snapshot` 只对工具调用（含 `via call`）和工具的 `-h` 有意义；用在浏览视图、`find`、`batch` 等没有单个工具可比的命令上时退出码 2，不会静默忽略（一次没有执行的检查不能看起来像通过了）。
 
-工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）；`--p.` 开头的参数不会被当作全局选项。
+工具参数与全局选项重名时，用 `--p.<参数名>` 指定为工具参数（[arguments.md](arguments.md)）；`--p.` 开头的参数不会被当作全局选项。唯一的例外是 `via servers add <name> … -- <命令> [参数…]`：`--` 之后是 server 的命令行，其中的词不再被当作全局选项（[via servers add](#via-servers-add)）。
 
 ### `--dry-run` 的输出
 

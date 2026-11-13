@@ -11,7 +11,7 @@ export async function rootCommand(app: App): Promise<number> {
   const { entries } = await app.table();
   const { catalog, statuses, details } = await app.loadProviders(entries);
   const providers = rootEntries(catalog.providers, statuses, details);
-  const none = `no MCP servers found: add one to ${userConfigHint(pathContext({ home: app.io.home, env: app.io.env, platform: app.io.platform }))}, or configure one in an agent framework (see ${DOCS_URL}/guides/getting-started.md)\n`;
+  const none = `no MCP servers found: add one with via servers add <name> <url> (or by hand in ${userConfigHint(pathContext({ home: app.io.home, env: app.io.env, platform: app.io.platform }))}), or configure one in an agent framework (see ${DOCS_URL}/guides/getting-started.md)\n`;
   if (app.options.format === 'json') {
     // stdout is the data; the hint and the note about an empty configuration stay on stderr.
     await writeJson(app, rootJson(providers));

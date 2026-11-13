@@ -85,6 +85,12 @@ export function extractGlobals(argv: readonly string[]): { options: GlobalOption
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]!;
+    // `via servers add <name> -- <command> [args…]`: what follows `--` is the server's command line,
+    // word for word. Its `-h`, `--yes` or `-o` are the command's, not via's.
+    if (token === '--' && rest.length >= 2 && rest[0]!.toLowerCase() === 'servers' && rest[1]!.toLowerCase() === 'add') {
+      rest.push(...argv.slice(i));
+      break;
+    }
     if (token.startsWith('--p.')) {
       rest.push(token);
       continue;

@@ -102,8 +102,10 @@ function serverJson(row: ServerRow): Record<string, unknown> {
 }
 
 export async function serversCommand(app: App, argv: readonly string[]): Promise<number> {
+  // `via servers add …` writes the user config; listing never loads it (cli.md, "via servers add").
+  if (argv[0]?.toLowerCase() === 'add') return (await import('./servers-add')).serversAddCommand(app, argv.slice(1));
   const { positionals } = parseLocal('servers', argv, []);
-  if (positionals.length > 0) throw usageFailure('via servers takes no arguments', 'via servers -h');
+  if (positionals.length > 0) throw usageFailure('via servers takes no arguments (to add a server: via servers add <name> <url>)', 'via servers -h');
   if (app.options.format === 'raw') throw usageFailure('-o raw applies to a tool call: a listing has no upstream text to show', 'via servers -o json');
 
   const config = await app.config({ allowErrors: true });
