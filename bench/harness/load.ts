@@ -103,6 +103,12 @@ export function checkTask(loaded: LoadedSuite, task: Task): string[] {
   task.calls.forEach((call, i) => {
     const where = `calls[${i}]`;
     checkTool(where, call.server, call.tool);
+    // The write an `after` entry waits for is a tool of the same server, and has a result of its own.
+    if (call.after !== undefined) {
+      const tool = typeof call.after === 'string' ? call.after : call.after.tool;
+      checkTool(`${where}.after`, call.server, tool);
+      if (!task.calls.some((c) => c.server === call.server && c.tool === tool && c.after === undefined)) at(`${where}.after`, `${call.server}/${tool} has no entry in calls to come after`);
+    }
     for (const key of ['resultFile', 'textFile'] as const) {
       const path = call[key];
       if (path !== undefined && !existsSync(join(loaded.benchDir, path))) at(where, `${key} not found: bench/${path}`);

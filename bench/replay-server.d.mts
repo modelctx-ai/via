@@ -17,6 +17,10 @@ export interface ReplayCall {
   tool: string;
   /** Subset match against the call's arguments; absent matches any arguments. */
   args?: Record<string, unknown>;
+  /** The entry applies only once a call of this tool (with these arguments, if given) was answered. */
+  after?: { tool: string; args?: Record<string, unknown> };
+  /** Arguments of the calls this entry answered so far; kept by the server. */
+  answered?: Array<Record<string, unknown>>;
   result: ReplayResult;
 }
 
@@ -45,6 +49,7 @@ export interface TaskLike {
     server: string;
     tool: string;
     args?: Record<string, unknown>;
+    after?: string | { tool: string; args?: Record<string, unknown> };
     result?: unknown;
     resultFile?: string;
     text?: string;

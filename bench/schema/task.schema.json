@@ -79,6 +79,12 @@
         "server": { "$ref": "#/definitions/name" },
         "tool": { "type": "string", "minLength": 1 },
         "args": { "$ref": "#/definitions/args" },
+        "after": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "object", "required": ["tool"], "additionalProperties": false, "properties": { "tool": { "type": "string", "minLength": 1 }, "args": { "$ref": "#/definitions/args" } } }
+          ]
+        },
         "result": {},
         "resultFile": { "type": "string", "minLength": 1 },
         "text": { "type": "string" },

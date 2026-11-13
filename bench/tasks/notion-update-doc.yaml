@@ -23,6 +23,9 @@ native:
 
 calls:
   - { server: notion, tool: notion-search, resultFile: recordings/notion-update-doc/notion-search.json }
+  # Read again after the update, the page has the new line: a model that checks its write must not
+  # see the old page and write a second time (every condition did in the first evaluation).
+  - { server: notion, tool: notion-fetch, after: notion-update-page, resultFile: recordings/notion-update-doc/notion-fetch-updated.json }
   - { server: notion, tool: notion-fetch, resultFile: recordings/notion-update-doc/notion-fetch.json }
   - { server: notion, tool: notion-update-page, resultFile: recordings/notion-update-doc/notion-update-page.json }
 

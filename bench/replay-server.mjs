@@ -86,7 +86,9 @@ export function cannedCalls(tasks, server, baseDir) {
   for (const task of tasks) {
     for (const entry of task.calls ?? []) {
       if (entry.server !== server) continue;
-      out.push({ tool: entry.tool, ...(entry.args !== undefined ? { args: entry.args } : {}), result: toResult(entry, baseDir) });
+      // `after: tool` and `after: { tool, args }` are the same thing; the server only sees the second.
+      const after = entry.after === undefined ? undefined : typeof entry.after === 'string' ? { tool: entry.after } : entry.after;
+      out.push({ tool: entry.tool, ...(entry.args !== undefined ? { args: entry.args } : {}), ...(after ? { after } : {}), result: toResult(entry, baseDir) });
     }
   }
   return out;
@@ -97,15 +99,23 @@ export function cannedCalls(tasks, server, baseDir) {
  * (never a protocol error), so a model that guesses wrong sees an ordinary tool failure. Entries
  * are tried in order and the first match wins; a call is not "used up" by being answered.
  *
+ * An entry with `after` applies only once this server has answered a call of that tool (with those
+ * arguments, when it names any): what a read returns after the write that changed it. Which calls
+ * were answered is kept on the entries themselves, so replacing the entries starts afresh.
+ *
  * @param {{ name?: string, tools: object[], calls?: Array<{ tool: string, args?: object, result: object }>, log?: Array<object>, protocol?: string }} options
  */
 export function createReplayServer({ name = 'replay', tools, calls = [], log = [], protocol }) {
   const listTools = async () => ({ tools });
   const callTool = async (params) => {
     const { name: tool, arguments: args = {} } = params;
-    const hit = calls.find((c) => c.tool === tool && (c.args === undefined || matchArgs(c.args, args)));
+    const answered = (after) => calls.some((c) => c.tool === after.tool && (c.answered ?? []).some((seen) => after.args === undefined || matchArgs(after.args, seen)));
+    const hit = calls.find((c) => c.tool === tool && (c.args === undefined || matchArgs(c.args, args)) && (c.after === undefined || answered(c.after)));
     log.push({ tool, args, matched: hit !== undefined });
-    if (hit) return hit.result;
+    if (hit) {
+      (hit.answered ??= []).push(args);
+      return hit.result;
+    }
     const known = tools.some((t) => t.name === tool);
     const reason = known ? `no canned result for ${tool} with these arguments` : `unknown tool: ${tool}`;
     return { content: [{ type: 'text', text: `replay: ${reason}: ${JSON.stringify(args)}` }], isError: true };
