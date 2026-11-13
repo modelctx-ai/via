@@ -17,6 +17,7 @@
 
 ### Changed
 
+- 噪声字段表（`data/noise.json`）新增 14 个字段名（[data-files.md](docs/development/data-files.md#noisejson)）：`avatar_url`，以及供程序沿 API 继续取数据的链接 `repository_url`、`labels_url`、`comments_url`、`events_url`、`timeline_url`、`followers_url`、`following_url`、`gists_url`、`starred_url`、`subscriptions_url`、`organizations_url`、`repos_url`、`received_events_url`。原样返回 REST 对象的 server 上，这些字段每个对象重复一遍，表格的 `+N cols` 提示里也全是它们。`url`、`html_url` 照旧保留。**影响**：这些字段不再出现在文本与 `-o json` 输出里，`--pick` 也选不到；要看它们用 `-o raw`。不涉及动词表与规范写法。
 - `via prompt` 的说明多两句（[agent-integration.md](docs/guides/agent-integration.md#via-prompt给-agent-的说明)）：`-h` 那一行注明可以一次点名几个工具，`via more` 那一行之前加上 `--pick a,b` 只输出点名的字段。这两处都是为了减少轮数，不写进说明 agent 就不知道有它们（元信息行只在表格有列被隐藏时才提到 `--pick`）。说明从约 207 token 变成约 230 token（按 4 字节一 token）。**影响**：已经写进 AGENTS.md 或 SKILL.md 的说明块会被 `via prompt --check` 判为过期，用 `via prompt --out <文件>` 刷新。不涉及动词表与规范写法。
 - provider 视图的截断上限放宽（[discovery.md](docs/spec/discovery.md#via-provider)）：资源行从 20 行改为 40 行，`tools:` 行的叶子工具从 12 个改为 30 个。资源按名字排序，20 行的上限藏起来的是字母表靠后的资源：`via notion` 看不到 `page`，`via github` 看不到 `repository`，要再跑一次 `--all`；全部列出只多约 70–90 token，而多一轮往返在评测里平均是四千多 token。GitHub（33 行）、Notion（37 行）、Playwright（15 个叶子工具）现在一次列全；上限仍然保留，给背后有几百个工具的网关。不涉及动词表与规范写法。
 - 帮助与提示里的文档位置改为 URL：`via -h` 的 `docs:` 行、没有配置 server 时的提示、`via doctor` 的 `platform` 行原来写仓库里的相对路径（`docs/spec/cli.md`），而 npm 包里只有 `dist/`。不涉及动词表与规范写法。

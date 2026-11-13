@@ -6,13 +6,9 @@
     "state": "open",
     "url": "https://api.github.com/repos/acme/api/issues/12",
     "html_url": "https://github.com/acme/api/issues/12",
-    "repository_url": "https://api.github.com/repos/acme/api",
-    "labels_url": "https://api.github.com/repos/acme/api/issues/12/labels{/name}",
-    "comments_url": "https://api.github.com/repos/acme/api/issues/12/comments",
     "user": {
       "login": "octocat",
       "id": 1,
-      "avatar_url": "https://avatars.example/u/1",
       "url": "https://api.github.com/users/octocat"
     },
     "labels": [

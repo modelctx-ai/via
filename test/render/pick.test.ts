@@ -151,8 +151,8 @@ describe('rendering with --pick', () => {
 describe('hidden column names in the meta line', () => {
   it('names the columns a table left out, eight at most', async () => {
     const out = await render(structured(githubIssues));
-    expect(out.meta?.hiddenNames).toEqual(['repository_url', 'labels_url', 'comments_url', 'labels', 'comments', 'created_at', 'updated_at', 'assignee']);
-    expect(out.stderr).toContain('· +8 cols: repository_url, labels_url, comments_url, labels, comments, created_at, updated_at, assignee (--pick a,b or -o json)\n');
+    expect(out.meta?.hiddenNames).toEqual(['labels', 'comments', 'created_at', 'updated_at', 'assignee']);
+    expect(out.stderr).toContain('· +5 cols: labels, comments, created_at, updated_at, assignee (--pick a,b or -o json)\n');
 
     const wide = (i: number) => ({ name: `n${i}`, title: 't', id: i, number: i, state: 's', url: 'u', ...Object.fromEntries(Array.from({ length: 10 }, (_, k) => [`extra${k}`, k])) });
     const many = await render(structured([wide(1), wide(2)]));

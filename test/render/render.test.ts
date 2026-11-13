@@ -170,6 +170,10 @@ describe('formats (output.md, "输出格式")', () => {
     expect(parsed[0]).not.toHaveProperty('node_id');
     expect(parsed[0]).not.toHaveProperty('assignee'); // null removed
     expect(parsed[0]).toHaveProperty('html_url'); // kept despite *_url noise
+    expect(parsed[0]).toHaveProperty('url');
+    // links for walking the API, and pictures: nothing a task reads
+    for (const key of ['repository_url', 'labels_url', 'comments_url']) expect(parsed[0]).not.toHaveProperty(key);
+    expect(parsed[0]!.user).toEqual({ login: 'octocat', id: 1, url: 'https://api.github.com/users/octocat' });
     expect(out.stderr).toBe('· github issue:list · 318ms · 2 rows\n');
   });
 
@@ -226,7 +230,7 @@ describe('media (output.md, step 5)', () => {
 describe('meta line (output.md, "元信息行")', () => {
   it('shows ref, elapsed time and rows, with a +N cols hint', async () => {
     const out = await render(structured(githubIssues));
-    expect(out.stderr).toBe('· github issue:list · 318ms · 3 rows · +8 cols: repository_url, labels_url, comments_url, labels, comments, created_at, updated_at, assignee (--pick a,b or -o json)\n');
+    expect(out.stderr).toBe('· github issue:list · 318ms · 3 rows · +5 cols: labels, comments, created_at, updated_at, assignee (--pick a,b or -o json)\n');
   });
 
   it('shows bytes for non-list results and seconds for slow calls', async () => {

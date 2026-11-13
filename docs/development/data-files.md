@@ -66,12 +66,13 @@
 ```json
 {
   "version": 1,
-  "fields": ["node_id", "_links", "*_api_url", "*_url_template", "gravatar_id"],
+  "fields": ["node_id", "_links", "*_api_url", "*_url_template", "gravatar_id", "avatar_url", "repository_url", "followers_url", "…"],
   "keep": ["url", "html_url"]
 }
 ```
 
 - 支持 `*` 通配；`keep` 优先于 `fields`，也优先于按 server 配置的 `noise` 追加项。
+- 收进来的是任务读不到用处的字段：对象的内部编号（`node_id`）、头像（`avatar_url`、`gravatar_id`）、供程序沿着 API 继续取数据的链接（`_links`、`*_api_url`、`repository_url`、`labels_url`、`comments_url`、`events_url`、`timeline_url`，以及用户对象上的 `followers_url`、`repos_url` 一类）。`url` 与 `html_url` 始终保留：它们常常是结果里唯一能给人看的链接。只按字段名判断，不看值；被去掉的字段在 `-o raw` 里仍然有。新增一项之前先确认它在别的 server 里不会是任务要读的数据。
 
 ## columns.json
 
