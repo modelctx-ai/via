@@ -38,7 +38,12 @@ export const COMMAND_USAGE: Readonly<Record<string, string>> = {
   find: 'usage: via find [<query>] [-n <count>] [--brief]  (--brief: no example line under each result)',
   call: 'usage: via call <provider>/<resource>:<verb> [--args <json>|@file|-] [--<arg> <value>…]',
   more: 'usage: via more <cursor>',
-  servers: 'usage: via servers',
+  servers:
+    'usage: via servers\n' +
+    '       via servers add <name> <url> [--bearer <ref> | --oauth] [--header <Name>=<value>]…\n' +
+    '       via servers add <name> [--env <KEY>=<value>]… -- <command> [args…]\n' +
+    '  add writes the server to the via config after you confirm it at a terminal (--dry-run: show only);\n' +
+    '  <ref> is env:NAME, keychain:<service>/<account>, file:<path> or cmd:<command>, never the secret itself',
   sync: 'usage: via sync [<provider>]',
   doctor: 'usage: via doctor',
   prompt: 'usage: via prompt [--skill] [--out <file> | --check <file>] [--replace]',

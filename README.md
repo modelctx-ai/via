@@ -124,6 +124,15 @@ For OAuth servers, via signs in once on its own; it does not read tokens stored 
 via auth login linear      # needs auth: oauth in the config; add --manual where no browser is available
 ```
 
+A server that no framework has configured is added with `via servers add`. It prints the lines it would write and writes them only when you answer `y` at a terminal; a credential is given as a reference, never as the token itself:
+
+```bash
+via servers add github https://api.githubcopilot.com/mcp/ --bearer env:GITHUB_TOKEN
+via servers add fs -- npx -y @modelcontextprotocol/server-filesystem ~/work
+```
+
+Everything else is edited in the file:
+
 ```yaml
 servers:
   github:
@@ -178,6 +187,7 @@ See the [getting-started guide](docs/guides/getting-started.md) and [agent frame
 | `via trust` | Approve the commands and endpoints in a project's `.via.yaml` |
 | `via serve` | Run as a stdio MCP server with nine meta-tools, for agents without a shell |
 | `via doctor` · `via servers` · `via sync` | Diagnostics, server list, refresh the tool cache |
+| `via servers add <name> <url>` · `… -- <command>` | Add a server to the via config, after you confirm it at a terminal |
 
 Syntax, global options and exit codes are in the [CLI spec](docs/spec/cli.md) and [output spec](docs/spec/output.md); more combinations are in [recipes](docs/guides/recipes.md).
 
@@ -186,6 +196,7 @@ Syntax, global options and exit codes are in the [CLI spec](docs/spec/cli.md) an
 - via is not a gateway. It runs as the same user as the agent, so it lowers the chance of a credential leaking by accident but cannot stop a deliberate read. When you need isolation and auditing, put a gateway such as [Asterlane](https://github.com/komiyoo/asterlane) behind via; via treats it as an ordinary MCP server.
 - Configuration stores only credential references, and resolved credential values are replaced with `***` in all output.
 - Tools marked destructive (declared by the server, or inferred from names like `delete` when it declares nothing) require `--yes`. Tools matched by a `deny` rule are hidden from listings and cannot be called.
+- `via servers add` is the only command that writes the via configuration. It asks at a terminal first, refuses to run without one, and takes credential references only.
 - Commands and endpoints from project-level configuration (`.via.yaml`, a repository's `.mcp.json` and similar) must be approved with `via trust` in your terminal before first use. Do not let the agent run it for you.
 - `commands` in the config can refuse (`deny`, `allow`) or hide (`hide`, `show`) built-in subcommands, so the agent only sees and uses the ones you want. Like `deny`, it is enforced by via, not by the operating system.
 - Optional `sandbox`: with `sandbox: { enabled: true }`, every `via …` runs as `srt via …`, so via and the stdio servers it starts can only write and connect where your policy allows. via does not depend on srt's package; any program with the same command line works. It is not credential isolation: the servers share the sandbox with via. See [configuration](docs/spec/config.md#sandbox).

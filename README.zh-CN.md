@@ -124,6 +124,15 @@ OAuth 型 server 由 via 自己授权一次（不读取其他客户端存下的 
 via auth login linear      # 配置里写 auth: oauth；无浏览器环境加 --manual
 ```
 
+框架里没有配过的 server 用 `via servers add` 添加。它先打印要写入的几行，在终端里回答 `y` 才写；凭证只收引用，不收令牌本身：
+
+```bash
+via servers add github https://api.githubcopilot.com/mcp/ --bearer env:GITHUB_TOKEN
+via servers add fs -- npx -y @modelcontextprotocol/server-filesystem ~/work
+```
+
+其余的在文件里改：
+
 ```yaml
 servers:
   github:
@@ -178,6 +187,7 @@ via prompt --skill --out <目录>/via/SKILL.md   # 改写成 SKILL.md，给按�
 | `via trust`                                        | 放行项目级 `.via.yaml` 里的命令与端点                           |
 | `via serve`                                        | 以 stdio MCP server 运行，向没有 shell 的 agent 提供九个元工具  |
 | `via doctor` · `via servers` · `via sync`          | 诊断、server 列表、刷新工具缓存                                 |
+| `via servers add <名字> <url>` · `… -- <命令>`      | 把一个 server 写进 via 的配置，要在终端里确认                   |
 
 语法、全局选项与退出码见[命令规范](docs/spec/cli.md)和[输出规范](docs/spec/output.md)；更多组合写法见[组合用法](docs/guides/recipes.md)。
 
@@ -186,6 +196,7 @@ via prompt --skill --out <目录>/via/SKILL.md   # 改写成 SKILL.md，给按�
 - via 不是网关：它与 agent 以同一用户运行，只能降低凭证意外暴露的概率，挡不住有意的读取。需要权限隔离和审计时，在 via 背后接一个网关（例如 [Asterlane](https://github.com/komiyoo/asterlane)），via 把它当作普通 MCP server。
 - 配置里只存凭证引用；解析后的凭证值在所有输出中替换为 `***`。
 - 标记为破坏性的工具（server 声明的，或 server 什么都没声明时按 `delete` 之类的名字推断的）需要 `--yes`；被 `deny` 规则匹配的工具不出现在列表里，也无法调用。
+- `via servers add` 是唯一会写 via 配置的命令：先在终端里问你，没有终端就拒绝，凭证只收引用。
 - 项目级配置（`.via.yaml`、仓库里的 `.mcp.json` 等）中的命令和端点首次使用前需要你在终端里执行 `via trust` 确认；不要让 agent 替你运行。
 
 威胁模型见[安全模型](docs/spec/security.md)。

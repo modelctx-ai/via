@@ -8,6 +8,12 @@
 
 ### Added
 
+- `via servers add`：把一个 server 写进用户配置，不用手写 YAML（[cli.md](docs/spec/cli.md#via-servers-add)、[ADR 0032](docs/adr/0032-servers-add-writes-the-user-config.md)、[security.md](docs/spec/security.md)）。`via servers add <name> <url> [--bearer <引用> | --oauth] [--header <名>=<值>]…` 是 HTTP server，`via servers add <name> [--env <键>=<值>]… -- <命令> [参数…]` 是 stdio server。
+  - **只有终端前的人能让它写入**：先打印将要写入的几行，回答 `y` 才写；没有终端时退出码 5，`next:` 让 agent 请用户运行。`--yes` 不代替确认，`--dry-run` 只打印。`via serve` 不提供它。
+  - **凭证只写引用**：`--bearer` 只收 `env:`、`keychain:`、`file:`、`cmd:`；键名像秘密的 `--header`、`--env`（与 `via doctor` 同一个规则）同样；URL 里的 userinfo 与像秘密的查询参数被拒绝。被拒绝的值不回显。
+  - **只新增**：名字被任何来源的 server 占用时拒绝，不能用内置子命令名。给已有 server 补凭证、改、删仍然手改文件。
+  - **不动别的字节**：新条目按现有缩进插在 `servers` 块末尾，注释与空行原样保留；写之前把结果重新解析并与「原内容加这一条」比较，不相等就不写。符号链接写到它指向的文件；新文件权限 0600。配置不是合法 YAML 时拒绝，不修复。沙箱里（配置只读）直接拒绝并说明。
+  - `--` 之后是 server 的命令行，其中的 `-h`、`--yes`、`-o` 不再被当作全局选项；这条只对 `via servers add` 生效。没有新增保留字。空配置的提示与 `via servers -h` 指向它。不涉及动词表与规范写法。
 - agent 评测新增 `native-deferred` 条件：原生 MCP 加工具延迟加载（[bench/README.md](bench/README.md#native-deferred-一列)、[testing.md](docs/development/testing.md#对比什么)）。模型开始时只有一个 `tool_search` 工具，搜到的工具定义从下一轮起加载，没有加载的工具不能调用；检索是确定性的（名字与描述上的 BM25）。native 一列是「全部工具定义每轮注入」的朴素做法，这一列对照已经做了延迟加载的框架。它与 via 的比较和 mcpc 一样列在「不属于门槛」，门槛 1 的定义不变。`--condition` 多一个取值，默认仍是全部条件；`--fake-model` 与 `npm test` 覆盖新条件。**还没有真实模型的数字**：已发布的 deepseek-flash 报告是加这一列之前跑的。不涉及动词表与规范写法。
 
 - `--pick <字段,…>`：只输出结果里点名的字段（[output.md](docs/spec/output.md#选字段--pick)、[cli.md](docs/spec/cli.md#全局选项)）。全局选项，名字是结果里的键（大小写与 `-`、`_` 不计），`a.b` 取嵌套字段，作用在最外层有名字对得上的那一层（`{ issues: […], totalCount }` 这样的外壳保留）。文本输出是恰好这些列的表格，不受六列上限约束；`-o json` 同样筛选并保持嵌套；与 `-o raw` 同用是用法错误，发调用之前拒绝。对不上的名字不影响退出码，多一行 `warning: --pick: no field named … (fields: …)`。对 `via call`、`via batch`、`via read`、`via resources`、`via prompts` 生效；`via serve` 的 `via_call` 多一个 `pick` 参数。实测：Linear 的 `my-issue:list` 默认六列是 2.5 KB（其中没有 `priority`），`--pick identifier,title,priority,status,assignee` 是 0.9 KB。**影响**：`pick` 成为全局选项名，工具自己有名为 `pick` 的参数时要写 `--p.pick`。没有用 `--fields`：playwright 等 server 的工具有同名参数。不涉及动词表与规范写法。

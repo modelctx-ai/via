@@ -145,6 +145,16 @@ servers:
     auth: { bearer: "keychain:via/github" }
 ```
 
+框架里没有配过的 server 不用手写 YAML，用 `via servers add` 加（[cli.md](../spec/cli.md#via-servers-add)）。它先把要写入的几行打印出来，在终端里回答 `y` 才写；凭证只收引用，不收令牌本身：
+
+```bash
+via servers add github https://api.githubcopilot.com/mcp/ --bearer env:GITHUB_TOKEN
+via servers add linear https://mcp.linear.app/mcp --oauth          # 之后 via auth login linear
+via servers add fs -- npx -y @modelcontextprotocol/server-filesystem ~/work   # -- 之后是 server 的命令行
+```
+
+它只新增。给框架里已有的 server 补凭证（上面的 `github` 那样），或者改、删一个 server，仍然编辑这个文件。
+
 ## 4. 发现与调用
 
 ```console
