@@ -8,16 +8,6 @@ const isObject = (v: unknown): v is Row => v !== null && typeof v === 'object' &
 /** `createdAt`, `created_at` and `created-at` name the same field. */
 const norm = (name: string): string => name.toLowerCase().replace(/[-_\s]/g, '');
 
-/** The names of `--pick`, in order, without repeats. Empty when the value holds no name. */
-export function parsePick(text: string): string[] {
-  const names: string[] = [];
-  for (const part of text.split(',')) {
-    const name = part.trim();
-    if (name !== '' && !names.includes(name)) names.push(name);
-  }
-  return names;
-}
-
 /** The key of `obj` a name means: the exact key first, then the one that differs only in case and separators. */
 function findKey(obj: Row, name: string): string | undefined {
   if (Object.prototype.hasOwnProperty.call(obj, name)) return name;

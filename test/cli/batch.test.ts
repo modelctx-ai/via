@@ -413,14 +413,21 @@ describe('-o json', () => {
     expect(records(r.stdout)).toEqual([{ line: 1, tool: 'gh/broken-tool', ok: false, exitCode: 1, error: { code: 1, message: 'boom: the upstream failed', next: 'via gh broken-tool -h' } }]);
   });
 
-  it('a result over the output budget is marked truncated with its cursor instead of being cut mid-JSON', async () => {
+  it('a result over the output budget holds its first page, marked truncated, with the cursor for the rest', async () => {
     const { sb } = await setup();
     const big = call('gh/list_pull_requests', { owner: 'a', repo: 'b' });
     const cut = records((await sb.via(['batch', '-o', 'json'], { stdin: jsonl(big) })).stdout)[0]!;
     expect(cut.ok).toBe(true);
-    expect(cut.result).toBeUndefined();
     expect(cut.truncated).toBe(true);
     expect(cut.next).toMatch(/^via more [0-9a-f]{4,}$/);
+    // the first page is a document: whole rows, from the first on
+    const first = cut.result as Array<{ number: number }>;
+    expect(first.length).toBeGreaterThan(10);
+    expect(first.length).toBeLessThan(300);
+    expect(first.map((row) => row.number)).toEqual(first.map((_, i) => i + 1));
+    // and the cursor continues with the row after it, as JSON again
+    const more = await sb.via([...(cut.next as string).split(' ').slice(1), '-o', 'json']);
+    expect((JSON.parse(more.stdout) as Array<{ number: number }>)[0]!.number).toBe(first.length + 1);
     const full = records((await sb.via(['batch', '-o', 'json', '--full'], { stdin: jsonl(big) })).stdout)[0]!;
     expect(full.truncated).toBeUndefined();
     expect((full.result as unknown[]).length).toBe(300);

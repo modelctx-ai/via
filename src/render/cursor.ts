@@ -22,6 +22,11 @@ export interface CursorRecord {
   hiddenColumns: number;
   /** Their names (meta.ts); absent in cursors written before the names were kept. */
   hiddenNames?: string[];
+  /**
+   * `-o json`: `lines` is a JSON document and every page is one too (json-pages.ts). `breaks` are
+   * the lines a page has to end after: the parts of a string that was split.
+   */
+  json?: { breaks: number[] };
   createdAt: number;
 }
 

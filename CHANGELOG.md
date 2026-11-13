@@ -14,6 +14,7 @@
 
 ### Changed
 
+- `-o json` 超过输出预算时，每一页都是合法的 JSON（[output.md](docs/spec/output.md#json-的分页)）。以前按行截断，输出停在半个对象上，`via … -o json | jq` 在结果超过 8 KB 时直接解析失败（退出码还是 0），`via more` 的续页也是碎片。现在一页是结果里连续的一段，前后补上所在容器的开头与结尾：嵌套与完整结果相同，页在条目之间断开，放不进一页的长字符串在同一个键下分段，各页按层拼起来就是完整结果。`via batch -o json` 的记录里，超出预算的结果以前没有 `result`（第一页的内容就此丢失，游标从第二页开始），现在 `result` 是第一页，`truncated`、`next` 不变。**影响**：依赖「截断的 `-o json` 一定解析失败」来发现截断的脚本不再成立，截断只体现在元信息行里；要完整结果用 `--full`。不涉及动词表与规范写法。
 - 元信息行列出被隐藏的列名：`+8 cols (-o json)` 改为 `+8 cols: priority, assignee, … (--pick a,b or -o json)`（[output.md](docs/spec/output.md#元信息行)）。以前 agent 只知道少了几列，要看是哪几列得把整份 `-o json` 读进来。名字按结果里的顺序，最多 8 个；只有普通的词（字母、数字、`_ . $ @ -`，不超过 40 个字符）才写进这一行，所以键名不能冒充元信息行的字段或 `next:` 提示（[security.md](docs/spec/security.md)）。续页同样带着名字。**影响**：解析元信息行里 `+N cols (-o json)` 字样的脚本要改。`via serve` 的 `tools/list` 上限从 6000 字节放宽到 6 KiB（多了 `pick` 参数）。不涉及动词表与规范写法。
 - README（中英文）与路线图按已发布的 agent 评测改写：原来写着「成功率尚未发布」，而 [eval-2026-10-26-deepseek-flash](bench/results/eval-2026-10-26-deepseek-flash.md) 已在仓库里。现在 README 在 token 基准的 4% 之后写明真实模型上的数字（via 的输入 token 是 native 的 48%，轮数 13.2 对 7.1，成功率差异在噪声之内，门槛 1 未达到）；路线图的 d1 与门槛 1 两处写明这份结果和还缺什么（默认模型、`native-deferred` 一列）。不涉及动词表与规范写法。
 

@@ -400,7 +400,7 @@ stdout 每行一个 JSON 记录（JSONL），与输入的非空行一一对应�
 | `elapsedMs` | 上游调用耗时，仅调用返回时有 |
 | `result` | 成功时清理后的结果，与单次 `-o json` 的 stdout 是同一个值（没有内容时为 `null`；`--dry-run` 时是 dry-run 对象） |
 | `error` | 失败时的 `{code, message, next?, details?}`，与单次 `-o json` 的 stderr 里 `error` 对象相同 |
-| `truncated`、`next` | 结果超过输出预算时：没有 `result`，`truncated` 为 `true`，`next` 是 `via more <游标>`；加 `--full` 则不截断。被截断的 JSON 不是合法 JSON，所以不会把半截结果塞进记录 |
+| `truncated`、`next` | 结果超过输出预算时：`result` 是第一页（一份合法的 JSON，[output.md](output.md#json-的分页)），`truncated` 为 `true`，`next` 是 `via more <游标>`，从第二页继续；加 `--full` 则不截断 |
 | `warnings` | 警告（如 `outputSchema` 不匹配），有才出现 |
 | `skipped` | `--line` 没有选中该行时为 `true`；这样的记录只有 `line` 与 `skipped` 两个字段，没有 `ok`、`exitCode` |
 | `unvalidated` | 以 `--no-validate` 跳过校验时为 `true` |

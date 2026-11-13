@@ -1,6 +1,5 @@
 // Global options (cli.md, "全局选项"): recognized anywhere on the command line, except when
 // written as `--p.<name>`, which belongs to the tool's arguments and is passed on untouched.
-import { parsePick } from '../render/pick';
 import { usageFailure } from './failure';
 
 export type OutputFormat = 'text' | 'json' | 'raw';
@@ -51,6 +50,19 @@ function parseFormat(value: string): OutputFormat {
 function parseSchemaMode(value: string): SchemaMode {
   if (value === 'compatible' || value === 'strict') return value;
   throw usageFailure(`--schema-mode must be compatible or strict (got ${JSON.stringify(value.slice(0, 40))})`);
+}
+
+/**
+ * The names of `--pick`, in order, without repeats; empty when the value holds no name. Here and not
+ * in render/pick.ts: every command parses its options, only a call loads the renderer.
+ */
+export function parsePick(text: string): string[] {
+  const names: string[] = [];
+  for (const part of text.split(',')) {
+    const name = part.trim();
+    if (name !== '' && !names.includes(name)) names.push(name);
+  }
+  return names;
 }
 
 function parsePickOption(value: string): string[] {

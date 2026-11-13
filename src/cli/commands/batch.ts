@@ -269,7 +269,7 @@ class LineRunner {
     return { before: buffered.join(''), stdout: outcome.stdout, stderr, exitCode: outcome.exitCode };
   }
 
-  /** One record per line: `{line, tool?, ok, exitCode, elapsedMs?, result | error | truncated+next, warnings?}`. */
+  /** One record per line: `{line, tool?, ok, exitCode, elapsedMs?, result [+ truncated, next] | error, warnings?}`. */
   private asJson(input: InputLine, tool: string | undefined, outcome: CallOutcome, buffered: string[]): Finished {
     const record: Record<string, unknown> = { line: input.line };
     if (tool !== undefined) record.tool = tool;
@@ -280,7 +280,9 @@ class LineRunner {
     if (outcome.error) {
       record.error = errorEnvelope(outcome.error);
     } else if (meta && meta.bytes.total > meta.bytes.shown) {
-      // An over-budget JSON result is cut in the middle: it cannot be a value in a JSONL record.
+      // An over-budget JSON result is paged, and every page is a document (output.md, "JSON 的分页"):
+      // the record holds the first one and says where the rest is.
+      record.result = resultValue(outcome.stdout);
       record.truncated = true;
       if (meta.next) record.next = meta.next;
     } else {

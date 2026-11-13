@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { githubIssue, githubIssues } from '../fixtures/results';
-import { parsePick, pickValue } from '../../src/render/pick';
+import { parsePick } from '../../src/cli/options';
+import { pickValue } from '../../src/render/pick';
 import { formatMetaLine } from '../../src/render/meta';
 import { jsonText, plainText, render, structured } from '../helpers/render';
 

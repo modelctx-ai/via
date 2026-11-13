@@ -2,6 +2,7 @@ import { cleanValue } from './clean';
 import { CURSOR_TTL_MS, linesBytes, splitLongLines, takePage, type CursorRecord, type CursorStore } from './cursor';
 import { ExitCode } from './exit-codes';
 import { formatError, type ErrorInfo } from './errors';
+import { jsonBody as jsonPagingBody, takeJsonPage } from './json-pages';
 import { formatMetaLine, type MetaInfo } from './meta';
 import { pickValue } from './pick';
 import type { MediaSink } from './media';
@@ -341,6 +342,30 @@ export async function renderToolResult(
     return { stdout: all.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx, body.warnings), exitCode: ExitCode.Ok, meta, ...own };
   }
 
+  // Over budget as JSON: every page is a document of its own (output.md, "JSON 的分页").
+  if (options.format === 'json') {
+    const paged = jsonPagingBody(all, options.budget);
+    const page = takeJsonPage(paged, 0, options.budget);
+    const total = linesBytes(paged.lines);
+    meta.bytes = { shown: page.bodyBytes, total };
+    if (page.next < paged.lines.length) {
+      const record: CursorRecord = {
+        ref: ctx.ref,
+        header: [],
+        lines: paged.lines,
+        offset: page.next,
+        shownBytes: page.bodyBytes,
+        totalBytes: total,
+        budget: options.budget,
+        hiddenColumns: 0,
+        json: { breaks: paged.breaks },
+        createdAt: now(),
+      };
+      meta.next = `via more ${shellArg(await ctx.cursors.put(record), { placeholder: 'cursor', positional: true })}`;
+    }
+    return { stdout: page.lines.map((l) => `${l}\n`).join(''), stderr: stderrFor(meta, ctx, body.warnings), exitCode: ExitCode.Ok, meta, ...own };
+  }
+
   // Over budget: show what fits, keep the rest behind a cursor.
   const bodyLines = splitLongLines(rest, Math.max(1, options.budget - linesBytes(header)));
   const page = takePage(header, bodyLines, 0, options.budget);
@@ -378,7 +403,9 @@ export async function renderMore(
     };
     return { stdout: '', stderr: formatError(info, options.format, redact), exitCode: ExitCode.NotFound };
   }
-  const page = takePage(record.header, record.lines, record.offset, record.budget);
+  const page = record.json
+    ? takeJsonPage({ lines: record.lines, breaks: record.json.breaks }, record.offset, record.budget)
+    : takePage(record.header, record.lines, record.offset, record.budget);
   const shown = record.shownBytes + page.bodyBytes;
   const meta: MetaInfo = {
     ref: record.ref,
