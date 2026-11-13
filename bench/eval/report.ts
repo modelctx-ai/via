@@ -86,9 +86,10 @@ export function formatConsole(runs: readonly RunRecord[], summary: Summary, meta
 
   const conditions = summary.conditions.map((c) => c.condition);
   const taskWidth = Math.max(4, ...summary.tasks.map((t) => t.task.length));
-  out.push(['task'.padEnd(taskWidth), ...conditions.map((c) => c.padStart(9))].join('  '));
+  const cellWidth = (c: Condition): number => Math.max(9, c.length);
+  out.push(['task'.padEnd(taskWidth), ...conditions.map((c) => c.padStart(cellWidth(c)))].join('  '));
   for (const t of summary.tasks) {
-    out.push([t.task.padEnd(taskWidth), ...conditions.map((c) => (t.cells[c] ? `${t.cells[c]!.successes}/${t.cells[c]!.runs}` : '-').padStart(9))].join('  '));
+    out.push([t.task.padEnd(taskWidth), ...conditions.map((c) => (t.cells[c] ? `${t.cells[c]!.successes}/${t.cells[c]!.runs}` : '-').padStart(cellWidth(c)))].join('  '));
   }
   out.push('');
   if (meta.mcp2cliSkipped) out.push(`mcp2cli: skipped (${meta.mcp2cliSkipped})`, '');
@@ -130,6 +131,7 @@ export function formatMarkdown(runs: readonly RunRecord[], summary: Summary, met
   lines.push(`- ${meta.tasks.length} 个任务 × ${meta.trials} 次，共 ${runs.length} 次运行；每次最多 ${meta.maxTurns} 轮，单次回复最多 ${fmt(meta.maxTokens)} 输出 token`);
   lines.push(`- via ${meta.via}，Node.js ${meta.node}`);
   lines.push(`- 挂载的 server：${meta.mounted.join('、')}`);
+  if (meta.conditions.includes('native-deferred')) lines.push('- 对照：native-deferred（原生 MCP 加工具延迟加载：开始时只有 `tool_search`，搜到的工具定义从下一轮起加载）');
   lines.push(meta.mcp2cliVersion ? `- 对照：mcp2cli ${meta.mcp2cliVersion}` : `- 对照：mcp2cli 未运行（${meta.mcp2cliSkipped ?? '不可用'}）`);
   lines.push(meta.mcpcVersion ? `- 对照：mcpc ${meta.mcpcVersion}` : `- 对照：mcpc 未运行（${meta.mcpcSkipped ?? '不可用'}）`, '');
 
@@ -159,7 +161,7 @@ export function formatMarkdown(runs: readonly RunRecord[], summary: Summary, met
   }
 
   if (summary.extra.length > 0) {
-    lines.push('### 与 mcpc 的对比（不属于门槛）', '');
+    lines.push(`### 与 ${summary.extra.map((c) => c.versus).join('、')} 的对比（不属于门槛）`, '');
     lines.push(
       ...table(
         ['对比', 'via', '对照', '结果'],
@@ -195,6 +197,9 @@ export function formatMarkdown(runs: readonly RunRecord[], summary: Summary, met
     '- 成功率是「完成任务」的比例，任务由回放 server 的调用日志判定：必需的调用（工具加参数子集）已被回放 server 回答、禁止的调用从未发出、写操作不超过规定次数，只读任务另查最终回答是否提到关键事实。判定标准见任务文件的 `success` 块。',
     '- 返回值是合成数据，且同一工具的返回值不随参数变化（除非任务按参数区分）。它能检验「模型会不会找到并正确调用工具」，不能检验真实 server 的行为差异。',
     '- 各条件共用同一份任务描述、同一段系统提示骨架（见 [bench/README.md](../README.md#系统提示)），差别只在各自的工具和说明文本。',
+    ...(meta.conditions.includes('native-deferred')
+      ? ['- native 是「全部工具定义每轮注入」的朴素做法；native-deferred 是评测自己实现的延迟加载（一个 `tool_search` 工具，按名字与描述做 BM25 检索，见 [bench/README.md](../README.md#native-deferred-一列)），用来对照已经做了工具延迟加载的框架，不等同于任何一个框架的实现。']
+      : []),
     '- 样本量小时差异可能只是噪声；总览里给出 95% Wilson 区间，区间重叠就不要把差异当结论，增加 `--trials`。',
     '- 模型的采样有随机性，同一组任务多跑几次的结果不会完全一样；不同模型的结论不能互相替代。',
     '',

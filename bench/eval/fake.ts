@@ -1,5 +1,6 @@
 // The scripted stand-in for a model (`--fake-model`). It plays each task's scripted steps through
-// the real loop: the native rounds as parallel tool calls, the `via` / `mcp2cli` / `mcpc` steps as shell
+// the real loop: the native rounds as parallel tool calls (native-deferred first loads each tool it
+// will call by name, in one turn of `tool_search` calls), the `via` / `mcp2cli` / `mcpc` steps as shell
 // calls, then a final answer that states the facts the task's `answer` checks look for. It exists
 // to prove that servers, tool execution, judging, token accounting, aggregation and the report
 // work end to end without an API key. It says nothing about any model: its token counts are
@@ -9,7 +10,7 @@ import type { LoadedSuite } from '../harness/load';
 import { nativeToolName } from '../harness/native';
 import { BYTES_PER_TOKEN, bytesOf } from '../harness/tokens';
 import type { Task } from '../harness/types';
-import { SHELL_TOOL } from './prompts';
+import { SHELL_TOOL, TOOL_SEARCH } from './prompts';
 import type { Block, ChatMessage, ModelFactory, ModelRequest, ModelResponse } from './types';
 
 export const FAKE_MODEL_NAME = 'fake';
@@ -40,11 +41,17 @@ export function fakeModelFactory(loaded: LoadedSuite): ModelFactory {
       async create(request: ModelRequest): Promise<ModelResponse> {
         const turn = request.messages.filter((m) => m.role === 'assistant').length;
         const content: Block[] = [];
-        if (condition === 'native') {
-          const round = task.native.rounds[turn];
-          round?.forEach((call, i) =>
-            content.push({ type: 'tool_use', id: `toolu_fake_${turn}_${i}`, name: nativeToolName(call.server, call.tool), input: call.args }),
-          );
+        if (condition === 'native' || condition === 'native-deferred') {
+          const deferred = condition === 'native-deferred';
+          if (deferred && turn === 0) {
+            const names = [...new Set(task.native.rounds.flat().map((call) => nativeToolName(call.server, call.tool)))];
+            names.forEach((name, i) => content.push({ type: 'tool_use', id: `toolu_fake_0_${i}`, name: TOOL_SEARCH, input: { query: name, limit: 1 } }));
+          } else {
+            const round = task.native.rounds[deferred ? turn - 1 : turn];
+            round?.forEach((call, i) =>
+              content.push({ type: 'tool_use', id: `toolu_fake_${turn}_${i}`, name: nativeToolName(call.server, call.tool), input: call.args }),
+            );
+          }
         } else {
           const step = (condition === 'via' ? task.via : condition === 'mcpc' ? task.mcpc ?? [] : task.mcp2cli ?? [])[turn];
           if (step) {

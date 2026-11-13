@@ -1,7 +1,11 @@
 // Shapes shared by the agent-evaluation modules (bench/README.md, "agent 评测").
 import type { Verdict } from './judge';
 
-export const CONDITIONS = ['native', 'via', 'mcp2cli', 'mcpc'] as const;
+/**
+ * `native-deferred` is native MCP behind deferred tool loading: the model starts with one
+ * `tool_search` tool and the definitions it finds are loaded on demand (bench/README.md).
+ */
+export const CONDITIONS = ['native', 'native-deferred', 'via', 'mcp2cli', 'mcpc'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 
 /** A tool the model can call (the Messages API `tools` entry). */

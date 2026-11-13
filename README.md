@@ -39,7 +39,9 @@ via is a standalone MCP client. It reads the MCP configuration your frameworks a
 
 ![How via works: the agent runs via in the shell and gets compact output back; the via CLI hands the call to a local daemon, which reads framework MCP configs and credentials and talks MCP to the servers over stdio or HTTP](docs/assets/how-it-works.svg)
 
-On the 9 tasks of the [token benchmark](bench/results/0.4-tokens.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), **via used about 4% of the tokens that native MCP injection used**; the other shell-based MCP clients measured with it, mcp2cli and mcpc, used about 16% and 15%. The figures are estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading. Success rates from the live-model evaluation (`npm run bench:eval`) have not been published yet.
+On the 9 tasks of the [token benchmark](bench/results/0.4-tokens.md) (github, linear, notion, playwright and cloudflare, 167 tools in total), **via used about 4% of the tokens that native MCP injection used**; the other shell-based MCP clients measured with it, mcp2cli and mcpc, used about 16% and 15%. The figures are estimated from scripted command sequences. Nearly all of the saving comes from not injecting tool definitions, so the gap is much smaller in frameworks that already defer schema loading.
+
+With a live model the saving is smaller. In the [first published agent evaluation](bench/results/eval-2026-10-26-deepseek-flash.md) (deepseek-flash, 9 tasks × 10 runs per condition) via used 48% of the input tokens of native MCP (a mean of 61k against 128k per run) and took more turns (13.2 against 7.1). Success rates were within noise of each other (via 73%, native 76%, mcp2cli 74%, mcpc 76%), so the roadmap's gate of "not lower than native" is not met yet. Runs on other models, and against native MCP with deferred tool loading (the `native-deferred` condition of `npm run bench:eval`), have not been published.
 
 ## Highlights
 

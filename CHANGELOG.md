@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- agent 评测新增 `native-deferred` 条件：原生 MCP 加工具延迟加载（[bench/README.md](bench/README.md#native-deferred-一列)、[testing.md](docs/development/testing.md#对比什么)）。模型开始时只有一个 `tool_search` 工具，搜到的工具定义从下一轮起加载，没有加载的工具不能调用；检索是确定性的（名字与描述上的 BM25）。native 一列是「全部工具定义每轮注入」的朴素做法，这一列对照已经做了延迟加载的框架。它与 via 的比较和 mcpc 一样列在「不属于门槛」，门槛 1 的定义不变。`--condition` 多一个取值，默认仍是全部条件；`--fake-model` 与 `npm test` 覆盖新条件。**还没有真实模型的数字**：已发布的 deepseek-flash 报告是加这一列之前跑的。不涉及动词表与规范写法。
+
+### Changed
+
+- README（中英文）与路线图按已发布的 agent 评测改写：原来写着「成功率尚未发布」，而 [eval-2026-10-26-deepseek-flash](bench/results/eval-2026-10-26-deepseek-flash.md) 已在仓库里。现在 README 在 token 基准的 4% 之后写明真实模型上的数字（via 的输入 token 是 native 的 48%，轮数 13.2 对 7.1，成功率差异在噪声之内，门槛 1 未达到）；路线图的 d1 与门槛 1 两处写明这份结果和还缺什么（默认模型、`native-deferred` 一列）。不涉及动词表与规范写法。
+
 ## [0.4.0] - 2026-10-28
 
 ### Added

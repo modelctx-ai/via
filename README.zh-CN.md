@@ -39,7 +39,9 @@ via 是一个独立的 MCP client：只读引用各框架已有的 MCP 配置，
 
 ![via 的工作原理：agent 在 shell 里执行 via 并拿回紧凑输出；via CLI 把调用交给本机 daemon，daemon 读取框架 MCP 配置和凭证，经 stdio 或 HTTP 用 MCP 与各 server 通信](docs/assets/how-it-works.zh-CN.svg)
 
-在 [token 基准](bench/results/0.4-tokens.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），**via 消耗的 token 约为原生 MCP 注入方式的 4%**；同样经 shell 使用 MCP 的 mcp2cli 与 mcpc 在同一基准里分别约为 16% 和 15%。这些数字按脚本化的命令序列估算；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。真实模型的成功率评测（`npm run bench:eval`）尚未发布结果。
+在 [token 基准](bench/results/0.4-tokens.md)的 9 个任务上（github、linear、notion、playwright、cloudflare 共 167 个工具），**via 消耗的 token 约为原生 MCP 注入方式的 4%**；同样经 shell 使用 MCP 的 mcp2cli 与 mcpc 在同一基准里分别约为 16% 和 15%。这些数字按脚本化的命令序列估算；节省几乎全部来自不注入工具定义，框架本身已做 schema 延迟加载时差距会小得多。
+
+换成真实模型，节省没有这么多。[第一份已发布的 agent 评测](bench/results/eval-2026-10-26-deepseek-flash.md)（deepseek-flash，9 个任务、每个条件各 10 次）里，via 的输入 token 是原生 MCP 的 48%（每次运行平均 6.1 万对 12.8 万），轮数更多（13.2 对 7.1）。各条件的成功率差异在噪声之内（via 73%、native 76%、mcp2cli 74%、mcpc 76%），路线图里「不低于原生 MCP」的门槛还没有达到。其他模型上的结果，以及与带工具延迟加载的原生 MCP（`npm run bench:eval` 的 `native-deferred` 条件）的对比，还没有发布。
 
 ## 特性
 

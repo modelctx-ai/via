@@ -11,17 +11,17 @@ import { fakeModelFactory } from '../../bench/eval/fake';
 import { judge, matchSpec, successOf, type LoggedCall } from '../../bench/eval/judge';
 import { loadSuite, type LoadedSuite } from '../../bench/harness/load';
 import { main, parseArgs } from '../../bench/eval/main';
-import { buildSystemPrompt } from '../../bench/eval/prompts';
+import { buildSystemPrompt, TOOL_SEARCH } from '../../bench/eval/prompts';
 import { FAKE_BANNER, formatConsole, formatJson, formatMarkdown, type EvalMeta } from '../../bench/eval/report';
 import { runEval } from '../../bench/eval/run';
-import { cliTools } from '../../bench/eval/tools';
-import type { Condition, ModelFactory, ModelResponse, RunRecord } from '../../bench/eval/types';
+import { cliTools, deferredNativeTools, SEARCH_MAX_LIMIT, searchTools, searchWords } from '../../bench/eval/tools';
+import type { Condition, ModelFactory, ModelResponse, RunRecord, ToolDef } from '../../bench/eval/types';
 import { createEnv } from '../../bench/eval/env';
 import type { RunnerFactory } from '../../bench/harness/measure';
 import { makeRunners, probeMcp2cli, probeMcpc } from '../../bench/harness/runners';
 
 // Smoke tests for the agent evaluation (bench/README.md, "agent 评测"): the matcher and the judge,
-// the loop with a scripted model over real replay servers for all three conditions, the
+// the loop with a scripted model over real replay servers for every condition, the
 // aggregation and the report. No API key is involved. `via` runs in-process here, so no build is
 // needed; the mcp2cli and mcpc conditions run only when those programs are installed.
 
@@ -150,6 +150,24 @@ describe('the evaluation loop with the scripted model', () => {
     // native pays for every tool definition on every turn; via does not
     const total = (c: Condition): number => runs.filter((r) => r.condition === c).reduce((n, r) => n + r.tokens.input, 0);
     expect(total('native')).toBeGreaterThan(total('via'));
+  });
+
+  it('runs native-deferred on all tasks: tools are searched first and only the loaded ones are paid for', { timeout: 120_000 }, async () => {
+    const runs = await runEval({ loaded, conditions: ['native', 'native-deferred'], ...base, runners: runners(), model: fakeModelFactory(loaded) });
+    const deferred = runs.filter((r) => r.condition === 'native-deferred');
+    expect(deferred).toHaveLength(loaded.tasks.length);
+    for (const r of deferred) {
+      expect(r.success, `${r.task}: ${r.verdict.checks.filter((c) => !c.ok).map((c) => c.label).join('; ')} ${r.error ?? ''}`).toBe(true);
+      expect(r.errorCalls).toBe(0);
+      const task = loaded.tasks.find((t) => t.id === r.task)!;
+      const needed = new Set(task.native.rounds.flat().map((c) => `${c.server}/${c.tool}`)).size;
+      // one turn of searches, then the native rounds, then the answer
+      expect(r.turns).toBe(task.native.rounds.length + 2);
+      expect(r.toolCalls).toBe(task.native.rounds.flat().length + needed);
+      expect(r.calls.filter((c) => c.turn === 1).every((c) => c.tool === TOOL_SEARCH)).toBe(true);
+    }
+    const total = (c: Condition): number => runs.filter((r) => r.condition === c).reduce((n, r) => n + r.tokens.input, 0);
+    expect(total('native')).toBeGreaterThan(total('native-deferred') * 3);
   });
 
   it.skipIf(!haveMcp2cli)('runs the mcp2cli condition when mcp2cli is installed', { timeout: 180_000 }, async () => {
@@ -308,6 +326,69 @@ describe('model misbehaviour is measured, not hidden', () => {
   });
 });
 
+describe('deferred tool loading (the native-deferred condition)', () => {
+  const def = (name: string, description: string): ToolDef => ({ name, description, input_schema: { type: 'object' } });
+  const defs = [
+    def('mcp__github__list_issues', 'List issues in a GitHub repository.'),
+    def('mcp__github__issue_read', 'Get information about a specific issue.'),
+    def('mcp__linear__create_issue', 'Create a new Linear issue.'),
+    def('mcp__playwright__browser_navigate', 'Navigate to a URL.'),
+    def('mcp__cloudflare__execute', 'Execute JavaScript that calls the Cloudflare API, for example DNS records.'),
+  ];
+
+  it('splits names and plurals into the same words', () => {
+    expect(searchWords('mcp__github__list_issues')).toEqual(['mcp', 'github', 'list', 'issue']);
+    expect(searchWords('listIssues browser-navigate')).toEqual(['list', 'issue', 'browser', 'navigate']);
+    expect(searchWords('class address')).toEqual(['class', 'address']);
+  });
+
+  it('ranks by the words of name and description, an exact name first, and leaves out what shares no word', () => {
+    expect(searchTools(defs, 'github list issues', 2).map((d) => d.name)).toEqual(['mcp__github__list_issues', 'mcp__github__issue_read']);
+    expect(searchTools(defs, 'dns records', 5).map((d) => d.name)).toEqual(['mcp__cloudflare__execute']);
+    expect(searchTools(defs, 'mcp__linear__create_issue', 1).map((d) => d.name)).toEqual(['mcp__linear__create_issue']);
+    expect(searchTools(defs, 'create_issue', 1).map((d) => d.name)).toEqual(['mcp__linear__create_issue']);
+    expect(searchTools(defs, 'kubernetes', 5)).toEqual([]);
+    // deterministic: the same query gives the same order
+    expect(searchTools(defs, 'issue', 5)).toEqual(searchTools(defs, 'issue', 5));
+  });
+
+  it('starts with the search tool alone, loads what a search finds and refuses tools that are not loaded', async () => {
+    const one = loadSuite(root, ['linear-create-issue']);
+    const env = await createEnv({ loaded: one, task: one.tasks[0]!, condition: 'native-deferred', runners: runners() });
+    const tools = await deferredNativeTools(env);
+    try {
+      expect(env.sandbox).toBeUndefined();
+      expect(tools.defs.map((d) => d.name)).toEqual([TOOL_SEARCH]);
+
+      const early = await tools.call('mcp__linear__list_teams', { query: 'Platform' });
+      expect(early).toMatchObject({ isError: true });
+      expect(early.text).toContain('not loaded yet');
+      expect((await tools.call('mcp__linear__nope', {})).text).toBe('Unknown tool: mcp__linear__nope');
+      expect(await tools.call(TOOL_SEARCH, {})).toMatchObject({ isError: true });
+      expect(env.calls()).toEqual([]);
+
+      const found = await tools.call(TOOL_SEARCH, { query: 'linear list teams', limit: 2 });
+      expect(found.isError).toBe(false);
+      expect(found.text).toMatch(/^Loaded 2 tools; call them from your next turn on:\nmcp__linear__list_teams: /);
+      expect(tools.defs).toHaveLength(3);
+      // a second search for the same tool loads nothing twice
+      await tools.call(TOOL_SEARCH, { query: 'mcp__linear__list_teams', limit: 1 });
+      expect(tools.defs).toHaveLength(3);
+      // the limit is capped
+      await tools.call(TOOL_SEARCH, { query: 'issue', limit: 500 });
+      expect(tools.defs.length).toBeLessThanOrEqual(3 + SEARCH_MAX_LIMIT);
+
+      const called = await tools.call('mcp__linear__list_teams', { query: 'Platform' });
+      expect(called.isError).toBe(false);
+      expect(env.calls().map((c) => c.tool)).toEqual(['list_teams']);
+      expect((await tools.call(TOOL_SEARCH, { query: 'zzzz' })).text).toContain('No tools match');
+    } finally {
+      await tools.close();
+      await env.close();
+    }
+  });
+});
+
 describe('prompts', () => {
   it('share the common part and differ only in the condition section', () => {
     const parts = { mounted: ['github', 'linear'], viaPrompt: 'VIA TEXT', mcp2cliSkill: 'SKILL TEXT', mcpcSkill: 'MCPC TEXT' };
@@ -325,6 +406,10 @@ describe('prompts', () => {
     expect(c).toContain('MCPC TEXT');
     expect(c).toContain('Servers (entries of ./mcp.json, not connected yet): github linear');
     expect(c).not.toContain('SKILL TEXT');
+    const d = buildSystemPrompt('native-deferred', parts);
+    expect(d.startsWith(native)).toBe(true);
+    expect(d).toContain('connected but not loaded: github, linear');
+    expect(d).toContain('`tool_search`');
     expect(() => buildSystemPrompt('mcpc', { mounted: [] })).toThrow(/mcpc skill/);
     expect(() => buildSystemPrompt('via', { mounted: [] })).toThrow();
   });
@@ -363,14 +448,20 @@ describe('aggregation and the gate', () => {
     expect(gateOf(conds, { fake: true }).evaluated).toBe(false);
   });
 
-  it('reports via against mcpc next to the gate without letting it decide the gate', () => {
-    const all: Condition[] = ['native', 'via', 'mcp2cli', 'mcpc'];
-    const runs = [...many('native', 8, 10), ...many('via', 7, 10), ...many('mcp2cli', 6, 10), ...many('mcpc', 9, 10)];
+  it('reports via against native-deferred and mcpc next to the gate without letting them decide the gate', () => {
+    const all: Condition[] = ['native', 'native-deferred', 'via', 'mcp2cli', 'mcpc'];
+    const runs = [...many('native', 8, 10), ...many('native-deferred', 6, 10), ...many('via', 7, 10), ...many('mcp2cli', 6, 10), ...many('mcpc', 9, 10)];
     const summary = summarize(runs, { conditions: all, taskOrder: ['t'], fake: false });
     // via is below mcpc, but the gate asks only for native and mcp2cli
     expect(summary.gate.comparisons.map((c) => c.versus)).toEqual(['native', 'mcp2cli']);
     expect(summary.gate.holds).toBe(false);
-    expect(summary.extra.map((c) => [c.versus, c.holds])).toEqual([['mcpc', false]]);
+    expect(summary.extra.map((c) => [c.versus, c.holds])).toEqual([['native-deferred', true], ['mcpc', false]]);
+    const meta: EvalMeta = { date: '2026-01-01', model: 'm', fake: false, trials: 10, maxTurns: 25, maxTokens: 4096, cache: false, via: '0.0.0', node: process.version, mounted: ['github'], tasks: ['t'], conditions: all, mcp2cliVersion: '3.8.0', mcpcVersion: '0.7.0' };
+    const markdown = formatMarkdown(runs, summary, meta);
+    expect(markdown).toContain('### 与 native-deferred、mcpc 的对比（不属于门槛）');
+    expect(markdown).toContain('| via vs native-deferred | 70% (7/10) | 60% (6/10) |');
+    expect(markdown).toContain('- 对照：native-deferred（');
+    expect(formatConsole(runs, summary, meta)).toContain('not part of the gate: via 70% (7/10) >= native-deferred 60% (6/10)');
 
     const ahead = summarize([...many('via', 9, 10), ...many('mcpc', 5, 10)], { conditions: ['via', 'mcpc'], taskOrder: ['t'], fake: false });
     expect(ahead.extra.map((c) => [c.versus, c.holds])).toEqual([['mcpc', true]]);
@@ -389,7 +480,8 @@ describe('bench:eval command', () => {
   it('parses the options', () => {
     const args = parseArgs(['--trials', '5', '--task', 'dns', '--condition', 'via,native', '--model', 'm', '--max-turns', '9', '--concurrency', '2', '--effort', 'low', '--cache', '--fake-model', '--no-mcp2cli']);
     expect(args).toMatchObject({ trials: 5, tasks: ['dns'], conditions: ['via', 'native'], model: 'm', maxTurns: 9, concurrency: 2, effort: 'low', cache: true, fake: true, mcp2cli: false });
-    expect(parseArgs([]).conditions).toEqual(['native', 'via', 'mcp2cli', 'mcpc']);
+    expect(parseArgs([]).conditions).toEqual(['native', 'native-deferred', 'via', 'mcp2cli', 'mcpc']);
+    expect(parseArgs(['--condition', 'native-deferred']).conditions).toEqual(['native-deferred']);
     expect(parseArgs([]).mcpc).toBe('mcpc');
     expect(parseArgs(['--no-mcpc'])).toMatchObject({ mcpc: false });
     expect(parseArgs(['--mcpc', '/opt/bin/mcpc', '--condition', 'mcpc'])).toMatchObject({ mcpc: '/opt/bin/mcpc', conditions: ['mcpc'] });
