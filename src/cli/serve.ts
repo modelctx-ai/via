@@ -13,7 +13,7 @@ export type Runner = (argv: readonly string[], overrides: Partial<CliEnv>) => Pr
 
 const INSTRUCTIONS = `via gives you the user's MCP servers' tools on demand, without loading their schemas up front.
 Flow: via_find (or via_browse: "" lists providers, "gh" its resources, "gh issue" the verbs with signatures, "gh issue:read" one tool's usage) then via_call. Each via_find result has an example: line to adapt.
-Names: via_browse and via_find print "gh issue:read"; via_call takes "gh/issue:read" with every tool parameter inside args. A colon marks a tool; browsing it shows its usage and runs nothing.
+Names: via_call takes a tool as via_browse and via_find print it ("gh issue:read"; "gh/issue:read" is the same), with every tool parameter inside args. A colon marks a tool; browsing it shows its usage and runs nothing.
 Outputs and hints use CLI syntax: "via <provider> ..." is via_browse, "via call ..." is via_call, "via more <cursor>" is via_more (the cursor only), "via resources|read|prompts|skills|tasks ..." are the matching via_* tools, "--complete" is complete, "--detach" is detach, "--timeout" is timeout, "--pick" is pick.
 A failure ends with a next: line; follow it. Exit 2: fix the arguments and retry. 3: not found, see the candidates. 4: the user must log in; you cannot. 5: refused (deny rule, untrusted config, or a destructive tool: pass yes: true only if the user intends it).
 A call that outlives its wait is not cancelled: continue it with via_tasks. For a long job pass detach: true to get its task id at once.`;
@@ -34,7 +34,7 @@ export const SERVE_TOOLS: Tool[] = [
   {
     name: 'via_browse',
     description:
-      'Discover what exists: "" lists providers, "gh" its resources, "gh issue" a resource\'s verbs with signatures, "gh issue:read" the usage of one tool (nothing is run). Example: {"path": "gh issue"}. Words are separated by spaces, never "/".',
+      'Discover what exists: "" lists providers, "gh" its resources, "gh issue" a resource\'s verbs with signatures, "gh issue:read" the usage of one tool (nothing is run). Example: {"path": "gh issue"}.',
     inputSchema: object({ path: str('"", "<provider>", "<provider> <resource>" or "<provider> <resource>:<verb>", as printed') }),
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
@@ -48,15 +48,15 @@ export const SERVE_TOOLS: Tool[] = [
   {
     name: 'via_call',
     description:
-      'Run one tool. It neither searches nor lists: get the name and parameters from via_find or via_browse first. Example: {"tool": "gh/issue:read", "args": {"owner": "acme", "repo": "api", "issue_number": 1}}. tool has no spaces; every tool parameter goes inside args. A tool marked destructive (by the server, or inferred from a name like delete) needs yes: true (else exit 5). On failure follow the next: line. For a slow job pass detach: true, then use via_tasks.',
+      'Run one tool. It neither searches nor lists: get the name and parameters from via_find or via_browse first. Example: {"tool": "gh issue:read", "args": {"owner": "acme", "repo": "api", "issue_number": 1}}. Every tool parameter goes inside args. A tool marked destructive (by the server, or inferred from a name like delete) needs yes: true (else exit 5). On failure follow the next: line. For a slow job pass detach: true, then use via_tasks.',
     inputSchema: object(
       {
-        tool: str('"<provider>/<resource>:<verb>" or "<provider>/<leaf-tool>", e.g. "linear/issue:create"'),
+        tool: str('The tool as listed: "<provider> <resource>:<verb>" or "<provider> <leaf-tool>", e.g. "linear issue:create"'),
         args: { type: 'object', description: 'Object (not a JSON string) of the tool\'s parameters, by schema name', additionalProperties: true },
         yes: { type: 'boolean', description: 'Confirm a destructive tool' },
         detach: { type: 'boolean', description: 'Return the task id at once instead of waiting' },
         timeout: seconds('Seconds to wait (default 60)'),
-        pick: str('Result fields to print: "title,state"'),
+        pick: str('Fields to print: "title,state"'),
       },
       ['tool'],
     ),
@@ -214,7 +214,10 @@ export function commandLine(tool: string, input: Input): string[] {
   unknownArguments(tool, input);
   switch (tool) {
     case 'via_browse': {
-      const words = (text(input, 'path') ?? '').split(/\s+/).filter(Boolean);
+      let words = (text(input, 'path') ?? '').split(/\s+/).filter(Boolean);
+      // "gh/issue:read", the other spelling of a tool reference: the provider, then the rest.
+      const cut = words.length === 1 ? words[0]!.indexOf('/') : -1;
+      if (cut > 0 && cut < words[0]!.length - 1) words = [words[0]!.slice(0, cut), words[0]!.slice(cut + 1)];
       for (const word of words) if (word.startsWith('-')) throw new ServeUsageError('path must not contain options');
       // A built-in name in first position would run that command (`trust`, `auth`), not browse.
       if (words[0] !== undefined && matchBuiltin(words[0]) !== undefined) throw new ServeUsageError(`"${words[0]}" is a via command, not a provider; use the matching via_* tool`);
@@ -232,9 +235,12 @@ export function commandLine(tool: string, input: Input): string[] {
       return ['find', query, ...(limit === undefined ? [] : ['-n', String(limit)])];
     }
     case 'via_call': {
-      const ref = text(input, 'tool', true);
-      if (/\s/.test(ref)) throw new ServeUsageError(`tool must be "<provider>/<resource>:<verb>" without spaces${/^\S+\s+\S+$/.test(ref) ? `, e.g. ${shown(ref.replace(/\s+/, '/'))}` : ''}`);
-      if (ref.indexOf('/') < 1) throw new ServeUsageError(`tool must start with the provider and "/": "<provider>/${ref}"`);
+      // As the listings print it ("gh issue:read") or with a slash ("gh/issue:read"): one word for the CLI either way,
+      // so a second word can never be read as an option.
+      const typed = text(input, 'tool', true).trim().split(/\s+/);
+      if (typed.length > 2) throw new ServeUsageError(`tool is the provider and the tool name, as listed: ${shown(`${typed[0]} ${typed[1]}`)}; its parameters go inside args`);
+      const ref = typed.join('/');
+      if (ref.indexOf('/') < 1 || ref.endsWith('/')) throw new ServeUsageError(`tool must start with the provider: "<provider> ${typed[0]}"`);
       const yes = input.yes;
       if (yes !== undefined && typeof yes !== 'boolean') throw new ServeUsageError('yes must be a boolean');
       const detach = input.detach;

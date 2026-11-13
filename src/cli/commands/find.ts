@@ -1,6 +1,7 @@
 // `via find <query> [-n <count>] [--brief]`
 import { findNoMatch, renderFind, SearchIndex, toolListing } from '../../catalog';
 import { ExitCode } from '../../render/exit-codes';
+import { visibleText } from '../../render/shell';
 import type { App } from '../app';
 import { usageFailure } from '../failure';
 import { rejectRaw, writeJson } from '../listing-output';
@@ -28,10 +29,14 @@ export async function findCommand(app: App, argv: readonly string[]): Promise<nu
   const semanticConfig = (await app.config()).search?.semantic;
   const semantic = semanticConfig && query.trim() !== '' ? await (await import('../semantic')).semanticFind(app, semanticConfig, catalog, query) : undefined;
 
-  const hits = new SearchIndex(catalog, undefined, { precomputed: terms }).search(query, {
+  const index = new SearchIndex(catalog, undefined, { precomputed: terms });
+  const hits = index.search(query, {
     limit,
     ...(semantic?.scores ? { semantic: semantic.scores } : {}),
   });
+  // Words of the query that no tool answers: the results matched the rest (discovery.md, "对不上的词").
+  // A hit on a tool's name stands on its own, and embeddings match by meaning, not by word.
+  const missed = hits.length > 0 && hits[0]!.tier === 4 && !semantic?.scores ? index.unmatched(query) : [];
   if (app.options.format === 'json') {
     // Fields of the prebuilt catalog, `example` included unless --brief; the `→` hint goes to stderr as in the text view.
     await writeJson(app, hits.map((h) => toolListing(h.tool, { example: !brief })));
@@ -49,6 +54,9 @@ export async function findCommand(app: App, argv: readonly string[]): Promise<nu
     app.err(`warning: ${count(starting)} still starting: ${starting.join(', ')} (${hint})\n`);
   }
   if (failed.length > 0) app.err(`warning: ${count(failed)} could not be searched: ${failed.join(', ')} (see via, via doctor)\n`);
+  if (missed.length > 0) {
+    app.err(`· no tool mentions ${missed.map((word) => `"${visibleText(word)}"`).join(', ')}: these matched the rest of the query · via <provider> lists every tool of a provider\n`);
+  }
   if (semantic?.note) app.err(await app.redactText(`· semantic unavailable: ${semantic.note} · lexical results\n`));
   else if (semantic && semantic.embedded > 0) app.err(`· semantic · embedded ${semantic.embedded} tool${semantic.embedded === 1 ? '' : 's'} (cached)\n`);
   return ExitCode.Ok;
