@@ -87,7 +87,7 @@ describe('a parameter whose name has no kebab-case spelling (arguments.md, "参�
   });
 });
 
-describe('the call example skips optional parameters that say nothing (arguments.md, "调用示例")', () => {
+describe('the call example holds the required parameters only (arguments.md, "调用示例")', () => {
   const ctx = ctxOf('board project:list', 'project_list');
 
   it('writes no example for a tool whose only parameters are untyped and optional', () => {
@@ -95,7 +95,7 @@ describe('the call example skips optional parameters that say nothing (arguments
     expect(formatToolHelp(board('project_list', LIST), ctx)).not.toContain('example:');
   });
 
-  it('fills up to three parameters from the ones that have a type, an enum, an example or a default', () => {
+  it('leaves out every optional parameter, whatever the schema says about its value', () => {
     const schema = {
       type: 'object',
       properties: {
@@ -110,7 +110,8 @@ describe('the call example skips optional parameters that say nothing (arguments
       },
       required: ['title'],
     };
-    expect(formatCallExample(board('project_list', schema), ctx)).toBe('example: via board project:list --title text --kind a --hint x1');
+    expect(formatCallExample(board('project_list', schema), ctx)).toBe('example: via board project:list --title text');
+    expect(formatCallExample(board('project_list', { ...schema, required: ['title', 'kind', 'hint'] }), ctx)).toBe('example: via board project:list --title text --kind a --hint x1');
   });
 
   it('keeps an untyped required parameter', () => {
@@ -122,11 +123,28 @@ describe('-h --full (arguments.md, "帮助")', () => {
   const ctx = ctxOf('board build:run', 'build_run');
   const tool = board('build_run', RUN, { description: LONG_DESCRIPTION });
 
-  it('cuts the description and says how to read all of it', () => {
+  it('prints the whole description by default: what the tool asks of its caller is not on the first line', () => {
     const help = formatToolHelp(tool, ctx);
-    expect(help).toContain('\nRun builds for cards.\n  --items');
-    expect(help).not.toContain('explicit request');
+    expect(help).toContain('\nRun builds for cards.\n\nUse this only on the explicit request of the user.\n');
+    expect(help).toContain('  - one title line\n  - one body\n\n  --items');
+    expect(help).not.toContain('full text:');
+    expect(formatToolHelp(tool, ctx, { full: true })).toBe(help);
+  });
+
+  it('cuts a description past 2,000 characters, says how to read all of it, and prints it all with --full', () => {
+    const paragraph = 'Every paragraph of this description says something the caller has to know before the call. ';
+    const long = `Run builds for cards.\n\n${Array.from({ length: 30 }, (_, i) => `${i + 1}. ${paragraph}`).join('\n')}\n\nLast words.`;
+    const help = formatToolHelp(board('build_run', RUN, { description: long }), ctx);
+    const shown = help.slice(help.indexOf('Run builds'), help.indexOf('\n\n  --items'));
+    expect(Array.from(shown).length).toBeLessThanOrEqual(2000);
+    expect(Array.from(shown).length).toBeGreaterThan(1900);
+    expect(shown.endsWith('…')).toBe(true);
+    expect(help).not.toContain('Last words.');
     expect(help.split('\n').slice(-2)).toEqual(['full text: via board build:run -h --full', 'alias: build_run']);
+    const full = formatToolHelp(board('build_run', RUN, { description: long }), ctx, { full: true });
+    expect(full).toContain('30. Every paragraph');
+    expect(full).toContain('Last words.');
+    expect(full).not.toContain('full text:');
   });
 
   it('prints the whole description with its paragraphs, and whole parameter descriptions', () => {
@@ -157,7 +175,7 @@ describe('-h --full (arguments.md, "帮助")', () => {
                  No trailing text.
         --mode   one of: mode-number-0, mode-number-1, mode-number-2, mode-number-3, mode-number-4, mode-number-5, mode-number-6, mode-number-7, mode-number-8, mode-number-9, mode-number-10, mode-number-11, mode-number-12, mode-number-13
       accepts extra fields: --<name> <value>
-      example: via board build:run --spec text --mode mode-number-0
+      example: via board build:run --spec text
       alias: build_run"
     `);
     expect(help).not.toContain('full text:');
@@ -171,20 +189,25 @@ describe('-h --full (arguments.md, "帮助")', () => {
 
   it('counts a long parameter description, a long enum list and fields over the limit as cut', () => {
     const cases: Record<string, object> = {
-      parameter: { q: { type: 'string', description: 'x'.repeat(100) } },
+      parameter: { q: { type: 'string', description: 'x'.repeat(500) } },
       values: { q: { enum: Array.from({ length: 30 }, (_, i) => `value-number-${i}`) } },
-      lines: { q: { type: 'string', description: 'Query\nsecond line that does not fit on the row anyway, so the row is cut after the first one' } },
+      lines: { q: { type: 'string', description: `Query\n${Array.from({ length: 12 }, (_, i) => `line ${i} of a list that does not fit on the row however it is joined`).join('\n')}` } },
       fields: { q: { type: 'object', properties: Object.fromEntries(Array.from({ length: 14 }, (_, i) => [`f${i}`, { type: 'string' }])) } },
     };
     for (const [name, properties] of Object.entries(cases)) {
       const help = formatToolHelp(board('build_run', { type: 'object', properties }), ctx);
       expect(help, name).toContain('full text: via board build:run -h --full');
     }
+    // what used to be cut at 72 characters is whole now
+    const whole = formatToolHelp(board('build_run', { type: 'object', properties: { q: { type: 'string', description: `Only on the explicit request of the user: ${'x'.repeat(300)}.` }, mode: { enum: Array.from({ length: 14 }, (_, i) => `mode-number-${i}`) } } }), ctx);
+    expect(whole).not.toContain('full text:');
+    expect(whole).toContain(`${'x'.repeat(300)}.`);
+    expect(whole).toContain('mode-number-13');
   });
 
   it('writes the hint with the words of a prompt reference', () => {
     const prompt = { ...ctx, ref: 'prompts board review', refWords: ['prompts', 'board', 'review'], rawName: 'review' };
-    expect(formatToolHelp(board('review', { type: 'object', properties: { q: { type: 'string', description: 'x'.repeat(100) } } }), prompt)).toContain(
+    expect(formatToolHelp(board('review', { type: 'object', properties: { q: { type: 'string', description: 'x'.repeat(500) } } }), prompt)).toContain(
       '\nfull text: via prompts board review -h --full\n',
     );
   });
@@ -207,7 +230,7 @@ describe('the keys of an array of objects (arguments.md, "帮助")', () => {
         --todo-ids    Cards to touch · repeat the flag or pass a JSON array
         --_           Ignored.
       accepts extra fields: --<name> <value>
-      example: via board build:run --items '[{"todoId":"text"}]' --todo-ids text
+      example: via board build:run --items '[{"todoId":"text"}]'
       alias: build_run"
     `);
   });

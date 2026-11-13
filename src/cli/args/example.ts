@@ -1,18 +1,14 @@
 // The call example at the end of `-h` (arguments.md, "帮助"): one command line that can be pasted
-// as it is, built from the input schema. It shows the shape of every kind of argument the tool
-// takes, and stays short because it goes into an agent's context: required parameters, then
-// optional ones up to three parameters in all.
+// as it is, built from the input schema. It holds the required parameters and nothing else: the
+// line is copied, and an optional parameter in it is one the copy sends without meaning to
+// (`--id text` turned a list into the read of one item; `--parent-id text` a comment into a reply).
 import { extractParams } from '../../catalog/signature';
 import type { CatalogTool, JsonSchema, McpTool } from '../../catalog/types';
 import { shellQuote, shellWords } from '../../render/shell';
 import { type Pos, SchemaModel } from './schema';
 import type { ToolArgsContext } from './types';
 
-/** Parameters shown, required ones first; a tool with more required parameters shows them all. */
-const MAX_PARAMS = 3;
-/** An optional parameter that would take the line past this many characters is left out. */
-const LINE_SOFT_MAX = 200;
-/** A call whose required parameters alone take more than this is not shown: it would not help. */
+/** A call whose required parameters take more than this is not shown: it would not help. */
 const LINE_HARD_MAX = 400;
 /** Nesting followed when writing a value; deeper levels are written as empty containers. */
 const MAX_DEPTH = 4;
@@ -21,7 +17,6 @@ const MAX_DOT_DEPTH = 3;
 /** A value taken from the schema (`examples`, `default`) is not used when its JSON is longer. */
 const HINT_MAX = 60;
 const GENERIC = 'text';
-const EMPTY_CONTAINER = /^['"](\{\}|\[\])['"]$/;
 
 /** `format` values with a value that validates; the rest get a plain string. */
 const FORMATS: Readonly<Record<string, string>> = {
@@ -100,15 +95,6 @@ class Builder {
       if (hit !== undefined) return { value: hit as Json };
     }
     return undefined;
-  }
-
-  /**
-   * Whether the schema gives the parameter a value worth showing: a type, or an `enum`/`const`/`examples`/`default`
-   * to take it from. A parameter with none of them (`_`, "Ignored.") can only be written as `text`.
-   */
-  informative(position: Pos): boolean {
-    const pos = this.pick(position);
-    return this.types(pos).length > 0 || this.fixed(pos) !== undefined;
   }
 
   private types(pos: Pos): string[] {
@@ -236,8 +222,9 @@ class Builder {
 }
 
 /**
- * `example: via <tool> --a x --b.c 1`, or undefined when the tool takes no arguments, a required
- * parameter has no safe spelling, or the call would not be short.
+ * `example: via <tool> --a x --b.c 1` with every required parameter, or undefined when the tool
+ * has none (the bare command is the call), one of them has no safe spelling, or the call would
+ * not be short.
  */
 export function formatCallExample(tool: McpTool, ctx: ToolArgsContext): string | undefined {
   const model = new SchemaModel(tool.inputSchema ?? {});
@@ -252,19 +239,11 @@ export function formatCallExample(tool: McpTool, ctx: ToolArgsContext): string |
   let line = `example: via ${head}`;
   let shown = 0;
   for (const param of params) {
-    if (!param.required && shown >= MAX_PARAMS) break;
+    if (!param.required) continue;
     const pos = props.get(param.name) ?? [];
-    // An optional parameter that says nothing about its value would only be written as `text`: it teaches nothing.
-    if (!param.required && !withHints.informative(pos)) continue;
     const words = withHints.words([param.name], pos, 1) ?? without.words([param.name], pos, 1);
-    if (!words) {
-      if (param.required) return undefined;
-      continue;
-    }
-    const next = `${line} ${words.join(' ')}`;
-    // An optional parameter is shown to teach its shape: an empty container does not, and a long one costs too much.
-    if (!param.required && (next.length > LINE_SOFT_MAX || words.some((w) => EMPTY_CONTAINER.test(w)))) continue;
-    line = next;
+    if (!words) return undefined;
+    line = `${line} ${words.join(' ')}`;
     shown += 1;
   }
   return shown === 0 || line.length > LINE_HARD_MAX ? undefined : line;

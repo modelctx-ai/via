@@ -12,9 +12,15 @@ const ONE_LINE_MAX = 120;
 const WRAP_WIDTH = 80;
 const WRAP_INDENT = 9;
 const ENUM_INLINE_MAX = 60;
-const DESCRIPTION_MAX = 72;
+/**
+ * `-h` is read by an agent that has already chosen the tool: the description is the tool's contract
+ * ("only on the user's explicit request", the layout a value must have), so it is given whole. The
+ * limits below only stop a description that is a document in itself; `--full` lifts them.
+ */
+const TOOL_DESCRIPTION_MAX = 2000;
+const DESCRIPTION_MAX = 400;
+const ONE_OF_MAX = 400;
 const NESTED_FIELDS_MAX = 12;
-const SUMMARY_MAX = 160;
 
 export interface UsageOptions {
   /** Show at most this many optional parameters, then `[…]` (error messages; `-h` shows all). */
@@ -199,7 +205,7 @@ function stringLiterals(literals: unknown[] | undefined): string[] {
   return (literals ?? []).filter((v): v is string => typeof v === 'string');
 }
 
-/** The text of a tool description for `--full`: every line, paragraphs kept (one blank line between them), nothing cut. */
+/** The text of a tool description: every line, paragraphs kept (one blank line between them). */
 function descriptionBlock(description: string): string[] {
   const out: string[] = [];
   for (const raw of description.split(/\r?\n/)) {
@@ -211,10 +217,31 @@ function descriptionBlock(description: string): string[] {
   return out;
 }
 
+/** The first `max` characters of a block of lines, ending in `…` where it was cut; and whether it was. */
+function blockWithin(lines: readonly string[], max: number): { lines: string[]; cut: boolean } {
+  const out: string[] = [];
+  let left = max;
+  for (const line of lines) {
+    const length = Array.from(line).length;
+    if (length <= left) {
+      out.push(line);
+      left -= length + 1;
+      continue;
+    }
+    // Not worth a line for a few characters: the ellipsis goes on the last whole line instead.
+    if (left >= 40) out.push(truncateChars(line, left));
+    else if (out.length > 0) out[out.length - 1] = `${out[out.length - 1]!.replace(/\s+$/, '')} …`;
+    else out.push(truncateChars(line, Math.max(left, 1)));
+    while (out.length > 1 && out[out.length - 1] === '') out.pop();
+    return { lines: out, cut: true };
+  }
+  return { lines: out, cut: false };
+}
+
 // Help -----------------------------------------------------------------------------------------
 
 export interface HelpOptions {
-  /** `--full`: whole descriptions and every declared field; the `full text:` line is not needed then (arguments.md, "帮助"). */
+  /** `--full`: no limit on the length of a description or on the number of fields; the `full text:` line is not needed then (arguments.md, "帮助"). */
   full?: boolean;
 }
 
@@ -246,18 +273,12 @@ export function formatToolHelp(tool: McpTool, ctx: ToolArgsContext, options: Hel
   let cut = false;
 
   if (tool.description) {
-    if (full) {
-      const block = descriptionBlock(tool.description);
-      out.push(...block);
-      // A description of several lines is set off from the parameter rows that follow it.
-      if (block.length > 1 && params.length > 0) out.push('');
-    } else {
-      const lines = descriptionLines(tool.description);
-      if (lines.length > 0) {
-        out.push(truncateChars(lines[0]!, SUMMARY_MAX));
-        if (lines.length > 1 || Array.from(lines[0]!).length > SUMMARY_MAX) cut = true;
-      }
-    }
+    const whole = descriptionBlock(tool.description);
+    const block = full ? { lines: whole, cut: false } : blockWithin(whole, TOOL_DESCRIPTION_MAX);
+    if (block.cut) cut = true;
+    out.push(...block.lines);
+    // A description of several lines is set off from the parameter rows that follow it.
+    if (block.lines.length > 1 && params.length > 0) out.push('');
   }
 
   /** The description of a parameter or field as the lines of its row. */
@@ -303,7 +324,7 @@ export function formatToolHelp(tool: McpTool, ctx: ToolArgsContext, options: Hel
       const values = p.literals.map(literalText);
       if (full) pieces.push(`one of: ${values.join(', ')}`);
       else {
-        const list = listWithin(values, 72);
+        const list = listWithin(values, ONE_OF_MAX);
         if (list.cut) cut = true;
         pieces.push(`one of: ${list.text}`);
       }
