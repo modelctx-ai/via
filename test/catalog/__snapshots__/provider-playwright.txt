@@ -2,5 +2,5 @@ browser       close · install · navigate · click
 browser-back  navigate
 browser-code  run
 browser-file  upload
-tools: browser-resize · browser-console-messages · browser-handle-dialog · browser-evaluate · browser-fill-form · browser-press-key · browser-type · browser-network-requests · browser-take-screenshot · browser-snapshot · browser-drag · browser-hover · … 3 more · via playwright --all
+tools: browser-resize · browser-console-messages · browser-handle-dialog · browser-evaluate · browser-fill-form · browser-press-key · browser-type · browser-network-requests · browser-take-screenshot · browser-snapshot · browser-drag · browser-hover · browser-select-option · browser-tabs · browser-wait-for
 → via playwright <resource> for signatures

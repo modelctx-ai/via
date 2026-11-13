@@ -4,6 +4,7 @@
 import { formatDiagnostic, isCredentialRef, refOrigin, type ConfigDiagnostic, type FrameworkDef, type LoadedConfig, type ServerConfig } from '../config';
 import type { CatalogWarning } from '../catalog';
 import type { ProtocolInfo } from '../protocol';
+import { DOCS_URL } from './help';
 import { protocolLabel } from './protocol-label';
 import { askToRun } from '../render/ask';
 import { ExitCode } from '../render/exit-codes';
@@ -211,7 +212,7 @@ function renderLogs(logs: NonNullable<DoctorInput['logs']>, home: string | undef
 // platform -----------------------------------------------------------------------------------
 
 /** Where the Windows notes live; the hints point there instead of repeating them. */
-const WINDOWS_GUIDE = 'docs/guides/getting-started.md#windows';
+const WINDOWS_GUIDE = `${DOCS_URL}/guides/getting-started.md#windows`;
 /** How many Windows-side files the `platform` line lists before counting the rest. */
 const WINDOWS_SIDE_FILES_SHOWN = 3;
 

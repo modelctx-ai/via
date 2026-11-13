@@ -3,6 +3,9 @@ import pkg from '../../package.json';
 
 export const VERSION: string = pkg.version;
 
+/** Where the documentation can be opened: the npm package holds `dist/` only, so a path inside the repository leads nowhere. */
+export const DOCS_URL = 'https://github.com/modelctx-ai/via/blob/main/docs';
+
 export const HELP = `via ${VERSION}: call MCP servers as \`via <provider> <resource>:<verb>\`
 
 usage:
@@ -27,7 +30,7 @@ options:
   -o text|json|raw  --json  --full  --all  --yes  --dry-run  --no-validate  --detach  --timeout <seconds>  -h
   --pick <field,…>  --schema-snapshot <file>  --schema-mode compatible|strict
 
-docs: docs/spec/cli.md
+docs: ${DOCS_URL}/spec/cli.md
 `;
 
 /** Usage of each built-in subcommand, for \`via <command> -h\`. */

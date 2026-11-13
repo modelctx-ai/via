@@ -1,7 +1,7 @@
 servers   1 ok
 
 logs      ~/.cache/via/logs (1 file, 700 B)
-platform  windows · PowerShell 5.1 drops the inner quotes of --args '{…}' and cmd.exe does not group with single quotes; pass JSON as --args @file, or use PowerShell 7.3+ (docs/guides/getting-started.md#windows)
+platform  windows · PowerShell 5.1 drops the inner quotes of --args '{…}' and cmd.exe does not group with single quotes; pass JSON as --args @file, or use PowerShell 7.3+ (https://github.com/modelctx-ai/via/blob/main/docs/guides/getting-started.md#windows)
 
 frameworks: no MCP servers found in framework configs
 
