@@ -17,6 +17,7 @@
 
 ### Changed
 
+- README（中英文）的对比表与愿景文档加入「原生 MCP，工具按需加载」一列（[vision.md](docs/overview/vision.md#与相近工具的区别)）：越来越多的框架自己做工具搜索与延迟加载，它省掉的正是 via 省得最多的 schema 注入。表里写明这种框架里 via 剩下的差别：一份配置与凭证、紧凑的结果、留在 shell 里的中间结果。不涉及动词表与规范写法。
 - 评测的回放 server 能表示「写过之后再读」（[bench/README.md](bench/README.md#calls-条目)）：`calls` 条目新增可选的 `after`，只在某个工具的调用被回答过之后才生效。回放原来是无状态的，模型写入后再读一次确认时读到的仍是旧内容，于是再写一遍，被写操作的 `max: 1` 记为失败：第一次评测里 `notion-update-doc` 四个条件都是 0/10。`notion-update-doc` 与 `linear-my-work` 现在给出写入之后的页面与 issue。这是对失败原因的推断（原始记录不在仓库里），要重跑评测才能确认；`bench:tokens` 的脚本没有写后读，数字不受影响。不涉及动词表与规范写法。
 - 噪声字段表（`data/noise.json`）新增 14 个字段名（[data-files.md](docs/development/data-files.md#noisejson)）：`avatar_url`，以及供程序沿 API 继续取数据的链接 `repository_url`、`labels_url`、`comments_url`、`events_url`、`timeline_url`、`followers_url`、`following_url`、`gists_url`、`starred_url`、`subscriptions_url`、`organizations_url`、`repos_url`、`received_events_url`。原样返回 REST 对象的 server 上，这些字段每个对象重复一遍，表格的 `+N cols` 提示里也全是它们。`url`、`html_url` 照旧保留。**影响**：这些字段不再出现在文本与 `-o json` 输出里，`--pick` 也选不到；要看它们用 `-o raw`。不涉及动词表与规范写法。
 - `via prompt` 的说明多两句（[agent-integration.md](docs/guides/agent-integration.md#via-prompt给-agent-的说明)）：`-h` 那一行注明可以一次点名几个工具，`via more` 那一行之前加上 `--pick a,b` 只输出点名的字段。这两处都是为了减少轮数，不写进说明 agent 就不知道有它们（元信息行只在表格有列被隐藏时才提到 `--pick`）。说明从约 207 token 变成约 230 token（按 4 字节一 token）。**影响**：已经写进 AGENTS.md 或 SKILL.md 的说明块会被 `via prompt --check` 判为过期，用 `via prompt --out <文件>` 刷新。不涉及动词表与规范写法。

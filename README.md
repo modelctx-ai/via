@@ -194,13 +194,16 @@ The threat model is in the [security spec](docs/spec/security.md).
 
 ## How via compares
 
-| | Native MCP in the framework | Single-server MCP-to-CLI tools | **via** |
-| --- | --- | --- | --- |
-| Tool schemas in context | All of them, up front | None | None, only a ~230-token note |
-| Servers | Each framework has its own list | One endpoint per call | All servers in one catalog |
-| Cross-server search | — | — | `via find` |
-| Credentials | Copied into each framework | Passed per call | One reference per server |
-| Output | Raw JSON, each framework does it differently | Varies by tool | One set of rendering rules, cursors |
+| | Native MCP, every schema injected | Native MCP, tools loaded on demand | Single-server MCP-to-CLI tools | **via** |
+| --- | --- | --- | --- | --- |
+| Tool schemas in context | All of them, up front | Those a tool search loaded | None | None, only a ~230-token note |
+| Servers | Each framework has its own list | Each framework has its own list | One endpoint per call | All servers in one catalog |
+| Cross-server search | — | The framework's tool search | — | `via find` |
+| Credentials | Copied into each framework | Copied into each framework | Passed per call | One reference per server |
+| Output | Raw JSON, each framework does it differently | Raw JSON | Varies by tool | One set of rendering rules, `--pick`, cursors |
+| Results that never enter the context | — | — | Pipes | Pipes, `via batch` |
+
+Where a framework already loads tools on demand, via saves little on schemas: on the token benchmark the two come out about even once injection is left out. What via adds there is the rest of the table: one configuration and one credential reference per server for every framework, compact results, and intermediate results that stay in the shell.
 
 See the [vision document](docs/overview/vision.md#与相近工具的区别) for how via differs from mcpc, mcp2cli, mcporter and gateways.
 
